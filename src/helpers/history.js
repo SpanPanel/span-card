@@ -1,10 +1,10 @@
 import { DEFAULT_HISTORY_DAYS, DEFAULT_HISTORY_HOURS, DEFAULT_HISTORY_MINUTES } from "../constants.js";
 
 export function getHistoryDurationMs(config) {
-  const d = parseInt(config.history_days) || DEFAULT_HISTORY_DAYS;
-  const h = parseInt(config.history_hours) || DEFAULT_HISTORY_HOURS;
-  const hasExplicit = config.history_days !== undefined || config.history_hours !== undefined;
-  const m = parseInt(config.history_minutes) || (hasExplicit && config.history_minutes === undefined ? 0 : DEFAULT_HISTORY_MINUTES);
+  const hasAny = config.history_days !== undefined || config.history_hours !== undefined || config.history_minutes !== undefined;
+  const d = hasAny ? parseInt(config.history_days) || 0 : DEFAULT_HISTORY_DAYS;
+  const h = hasAny ? parseInt(config.history_hours) || 0 : DEFAULT_HISTORY_HOURS;
+  const m = hasAny ? parseInt(config.history_minutes) || 0 : DEFAULT_HISTORY_MINUTES;
   const total = ((d * 24 + h) * 60 + m) * 60 * 1000;
   return Math.max(total, 60000);
 }
@@ -12,7 +12,11 @@ export function getHistoryDurationMs(config) {
 export function getMaxHistoryPoints(durationMs) {
   const seconds = durationMs / 1000;
   if (seconds <= 600) return Math.ceil(seconds);
-  return Math.min(1200, Math.ceil(seconds / 5));
+  return Math.min(5000, Math.ceil(seconds / 5));
+}
+
+export function getMinGapMs(durationMs) {
+  return Math.max(500, Math.floor(durationMs / 5000));
 }
 
 // Record a single sample into a history map, pruning old entries.

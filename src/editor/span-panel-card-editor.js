@@ -138,11 +138,12 @@ export class SpanPanelCardEditor extends HTMLElement {
       return { wrap, input };
     };
 
-    const days = createTimeField(parseInt(this._config.history_days) || DEFAULT_HISTORY_DAYS, "0", "30", "days");
-    const hours = createTimeField(parseInt(this._config.history_hours) || DEFAULT_HISTORY_HOURS, "0", "23", "hours");
-    const minsValue =
-      parseInt(this._config.history_minutes) ||
-      (this._config.history_hours !== undefined && this._config.history_minutes === undefined ? 0 : DEFAULT_HISTORY_MINUTES);
+    const hasAnyTime = this._config.history_days !== undefined || this._config.history_hours !== undefined || this._config.history_minutes !== undefined;
+    const daysValue = hasAnyTime ? parseInt(this._config.history_days) || 0 : DEFAULT_HISTORY_DAYS;
+    const hoursValue = hasAnyTime ? parseInt(this._config.history_hours) || 0 : DEFAULT_HISTORY_HOURS;
+    const minsValue = hasAnyTime ? parseInt(this._config.history_minutes) || 0 : DEFAULT_HISTORY_MINUTES;
+    const days = createTimeField(daysValue, "0", "30", "days");
+    const hours = createTimeField(hoursValue, "0", "23", "hours");
     const mins = createTimeField(minsValue, "0", "59", "minutes");
 
     days.input.addEventListener("change", () => {
@@ -340,9 +341,10 @@ export class SpanPanelCardEditor extends HTMLElement {
 
   _updateControls() {
     if (this._panelSelect) this._panelSelect.value = this._config.device_id || "";
-    if (this._daysInput) this._daysInput.value = String(parseInt(this._config.history_days) || 0);
-    if (this._hoursInput) this._hoursInput.value = String(parseInt(this._config.history_hours) || 0);
-    if (this._minsInput) this._minsInput.value = String(parseInt(this._config.history_minutes) || DEFAULT_HISTORY_MINUTES);
+    const hasAnyTime = this._config.history_days !== undefined || this._config.history_hours !== undefined || this._config.history_minutes !== undefined;
+    if (this._daysInput) this._daysInput.value = String(hasAnyTime ? parseInt(this._config.history_days) || 0 : DEFAULT_HISTORY_DAYS);
+    if (this._hoursInput) this._hoursInput.value = String(hasAnyTime ? parseInt(this._config.history_hours) || 0 : DEFAULT_HISTORY_HOURS);
+    if (this._minsInput) this._minsInput.value = String(hasAnyTime ? parseInt(this._config.history_minutes) || 0 : DEFAULT_HISTORY_MINUTES);
     if (this._metricSelect) this._metricSelect.value = this._config.chart_metric || DEFAULT_CHART_METRIC;
     if (this._checkboxes) {
       for (const [key, cb] of Object.entries(this._checkboxes)) {

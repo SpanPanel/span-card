@@ -11,7 +11,7 @@ import {
 } from "../constants.js";
 import { escapeHtml } from "../helpers/sanitize.js";
 import { formatPowerSigned, formatPowerUnit, formatKw } from "../helpers/format.js";
-import { getHistoryDurationMs, getMaxHistoryPoints, recordSample, deduplicateAndTrim } from "../helpers/history.js";
+import { getHistoryDurationMs, getMaxHistoryPoints, getMinGapMs, recordSample, deduplicateAndTrim } from "../helpers/history.js";
 import { tabToRow, tabToCol, classifyDualTab } from "../helpers/layout.js";
 import { getChartMetric, getCircuitChartEntity } from "../helpers/chart.js";
 import { findSubDevicePowerEntity, findBatteryLevelEntity, findBatterySoeEntity, findBatteryCapacityEntity } from "../helpers/entity-finder.js";
@@ -145,7 +145,6 @@ export class SpanPanelCard extends HTMLElement {
     this._historyLoaded = true;
 
     const durationMs = this._durationMs;
-    const startTime = new Date(Date.now() - durationMs).toISOString();
     const entityIds = [];
     const uuidByEntity = new Map();
 
@@ -161,40 +160,85 @@ export class SpanPanelCard extends HTMLElement {
 
     if (entityIds.length === 0) return;
 
+    const useStatistics = durationMs > 2 * 60 * 60 * 1000;
+
     try {
-      const result = await this._hass.callWS({
-        type: "history/history_during_period",
-        start_time: startTime,
-        entity_ids: entityIds,
-        minimal_response: true,
-        significant_changes_only: false,
-        no_attributes: true,
-      });
-
-      const maxPoints = getMaxHistoryPoints(durationMs);
-      for (const [entityId, states] of Object.entries(result)) {
-        const uuid = uuidByEntity.get(entityId);
-        if (!uuid || !states) continue;
-
-        const hist = [];
-        for (const entry of states) {
-          const val = parseFloat(entry.s);
-          if (!Number.isFinite(val)) continue;
-          const tsSec = entry.lu || entry.lc || 0;
-          const time = tsSec * 1000;
-          if (time > 0) hist.push({ time, value: val });
-        }
-
-        if (hist.length > 0) {
-          const existing = this._powerHistory.get(uuid) || [];
-          const merged = [...hist, ...existing];
-          this._powerHistory.set(uuid, deduplicateAndTrim(merged, maxPoints));
-        }
+      if (useStatistics) {
+        await this._loadStatisticsHistory(entityIds, uuidByEntity, durationMs);
+      } else {
+        await this._loadRawHistory(entityIds, uuidByEntity, durationMs);
       }
-
       this._updateDOM();
     } catch (err) {
       console.warn("SPAN Panel: history fetch failed, charts will populate live", err);
+    }
+  }
+
+  async _loadStatisticsHistory(entityIds, uuidByEntity, durationMs) {
+    const startTime = new Date(Date.now() - durationMs).toISOString();
+    const durationHours = durationMs / (60 * 60 * 1000);
+    const period = durationHours > 72 ? "hour" : "5minute";
+
+    const result = await this._hass.callWS({
+      type: "recorder/statistics_during_period",
+      start_time: startTime,
+      statistic_ids: entityIds,
+      period,
+      types: ["mean"],
+    });
+
+    for (const [entityId, stats] of Object.entries(result)) {
+      const uuid = uuidByEntity.get(entityId);
+      if (!uuid || !stats) continue;
+
+      const hist = [];
+      for (const entry of stats) {
+        const val = entry.mean;
+        if (val == null || !Number.isFinite(val)) continue;
+        const time = entry.start;
+        if (time > 0) hist.push({ time, value: val });
+      }
+
+      if (hist.length > 0) {
+        const existing = this._powerHistory.get(uuid) || [];
+        const merged = [...hist, ...existing];
+        merged.sort((a, b) => a.time - b.time);
+        this._powerHistory.set(uuid, merged);
+      }
+    }
+  }
+
+  async _loadRawHistory(entityIds, uuidByEntity, durationMs) {
+    const startTime = new Date(Date.now() - durationMs).toISOString();
+    const result = await this._hass.callWS({
+      type: "history/history_during_period",
+      start_time: startTime,
+      entity_ids: entityIds,
+      minimal_response: true,
+      significant_changes_only: true,
+      no_attributes: true,
+    });
+
+    const maxPoints = getMaxHistoryPoints(durationMs);
+    const minGapMs = getMinGapMs(durationMs);
+    for (const [entityId, states] of Object.entries(result)) {
+      const uuid = uuidByEntity.get(entityId);
+      if (!uuid || !states) continue;
+
+      const hist = [];
+      for (const entry of states) {
+        const val = parseFloat(entry.s);
+        if (!Number.isFinite(val)) continue;
+        const tsSec = entry.lu || entry.lc || 0;
+        const time = tsSec * 1000;
+        if (time > 0) hist.push({ time, value: val });
+      }
+
+      if (hist.length > 0) {
+        const existing = this._powerHistory.get(uuid) || [];
+        const merged = [...hist, ...existing];
+        this._powerHistory.set(uuid, deduplicateAndTrim(merged, maxPoints, minGapMs));
+      }
     }
   }
 
