@@ -1,0 +1,15 @@
+# Build artifacts
+dist/
+
+# Dependencies
+node_modules/
+
+# IDE files
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+
+# Git
+.git/

@@ -1,6 +1,9 @@
 # SPAN Panel Card
 
-A custom Lovelace card for Home Assistant that renders a physical representation of a SPAN electrical panel, showing circuits laid out by their actual tab positions.
+A custom Lovelace card for Home Assistant that renders a physical representation of a SPAN electrical panel, showing circuits laid out by their actual tab
+positions.
+
+![SPAN Panel Card](images/config.png)
 
 ## Features
 
@@ -9,6 +12,7 @@ A custom Lovelace card for Home Assistant that renders a physical representation
 - Live power readings with utilization bar
 - Breaker rating badges
 - Relay on/off status indicators
+- Historical power/current charts per circuit
 - EVSE and BESS sub-device sections
 - Auto-discovers all circuit entities from a single device selection
 
@@ -19,41 +23,86 @@ A custom Lovelace card for Home Assistant that renders a physical representation
 
 ## Installation
 
+### HACS (Custom Repository)
+
+1. Open HACS in Home Assistant
+2. Click the three-dot menu in the top right and select **Custom repositories**
+3. Add the repository URL and select **Dashboard** as the category
+4. Click **Add**
+5. Search for "SPAN Panel Card" in HACS and click **Install**
+6. Restart Home Assistant
+
 ### Manual
 
-1. Copy `span-panel-card.js` to your `config/www/` directory
-2. Add the resource in HA: Settings > Dashboards > Resources > Add:
+1. Download `span-panel-card.js` from the [latest release](../../releases/latest)
+2. Copy the file to your `config/www/` directory
+3. Add the resource in Home Assistant:
+   - Go to **Settings > Dashboards > Resources**
+   - Click **Add Resource**
    - URL: `/local/span-panel-card.js`
-   - Type: JavaScript Module
-
-### HACS (coming soon)
-
-Not yet available in HACS.
+   - Type: **JavaScript Module**
+4. Refresh your browser
 
 ## Configuration
 
-Add the card to a dashboard:
+The card includes a visual editor accessible through the dashboard UI. You can also configure it manually in YAML.
+
+### Minimal Configuration
 
 ```yaml
 type: custom:span-panel-card
 device_id: <your_span_panel_device_id>
 ```
 
-To find your device ID:
-1. Go to Settings > Devices
+### Full Configuration
+
+```yaml
+type: custom:span-panel-card
+device_id: <your_span_panel_device_id>
+history_days: 0
+history_hours: 0
+history_minutes: 5
+chart_metric: power
+show_panel: true
+show_battery: true
+show_evse: true
+```
+
+### Options
+
+| Option                 | Type    | Default        | Description                                                                       |
+| ---------------------- | ------- | -------------- | --------------------------------------------------------------------------------- |
+| `device_id`            | string  | **(required)** | The Home Assistant device ID of your SPAN Panel                                   |
+| `history_days`         | integer | `0`            | Number of days of history to display in charts (0-30)                             |
+| `history_hours`        | integer | `0`            | Number of hours of history to display in charts (0-23)                            |
+| `history_minutes`      | integer | `5`            | Number of minutes of history to display in charts (0-59)                          |
+| `chart_metric`         | string  | `power`        | Metric to display on circuit charts: `power` or `current`                         |
+| `show_panel`           | boolean | `true`         | Show the panel circuits grid                                                      |
+| `show_battery`         | boolean | `true`         | Show battery (BESS) sub-device section                                            |
+| `show_evse`            | boolean | `true`         | Show EV charger (EVSE) sub-device section                                         |
+| `visible_sub_entities` | object  | `{}`           | Map of entity IDs to booleans controlling which sub-device entities are displayed |
+
+### Finding Your Device ID
+
+1. Go to **Settings > Devices & Services**
 2. Click your SPAN Panel device
 3. The device ID is in the URL: `/config/devices/device/<device_id>`
+
+### History Duration
+
+When `history_days` or `history_hours` are set, `history_minutes` defaults to `0` unless explicitly provided. When neither is set, `history_minutes` defaults to
+`5`.
 
 ## Data Sources
 
 The card reads the following from the SPAN Panel integration:
 
-| Data | Source |
-|---|---|
-| Panel position | `tabs` attribute on circuit sensors |
-| Power (W) | Circuit power sensor state |
-| Breaker rating (A) | Circuit breaker rating sensor state |
-| Relay on/off | `relay_state` attribute / switch entity |
-| Voltage | `voltage` attribute (120V or 240V) |
-| Panel size | `panel_size` attribute on status sensor |
-| EVSE / BESS | Sub-devices discovered via `via_device_id` |
+| Data               | Source                                     |
+| ------------------ | ------------------------------------------ |
+| Panel position     | `tabs` attribute on circuit sensors        |
+| Power (W)          | Circuit power sensor state                 |
+| Breaker rating (A) | Circuit breaker rating sensor state        |
+| Relay on/off       | `relay_state` attribute / switch entity    |
+| Voltage            | `voltage` attribute (120V or 240V)         |
+| Panel size         | `panel_size` attribute on status sensor    |
+| EVSE / BESS        | Sub-devices discovered via `via_device_id` |

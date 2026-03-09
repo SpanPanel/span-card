@@ -1,0 +1,13 @@
+pre-commit:
+  parallel: true
+  jobs:
+    - name: prettier
+      glob: "*.{js,mjs,json,md,yml,yaml}"
+      run: npx prettier --check {staged_files}
+      stage_fixed: true
+    - name: eslint
+      glob: "*.{js,mjs}"
+      run: npx eslint {staged_files}
+    - name: markdownlint
+      glob: "*.md"
+      run: npx markdownlint-cli2 {staged_files}

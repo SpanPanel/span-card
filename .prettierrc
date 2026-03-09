@@ -1,0 +1,23 @@
+{
+  "tabWidth": 2,
+  "useTabs": false,
+  "semi": true,
+  "singleQuote": false,
+  "trailingComma": "es5",
+  "printWidth": 160,
+  "proseWrap": "always",
+  "bracketSpacing": true,
+  "arrowParens": "avoid",
+  "overrides": [
+    {
+      "files": [
+        "*.md",
+        "**/*.md"
+      ],
+      "options": {
+        "printWidth": 160,
+        "proseWrap": "always"
+      }
+    }
+  ]
+}
