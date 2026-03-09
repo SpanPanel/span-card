@@ -30,7 +30,7 @@ export class SpanPanelCard extends HTMLElement {
 
     this._topology = null;
     this._panelDevice = null;
-    this._panelSize = 32;
+    this._panelSize = 0;
 
     this._powerHistory = new Map();
     this._historyLoaded = false;
@@ -134,6 +134,7 @@ export class SpanPanelCard extends HTMLElement {
         this._panelSize = result.panelSize;
       } catch (fallbackErr) {
         console.error("SPAN Panel: fallback discovery also failed", fallbackErr);
+        this._discoveryError = fallbackErr.message;
       }
     }
   }
@@ -453,11 +454,12 @@ export class SpanPanelCard extends HTMLElement {
 
   _render() {
     const hass = this._hass;
-    if (!hass || !this._topology) {
+    if (!hass || !this._topology || !this._panelSize) {
+      const msg = this._discoveryError || (!this._topology ? "Panel device not found. Check device_id in card config." : "Loading...");
       this.shadowRoot.innerHTML = `
         <ha-card>
           <div style="padding: 24px; color: var(--secondary-text-color);">
-            ${!this._topology ? "Panel device not found. Check device_id in card config." : "Loading..."}
+            ${escapeHtml(msg)}
           </div>
         </ha-card>
       `;
