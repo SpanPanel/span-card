@@ -8,11 +8,27 @@ export async function discoverTopology(hass, deviceId) {
     device_id: deviceId,
   });
 
+  const panelSize = topology.panel_size || panelSizeFromCircuits(topology.circuits);
+  if (!panelSize) {
+    throw new Error("Topology response missing panel_size and no circuits found. Update the SPAN Panel integration.");
+  }
+
   const devices = await hass.callWS({ type: "config/device_registry/list" });
   const panelDevice = devices.find(d => d.id === deviceId) || null;
-  const panelSize = topology.panel_size || 32;
 
   return { topology, panelDevice, panelSize };
+}
+
+// ── Backward-compatible panel size derivation ────────────────────────────────
+
+function panelSizeFromCircuits(circuits) {
+  let maxTab = 0;
+  for (const circuit of Object.values(circuits || {})) {
+    for (const tab of circuit.tabs || []) {
+      if (tab > maxTab) maxTab = tab;
+    }
+  }
+  return maxTab > 0 ? maxTab + (maxTab % 2) : 0;
 }
 
 // ── Fallback discovery from entity registry ──────────────────────────────────
@@ -21,7 +37,7 @@ export async function discoverEntitiesFallback(hass, deviceId) {
   const [devices, entities] = await Promise.all([hass.callWS({ type: "config/device_registry/list" }), hass.callWS({ type: "config/entity_registry/list" })]);
 
   const panelDevice = devices.find(d => d.id === deviceId) || null;
-  if (!panelDevice) return { topology: null, panelDevice: null, panelSize: 32 };
+  if (!panelDevice) return { topology: null, panelDevice: null, panelSize: 0 };
 
   const allEntities = entities.filter(e => e.device_id === deviceId);
   const subDevices = devices.filter(d => d.via_device_id === deviceId);
@@ -92,13 +108,19 @@ export async function discoverEntitiesFallback(hass, deviceId) {
     }
   }
 
-  let panelSize = 32;
+  let panelSize = 0;
   for (const ent of allEntities) {
     const state = hass.states[ent.entity_id];
     if (state && state.attributes && state.attributes.panel_size) {
       panelSize = state.attributes.panel_size;
       break;
     }
+  }
+  if (!panelSize) {
+    panelSize = panelSizeFromCircuits(circuits);
+  }
+  if (!panelSize) {
+    throw new Error("Could not determine panel_size. No circuits found and no panel_size attribute. Update the SPAN Panel integration.");
   }
 
   const subDeviceMap = {};
