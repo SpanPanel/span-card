@@ -1,7 +1,7 @@
 import { buildChartOptions } from "./chart-options.js";
 
-export function updateChart(container, hass, history, durationMs, metric, isProducer, heightPx) {
-  const { options, series } = buildChartOptions(history, durationMs, metric, isProducer);
+export function updateChart(container, hass, history, durationMs, metric, isProducer, heightPx, breakerRatingA) {
+  const { options, series } = buildChartOptions(history, durationMs, metric, isProducer, breakerRatingA);
   let chart = container.querySelector("ha-chart-base");
   if (!chart) {
     chart = document.createElement("ha-chart-base");

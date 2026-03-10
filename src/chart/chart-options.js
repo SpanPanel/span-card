@@ -1,6 +1,6 @@
 import { CHART_METRICS, DEFAULT_CHART_METRIC } from "../constants.js";
 
-export function buildChartOptions(history, durationMs, metric, isProducer) {
+export function buildChartOptions(history, durationMs, metric, isProducer, breakerRatingA) {
   if (!metric) metric = CHART_METRICS[DEFAULT_CHART_METRIC];
   const accentRgb = isProducer ? "140, 160, 220" : "77, 217, 175";
   const accentColor = `rgb(${accentRgb})`;
@@ -45,6 +45,38 @@ export function buildChartOptions(history, durationMs, metric, isProducer) {
   if (hasFixedRange) {
     yAxis.min = metric.fixedMin;
     yAxis.max = metric.fixedMax;
+  }
+
+  // When displaying current with a known breaker rating, fix Y-axis to 125%
+  // of the rating and draw a red limit line at 100% (NEC reference).
+  if (breakerRatingA && metric.entityRole === "current") {
+    yAxis.min = 0;
+    yAxis.max = Math.ceil(breakerRatingA * 1.25);
+
+    // 80% NEC continuous load limit (yellow dashed)
+    series.push({
+      type: "line",
+      data: [
+        [startTime, breakerRatingA * 0.8],
+        [now, breakerRatingA * 0.8],
+      ],
+      showSymbol: false,
+      lineStyle: { width: 1, color: "rgba(255, 200, 40, 0.6)", type: "dashed" },
+      itemStyle: { color: "transparent" },
+      tooltip: { show: false },
+    });
+    // 100% breaker rating (red solid)
+    series.push({
+      type: "line",
+      data: [
+        [startTime, breakerRatingA],
+        [now, breakerRatingA],
+      ],
+      showSymbol: false,
+      lineStyle: { width: 1.5, color: "rgba(255, 60, 60, 0.7)", type: "solid" },
+      itemStyle: { color: "transparent" },
+      tooltip: { show: false },
+    });
   }
 
   const options = {

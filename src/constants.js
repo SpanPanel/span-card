@@ -1,4 +1,4 @@
-export const CARD_VERSION = "0.8.8";
+export const CARD_VERSION = "0.8.9";
 
 // ── Defaults ────────────────────────────────────────────────────────────────
 

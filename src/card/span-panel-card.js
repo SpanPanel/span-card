@@ -335,8 +335,19 @@ export class SpanPanelCard extends HTMLElement {
 
     const consumptionEl = root.querySelector(".stat-consumption .stat-value");
     if (consumptionEl) consumptionEl.textContent = formatKw(totalConsumption);
+
+    const currentEl = root.querySelector(".stat-current .stat-value");
+    if (currentEl) {
+      const panelPowerEid = this._findPanelEntity("current_power");
+      const panelPowerState = panelPowerEid ? hass.states[panelPowerEid] : null;
+      const amperage = panelPowerState ? parseFloat(panelPowerState.attributes?.amperage) : NaN;
+      currentEl.textContent = Number.isFinite(amperage) ? amperage.toFixed(1) : "--";
+    }
     const solarEl = root.querySelector(".stat-solar .stat-value");
     if (solarEl) solarEl.textContent = solarProduction > 0 ? formatKw(solarProduction) : "--";
+
+    const chartMetric = getChartMetric(this._config);
+    const showCurrent = chartMetric.entityRole === "current";
 
     for (const [uuid, circuit] of Object.entries(topo.circuits)) {
       const slot = root.querySelector(`[data-uuid="${uuid}"]`);
@@ -353,7 +364,14 @@ export class SpanPanelCard extends HTMLElement {
 
       const powerVal = slot.querySelector(".power-value");
       if (powerVal) {
-        powerVal.innerHTML = `<strong>${formatPowerSigned(powerW)}</strong><span class="power-unit">${formatPowerUnit(powerW)}</span>`;
+        if (showCurrent) {
+          const currentEid = circuit.entities?.current;
+          const currentState = currentEid ? hass.states[currentEid] : null;
+          const amps = currentState ? parseFloat(currentState.state) || 0 : 0;
+          powerVal.innerHTML = `<strong>${chartMetric.format(amps)}</strong><span class="power-unit">A</span>`;
+        } else {
+          powerVal.innerHTML = `<strong>${formatPowerSigned(powerW)}</strong><span class="power-unit">${formatPowerUnit(powerW)}</span>`;
+        }
       }
 
       const toggle = slot.querySelector(".toggle-pill");
@@ -370,7 +388,7 @@ export class SpanPanelCard extends HTMLElement {
       if (chartContainer) {
         const history = this._powerHistory.get(uuid) || [];
         const h = slot.classList.contains("circuit-col-span") ? 200 : 100;
-        updateChart(chartContainer, hass, history, durationMs, getChartMetric(this._config), isProducer, h);
+        updateChart(chartContainer, hass, history, durationMs, chartMetric, isProducer, h, circuit.breaker_rating_a);
       }
     }
 
@@ -490,6 +508,10 @@ export class SpanPanelCard extends HTMLElement {
               <div class="stat stat-consumption">
                 <span class="stat-label">Panel consumption</span>
                 <div class="stat-row"><span class="stat-value">0</span><span class="stat-unit">kW</span></div>
+              </div>
+              <div class="stat stat-current">
+                <span class="stat-label">Total current</span>
+                <div class="stat-row"><span class="stat-value">--</span><span class="stat-unit">A</span></div>
               </div>
               <div class="stat stat-solar">
                 <span class="stat-label">Solar production</span>
@@ -709,6 +731,18 @@ export class SpanPanelCard extends HTMLElement {
     const breakerLabel = breakerAmps ? `${Math.round(breakerAmps)}A` : "";
     const name = escapeHtml(circuit.name || "Unknown");
 
+    const chartMetric = getChartMetric(this._config);
+    const showCurrent = chartMetric.entityRole === "current";
+    let valueHTML;
+    if (showCurrent) {
+      const currentEid = circuit.entities?.current;
+      const currentState = currentEid ? hass.states[currentEid] : null;
+      const amps = currentState ? parseFloat(currentState.state) || 0 : 0;
+      valueHTML = `<strong>${chartMetric.format(amps)}</strong><span class="power-unit">A</span>`;
+    } else {
+      valueHTML = `<strong>${formatPowerSigned(powerW)}</strong><span class="power-unit">${formatPowerUnit(powerW)}</span>`;
+    }
+
     const rowSpan = layout === "col-span" ? `${row} / span 2` : `${row}`;
     const layoutClass = layout === "row-span" ? "circuit-row-span" : layout === "col-span" ? "circuit-col-span" : "";
 
@@ -723,7 +757,7 @@ export class SpanPanelCard extends HTMLElement {
           </div>
           <div class="circuit-controls">
             <span class="power-value">
-              <strong>${formatPowerSigned(powerW)}</strong><span class="power-unit">${formatPowerUnit(powerW)}</span>
+              ${valueHTML}
             </span>
             ${
               circuit.is_user_controllable !== false && circuit.entities?.switch
