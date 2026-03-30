@@ -13,6 +13,21 @@ const INPUT_STYLE = `
 const LABEL_STYLE = `
   min-width:130px;font-size:0.85em;color:var(--secondary-text-color);
 `;
+const CELL_INPUT_STYLE = `
+  background:var(--secondary-background-color,#333);
+  border:1px solid var(--divider-color);
+  color:var(--primary-text-color);
+  border-radius:3px;padding:3px 6px;width:50px;font-size:0.8em;
+  text-align:center;
+`;
+
+function thresholdCell(entityId, field, value, unit, type) {
+  return `<td style="padding:6px 4px;">
+    <input type="number" class="threshold-input" data-entity="${entityId}" data-field="${field}" data-type="${type}"
+           value="${value ?? ""}" min="1" max="${field === "window_duration_m" ? 180 : 200}"
+           style="${CELL_INPUT_STYLE}"><span style="font-size:0.75em;color:var(--secondary-text-color);">${unit}</span>
+  </td>`;
+}
 
 export class MonitoringTab {
   constructor() {
@@ -51,26 +66,24 @@ export class MonitoringTab {
         const enabled = info.monitoring_enabled !== false;
         const hasOverride = info.has_override === true;
         const dimStyle = enabled ? "" : "opacity:0.4;";
-        const badge = hasOverride
-          ? `<span style="font-size:0.7em;padding:1px 5px;border-radius:3px;background:var(--primary-color,#4dd9af);color:var(--text-primary-color,#000);margin-left:6px;">Custom</span>`
-          : "";
+        const eid = escapeHtml(entityId);
         return `
           <tr style="${dimStyle}">
             <td style="padding:6px 8px;">
               <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
-                <input type="checkbox" class="circuit-toggle" data-entity="${escapeHtml(entityId)}"
+                <input type="checkbox" class="circuit-toggle" data-entity="${eid}"
                        ${enabled ? "checked" : ""}
                        style="width:14px;height:14px;accent-color:var(--primary-color,#4dd9af);">
-                <span>${name}</span>${badge}
+                <span>${name}</span>
               </label>
             </td>
-            <td style="padding:6px 8px;">${info.continuous_threshold_pct ?? "--"}%</td>
-            <td style="padding:6px 8px;">${info.spike_threshold_pct ?? "--"}%</td>
-            <td style="padding:6px 8px;">${info.window_duration_m ?? "--"}m</td>
-            <td style="padding:6px 8px;">
+            ${thresholdCell(eid, "continuous_threshold_pct", info.continuous_threshold_pct, "%", "circuit")}
+            ${thresholdCell(eid, "spike_threshold_pct", info.spike_threshold_pct, "%", "circuit")}
+            ${thresholdCell(eid, "window_duration_m", info.window_duration_m, "m", "circuit")}
+            <td style="padding:6px 4px;">
               ${
                 hasOverride
-                  ? `<button class="reset-btn" data-entity="${escapeHtml(entityId)}" data-type="circuit"
+                  ? `<button class="reset-btn" data-entity="${eid}" data-type="circuit"
                        style="background:none;border:1px solid var(--divider-color);color:var(--primary-text-color);border-radius:4px;padding:3px 6px;cursor:pointer;font-size:0.75em;">
                     Reset
                   </button>`
@@ -88,23 +101,24 @@ export class MonitoringTab {
         const enabled = info.monitoring_enabled !== false;
         const hasOverride = info.has_override === true;
         const dimStyle = enabled ? "" : "opacity:0.4;";
+        const eid = escapeHtml(entityId);
         return `
           <tr style="${dimStyle}">
             <td style="padding:6px 8px;">
               <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
-                <input type="checkbox" class="mains-toggle" data-entity="${escapeHtml(entityId)}"
+                <input type="checkbox" class="mains-toggle" data-entity="${eid}"
                        ${enabled ? "checked" : ""}
                        style="width:14px;height:14px;accent-color:var(--primary-color,#4dd9af);">
                 <span>${name}</span>
               </label>
             </td>
-            <td style="padding:6px 8px;">${info.continuous_threshold_pct ?? "--"}%</td>
-            <td style="padding:6px 8px;">${info.spike_threshold_pct ?? "--"}%</td>
-            <td style="padding:6px 8px;">${info.window_duration_m ?? "--"}m</td>
-            <td style="padding:6px 8px;">
+            ${thresholdCell(eid, "continuous_threshold_pct", info.continuous_threshold_pct, "%", "mains")}
+            ${thresholdCell(eid, "spike_threshold_pct", info.spike_threshold_pct, "%", "mains")}
+            ${thresholdCell(eid, "window_duration_m", info.window_duration_m, "m", "mains")}
+            <td style="padding:6px 4px;">
               ${
                 hasOverride
-                  ? `<button class="reset-btn" data-entity="${escapeHtml(entityId)}" data-type="mains"
+                  ? `<button class="reset-btn" data-entity="${eid}" data-type="mains"
                        style="background:none;border:1px solid var(--divider-color);color:var(--primary-text-color);border-radius:4px;padding:3px 6px;cursor:pointer;font-size:0.75em;">
                     Reset
                   </button>`
@@ -199,6 +213,7 @@ export class MonitoringTab {
     this._bindToggleAll(container, hass, circuits, mains);
     this._bindCircuitToggles(container, hass);
     this._bindMainsToggles(container, hass);
+    this._bindThresholdInputs(container, hass);
     this._bindResetButtons(container, hass);
   }
 
@@ -346,6 +361,40 @@ export class MonitoringTab {
           return;
         }
         await this.render(container, hass);
+      });
+    }
+  }
+
+  _bindThresholdInputs(container, hass) {
+    const timers = new Map();
+    for (const input of container.querySelectorAll(".threshold-input")) {
+      input.addEventListener("input", () => {
+        const key = `${input.dataset.entity}-${input.dataset.field}`;
+        clearTimeout(timers.get(key));
+        timers.set(
+          key,
+          setTimeout(async () => {
+            const val = parseInt(input.value, 10);
+            if (!val || val < 1) return;
+            const entityId = input.dataset.entity;
+            const field = input.dataset.field;
+            const type = input.dataset.type;
+            const service = type === "mains" ? "set_mains_threshold" : "set_circuit_threshold";
+            const idField = type === "mains" ? "leg" : "circuit_id";
+            try {
+              await hass.callWS({
+                type: "call_service",
+                domain: INTEGRATION_DOMAIN,
+                service,
+                service_data: { [idField]: entityId, [field]: val },
+              });
+              // Re-render to update Custom badge and Reset button
+              await this.render(container, hass);
+            } catch {
+              input.style.borderColor = "var(--error-color, #f44336)";
+            }
+          }, 800)
+        );
       });
     }
   }

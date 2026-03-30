@@ -1,4 +1,4 @@
-import { BESS_CHART_METRICS, DEVICE_TYPE_PV, RELAY_STATE_CLOSED } from "../constants.js";
+import { BESS_CHART_METRICS, DEVICE_TYPE_PV, RELAY_STATE_CLOSED, SHEDDING_PRIORITIES } from "../constants.js";
 import { formatPowerSigned, formatPowerUnit, formatKw } from "../helpers/format.js";
 import { getChartMetric } from "../helpers/chart.js";
 import { findSubDevicePowerEntity } from "../helpers/entity-finder.js";
@@ -158,6 +158,18 @@ export function updateCircuitDOM(root, hass, topology, config, powerHistory) {
 
     slot.classList.toggle("circuit-off", !isOn);
     slot.classList.toggle("circuit-producer", isProducer);
+
+    // Update shedding priority icon
+    const selectEid = circuit.entities?.select;
+    const selectState = selectEid ? hass.states[selectEid] : null;
+    const priority = selectState ? selectState.state : "unknown";
+    const shedInfo = SHEDDING_PRIORITIES[priority] || SHEDDING_PRIORITIES.unknown;
+    const sheddingIcon = slot.querySelector(".shedding-icon");
+    if (sheddingIcon) {
+      sheddingIcon.setAttribute("icon", shedInfo.icon);
+      sheddingIcon.style.color = shedInfo.color;
+      sheddingIcon.title = shedInfo.label;
+    }
 
     const chartContainer = slot.querySelector(".chart-container");
     if (chartContainer) {

@@ -254,7 +254,7 @@ export class SpanPanelCard extends HTMLElement {
     const circuit = this._topology.circuits[uuid];
     if (!circuit) return;
 
-    const monitoringInfo = this._monitoringCache?.status?.circuits?.[circuit.entities?.current || circuit.entities?.power] || null;
+    const monitoringInfo = this._monitoringCache?.status?.circuits?.[circuit.entities?.power] || null;
 
     sidePanel.open({
       ...circuit,

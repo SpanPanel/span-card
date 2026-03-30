@@ -45,6 +45,11 @@ export class MonitoringStatusCache {
     return this._status;
   }
 
+  /** Force the next fetch() call to re-query the backend. */
+  invalidate() {
+    this._lastFetch = 0;
+  }
+
   /** @returns {object|null} Last fetched status */
   get status() {
     return this._status;
@@ -126,7 +131,7 @@ export function buildMonitoringSummaryHTML(status) {
 
   const warnings = all.filter(p => p.utilization_pct >= 80 && p.utilization_pct < 100).length;
   const alerts = all.filter(p => p.utilization_pct >= 100).length;
-  const overrides = all.filter(p => p.continuous_threshold_pct !== undefined).length;
+  const overrides = all.filter(p => p.has_override).length;
 
   return `
     <div class="monitoring-summary">

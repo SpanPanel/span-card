@@ -202,6 +202,7 @@ class SpanSidePanel extends HTMLElement {
   close() {
     this.removeAttribute("open");
     this._config = null;
+    this.dispatchEvent(new CustomEvent("side-panel-closed", { bubbles: true, composed: true }));
   }
 
   // ── Rendering ─────────────────────────────────────────────────────────
@@ -407,7 +408,7 @@ class SpanSidePanel extends HTMLElement {
     enableToggle.dataset.role = "monitoring-toggle";
 
     const info = cfg.monitoringInfo;
-    const isEnabled = info != null;
+    const isEnabled = info != null && info.monitoring_enabled !== false;
     if (isEnabled) {
       enableToggle.setAttribute("checked", "");
     }
@@ -450,13 +451,13 @@ class SpanSidePanel extends HTMLElement {
 
     // Event: monitoring enable toggle
     enableToggle.addEventListener("change", () => {
-      const checked = enableToggle.hasAttribute("checked") || enableToggle.checked;
+      const checked = enableToggle.checked;
       detailsWrap.style.display = checked ? "block" : "none";
-      if (!checked) {
-        this._callDomainService("clear_circuit_threshold", { circuit_id: cfg.uuid }).catch(err =>
-          this._showError(`Clear monitoring failed: ${err.message ?? err}`)
-        );
-      }
+      const entityId = cfg.entities?.power || cfg.uuid;
+      this._callDomainService("set_circuit_threshold", {
+        circuit_id: entityId,
+        monitoring_enabled: checked,
+      }).catch(err => this._showError(`Monitoring toggle failed: ${err.message ?? err}`));
     });
 
     // Event: radio change
@@ -466,7 +467,8 @@ class SpanSidePanel extends HTMLElement {
         const isCustom = radio.value === "custom" && radio.checked;
         thresholdsWrap.style.display = isCustom ? "block" : "none";
         if (!isCustom && radio.checked) {
-          this._callDomainService("clear_circuit_threshold", { circuit_id: cfg.uuid }).catch(err =>
+          const entityId = cfg.entities?.power || cfg.uuid;
+          this._callDomainService("clear_circuit_threshold", { circuit_id: entityId }).catch(err =>
             this._showError(`Clear monitoring failed: ${err.message ?? err}`)
           );
         }

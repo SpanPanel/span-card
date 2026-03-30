@@ -67,6 +67,9 @@ export class DashboardTab {
 
     this._bindGearClicks(container, topo);
     this._bindToggleClicks(container, topo);
+    container.addEventListener("side-panel-closed", () => {
+      this._monitoringCache.invalidate();
+    });
 
     try {
       await loadHistory(hass, topo, config, this._powerHistory);
@@ -130,7 +133,7 @@ export class DashboardTab {
   }
 
   _bindGearClicks(container, topology) {
-    container.addEventListener("click", e => {
+    container.addEventListener("click", async e => {
       const gearBtn = e.target.closest(".gear-icon");
       if (!gearBtn) return;
 
@@ -149,7 +152,9 @@ export class DashboardTab {
       const circuit = topology.circuits[uuid];
       if (!circuit) return;
 
-      const monitoringInfo = this._monitoringCache?.status?.circuits?.[circuit.entities?.current || circuit.entities?.power] || null;
+      // Always fetch fresh monitoring data before opening side panel
+      await this._monitoringCache.fetch(this._hass);
+      const monitoringInfo = this._monitoringCache?.status?.circuits?.[circuit.entities?.power] || null;
 
       sidePanel.open({
         ...circuit,
