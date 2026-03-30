@@ -1,5 +1,6 @@
 import { INTEGRATION_DOMAIN } from "../constants.js";
 import "../core/side-panel.js";
+import { DashboardTab } from "./tab-dashboard.js";
 
 const PANEL_STYLES = `
   :host {
@@ -57,6 +58,7 @@ export class SpanPanelElement extends HTMLElement {
     this._selectedPanelId = null;
     this._activeTab = "dashboard";
     this._discovered = false;
+    this._dashboardTab = new DashboardTab();
   }
 
   set hass(val) {
@@ -147,13 +149,24 @@ export class SpanPanelElement extends HTMLElement {
   }
 
   async _renderTab() {
+    this._dashboardTab.stop();
+
     const container = this.shadowRoot.getElementById("tab-content");
     if (!container) return;
 
     switch (this._activeTab) {
-      case "dashboard":
-        container.innerHTML = `<p style="color:var(--secondary-text-color);">Dashboard loading...</p>`;
+      case "dashboard": {
+        container.innerHTML = "";
+        const config = {
+          chart_metric: "power",
+          history_minutes: 5,
+          show_panel: true,
+          show_battery: true,
+          show_evse: true,
+        };
+        await this._dashboardTab.render(container, this._hass, this._selectedPanelId, config);
         break;
+      }
       case "monitoring":
         container.innerHTML = `<p style="color:var(--secondary-text-color);">Monitoring tab — coming in Task 14</p>`;
         break;
