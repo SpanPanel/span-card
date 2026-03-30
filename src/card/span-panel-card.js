@@ -9,6 +9,7 @@ import { loadHistory, collectSubDeviceEntityIds } from "../core/history-loader.j
 import { updateCircuitDOM, updateSubDeviceDOM } from "../core/dom-updater.js";
 import { discoverTopology, discoverEntitiesFallback } from "./card-discovery.js";
 import { CARD_STYLES } from "./card-styles.js";
+import "../core/side-panel.js";
 
 export class SpanPanelCard extends HTMLElement {
   constructor() {
@@ -31,6 +32,7 @@ export class SpanPanelCard extends HTMLElement {
 
     this._handleToggleClick = this._onToggleClick.bind(this);
     this._handleUnitToggle = this._onUnitToggle.bind(this);
+    this._handleGearClick = this._onGearClick.bind(this);
   }
 
   connectedCallback() {
@@ -225,6 +227,34 @@ export class SpanPanelCard extends HTMLElement {
     });
   }
 
+  // ── Gear click handler ────────────────────────────────────────────────────
+
+  _onGearClick(event) {
+    const gearBtn = event.target.closest(".gear-icon");
+    if (!gearBtn) return;
+
+    const sidePanel = this.shadowRoot.querySelector("span-side-panel");
+    if (!sidePanel) return;
+    sidePanel.hass = this._hass;
+
+    if (gearBtn.classList.contains("panel-gear")) {
+      sidePanel.open({ panelMode: true });
+      return;
+    }
+
+    const uuid = gearBtn.dataset.uuid;
+    if (!uuid || !this._topology) return;
+
+    const circuit = this._topology.circuits[uuid];
+    if (!circuit) return;
+
+    sidePanel.open({
+      ...circuit,
+      uuid,
+      monitoringInfo: null,
+    });
+  }
+
   // ── Full render ────────────────────────────────────────────────────────────
 
   _render() {
@@ -252,6 +282,7 @@ export class SpanPanelCard extends HTMLElement {
     // Remove previous listeners before replacing DOM
     this.shadowRoot.removeEventListener("click", this._handleToggleClick);
     this.shadowRoot.removeEventListener("click", this._handleUnitToggle);
+    this.shadowRoot.removeEventListener("click", this._handleGearClick);
 
     this.shadowRoot.innerHTML = `
       <style>${CARD_STYLES}</style>
@@ -268,11 +299,16 @@ export class SpanPanelCard extends HTMLElement {
         }
         ${subDevHTML ? `<div class="sub-devices">${subDevHTML}</div>` : ""}
       </ha-card>
+      <span-side-panel></span-side-panel>
     `;
 
     // Attach delegated click listeners
     this.shadowRoot.addEventListener("click", this._handleToggleClick);
     this.shadowRoot.addEventListener("click", this._handleUnitToggle);
+    this.shadowRoot.addEventListener("click", this._handleGearClick);
+
+    const sidePanel = this.shadowRoot.querySelector("span-side-panel");
+    if (sidePanel) sidePanel.hass = hass;
 
     this._rendered = true;
     this._recordPowerHistory();
