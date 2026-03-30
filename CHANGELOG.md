@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.9.0
+
+- Add integration panel with tab router and multi-panel selector
+- Add monitoring tab with overrides table, summary bar, and notification settings
+- Add settings tab with integration link and global monitoring configuration
+- Add side panel for circuit and panel configuration
+- Add A/W toggle switching all values and chart axes
+- Add shedding icons, monitoring indicators, and gear icons to circuit cells
+- Add i18n support with translations for en, es, fr, ja, pt
+- Use topology panel_entities instead of pattern matching
+
 ## 0.8.9
 
 - Show amps instead of watts above circuit graphs when chart metric is set to `current`
