@@ -42,7 +42,7 @@ export class DashboardTab {
     const durationMs = getHistoryDurationMs(config);
     const monitoringStatus = this._monitoringCache.status;
 
-    const headerHTML = buildHeaderHTML(topo, config);
+    const headerHTML = buildHeaderHTML(topo, config, hass);
     const monitoringSummaryHTML = buildMonitoringSummaryHTML(monitoringStatus);
     const gridHTML = buildGridHTML(topo, totalRows, durationMs, hass, config, monitoringStatus);
     const subDevHTML = buildSubDevicesHTML(topo, hass, config, durationMs);
