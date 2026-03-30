@@ -1,4 +1,5 @@
 import { INTEGRATION_DOMAIN } from "../constants.js";
+import { t } from "../i18n.js";
 
 // ── Primary discovery via custom WebSocket API ───────────────────────────────
 
@@ -10,7 +11,7 @@ export async function discoverTopology(hass, deviceId) {
 
   const panelSize = topology.panel_size || panelSizeFromCircuits(topology.circuits);
   if (!panelSize) {
-    throw new Error("Topology response missing panel_size and no circuits found. Update the SPAN Panel integration.");
+    throw new Error(t("card.topology_error"));
   }
 
   const devices = await hass.callWS({ type: "config/device_registry/list" });
@@ -120,7 +121,7 @@ export async function discoverEntitiesFallback(hass, deviceId) {
     panelSize = panelSizeFromCircuits(circuits);
   }
   if (!panelSize) {
-    throw new Error("Could not determine panel_size. No circuits found and no panel_size attribute. Update the SPAN Panel integration.");
+    throw new Error(t("card.panel_size_error"));
   }
 
   const subDeviceMap = {};
@@ -149,7 +150,7 @@ export async function discoverEntitiesFallback(hass, deviceId) {
     firmware: panelDevice.sw_version || "",
     panel_size: panelSize,
     device_id: deviceId,
-    device_name: panelDevice.name_by_user || panelDevice.name || "SPAN Panel",
+    device_name: panelDevice.name_by_user || panelDevice.name || t("header.default_name"),
     circuits,
     sub_devices: subDeviceMap,
   };

@@ -1,3 +1,5 @@
+import { t } from "./i18n.js";
+
 export const CARD_VERSION = "0.8.9";
 
 // ── Defaults ────────────────────────────────────────────────────────────────
@@ -22,13 +24,13 @@ export const SUB_DEVICE_KEY_PREFIX = "sub_";
 export const CHART_METRICS = {
   power: {
     entityRole: "power",
-    label: "Power",
+    label: () => t("metric.power"),
     unit: v => (Math.abs(v) >= 1000 ? "kW" : "W"),
     format: v => (Math.abs(v) >= 1000 ? (Math.abs(v) / 1000).toFixed(1) : String(Math.round(Math.abs(v)))),
   },
   current: {
     entityRole: "current",
-    label: "Current",
+    label: () => t("metric.current"),
     unit: () => "A",
     format: v => Math.abs(v).toFixed(1),
   },
@@ -36,14 +38,14 @@ export const CHART_METRICS = {
 
 export const BESS_CHART_METRICS = {
   soc: {
-    label: "State of Charge",
+    label: () => t("metric.soc"),
     unit: () => "%",
     format: v => String(Math.round(v)),
     fixedMin: 0,
     fixedMax: 100,
   },
   soe: {
-    label: "State of Energy",
+    label: () => t("metric.soe"),
     unit: () => "kWh",
     format: v => v.toFixed(1),
   },
@@ -53,10 +55,10 @@ export const BESS_CHART_METRICS = {
 // ── Shedding priority ──────────────────────────────────────────────────────
 
 export const SHEDDING_PRIORITIES = {
-  never: { icon: "mdi:shield-check", color: "#4caf50", label: "Never" },
-  soc_threshold: { icon: "mdi:battery-alert-variant-outline", color: "#9c27b0", label: "SoC Threshold" },
-  off_grid: { icon: "mdi:transmission-tower", color: "#ff9800", label: "Off-Grid" },
-  unknown: { icon: "mdi:help-circle-outline", color: "#888", label: "Unknown" },
+  never: { icon: "mdi:shield-check", color: "#4caf50", label: () => t("shedding.never") },
+  soc_threshold: { icon: "mdi:battery-alert-variant-outline", color: "#9c27b0", label: () => t("shedding.soc_threshold") },
+  off_grid: { icon: "mdi:transmission-tower", color: "#ff9800", label: () => t("shedding.off_grid") },
+  unknown: { icon: "mdi:help-circle-outline", color: "#888", label: () => t("shedding.unknown") },
 };
 
 export const MONITORING_COLORS = {

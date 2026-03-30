@@ -1,4 +1,5 @@
 import { CHART_METRICS, DEFAULT_CHART_METRIC, INTEGRATION_DOMAIN } from "../constants.js";
+import { t } from "../i18n.js";
 
 export class SpanPanelCardEditor extends HTMLElement {
   constructor() {
@@ -31,7 +32,7 @@ export class SpanPanelCardEditor extends HTMLElement {
       .filter(d => (d.identifiers || []).some(pair => pair[0] === INTEGRATION_DOMAIN) && !d.via_device_id)
       .map(d => {
         const serial = (d.identifiers || []).find(p => p[0] === INTEGRATION_DOMAIN)?.[1] || "";
-        const name = d.name_by_user || d.name || "SPAN Panel";
+        const name = d.name_by_user || d.name || t("editor.panel_label");
         return { device_id: d.id, label: `${name} (${serial})` };
       });
     this._buildEditor();
@@ -76,14 +77,14 @@ export class SpanPanelCardEditor extends HTMLElement {
     const group = document.createElement("div");
     group.style.cssText = groupStyle;
     const label = document.createElement("label");
-    label.textContent = "SPAN Panel";
+    label.textContent = t("editor.panel_label");
     label.style.cssText = labelStyle;
     const select = document.createElement("select");
     select.style.cssText = fieldStyle;
 
     const emptyOpt = document.createElement("option");
     emptyOpt.value = "";
-    emptyOpt.textContent = "Select a panel...";
+    emptyOpt.textContent = t("editor.select_panel");
     select.appendChild(emptyOpt);
 
     if (this._panels) {
@@ -112,7 +113,7 @@ export class SpanPanelCardEditor extends HTMLElement {
     const group = document.createElement("div");
     group.style.cssText = groupStyle;
     const label = document.createElement("label");
-    label.textContent = "Chart time window";
+    label.textContent = t("editor.chart_window");
     label.style.cssText = labelStyle;
 
     const row = document.createElement("div");
@@ -141,9 +142,9 @@ export class SpanPanelCardEditor extends HTMLElement {
     const daysValue = parseInt(this._config.history_days) || 0;
     const hoursValue = parseInt(this._config.history_hours) || 0;
     const minsValue = parseInt(this._config.history_minutes) || 0;
-    const days = createTimeField(daysValue, "0", "30", "days");
-    const hours = createTimeField(hoursValue, "0", "23", "hours");
-    const mins = createTimeField(minsValue, "0", "59", "minutes");
+    const days = createTimeField(daysValue, "0", "30", t("editor.days"));
+    const hours = createTimeField(hoursValue, "0", "23", t("editor.hours"));
+    const mins = createTimeField(minsValue, "0", "59", t("editor.minutes"));
 
     const fireTimeChange = () => {
       this._config = {
@@ -174,7 +175,7 @@ export class SpanPanelCardEditor extends HTMLElement {
     const group = document.createElement("div");
     group.style.cssText = groupStyle;
     const label = document.createElement("label");
-    label.textContent = "Chart metric";
+    label.textContent = t("editor.chart_metric");
     label.style.cssText = labelStyle;
     const select = document.createElement("select");
     select.style.cssText = fieldStyle;
@@ -194,7 +195,7 @@ export class SpanPanelCardEditor extends HTMLElement {
     const group = document.createElement("div");
     group.style.cssText = groupStyle;
     const label = document.createElement("label");
-    label.textContent = "Visible sections";
+    label.textContent = t("editor.visible_sections");
     label.style.cssText = labelStyle;
     group.appendChild(label);
 
@@ -202,9 +203,9 @@ export class SpanPanelCardEditor extends HTMLElement {
     const cbLabelStyle = "font-size: 0.9em; color: var(--primary-text-color); cursor: pointer;";
 
     const sections = [
-      { key: "show_panel", label: "Panel circuits", subDeviceType: null },
-      { key: "show_battery", label: "Battery (BESS)", subDeviceType: "bess" },
-      { key: "show_evse", label: "EV Charger (EVSE)", subDeviceType: "evse" },
+      { key: "show_panel", label: t("editor.panel_circuits"), subDeviceType: null },
+      { key: "show_battery", label: t("editor.battery_bess"), subDeviceType: "bess" },
+      { key: "show_evse", label: t("editor.ev_charger_evse"), subDeviceType: "evse" },
     ];
 
     this._checkboxes = {};
@@ -332,7 +333,7 @@ export class SpanPanelCardEditor extends HTMLElement {
       if (this._availableRoles && !this._availableRoles.has(def.entityRole)) continue;
       const opt = document.createElement("option");
       opt.value = key;
-      opt.textContent = def.label;
+      opt.textContent = def.label();
       if (key === current) opt.selected = true;
       select.appendChild(opt);
     }

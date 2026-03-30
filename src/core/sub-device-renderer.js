@@ -1,5 +1,6 @@
 import { escapeHtml } from "../helpers/sanitize.js";
 import { formatPowerSigned, formatPowerUnit } from "../helpers/format.js";
+import { t } from "../i18n.js";
 import { findSubDevicePowerEntity, findBatteryLevelEntity, findBatterySoeEntity, findBatteryCapacityEntity } from "../helpers/entity-finder.js";
 import { SUB_DEVICE_TYPE_BESS, SUB_DEVICE_TYPE_EVSE, SUB_DEVICE_KEY_PREFIX } from "../constants.js";
 
@@ -23,7 +24,8 @@ export function buildSubDevicesHTML(topology, hass, config, _durationMs) {
     if (sub.type === SUB_DEVICE_TYPE_BESS && !showBattery) continue;
     if (sub.type === SUB_DEVICE_TYPE_EVSE && !showEvse) continue;
 
-    const label = sub.type === SUB_DEVICE_TYPE_EVSE ? "EV Charger" : sub.type === SUB_DEVICE_TYPE_BESS ? "Battery" : "Sub-device";
+    const label =
+      sub.type === SUB_DEVICE_TYPE_EVSE ? t("subdevice.ev_charger") : sub.type === SUB_DEVICE_TYPE_BESS ? t("subdevice.battery") : t("subdevice.fallback");
     const powerEid = findSubDevicePowerEntity(sub);
     const powerState = powerEid ? hass.states[powerEid] : null;
     const powerW = powerState ? parseFloat(powerState.state) || 0 : 0;
@@ -111,9 +113,9 @@ export function buildSubEntityHTML(sub, hass, config, hideEids) {
 export function buildSubDeviceChartsHTML(devId, _sub, isBess, powerEid, battLevelEid, battSoeEid) {
   if (isBess) {
     const bessCharts = [
-      { key: `${SUB_DEVICE_KEY_PREFIX}${devId}_soc`, title: "SoC", available: !!battLevelEid },
-      { key: `${SUB_DEVICE_KEY_PREFIX}${devId}_soe`, title: "SoE", available: !!battSoeEid },
-      { key: `${SUB_DEVICE_KEY_PREFIX}${devId}_power`, title: "Power", available: !!powerEid },
+      { key: `${SUB_DEVICE_KEY_PREFIX}${devId}_soc`, title: t("subdevice.soc"), available: !!battLevelEid },
+      { key: `${SUB_DEVICE_KEY_PREFIX}${devId}_soe`, title: t("subdevice.soe"), available: !!battSoeEid },
+      { key: `${SUB_DEVICE_KEY_PREFIX}${devId}_power`, title: t("subdevice.power"), available: !!powerEid },
     ].filter(c => c.available);
 
     return `

@@ -1,5 +1,6 @@
 import { BESS_CHART_METRICS, DEVICE_TYPE_PV, RELAY_STATE_CLOSED, SHEDDING_PRIORITIES } from "../constants.js";
 import { formatPowerSigned, formatPowerUnit, formatKw } from "../helpers/format.js";
+import { t } from "../i18n.js";
 import { getChartMetric } from "../helpers/chart.js";
 import { findSubDevicePowerEntity } from "../helpers/entity-finder.js";
 import { getHistoryDurationMs } from "../helpers/history.js";
@@ -153,7 +154,7 @@ export function updateCircuitDOM(root, hass, topology, config, powerHistory) {
     if (toggle) {
       toggle.className = `toggle-pill ${isOn ? "toggle-on" : "toggle-off"}`;
       const label = toggle.querySelector(".toggle-label");
-      if (label) label.textContent = isOn ? "On" : "Off";
+      if (label) label.textContent = isOn ? t("grid.on") : t("grid.off");
     }
 
     slot.classList.toggle("circuit-off", !isOn);
@@ -168,7 +169,7 @@ export function updateCircuitDOM(root, hass, topology, config, powerHistory) {
     if (sheddingIcon) {
       sheddingIcon.setAttribute("icon", shedInfo.icon);
       sheddingIcon.style.color = shedInfo.color;
-      sheddingIcon.title = shedInfo.label;
+      sheddingIcon.title = shedInfo.label();
     }
 
     const chartContainer = slot.querySelector(".chart-container");

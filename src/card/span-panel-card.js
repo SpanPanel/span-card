@@ -1,4 +1,5 @@
 import { DEFAULT_CHART_METRIC, LIVE_SAMPLE_INTERVAL_MS } from "../constants.js";
+import { t } from "../i18n.js";
 import { escapeHtml } from "../helpers/sanitize.js";
 import { getHistoryDurationMs, getMaxHistoryPoints, recordSample } from "../helpers/history.js";
 import { getCircuitChartEntity } from "../helpers/chart.js";
@@ -71,7 +72,7 @@ export class SpanPanelCard extends HTMLElement {
       this.shadowRoot.innerHTML = `
         <ha-card>
           <div style="padding: 24px; color: var(--secondary-text-color);">
-            Open the card editor and select your SPAN Panel device.
+            ${t("card.no_device")}
           </div>
         </ha-card>
       `;
@@ -268,7 +269,7 @@ export class SpanPanelCard extends HTMLElement {
   _render() {
     const hass = this._hass;
     if (!hass || !this._topology || !this._panelSize) {
-      const msg = this._discoveryError || (!this._topology ? "Panel device not found. Check device_id in card config." : "Loading...");
+      const msg = this._discoveryError || (!this._topology ? t("card.device_not_found") : t("card.loading"));
       this.shadowRoot.innerHTML = `
         <ha-card>
           <div style="padding: 24px; color: var(--secondary-text-color);">

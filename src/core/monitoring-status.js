@@ -1,5 +1,6 @@
 // src/core/monitoring-status.js
 import { INTEGRATION_DOMAIN } from "../constants.js";
+import { t } from "../i18n.js";
 
 const MONITORING_POLL_INTERVAL_MS = 30_000;
 
@@ -135,11 +136,11 @@ export function buildMonitoringSummaryHTML(status) {
 
   return `
     <div class="monitoring-summary">
-      <span class="monitoring-active">&#10003; Monitoring &middot; ${circuits.length} circuits &middot; ${mains.length} mains</span>
+      <span class="monitoring-active">&#10003; ${t("status.monitoring")} &middot; ${circuits.length} ${t("status.circuits")} &middot; ${mains.length} ${t("status.mains")}</span>
       <span class="monitoring-counts">
-        ${warnings > 0 ? `<span class="count-warning">${warnings} warning${warnings > 1 ? "s" : ""}</span>` : ""}
-        ${alerts > 0 ? `<span class="count-alert">${alerts} alert${alerts > 1 ? "s" : ""}</span>` : ""}
-        ${overrides > 0 ? `<span class="count-overrides">${overrides} override${overrides > 1 ? "s" : ""}</span>` : ""}
+        ${warnings > 0 ? `<span class="count-warning">${warnings} ${warnings > 1 ? t("status.warnings") : t("status.warning")}</span>` : ""}
+        ${alerts > 0 ? `<span class="count-alert">${alerts} ${alerts > 1 ? t("status.alerts") : t("status.alert")}</span>` : ""}
+        ${overrides > 0 ? `<span class="count-overrides">${overrides} ${overrides > 1 ? t("status.overrides") : t("status.override")}</span>` : ""}
       </span>
     </div>
   `;

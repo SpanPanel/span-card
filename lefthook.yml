@@ -11,3 +11,6 @@ pre-commit:
     - name: markdownlint
       glob: "*.md"
       run: npx markdownlint-cli2 {staged_files}
+    - name: i18n-validate
+      glob: "src/**/*.{js,mjs}"
+      run: node scripts/validate-i18n.mjs

@@ -1,6 +1,7 @@
 // src/core/side-panel.js
 import { escapeHtml } from "../helpers/sanitize.js";
 import { INTEGRATION_DOMAIN, SHEDDING_PRIORITIES } from "../constants.js";
+import { t } from "../i18n.js";
 
 const DEBOUNCE_MS = 500;
 
@@ -235,7 +236,7 @@ class SpanSidePanel extends HTMLElement {
   }
 
   _renderPanelMode(panel) {
-    const header = this._createHeader("Panel Monitoring", "Global defaults for all circuits");
+    const header = this._createHeader(t("sidepanel.panel_monitoring"), t("sidepanel.global_defaults"));
     panel.appendChild(header);
 
     const body = document.createElement("div");
@@ -244,15 +245,13 @@ class SpanSidePanel extends HTMLElement {
     const info = document.createElement("div");
     info.className = "panel-mode-info";
     info.innerHTML = `
-      <p>Global monitoring thresholds apply to all circuits that don't have custom overrides.
-         Use the integration's options flow to change global settings.</p>
-      <p>Individual circuit thresholds can be configured by clicking the gear icon on a circuit row
-         and switching to <strong>Custom</strong> mode.</p>
+      <p>${t("sidepanel.global_info")}</p>
+      <p>${t("sidepanel.custom_info_prefix")} <strong>${t("sidepanel.custom")}</strong> ${t("sidepanel.custom_info_suffix")}</p>
     `;
     body.appendChild(info);
 
     const link = document.createElement("button");
-    link.textContent = "Configure Global Thresholds";
+    link.textContent = t("sidepanel.configure_global");
     Object.assign(link.style, {
       display: "inline-block",
       marginTop: "8px",
@@ -318,14 +317,14 @@ class SpanSidePanel extends HTMLElement {
 
     const section = document.createElement("div");
     section.className = "section";
-    section.innerHTML = `<div class="section-label">Relay</div>`;
+    section.innerHTML = `<div class="section-label">${t("sidepanel.relay")}</div>`;
 
     const row = document.createElement("div");
     row.className = "field-row";
 
     const label = document.createElement("span");
     label.className = "field-label";
-    label.textContent = "Breaker";
+    label.textContent = t("sidepanel.breaker");
 
     const toggle = document.createElement("ha-switch");
     toggle.dataset.role = "relay-toggle";
@@ -338,7 +337,7 @@ class SpanSidePanel extends HTMLElement {
     toggle.addEventListener("change", () => {
       const isOn = toggle.hasAttribute("checked") || toggle.checked;
       this._callService("switch", isOn ? "turn_on" : "turn_off", { entity_id: entityId }).catch(err =>
-        this._showError(`Relay toggle failed: ${err.message ?? err}`)
+        this._showError(`${t("sidepanel.relay_failed")} ${err.message ?? err}`)
       );
     });
 
@@ -355,14 +354,14 @@ class SpanSidePanel extends HTMLElement {
 
     const section = document.createElement("div");
     section.className = "section";
-    section.innerHTML = `<div class="section-label">Shedding Priority</div>`;
+    section.innerHTML = `<div class="section-label">${t("sidepanel.shedding_priority")}</div>`;
 
     const row = document.createElement("div");
     row.className = "field-row";
 
     const label = document.createElement("span");
     label.className = "field-label";
-    label.textContent = "Priority";
+    label.textContent = t("sidepanel.priority_label");
 
     const selectEl = document.createElement("select");
     selectEl.dataset.role = "shedding-select";
@@ -372,7 +371,7 @@ class SpanSidePanel extends HTMLElement {
     for (const key of PRIORITY_OPTIONS) {
       const opt = document.createElement("option");
       opt.value = key;
-      opt.textContent = SHEDDING_PRIORITIES[key].label;
+      opt.textContent = SHEDDING_PRIORITIES[key].label();
       if (key === currentPriority) opt.selected = true;
       selectEl.appendChild(opt);
     }
@@ -381,7 +380,7 @@ class SpanSidePanel extends HTMLElement {
       this._callService("select", "select_option", {
         entity_id: entityId,
         option: selectEl.value,
-      }).catch(err => this._showError(`Shedding update failed: ${err.message ?? err}`));
+      }).catch(err => this._showError(`${t("sidepanel.shedding_failed")} ${err.message ?? err}`));
     });
 
     row.appendChild(label);
@@ -401,7 +400,7 @@ class SpanSidePanel extends HTMLElement {
 
     const sectionLabel = document.createElement("div");
     sectionLabel.className = "section-label";
-    sectionLabel.textContent = "Monitoring";
+    sectionLabel.textContent = t("sidepanel.monitoring");
     sectionLabel.style.margin = "0";
 
     const enableToggle = document.createElement("ha-switch");
@@ -428,8 +427,8 @@ class SpanSidePanel extends HTMLElement {
     const radioGroup = document.createElement("div");
     radioGroup.className = "radio-group";
     radioGroup.innerHTML = `
-      <label><input type="radio" name="monitoring-mode" value="global" ${!hasCustom ? "checked" : ""} /> Global</label>
-      <label><input type="radio" name="monitoring-mode" value="custom" ${hasCustom ? "checked" : ""} /> Custom</label>
+      <label><input type="radio" name="monitoring-mode" value="global" ${!hasCustom ? "checked" : ""} /> ${t("sidepanel.global")}</label>
+      <label><input type="radio" name="monitoring-mode" value="custom" ${hasCustom ? "checked" : ""} /> ${t("sidepanel.custom")}</label>
     `;
     detailsWrap.appendChild(radioGroup);
 
@@ -443,10 +442,10 @@ class SpanSidePanel extends HTMLElement {
     const windowVal = info?.window_duration_m ?? 15;
     const cooldownVal = info?.cooldown_duration_m ?? 15;
 
-    thresholdsWrap.appendChild(this._createThresholdRow("Continuous %", "continuous", continuousVal, cfg));
-    thresholdsWrap.appendChild(this._createThresholdRow("Spike %", "spike", spikeVal, cfg));
-    thresholdsWrap.appendChild(this._createDurationRow("Window duration", "window-m", windowVal, 1, 180, "m", cfg));
-    thresholdsWrap.appendChild(this._createDurationRow("Cooldown", "cooldown-m", cooldownVal, 1, 180, "m", cfg));
+    thresholdsWrap.appendChild(this._createThresholdRow(t("sidepanel.continuous_pct"), "continuous", continuousVal, cfg));
+    thresholdsWrap.appendChild(this._createThresholdRow(t("sidepanel.spike_pct"), "spike", spikeVal, cfg));
+    thresholdsWrap.appendChild(this._createDurationRow(t("sidepanel.window_duration"), "window-m", windowVal, 1, 180, "m", cfg));
+    thresholdsWrap.appendChild(this._createDurationRow(t("sidepanel.cooldown"), "cooldown-m", cooldownVal, 1, 180, "m", cfg));
     detailsWrap.appendChild(thresholdsWrap);
 
     // Event: monitoring enable toggle
@@ -457,7 +456,7 @@ class SpanSidePanel extends HTMLElement {
       this._callDomainService("set_circuit_threshold", {
         circuit_id: entityId,
         monitoring_enabled: checked,
-      }).catch(err => this._showError(`Monitoring toggle failed: ${err.message ?? err}`));
+      }).catch(err => this._showError(`${t("sidepanel.monitoring_toggle_failed")} ${err.message ?? err}`));
     });
 
     // Event: radio change
@@ -469,7 +468,7 @@ class SpanSidePanel extends HTMLElement {
         if (!isCustom && radio.checked) {
           const entityId = cfg.entities?.power || cfg.uuid;
           this._callDomainService("clear_circuit_threshold", { circuit_id: entityId }).catch(err =>
-            this._showError(`Clear monitoring failed: ${err.message ?? err}`)
+            this._showError(`${t("sidepanel.clear_monitoring_failed")} ${err.message ?? err}`)
           );
         }
       });
@@ -506,7 +505,7 @@ class SpanSidePanel extends HTMLElement {
           spike_threshold_pct: spike ? Number(spike.value) : undefined,
           window_duration_m: windowM ? Number(windowM.value) : undefined,
           cooldown_duration_m: cooldownM ? Number(cooldownM.value) : undefined,
-        }).catch(err => this._showError(`Save threshold failed: ${err.message ?? err}`));
+        }).catch(err => this._showError(`${t("sidepanel.save_threshold_failed")} ${err.message ?? err}`));
       });
     });
 
@@ -552,7 +551,7 @@ class SpanSidePanel extends HTMLElement {
             continuous_threshold_pct: continuous ? Number(continuous.value) : undefined,
             spike_threshold_pct: spike ? Number(spike.value) : undefined,
             window_duration_m: windowM ? Number(windowM.value) : undefined,
-          }).catch(err => this._showError(`Save threshold failed: ${err.message ?? err}`));
+          }).catch(err => this._showError(`${t("sidepanel.save_threshold_failed")} ${err.message ?? err}`));
         });
       });
     }

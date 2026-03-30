@@ -1,5 +1,6 @@
 import { escapeHtml } from "../helpers/sanitize.js";
 import { formatPowerSigned, formatPowerUnit } from "../helpers/format.js";
+import { t } from "../i18n.js";
 import { tabToRow, tabToCol, classifyDualTab } from "../helpers/layout.js";
 import { getChartMetric } from "../helpers/chart.js";
 import { DEVICE_TYPE_PV, RELAY_STATE_CLOSED, SHEDDING_PRIORITIES, MONITORING_COLORS } from "../constants.js";
@@ -114,7 +115,7 @@ export function renderCircuitSlot(uuid, circuit, row, col, layout, _durationMs, 
 
   const breakerAmps = circuit.breaker_rating_a;
   const breakerLabel = breakerAmps ? `${Math.round(breakerAmps)}A` : "";
-  const name = escapeHtml(circuit.name || "Unknown");
+  const name = escapeHtml(circuit.name || t("grid.unknown"));
 
   const chartMetric = getChartMetric(config);
   const showCurrent = chartMetric.entityRole === "current";
@@ -134,14 +135,14 @@ export function renderCircuitSlot(uuid, circuit, row, col, layout, _durationMs, 
   const sheddingHTML = `<ha-icon class="shedding-icon"
     icon="${shedInfo.icon}"
     style="color:${shedInfo.color};--mdc-icon-size:16px;"
-    title="${shedInfo.label}"></ha-icon>`;
+    title="${shedInfo.label()}"></ha-icon>`;
 
   // Gear icon
   const hasOverridesFlag = monitoringInfo && hasCustomOverrides(monitoringInfo);
   const gearColor = hasOverridesFlag ? MONITORING_COLORS.custom : "#555";
   const gearHTML = `<button class="gear-icon circuit-gear"
     data-uuid="${escapeHtml(uuid)}" style="color:${gearColor};"
-    title="Configure circuit">
+    title="${t("grid.configure")}">
     <ha-icon icon="mdi:cog" style="--mdc-icon-size:16px;"></ha-icon>
   </button>`;
 
@@ -178,7 +179,7 @@ export function renderCircuitSlot(uuid, circuit, row, col, layout, _durationMs, 
             circuit.is_user_controllable !== false && circuit.entities?.switch
               ? `
             <div class="toggle-pill ${isOn ? "toggle-on" : "toggle-off"}">
-              <span class="toggle-label">${isOn ? "On" : "Off"}</span>
+              <span class="toggle-label">${isOn ? t("grid.on") : t("grid.off")}</span>
               <span class="toggle-knob"></span>
             </div>
           `

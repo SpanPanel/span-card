@@ -1,4 +1,5 @@
 import { INTEGRATION_DOMAIN } from "../constants.js";
+import { setLanguage, t } from "../i18n.js";
 import "../core/side-panel.js";
 import { DashboardTab } from "./tab-dashboard.js";
 import { MonitoringTab } from "./tab-monitoring.js";
@@ -104,6 +105,7 @@ export class SpanPanelElement extends HTMLElement {
   }
 
   _render() {
+    setLanguage(this._hass?.language);
     const multiPanel = this._panels.length > 1;
     const selectedPanel = this._panels.find(p => p.id === this._selectedPanelId);
     const panelLabel = selectedPanel ? selectedPanel.name_by_user || selectedPanel.name || selectedPanel.id : "";
@@ -132,9 +134,9 @@ export class SpanPanelElement extends HTMLElement {
       </div>
 
       <div class="panel-tabs">
-        <button class="panel-tab ${this._activeTab === "dashboard" ? "active" : ""}" data-tab="dashboard">Panel</button>
-        <button class="panel-tab ${this._activeTab === "monitoring" ? "active" : ""}" data-tab="monitoring">Monitoring</button>
-        <button class="panel-tab ${this._activeTab === "settings" ? "active" : ""}" data-tab="settings">Settings</button>
+        <button class="panel-tab ${this._activeTab === "dashboard" ? "active" : ""}" data-tab="dashboard">${t("tab.panel")}</button>
+        <button class="panel-tab ${this._activeTab === "monitoring" ? "active" : ""}" data-tab="monitoring">${t("tab.monitoring")}</button>
+        <button class="panel-tab ${this._activeTab === "settings" ? "active" : ""}" data-tab="settings">${t("tab.settings")}</button>
       </div>
 
       <div class="tab-content" id="tab-content"></div>

@@ -1,5 +1,6 @@
 import { INTEGRATION_DOMAIN } from "../constants.js";
 import { escapeHtml } from "../helpers/sanitize.js";
+import { t } from "../i18n.js";
 
 const FIELD_STYLE = `
   display:flex;align-items:center;gap:8px;margin-bottom:8px;
@@ -101,7 +102,7 @@ export class MonitoringTab {
     const allNotifyTargets = [...targetSet].sort();
 
     const rawTargets = globalSettings.notify_targets || "notify.notify";
-    const selectedTargets = (typeof rawTargets === "string" ? rawTargets.split(",") : rawTargets).map(t => t.trim()).filter(Boolean);
+    const selectedTargets = (typeof rawTargets === "string" ? rawTargets.split(",") : rawTargets).map(s => s.trim()).filter(Boolean);
     const titleTemplate = globalSettings.notification_title_template || "SPAN: {name} {alert_type}";
     const messageTemplate = globalSettings.notification_message_template || "{name} at {current_a}A ({utilization_pct}% of {breaker_rating_a}A rating)";
     const persistentNotifications = globalSettings.enable_persistent_notifications !== false;
@@ -140,7 +141,7 @@ export class MonitoringTab {
                 hasOverride
                   ? `<button class="reset-btn" data-entity="${eid}" data-type="circuit"
                        style="background:none;border:1px solid var(--divider-color);color:var(--primary-text-color);border-radius:4px;padding:3px 6px;cursor:pointer;font-size:0.75em;">
-                    Reset
+                    ${t("monitoring.reset")}
                   </button>`
                   : ""
               }
@@ -176,7 +177,7 @@ export class MonitoringTab {
                 hasOverride
                   ? `<button class="reset-btn" data-entity="${eid}" data-type="mains"
                        style="background:none;border:1px solid var(--divider-color);color:var(--primary-text-color);border-radius:4px;padding:3px 6px;cursor:pointer;font-size:0.75em;">
-                    Reset
+                    ${t("monitoring.reset")}
                   </button>`
                   : ""
               }
@@ -188,49 +189,49 @@ export class MonitoringTab {
 
     container.innerHTML = `
       <div style="padding:16px;">
-        <h2 style="margin-top:0;">Monitoring</h2>
+        <h2 style="margin-top:0;">${t("monitoring.heading")}</h2>
 
         <div style="margin-bottom:24px;padding:16px;background:var(--secondary-background-color,#252530);border-radius:8px;">
           <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
-            <h3 style="margin:0;">Global Settings</h3>
+            <h3 style="margin:0;">${t("monitoring.global_settings")}</h3>
             <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
               <input type="checkbox" id="monitoring-enabled" ${isEnabled ? "checked" : ""}
                      style="width:16px;height:16px;accent-color:var(--primary-color,#4dd9af);">
-              <span style="font-size:0.85em;color:var(--secondary-text-color);">Enabled</span>
+              <span style="font-size:0.85em;color:var(--secondary-text-color);">${t("monitoring.enabled")}</span>
             </label>
           </div>
 
           <div id="global-fields" style="${isEnabled ? "" : "opacity:0.4;pointer-events:none;"}">
             <div style="${FIELD_STYLE}">
-              <span style="${LABEL_STYLE}">Continuous (%)</span>
+              <span style="${LABEL_STYLE}">${t("monitoring.continuous")}</span>
               <input type="number" id="g-continuous" min="1" max="200"
                      value="${globalSettings.continuous_threshold_pct ?? 80}"
                      style="${INPUT_STYLE}">
             </div>
             <div style="${FIELD_STYLE}">
-              <span style="${LABEL_STYLE}">Spike (%)</span>
+              <span style="${LABEL_STYLE}">${t("monitoring.spike")}</span>
               <input type="number" id="g-spike" min="1" max="200"
                      value="${globalSettings.spike_threshold_pct ?? 100}"
                      style="${INPUT_STYLE}">
             </div>
             <div style="${FIELD_STYLE}">
-              <span style="${LABEL_STYLE}">Window (min)</span>
+              <span style="${LABEL_STYLE}">${t("monitoring.window")}</span>
               <input type="number" id="g-window" min="1" max="180"
                      value="${globalSettings.window_duration_m ?? 5}"
                      style="${INPUT_STYLE}">
             </div>
             <div style="${FIELD_STYLE}">
-              <span style="${LABEL_STYLE}">Cooldown (min)</span>
+              <span style="${LABEL_STYLE}">${t("monitoring.cooldown")}</span>
               <input type="number" id="g-cooldown" min="1" max="180"
                      value="${globalSettings.cooldown_duration_m ?? 15}"
                      style="${INPUT_STYLE}">
             </div>
 
             <hr style="border:none;border-top:1px solid var(--divider-color);margin:16px 0 12px;">
-            <h4 style="margin:0 0 12px;font-size:0.9em;color:var(--primary-text-color);">Notification Settings</h4>
+            <h4 style="margin:0 0 12px;font-size:0.9em;color:var(--primary-text-color);">${t("notification.heading")}</h4>
 
             <div style="${FIELD_STYLE}">
-              <span style="${WIDE_LABEL_STYLE}">Notify Targets</span>
+              <span style="${WIDE_LABEL_STYLE}">${t("notification.targets")}</span>
               <div id="notify-target-select" style="position:relative;flex:1;">
                 <button id="notify-target-btn" type="button" style="
                   background:var(--secondary-background-color,#333);
@@ -238,7 +239,7 @@ export class MonitoringTab {
                   color:var(--primary-text-color);
                   border-radius:4px;padding:6px 10px;width:100%;font-size:0.85em;
                   text-align:left;cursor:pointer;display:flex;align-items:center;justify-content:space-between;">
-                  <span id="notify-target-label">${selectedTargets.length ? selectedTargets.map(t => escapeHtml(t)).join(", ") : "None selected"}</span>
+                  <span id="notify-target-label">${selectedTargets.length ? selectedTargets.map(s => escapeHtml(s)).join(", ") : t("notification.none_selected")}</span>
                   <span style="font-size:0.7em;margin-left:8px;">&#9660;</span>
                 </button>
                 <div id="notify-target-dropdown" style="
@@ -249,7 +250,7 @@ export class MonitoringTab {
                   box-shadow:0 4px 12px rgba(0,0,0,0.3);">
                   ${
                     allNotifyTargets.length === 0
-                      ? `<div style="padding:8px 12px;font-size:0.8em;color:var(--secondary-text-color);">No notify targets found</div>`
+                      ? `<div style="padding:8px 12px;font-size:0.8em;color:var(--secondary-text-color);">${t("notification.no_targets")}</div>`
                       : allNotifyTargets
                           .map(target => {
                             const checked = selectedTargets.includes(target);
@@ -271,51 +272,51 @@ export class MonitoringTab {
             </div>
 
             <div style="${FIELD_STYLE}">
-              <span style="${WIDE_LABEL_STYLE}">Persistent Alerts</span>
+              <span style="${WIDE_LABEL_STYLE}">${t("notification.persistent")}</span>
               <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
                 <input type="checkbox" id="g-persistent-notifications" ${persistentNotifications ? "checked" : ""}
                        style="width:14px;height:14px;accent-color:var(--primary-color,#4dd9af);">
-                <span style="font-size:0.8em;color:var(--secondary-text-color);">Create persistent HA notifications</span>
+                <span style="font-size:0.8em;color:var(--secondary-text-color);">${t("notification.persistent_hint")}</span>
               </label>
             </div>
 
             <div style="${FIELD_STYLE}">
-              <span style="${WIDE_LABEL_STYLE}">Event Bus</span>
+              <span style="${WIDE_LABEL_STYLE}">${t("notification.event_bus")}</span>
               <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
                 <input type="checkbox" id="g-event-bus" ${eventBus ? "checked" : ""}
                        style="width:14px;height:14px;accent-color:var(--primary-color,#4dd9af);">
-                <span style="font-size:0.8em;color:var(--secondary-text-color);">Fire events on the HA event bus</span>
+                <span style="font-size:0.8em;color:var(--secondary-text-color);">${t("notification.event_bus_hint")}</span>
               </label>
             </div>
 
             <div style="${FIELD_STYLE}">
-              <span style="${WIDE_LABEL_STYLE}">Priority</span>
+              <span style="${WIDE_LABEL_STYLE}">${t("notification.priority")}</span>
               <select id="g-priority" style="
                 background:var(--secondary-background-color,#333);
                 border:1px solid var(--divider-color);
                 color:var(--primary-text-color);
                 border-radius:4px;padding:6px 10px;font-size:0.85em;">
                 ${["default", "passive", "active", "time-sensitive", "critical"]
-                  .map(p => `<option value="${p}" ${currentPriority === p ? "selected" : ""}>${p.charAt(0).toUpperCase() + p.slice(1)}</option>`)
+                  .map(p => `<option value="${p}" ${currentPriority === p ? "selected" : ""}>${t(`notification.priority.${p.replace("-", "_")}`)}</option>`)
                   .join("")}
               </select>
               <span style="font-size:0.75em;color:var(--secondary-text-color);margin-left:4px;">
                 ${
                   currentPriority === "critical"
-                    ? "Overrides silent/DND"
+                    ? t("notification.hint.critical")
                     : currentPriority === "time-sensitive"
-                      ? "Breaks through Focus"
+                      ? t("notification.hint.time_sensitive")
                       : currentPriority === "passive"
-                        ? "Delivers silently"
+                        ? t("notification.hint.passive")
                         : currentPriority === "active"
-                          ? "Standard delivery"
+                          ? t("notification.hint.active")
                           : ""
                 }
               </span>
             </div>
 
             <div style="${FIELD_STYLE}">
-              <span style="${WIDE_LABEL_STYLE}">Title Template</span>
+              <span style="${WIDE_LABEL_STYLE}">${t("notification.title_template")}</span>
               <input type="text" id="g-title-template"
                      value="${escapeHtml(titleTemplate)}"
                      placeholder="SPAN: {name} {alert_type}"
@@ -323,7 +324,7 @@ export class MonitoringTab {
             </div>
 
             <div style="${FIELD_STYLE}">
-              <span style="${WIDE_LABEL_STYLE}">Message Template</span>
+              <span style="${WIDE_LABEL_STYLE}">${t("notification.message_template")}</span>
               <input type="text" id="g-message-template"
                      value="${escapeHtml(messageTemplate)}"
                      placeholder="{name} at {current_a}A ({utilization_pct}% of {breaker_rating_a}A)"
@@ -331,7 +332,7 @@ export class MonitoringTab {
             </div>
 
             <div style="font-size:0.75em;color:var(--secondary-text-color);margin-top:4px;line-height:1.4;">
-              Placeholders: <code>{name}</code> <code>{entity_id}</code> <code>{alert_type}</code>
+              ${t("notification.placeholders")} <code>{name}</code> <code>{entity_id}</code> <code>{alert_type}</code>
               <code>{current_a}</code> <code>{breaker_rating_a}</code> <code>{threshold_pct}</code>
               <code>{utilization_pct}</code> <code>{window_m}</code>
             </div>
@@ -340,15 +341,15 @@ export class MonitoringTab {
           <div id="global-status" style="font-size:0.8em;color:var(--secondary-text-color);margin-top:8px;min-height:1.2em;"></div>
         </div>
 
-        <h3>Monitored Points</h3>
+        <h3>${t("monitoring.monitored_points")}</h3>
         <table style="width:100%;border-collapse:collapse;">
           <thead>
             <tr style="text-align:left;border-bottom:1px solid var(--divider-color);">
-              <th style="padding:6px 8px;">Name</th>
-              <th style="padding:6px 8px;">Continuous</th>
-              <th style="padding:6px 8px;">Spike</th>
-              <th style="padding:6px 8px;">Window</th>
-              <th style="padding:6px 8px;">Cooldown</th>
+              <th style="padding:6px 8px;">${t("monitoring.col.name")}</th>
+              <th style="padding:6px 8px;">${t("monitoring.col.continuous")}</th>
+              <th style="padding:6px 8px;">${t("monitoring.col.spike")}</th>
+              <th style="padding:6px 8px;">${t("monitoring.col.window")}</th>
+              <th style="padding:6px 8px;">${t("monitoring.col.cooldown")}</th>
               <th style="padding:6px 8px;"></th>
             </tr>
           </thead>
@@ -359,7 +360,7 @@ export class MonitoringTab {
                   <input type="checkbox" id="toggle-all-circuits"
                          ${allEnabled ? "checked" : ""}
                          style="width:14px;height:14px;accent-color:var(--primary-color,#4dd9af);">
-                  <span style="font-weight:600;font-size:0.85em;color:var(--secondary-text-color);">All / None</span>
+                  <span style="font-weight:600;font-size:0.85em;color:var(--secondary-text-color);">${t("monitoring.all_none")}</span>
                 </label>
               </td>
             </tr>
@@ -418,7 +419,7 @@ export class MonitoringTab {
           await this._callSetGlobal(hass, data);
           await this.render(container, hass);
         } catch (err) {
-          statusEl.textContent = `Error: ${err.message || "Failed to save"}`;
+          statusEl.textContent = `${t("error.prefix")} ${err.message || t("error.failed_save")}`;
           statusEl.style.color = "var(--error-color, #f44336)";
         }
       }, 500);
@@ -444,7 +445,7 @@ export class MonitoringTab {
           }
         } catch (err) {
           if (statusEl2) {
-            statusEl2.textContent = `Error: ${err.message || "Failed"}`;
+            statusEl2.textContent = `${t("error.prefix")} ${err.message || t("error.failed")}`;
             statusEl2.style.color = "var(--error-color, #f44336)";
           }
           return;
@@ -486,7 +487,7 @@ export class MonitoringTab {
       cb.addEventListener("change", () => {
         const checked = [...container.querySelectorAll(".notify-target-cb:checked")];
         const targets = checked.map(c => c.value);
-        label.textContent = targets.length ? targets.join(", ") : "None selected";
+        label.textContent = targets.length ? targets.join(", ") : t("notification.none_selected");
 
         clearTimeout(this._debounceTimer);
         this._debounceTimer = setTimeout(async () => {
