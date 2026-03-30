@@ -158,6 +158,15 @@ const STYLES = `
   .panel-mode-info p {
     margin: 0 0 12px 0;
   }
+
+  .error-msg {
+    color: var(--error-color, #f44336);
+    font-size: 0.8em;
+    padding: 8px;
+    margin: 8px 0;
+    background: rgba(244, 67, 54, 0.1);
+    border-radius: 4px;
+  }
 `;
 
 // ── Component ─────────────────────────────────────────────────────────────
@@ -249,6 +258,12 @@ class SpanSidePanel extends HTMLElement {
     body.className = "panel-body";
     panel.appendChild(body);
 
+    const errorEl = document.createElement("div");
+    errorEl.className = "error-msg";
+    errorEl.id = "error-msg";
+    errorEl.style.display = "none";
+    body.appendChild(errorEl);
+
     this._renderRelaySection(body, cfg);
     this._renderSheddingSection(body, cfg);
     this._renderMonitoringSection(body, cfg);
@@ -297,7 +312,9 @@ class SpanSidePanel extends HTMLElement {
 
     toggle.addEventListener("change", () => {
       const isOn = toggle.hasAttribute("checked") || toggle.checked;
-      this._callService("switch", isOn ? "turn_on" : "turn_off", { entity_id: entityId });
+      this._callService("switch", isOn ? "turn_on" : "turn_off", { entity_id: entityId }).catch(err =>
+        this._showError(`Relay toggle failed: ${err.message ?? err}`)
+      );
     });
 
     row.appendChild(label);
@@ -339,7 +356,7 @@ class SpanSidePanel extends HTMLElement {
       this._callService("select", "select_option", {
         entity_id: entityId,
         option: selectEl.value,
-      });
+      }).catch(err => this._showError(`Shedding update failed: ${err.message ?? err}`));
     });
 
     row.appendChild(label);
@@ -398,9 +415,13 @@ class SpanSidePanel extends HTMLElement {
 
     const continuousVal = info?.continuous_threshold_pct ?? 80;
     const spikeVal = info?.spike_threshold_pct ?? 100;
+    const windowVal = info?.window_duration_m ?? 15;
+    const cooldownVal = info?.cooldown_duration_m ?? 15;
 
     thresholdsWrap.appendChild(this._createThresholdRow("Continuous %", "continuous", continuousVal, cfg));
     thresholdsWrap.appendChild(this._createThresholdRow("Spike %", "spike", spikeVal, cfg));
+    thresholdsWrap.appendChild(this._createDurationRow("Window duration", "window-m", windowVal, 1, 180, "m", cfg));
+    thresholdsWrap.appendChild(this._createDurationRow("Cooldown", "cooldown-m", cooldownVal, 1, 180, "m", cfg, true));
     detailsWrap.appendChild(thresholdsWrap);
 
     // Event: monitoring enable toggle
@@ -408,7 +429,9 @@ class SpanSidePanel extends HTMLElement {
       const checked = enableToggle.hasAttribute("checked") || enableToggle.checked;
       detailsWrap.style.display = checked ? "block" : "none";
       if (!checked) {
-        this._callDomainService("clear_circuit_threshold", { circuit_id: cfg.uuid });
+        this._callDomainService("clear_circuit_threshold", { circuit_id: cfg.uuid }).catch(err =>
+          this._showError(`Clear monitoring failed: ${err.message ?? err}`)
+        );
       }
     });
 
@@ -419,7 +442,9 @@ class SpanSidePanel extends HTMLElement {
         const isCustom = radio.value === "custom" && radio.checked;
         thresholdsWrap.style.display = isCustom ? "block" : "none";
         if (!isCustom && radio.checked) {
-          this._callDomainService("clear_circuit_threshold", { circuit_id: cfg.uuid });
+          this._callDomainService("clear_circuit_threshold", { circuit_id: cfg.uuid }).catch(err =>
+            this._showError(`Clear monitoring failed: ${err.message ?? err}`)
+          );
         }
       });
     }
@@ -446,16 +471,65 @@ class SpanSidePanel extends HTMLElement {
       this._debounce(`threshold-${key}`, DEBOUNCE_MS, () => {
         const continuous = this.shadowRoot.querySelector('[data-role="threshold-continuous"]');
         const spike = this.shadowRoot.querySelector('[data-role="threshold-spike"]');
+        const windowM = this.shadowRoot.querySelector('[data-role="threshold-window-m"]');
         this._callDomainService("set_circuit_threshold", {
           circuit_id: cfg.uuid,
           continuous_threshold_pct: continuous ? Number(continuous.value) : undefined,
           spike_threshold_pct: spike ? Number(spike.value) : undefined,
-        });
+          window_duration_m: windowM ? Number(windowM.value) : undefined,
+        }).catch(err => this._showError(`Save threshold failed: ${err.message ?? err}`));
       });
     });
 
     row.appendChild(labelEl);
     row.appendChild(input);
+    return row;
+  }
+
+  _createDurationRow(label, key, value, min, max, unit, cfg, readOnly = false) {
+    const row = document.createElement("div");
+    row.className = "field-row";
+
+    const labelEl = document.createElement("span");
+    labelEl.className = "field-label";
+    labelEl.textContent = label;
+
+    const inputWrap = document.createElement("div");
+
+    const input = document.createElement("input");
+    input.type = "number";
+    input.min = String(min);
+    input.max = String(max);
+    input.value = String(value);
+    input.dataset.role = `threshold-${key}`;
+    if (readOnly) {
+      input.disabled = true;
+    }
+
+    const unitSpan = document.createElement("span");
+    unitSpan.textContent = unit;
+
+    inputWrap.appendChild(input);
+    inputWrap.appendChild(unitSpan);
+
+    if (!readOnly) {
+      input.addEventListener("input", () => {
+        this._debounce(`threshold-${key}`, DEBOUNCE_MS, () => {
+          const continuous = this.shadowRoot.querySelector('[data-role="threshold-continuous"]');
+          const spike = this.shadowRoot.querySelector('[data-role="threshold-spike"]');
+          const windowM = this.shadowRoot.querySelector('[data-role="threshold-window-m"]');
+          this._callDomainService("set_circuit_threshold", {
+            circuit_id: cfg.uuid,
+            continuous_threshold_pct: continuous ? Number(continuous.value) : undefined,
+            spike_threshold_pct: spike ? Number(spike.value) : undefined,
+            window_duration_m: windowM ? Number(windowM.value) : undefined,
+          }).catch(err => this._showError(`Save threshold failed: ${err.message ?? err}`));
+        });
+      });
+    }
+
+    row.appendChild(labelEl);
+    row.appendChild(inputWrap);
     return row;
   }
 
@@ -491,12 +565,25 @@ class SpanSidePanel extends HTMLElement {
   // ── Service calls ───────────────────────────────────────────────────
 
   _callService(domain, service, data) {
-    if (!this._hass) return;
-    this._hass.callService(domain, service, data);
+    if (!this._hass) return Promise.resolve();
+    return Promise.resolve(this._hass.callService(domain, service, data));
   }
 
   _callDomainService(service, data) {
-    this._callService(INTEGRATION_DOMAIN, service, data);
+    return this._callService(INTEGRATION_DOMAIN, service, data);
+  }
+
+  // ── Error display ───────────────────────────────────────────────────
+
+  _showError(message) {
+    const el = this.shadowRoot.getElementById("error-msg");
+    if (el) {
+      el.textContent = message;
+      el.style.display = "block";
+      setTimeout(() => {
+        el.style.display = "none";
+      }, 5000);
+    }
   }
 
   // ── Debounce ────────────────────────────────────────────────────────

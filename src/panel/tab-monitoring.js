@@ -25,10 +25,7 @@ export class MonitoringTab {
     const mains = status?.mains || {};
     const allEntries = [...Object.entries(circuits), ...Object.entries(mains)];
 
-    // Filter to only entries that appear to have custom overrides
-    // (all monitored points appear in the response, but custom ones
-    // have non-default thresholds set via the override services)
-    const overrideRows = allEntries
+    const monitoredRows = allEntries
       .map(([entityId, info]) => {
         const name = escapeHtml(info.name || entityId);
         const continuous = info.continuous_threshold_pct;
@@ -44,8 +41,9 @@ export class MonitoringTab {
             <td style="padding:8px;">
               <button class="reset-btn" data-entity="${escapeHtml(entityId)}"
                       data-type="${isMains ? "mains" : "circuit"}"
-                      style="background:none;border:1px solid var(--divider-color);color:var(--primary-text-color);border-radius:4px;padding:4px 8px;cursor:pointer;font-size:0.8em;">
-                Reset
+                      style="background:none;border:1px solid var(--divider-color);color:var(--primary-text-color);border-radius:4px;padding:4px 8px;cursor:pointer;font-size:0.8em;"
+                      title="Reset to global default thresholds">
+                Reset to Default
               </button>
             </td>
           </tr>
@@ -57,8 +55,10 @@ export class MonitoringTab {
       <div style="padding:16px;">
         <h2 style="margin-top:0;">Monitoring</h2>
         <p style="color:var(--secondary-text-color);margin-bottom:16px;">
-          Global monitoring settings are managed in the integration's options flow.
-          All monitored circuits and mains legs are shown below.
+          Global monitoring thresholds are configured in the integration's options flow
+          (Settings &gt; Devices &amp; Services &gt; SPAN Panel &gt; Configure &gt; Monitoring).
+          Per-circuit overrides are listed below. Use <em>Reset to Default</em> to clear
+          a custom override and restore the circuit to global defaults.
         </p>
 
         <h3>Monitored Points</h3>
@@ -75,12 +75,12 @@ export class MonitoringTab {
                 <th style="padding:8px;"></th>
               </tr>
             </thead>
-            <tbody>${overrideRows}</tbody>
+            <tbody>${monitoredRows}</tbody>
           </table>
         `
             : `
           <p style="color:var(--secondary-text-color);">
-            No monitored points found.
+            All circuits using global defaults. No per-circuit overrides are configured.
           </p>
         `
         }
