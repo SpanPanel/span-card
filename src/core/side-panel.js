@@ -234,18 +234,38 @@ class SpanSidePanel extends HTMLElement {
   }
 
   _renderPanelMode(panel) {
-    const header = this._createHeader("Panel Settings", null);
+    const header = this._createHeader("Panel Monitoring", "Global defaults for all circuits");
     panel.appendChild(header);
 
     const body = document.createElement("div");
     body.className = "panel-body";
-    body.innerHTML = `
-      <div class="panel-mode-info">
-        <p>Global monitoring settings are managed through the SPAN Panel integration options.</p>
-        <p>To change global thresholds, go to <strong>Settings &rarr; Devices &amp; Services &rarr; SPAN Panel &rarr; Configure</strong>.</p>
-        <p>Individual circuit thresholds can be configured by clicking the gear icon on a circuit row and switching to <strong>Custom</strong> mode.</p>
-      </div>
+
+    const info = document.createElement("div");
+    info.className = "panel-mode-info";
+    info.innerHTML = `
+      <p>Global monitoring thresholds apply to all circuits that don't have custom overrides.
+         Use the integration's options flow to change global settings.</p>
+      <p>Individual circuit thresholds can be configured by clicking the gear icon on a circuit row
+         and switching to <strong>Custom</strong> mode.</p>
     `;
+    body.appendChild(info);
+
+    const link = document.createElement("a");
+    link.href = "/config/integrations/integration/span_panel";
+    link.textContent = "Configure Global Thresholds";
+    Object.assign(link.style, {
+      display: "inline-block",
+      marginTop: "8px",
+      padding: "8px 16px",
+      background: "var(--primary-color, #4dd9af)",
+      color: "var(--text-primary-color, #000)",
+      borderRadius: "4px",
+      textDecoration: "none",
+      fontSize: "0.85em",
+      fontWeight: "500",
+    });
+    body.appendChild(link);
+
     panel.appendChild(body);
   }
 

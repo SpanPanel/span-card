@@ -54,14 +54,23 @@ export class MonitoringTab {
     container.innerHTML = `
       <div style="padding:16px;">
         <h2 style="margin-top:0;">Monitoring</h2>
-        <p style="color:var(--secondary-text-color);margin-bottom:16px;">
-          Global monitoring thresholds are configured in the integration's options flow
-          (Settings &gt; Devices &amp; Services &gt; SPAN Panel &gt; Configure &gt; Monitoring).
-          Per-circuit overrides are listed below. Use <em>Reset to Default</em> to clear
-          a custom override and restore the circuit to global defaults.
-        </p>
 
-        <h3>Monitored Points</h3>
+        <div style="margin-bottom:24px;padding:16px;background:var(--secondary-background-color,#252530);border-radius:8px;">
+          <h3 style="margin-top:0;">Global Settings</h3>
+          <p style="color:var(--secondary-text-color);font-size:0.85em;margin-bottom:12px;">
+            Global monitoring thresholds apply to all circuits without custom overrides.
+            Use the integration's options flow to change global settings.
+          </p>
+          <a href="/config/integrations/integration/span_panel"
+             style="display:inline-block;padding:8px 16px;background:var(--primary-color,#4dd9af);color:var(--text-primary-color,#000);border-radius:4px;text-decoration:none;font-size:0.85em;font-weight:500;">
+            Configure Global Thresholds
+          </a>
+        </div>
+
+        <h3>Per-Circuit Overrides</h3>
+        <p style="color:var(--secondary-text-color);margin-bottom:16px;font-size:0.85em;">
+          Use <em>Reset to Default</em> to clear a custom override and restore the circuit to global defaults.
+        </p>
         ${
           allEntries.length > 0
             ? `
