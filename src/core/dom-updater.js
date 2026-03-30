@@ -5,18 +5,6 @@ import { findSubDevicePowerEntity } from "../helpers/entity-finder.js";
 import { getHistoryDurationMs } from "../helpers/history.js";
 import { updateChart } from "../chart/chart-update.js";
 
-// ── Private helper ─────────────────────────────────────────────────────────
-
-function _findPanelEntity(hass, _topology, suffix) {
-  if (!hass) return null;
-  for (const entityId of Object.keys(hass.states)) {
-    if (entityId.startsWith("sensor.span_panel_") && entityId.endsWith(`_${suffix}`)) {
-      return entityId;
-    }
-  }
-  return null;
-}
-
 // ── Header stats ───────────────────────────────────────────────────────────
 
 function _updateHeaderStats(root, hass, topology, config, totalConsumption, solarProduction) {
@@ -26,13 +14,13 @@ function _updateHeaderStats(root, hass, topology, config, totalConsumption, sola
   const consumptionEl = root.querySelector(".stat-consumption .stat-value");
   const consumptionUnitEl = root.querySelector(".stat-consumption .stat-unit");
   if (isAmpsMode) {
-    const siteEid = _findPanelEntity(hass, topology, "current_power");
+    const siteEid = topology.panel_entities?.current_power;
     const siteState = siteEid ? hass.states[siteEid] : null;
     const amps = siteState ? parseFloat(siteState.attributes?.amperage) : NaN;
     if (consumptionEl) consumptionEl.textContent = Number.isFinite(amps) ? Math.abs(amps).toFixed(1) : "--";
     if (consumptionUnitEl) consumptionUnitEl.textContent = "A";
   } else {
-    const panelPowerEntity = _findPanelEntity(hass, topology, "current_power");
+    const panelPowerEntity = topology.panel_entities?.current_power;
     if (panelPowerEntity) {
       const state = hass.states[panelPowerEntity];
       if (state) totalConsumption = Math.abs(parseFloat(state.state) || 0);
@@ -45,7 +33,7 @@ function _updateHeaderStats(root, hass, topology, config, totalConsumption, sola
   const upstreamEl = root.querySelector(".stat-upstream .stat-value");
   const upstreamUnitEl = root.querySelector(".stat-upstream .stat-unit");
   if (upstreamEl) {
-    const upEid = _findPanelEntity(hass, topology, "current_power");
+    const upEid = topology.panel_entities?.current_power;
     const upState = upEid ? hass.states[upEid] : null;
     if (isAmpsMode) {
       const amps = upState ? parseFloat(upState.attributes?.amperage) : NaN;
@@ -62,7 +50,7 @@ function _updateHeaderStats(root, hass, topology, config, totalConsumption, sola
   const downstreamEl = root.querySelector(".stat-downstream .stat-value");
   const downstreamUnitEl = root.querySelector(".stat-downstream .stat-unit");
   if (downstreamEl) {
-    const downEid = _findPanelEntity(hass, topology, "feedthrough_power");
+    const downEid = topology.panel_entities?.feedthrough_power;
     const downState = downEid ? hass.states[downEid] : null;
     if (isAmpsMode) {
       const amps = downState ? parseFloat(downState.attributes?.amperage) : NaN;
@@ -80,7 +68,7 @@ function _updateHeaderStats(root, hass, topology, config, totalConsumption, sola
   const solarUnitEl = root.querySelector(".stat-solar .stat-unit");
   if (solarEl) {
     if (isAmpsMode) {
-      const solarEid = _findPanelEntity(hass, topology, "solar_inverter_instant_power");
+      const solarEid = topology.panel_entities?.pv_power;
       const solarState = solarEid ? hass.states[solarEid] : null;
       const amps = solarState ? parseFloat(solarState.attributes?.amperage) : NaN;
       solarEl.textContent = Number.isFinite(amps) ? Math.abs(amps).toFixed(1) : "--";
@@ -94,7 +82,7 @@ function _updateHeaderStats(root, hass, topology, config, totalConsumption, sola
   // Battery SoC (always %)
   const batteryEl = root.querySelector(".stat-battery .stat-value");
   if (batteryEl) {
-    const battEid = _findPanelEntity(hass, topology, "battery_percentage");
+    const battEid = topology.panel_entities?.battery_level;
     const battState = battEid ? hass.states[battEid] : null;
     if (battState) batteryEl.textContent = `${Math.round(parseFloat(battState.state) || 0)}`;
   }
@@ -102,7 +90,7 @@ function _updateHeaderStats(root, hass, topology, config, totalConsumption, sola
   // Grid / DSM state
   const gridStateEl = root.querySelector(".stat-grid-state .stat-value");
   if (gridStateEl) {
-    const gridEid = _findPanelEntity(hass, topology, "dsm_state");
+    const gridEid = topology.panel_entities?.dsm_state;
     const gridState = gridEid ? hass.states[gridEid] : null;
     gridStateEl.textContent = gridState ? gridState.state : "--";
   }

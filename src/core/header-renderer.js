@@ -1,59 +1,23 @@
 import { escapeHtml } from "../helpers/sanitize.js";
 
 /**
- * Check whether a panel-level entity with the given suffix exists in hass.states.
- * Searches for entities starting with "sensor.span_panel_" and ending with "_<suffix>".
- * @param {object} hass - Home Assistant object
- * @param {string} suffix - Entity ID suffix to match
- * @returns {boolean}
- */
-function _hasPanelEntity(hass, suffix) {
-  if (!hass?.states) return false;
-  for (const entityId of Object.keys(hass.states)) {
-    if (entityId.startsWith("sensor.span_panel_") && entityId.endsWith(`_${suffix}`)) {
-      return true;
-    }
-  }
-  return false;
-}
-
-/**
- * Check whether any solar/PV panel-level entity exists in hass.states.
- * Looks for entities matching pv/solar power patterns.
- * @param {object} hass - Home Assistant object
- * @returns {boolean}
- */
-function _hasSolarEntity(hass) {
-  if (!hass?.states) return false;
-  for (const entityId of Object.keys(hass.states)) {
-    if (!entityId.startsWith("sensor.span_panel_")) continue;
-    const local = entityId.slice("sensor.span_panel_".length);
-    if ((local.includes("pv") && local.includes("power")) || local.includes("solar")) {
-      return true;
-    }
-  }
-  return false;
-}
-
-/**
  * Build the panel header HTML with stats, gear icon, and A/W toggle.
  * @param {object} topology - Panel topology from WebSocket
  * @param {object} config - Card/panel configuration
- * @param {object} hass - Home Assistant object used to conditionally show stats
  * @returns {string} HTML string
  */
-export function buildHeaderHTML(topology, config, hass) {
+export function buildHeaderHTML(topology, config) {
   const panelName = escapeHtml(topology.device_name || "SPAN Panel");
   const serial = escapeHtml(topology.serial || "");
   const firmware = escapeHtml(topology.firmware || "");
   const isAmpsMode = (config.chart_metric || "power") === "current";
 
-  const hasSite = _hasPanelEntity(hass, "current_power");
-  const hasGrid = _hasPanelEntity(hass, "dsm_state");
-  const hasUpstream = _hasPanelEntity(hass, "current_power");
-  const hasDownstream = _hasPanelEntity(hass, "feedthrough_power");
-  const hasSolar = _hasSolarEntity(hass);
-  const hasBattery = _hasPanelEntity(hass, "battery_percentage");
+  const hasSite = !!topology.panel_entities?.current_power;
+  const hasGrid = !!topology.panel_entities?.dsm_state;
+  const hasUpstream = !!topology.panel_entities?.current_power;
+  const hasDownstream = !!topology.panel_entities?.feedthrough_power;
+  const hasSolar = !!topology.panel_entities?.pv_power;
+  const hasBattery = !!topology.panel_entities?.battery_level;
 
   return `
     <div class="panel-header">

@@ -283,7 +283,7 @@ export class SpanPanelCard extends HTMLElement {
     const totalRows = Math.ceil(this._panelSize / 2);
     const durationMs = this._durationMs;
 
-    const headerHTML = buildHeaderHTML(topo, this._config, hass);
+    const headerHTML = buildHeaderHTML(topo, this._config);
     const monitoringStatus = this._monitoringCache.status;
     const monitoringSummaryHTML = buildMonitoringSummaryHTML(monitoringStatus);
     const gridHTML = buildGridHTML(topo, totalRows, durationMs, hass, this._config, monitoringStatus);
