@@ -10,6 +10,7 @@ import { updateCircuitDOM, updateSubDeviceDOM } from "../core/dom-updater.js";
 import { discoverTopology, discoverEntitiesFallback } from "./card-discovery.js";
 import { CARD_STYLES } from "./card-styles.js";
 import "../core/side-panel.js";
+import { MonitoringStatusCache } from "../core/monitoring-status.js";
 
 export class SpanPanelCard extends HTMLElement {
   constructor() {
@@ -33,6 +34,7 @@ export class SpanPanelCard extends HTMLElement {
     this._handleToggleClick = this._onToggleClick.bind(this);
     this._handleUnitToggle = this._onUnitToggle.bind(this);
     this._handleGearClick = this._onGearClick.bind(this);
+    this._monitoringCache = new MonitoringStatusCache();
   }
 
   connectedCallback() {
@@ -56,6 +58,7 @@ export class SpanPanelCard extends HTMLElement {
     this._rendered = false;
     this._historyLoaded = false;
     this._powerHistory.clear();
+    this._monitoringCache.clear();
   }
 
   get _durationMs() {
@@ -81,6 +84,9 @@ export class SpanPanelCard extends HTMLElement {
         this._discovering = false;
         this._render();
         this._loadHistory();
+        this._monitoringCache.fetch(hass).then(() => {
+          if (this._rendered) this._updateDOM();
+        });
       });
       return;
     }
@@ -248,10 +254,12 @@ export class SpanPanelCard extends HTMLElement {
     const circuit = this._topology.circuits[uuid];
     if (!circuit) return;
 
+    const monitoringInfo = this._monitoringCache?.status?.circuits?.[circuit.entities?.current || circuit.entities?.power] || null;
+
     sidePanel.open({
       ...circuit,
       uuid,
-      monitoringInfo: null,
+      monitoringInfo,
     });
   }
 
@@ -276,7 +284,8 @@ export class SpanPanelCard extends HTMLElement {
     const durationMs = this._durationMs;
 
     const headerHTML = buildHeaderHTML(topo, this._config);
-    const gridHTML = buildGridHTML(topo, totalRows, durationMs, hass, this._config, null);
+    const monitoringStatus = this._monitoringCache.status;
+    const gridHTML = buildGridHTML(topo, totalRows, durationMs, hass, this._config, monitoringStatus);
     const subDevHTML = buildSubDevicesHTML(topo, hass, this._config, durationMs);
 
     // Remove previous listeners before replacing DOM
