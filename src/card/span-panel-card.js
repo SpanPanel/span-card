@@ -2,6 +2,7 @@ import { DEFAULT_CHART_METRIC, LIVE_SAMPLE_INTERVAL_MS } from "../constants.js";
 import { escapeHtml } from "../helpers/sanitize.js";
 import { getHistoryDurationMs, getMaxHistoryPoints, recordSample } from "../helpers/history.js";
 import { getCircuitChartEntity } from "../helpers/chart.js";
+import { buildHeaderHTML } from "../core/header-renderer.js";
 import { buildGridHTML } from "../core/grid-renderer.js";
 import { buildSubDevicesHTML } from "../core/sub-device-renderer.js";
 import { loadHistory, collectSubDeviceEntityIds } from "../core/history-loader.js";
@@ -222,9 +223,9 @@ export class SpanPanelCard extends HTMLElement {
 
     const topo = this._topology;
     const totalRows = Math.ceil(this._panelSize / 2);
-    const panelName = escapeHtml(topo.device_name || "SPAN Panel");
     const durationMs = this._durationMs;
 
+    const headerHTML = buildHeaderHTML(topo, this._config);
     const gridHTML = buildGridHTML(topo, totalRows, durationMs, hass, this._config);
     const subDevHTML = buildSubDevicesHTML(topo, hass, this._config, durationMs);
 
@@ -234,35 +235,7 @@ export class SpanPanelCard extends HTMLElement {
     this.shadowRoot.innerHTML = `
       <style>${CARD_STYLES}</style>
       <ha-card>
-        <div class="panel-header">
-          <div class="header-left">
-            <div class="panel-identity">
-              <h1 class="panel-title">${panelName}</h1>
-              <span class="panel-serial">${escapeHtml(topo.serial || "")}</span>
-            </div>
-            <div class="panel-stats">
-              <div class="stat stat-consumption">
-                <span class="stat-label">Panel consumption</span>
-                <div class="stat-row"><span class="stat-value">0</span><span class="stat-unit">kW</span></div>
-              </div>
-              <div class="stat stat-current">
-                <span class="stat-label">Total current</span>
-                <div class="stat-row"><span class="stat-value">--</span><span class="stat-unit">A</span></div>
-              </div>
-              <div class="stat stat-solar">
-                <span class="stat-label">Solar production</span>
-                <div class="stat-row"><span class="stat-value">--</span><span class="stat-unit">kW</span></div>
-              </div>
-              <div class="stat stat-battery">
-                <span class="stat-label">Battery charge/discharge</span>
-                <div class="stat-row"><span class="stat-value">&mdash;</span></div>
-              </div>
-            </div>
-          </div>
-          <div class="header-right">
-            <span class="meta-item">Firmware: ${escapeHtml(topo.firmware || "")}</span>
-          </div>
-        </div>
+        ${headerHTML}
         ${
           this._config.show_panel !== false
             ? `

@@ -55,6 +55,38 @@ export const CARD_STYLES = `
   .header-right { display: flex; gap: 20px; align-items: center; padding-top: 8px; }
   .meta-item { font-size: 0.8em; color: var(--secondary-text-color, #999); }
 
+  .panel-gear {
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: var(--secondary-text-color);
+    opacity: 0.6;
+    padding: 4px;
+    margin-left: 8px;
+    vertical-align: middle;
+  }
+  .panel-gear:hover { opacity: 1; }
+  .unit-toggle {
+    display: inline-flex;
+    background: var(--secondary-background-color, #333);
+    border-radius: 6px;
+    overflow: hidden;
+    margin-left: 8px;
+  }
+  .unit-btn {
+    padding: 4px 10px;
+    border: none;
+    background: none;
+    color: var(--secondary-text-color);
+    font-size: 0.75em;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .unit-btn.unit-active {
+    background: var(--primary-color, #4dd9af);
+    color: var(--text-primary-color, #000);
+  }
+
   .panel-grid {
     display: grid;
     grid-template-columns: 28px 1fr 1fr 28px;
