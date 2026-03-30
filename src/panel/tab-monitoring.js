@@ -178,8 +178,14 @@ export class MonitoringTab {
         fieldsDiv.style.pointerEvents = enabled ? "" : "none";
         if (enabled) {
           await saveGlobal();
-          await this.render(container, hass);
+        } else {
+          try {
+            await hass.callService(INTEGRATION_DOMAIN, "set_global_monitoring", { enabled: false });
+          } catch {
+            // ignore
+          }
         }
+        await this.render(container, hass);
       });
     }
 
