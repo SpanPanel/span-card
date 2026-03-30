@@ -4,7 +4,7 @@ import { buildGridHTML } from "../core/grid-renderer.js";
 import { buildSubDevicesHTML } from "../core/sub-device-renderer.js";
 import { updateCircuitDOM, updateSubDeviceDOM } from "../core/dom-updater.js";
 import { loadHistory } from "../core/history-loader.js";
-import { MonitoringStatusCache } from "../core/monitoring-status.js";
+import { MonitoringStatusCache, buildMonitoringSummaryHTML } from "../core/monitoring-status.js";
 import { CARD_STYLES } from "../card/card-styles.js";
 import { getHistoryDurationMs, recordSample, getMaxHistoryPoints, getMinGapMs } from "../helpers/history.js";
 import { getCircuitChartEntity } from "../helpers/chart.js";
@@ -43,12 +43,14 @@ export class DashboardTab {
     const monitoringStatus = this._monitoringCache.status;
 
     const headerHTML = buildHeaderHTML(topo, config);
+    const monitoringSummaryHTML = buildMonitoringSummaryHTML(monitoringStatus);
     const gridHTML = buildGridHTML(topo, totalRows, durationMs, hass, config, monitoringStatus);
     const subDevHTML = buildSubDevicesHTML(topo, hass, config, durationMs);
 
     container.innerHTML = `
       <style>${CARD_STYLES}</style>
       ${headerHTML}
+      ${monitoringSummaryHTML}
       ${
         config.show_panel !== false
           ? `

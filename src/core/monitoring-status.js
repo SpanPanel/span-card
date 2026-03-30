@@ -105,3 +105,31 @@ export function isAlertActive(monitoringInfo) {
   if (!monitoringInfo) return false;
   return monitoringInfo.over_threshold_since != null;
 }
+
+/**
+ * Build HTML for the monitoring summary bar.
+ * @param {object|null} status - Full monitoring status from get_monitoring_status
+ * @returns {string} HTML string (empty if monitoring disabled)
+ */
+export function buildMonitoringSummaryHTML(status) {
+  if (!status) return "";
+
+  const circuits = Object.values(status.circuits || {});
+  const mains = Object.values(status.mains || {});
+  const all = [...circuits, ...mains];
+
+  const warnings = all.filter(p => p.utilization_pct >= 80 && p.utilization_pct < 100).length;
+  const alerts = all.filter(p => p.utilization_pct >= 100).length;
+  const overrides = all.filter(p => p.continuous_threshold_pct !== undefined).length;
+
+  return `
+    <div class="monitoring-summary">
+      <span class="monitoring-active">&#10003; Monitoring &middot; ${circuits.length} circuits &middot; ${mains.length} mains</span>
+      <span class="monitoring-counts">
+        ${warnings > 0 ? `<span class="count-warning">${warnings} warning${warnings > 1 ? "s" : ""}</span>` : ""}
+        ${alerts > 0 ? `<span class="count-alert">${alerts} alert${alerts > 1 ? "s" : ""}</span>` : ""}
+        ${overrides > 0 ? `<span class="count-overrides">${overrides} override${overrides > 1 ? "s" : ""}</span>` : ""}
+      </span>
+    </div>
+  `;
+}

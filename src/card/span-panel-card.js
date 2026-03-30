@@ -10,7 +10,7 @@ import { updateCircuitDOM, updateSubDeviceDOM } from "../core/dom-updater.js";
 import { discoverTopology, discoverEntitiesFallback } from "./card-discovery.js";
 import { CARD_STYLES } from "./card-styles.js";
 import "../core/side-panel.js";
-import { MonitoringStatusCache } from "../core/monitoring-status.js";
+import { MonitoringStatusCache, buildMonitoringSummaryHTML } from "../core/monitoring-status.js";
 
 export class SpanPanelCard extends HTMLElement {
   constructor() {
@@ -283,8 +283,9 @@ export class SpanPanelCard extends HTMLElement {
     const totalRows = Math.ceil(this._panelSize / 2);
     const durationMs = this._durationMs;
 
-    const headerHTML = buildHeaderHTML(topo, this._config);
+    const headerHTML = buildHeaderHTML(topo, this._config, hass);
     const monitoringStatus = this._monitoringCache.status;
+    const monitoringSummaryHTML = buildMonitoringSummaryHTML(monitoringStatus);
     const gridHTML = buildGridHTML(topo, totalRows, durationMs, hass, this._config, monitoringStatus);
     const subDevHTML = buildSubDevicesHTML(topo, hass, this._config, durationMs);
 
@@ -297,6 +298,7 @@ export class SpanPanelCard extends HTMLElement {
       <style>${CARD_STYLES}</style>
       <ha-card>
         ${headerHTML}
+        ${monitoringSummaryHTML}
         ${
           this._config.show_panel !== false
             ? `

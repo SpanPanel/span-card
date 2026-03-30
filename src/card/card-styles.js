@@ -87,6 +87,22 @@ export const CARD_STYLES = `
     color: var(--text-primary-color, #000);
   }
 
+  .monitoring-summary {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 6px 16px;
+    font-size: 0.8em;
+    background: rgba(76, 175, 80, 0.1);
+    border: 1px solid var(--divider-color, #333);
+    border-top: none;
+  }
+  .monitoring-active { color: #4caf50; }
+  .monitoring-counts { display: flex; gap: 12px; }
+  .count-warning { color: #ff9800; }
+  .count-alert { color: #f44336; }
+  .count-overrides { color: var(--secondary-text-color); }
+
   .panel-grid {
     display: grid;
     grid-template-columns: 28px 1fr 1fr 28px;
