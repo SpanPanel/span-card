@@ -1,13 +1,11 @@
-import { CHART_METRICS, BESS_CHART_METRICS, DEFAULT_CHART_METRIC, LIVE_SAMPLE_INTERVAL_MS, DEVICE_TYPE_PV, RELAY_STATE_CLOSED } from "../constants.js";
+import { DEFAULT_CHART_METRIC, LIVE_SAMPLE_INTERVAL_MS } from "../constants.js";
 import { escapeHtml } from "../helpers/sanitize.js";
-import { formatPowerSigned, formatPowerUnit, formatKw } from "../helpers/format.js";
 import { getHistoryDurationMs, getMaxHistoryPoints, recordSample } from "../helpers/history.js";
-import { getChartMetric, getCircuitChartEntity } from "../helpers/chart.js";
+import { getCircuitChartEntity } from "../helpers/chart.js";
 import { buildGridHTML } from "../core/grid-renderer.js";
 import { buildSubDevicesHTML } from "../core/sub-device-renderer.js";
-import { findSubDevicePowerEntity } from "../helpers/entity-finder.js";
 import { loadHistory, collectSubDeviceEntityIds } from "../core/history-loader.js";
-import { updateChart } from "../chart/chart-update.js";
+import { updateCircuitDOM, updateSubDeviceDOM } from "../core/dom-updater.js";
 import { discoverTopology, discoverEntitiesFallback } from "./card-discovery.js";
 import { CARD_STYLES } from "./card-styles.js";
 
@@ -177,142 +175,9 @@ export class SpanPanelCard extends HTMLElement {
   // ── DOM updates (incremental) ──────────────────────────────────────────────
 
   _updateDOM() {
-    const root = this.shadowRoot;
-    if (!root || !this._topology || !this._hass) return;
-
-    const hass = this._hass;
-    const topo = this._topology;
-    const durationMs = this._durationMs;
-
-    let totalConsumption = 0;
-    let solarProduction = 0;
-
-    for (const [, circuit] of Object.entries(topo.circuits)) {
-      const entityId = circuit.entities?.power;
-      if (!entityId) continue;
-      const state = hass.states[entityId];
-      const power = state ? parseFloat(state.state) || 0 : 0;
-      if (circuit.device_type === DEVICE_TYPE_PV) {
-        solarProduction += Math.abs(power);
-      } else {
-        totalConsumption += Math.abs(power);
-      }
-    }
-
-    const panelPowerEntity = this._findPanelEntity("current_power");
-    if (panelPowerEntity) {
-      const state = hass.states[panelPowerEntity];
-      if (state) totalConsumption = Math.abs(parseFloat(state.state) || 0);
-    }
-
-    const consumptionEl = root.querySelector(".stat-consumption .stat-value");
-    if (consumptionEl) consumptionEl.textContent = formatKw(totalConsumption);
-
-    const currentEl = root.querySelector(".stat-current .stat-value");
-    if (currentEl) {
-      const panelPowerEid = this._findPanelEntity("current_power");
-      const panelPowerState = panelPowerEid ? hass.states[panelPowerEid] : null;
-      const amperage = panelPowerState ? parseFloat(panelPowerState.attributes?.amperage) : NaN;
-      currentEl.textContent = Number.isFinite(amperage) ? amperage.toFixed(1) : "--";
-    }
-    const solarEl = root.querySelector(".stat-solar .stat-value");
-    if (solarEl) solarEl.textContent = solarProduction > 0 ? formatKw(solarProduction) : "--";
-
-    const chartMetric = getChartMetric(this._config);
-    const showCurrent = chartMetric.entityRole === "current";
-
-    for (const [uuid, circuit] of Object.entries(topo.circuits)) {
-      const slot = root.querySelector(`[data-uuid="${uuid}"]`);
-      if (!slot) continue;
-
-      const entityId = circuit.entities?.power;
-      const state = entityId ? hass.states[entityId] : null;
-      const powerW = state ? parseFloat(state.state) || 0 : 0;
-      const isProducer = circuit.device_type === DEVICE_TYPE_PV || powerW < 0;
-
-      const switchEntityId = circuit.entities?.switch;
-      const switchState = switchEntityId ? hass.states[switchEntityId] : null;
-      const isOn = switchState ? switchState.state === "on" : (state?.attributes?.relay_state || circuit.relay_state) === RELAY_STATE_CLOSED;
-
-      const powerVal = slot.querySelector(".power-value");
-      if (powerVal) {
-        if (showCurrent) {
-          const currentEid = circuit.entities?.current;
-          const currentState = currentEid ? hass.states[currentEid] : null;
-          const amps = currentState ? parseFloat(currentState.state) || 0 : 0;
-          powerVal.innerHTML = `<strong>${chartMetric.format(amps)}</strong><span class="power-unit">A</span>`;
-        } else {
-          powerVal.innerHTML = `<strong>${formatPowerSigned(powerW)}</strong><span class="power-unit">${formatPowerUnit(powerW)}</span>`;
-        }
-      }
-
-      const toggle = slot.querySelector(".toggle-pill");
-      if (toggle) {
-        toggle.className = `toggle-pill ${isOn ? "toggle-on" : "toggle-off"}`;
-        const label = toggle.querySelector(".toggle-label");
-        if (label) label.textContent = isOn ? "On" : "Off";
-      }
-
-      slot.classList.toggle("circuit-off", !isOn);
-      slot.classList.toggle("circuit-producer", isProducer);
-
-      const chartContainer = slot.querySelector(".chart-container");
-      if (chartContainer) {
-        const history = this._powerHistory.get(uuid) || [];
-        const h = slot.classList.contains("circuit-col-span") ? 200 : 100;
-        updateChart(chartContainer, hass, history, durationMs, chartMetric, isProducer, h, circuit.breaker_rating_a);
-      }
-    }
-
-    this._updateSubDeviceDOM(root, hass, topo, durationMs);
-  }
-
-  _updateSubDeviceDOM(root, hass, topo, durationMs) {
-    if (!topo.sub_devices) return;
-    for (const [devId, sub] of Object.entries(topo.sub_devices)) {
-      const section = root.querySelector(`[data-subdev="${devId}"]`);
-      if (!section) continue;
-
-      const powerEid = findSubDevicePowerEntity(sub);
-      if (powerEid) {
-        const state = hass.states[powerEid];
-        const powerW = state ? parseFloat(state.state) || 0 : 0;
-        const powerEl = section.querySelector(".sub-power-value");
-        if (powerEl) {
-          powerEl.innerHTML = `<strong>${formatPowerSigned(powerW)}</strong> <span class="power-unit">${formatPowerUnit(powerW)}</span>`;
-        }
-      }
-
-      const chartContainers = section.querySelectorAll("[data-chart-key]");
-      for (const cc of chartContainers) {
-        const chartKey = cc.dataset.chartKey;
-        const history = this._powerHistory.get(chartKey) || [];
-        let metric = CHART_METRICS.power;
-        if (chartKey.endsWith("_soc")) metric = BESS_CHART_METRICS.soc;
-        else if (chartKey.endsWith("_soe")) metric = BESS_CHART_METRICS.soe;
-        const isBessCol = !!cc.closest(".bess-chart-col");
-        updateChart(cc, hass, history, durationMs, metric, false, isBessCol ? 120 : 150);
-      }
-
-      for (const entityId of Object.keys(sub.entities || {})) {
-        const valEl = section.querySelector(`[data-eid="${entityId}"]`);
-        if (!valEl) continue;
-        const state = hass.states[entityId];
-        if (state) {
-          valEl.textContent = `${state.state}${state.attributes.unit_of_measurement ? " " + state.attributes.unit_of_measurement : ""}`;
-        }
-      }
-    }
-  }
-
-  _findPanelEntity(suffix) {
-    if (!this._hass) return null;
-    for (const entityId of Object.keys(this._hass.states)) {
-      if (entityId.startsWith("sensor.span_panel_") && entityId.endsWith(`_${suffix}`)) {
-        return entityId;
-      }
-    }
-    return null;
+    const config = { ...this._config, _durationMs: this._durationMs };
+    updateCircuitDOM(this.shadowRoot, this._hass, this._topology, config, this._powerHistory);
+    updateSubDeviceDOM(this.shadowRoot, this._hass, this._topology, config, this._powerHistory);
   }
 
   // ── Toggle click handler ───────────────────────────────────────────────────
