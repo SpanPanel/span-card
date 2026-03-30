@@ -13,6 +13,16 @@ const INPUT_STYLE = `
 const LABEL_STYLE = `
   min-width:130px;font-size:0.85em;color:var(--secondary-text-color);
 `;
+const WIDE_LABEL_STYLE = `
+  min-width:160px;font-size:0.85em;color:var(--secondary-text-color);
+`;
+const TEXT_INPUT_STYLE = `
+  background:var(--secondary-background-color,#333);
+  border:1px solid var(--divider-color);
+  color:var(--primary-text-color);
+  border-radius:4px;padding:6px 10px;flex:1;font-size:0.85em;
+  font-family:monospace;
+`;
 const CELL_INPUT_STYLE = `
   background:var(--secondary-background-color,#333);
   border:1px solid var(--divider-color);
@@ -37,6 +47,10 @@ export class MonitoringTab {
 
   async render(container, hass, configEntryId) {
     if (configEntryId !== undefined) this._configEntryId = configEntryId;
+    if (this._notifyCloseHandler) {
+      document.removeEventListener("click", this._notifyCloseHandler);
+      this._notifyCloseHandler = null;
+    }
     let status;
     try {
       const serviceData = {};
@@ -57,6 +71,42 @@ export class MonitoringTab {
     const isEnabled = status?.enabled === true;
     const circuits = status?.circuits || {};
     const mains = status?.mains || {};
+
+    // Discover notify targets from three sources, deduplicated:
+    // 1. Mobile app services derived from person entity device_trackers
+    // 2. Entity-based notify targets (notify.*) from hass.states
+    // 3. Legacy service-based targets from hass.services.notify
+    const targetSet = new Set();
+
+    // Derive mobile app notify services from person entities + device_trackers
+    for (const [eid, stateObj] of Object.entries(hass.states || {})) {
+      if (!eid.startsWith("person.")) continue;
+      const trackers = stateObj.attributes?.device_trackers || [];
+      for (const tracker of trackers) {
+        const deviceName = tracker.split(".")[1];
+        if (deviceName) targetSet.add(`notify.mobile_app_${deviceName}`);
+      }
+    }
+
+    // Add notify.* entities from hass.states
+    for (const eid of Object.keys(hass.states || {})) {
+      if (eid.startsWith("notify.")) targetSet.add(eid);
+    }
+
+    // Add legacy service-based targets from hass.services.notify
+    for (const svc of Object.keys(hass.services?.notify || {})) {
+      targetSet.add(`notify.${svc}`);
+    }
+
+    const allNotifyTargets = [...targetSet].sort();
+
+    const rawTargets = globalSettings.notify_targets || "notify.notify";
+    const selectedTargets = (typeof rawTargets === "string" ? rawTargets.split(",") : rawTargets).map(t => t.trim()).filter(Boolean);
+    const titleTemplate = globalSettings.notification_title_template || "SPAN: {name} {alert_type}";
+    const messageTemplate = globalSettings.notification_message_template || "{name} at {current_a}A ({utilization_pct}% of {breaker_rating_a}A rating)";
+    const persistentNotifications = globalSettings.enable_persistent_notifications !== false;
+    const eventBus = globalSettings.enable_event_bus !== false;
+    const currentPriority = globalSettings.notification_priority || "default";
 
     const circuitEntries = Object.entries(circuits).sort(([, a], [, b]) => (a.name || "").localeCompare(b.name || ""));
     const mainsEntries = Object.entries(mains);
@@ -175,6 +225,116 @@ export class MonitoringTab {
                      value="${globalSettings.cooldown_duration_m ?? 15}"
                      style="${INPUT_STYLE}">
             </div>
+
+            <hr style="border:none;border-top:1px solid var(--divider-color);margin:16px 0 12px;">
+            <h4 style="margin:0 0 12px;font-size:0.9em;color:var(--primary-text-color);">Notification Settings</h4>
+
+            <div style="${FIELD_STYLE}">
+              <span style="${WIDE_LABEL_STYLE}">Notify Targets</span>
+              <div id="notify-target-select" style="position:relative;flex:1;">
+                <button id="notify-target-btn" type="button" style="
+                  background:var(--secondary-background-color,#333);
+                  border:1px solid var(--divider-color);
+                  color:var(--primary-text-color);
+                  border-radius:4px;padding:6px 10px;width:100%;font-size:0.85em;
+                  text-align:left;cursor:pointer;display:flex;align-items:center;justify-content:space-between;">
+                  <span id="notify-target-label">${selectedTargets.length ? selectedTargets.map(t => escapeHtml(t)).join(", ") : "None selected"}</span>
+                  <span style="font-size:0.7em;margin-left:8px;">&#9660;</span>
+                </button>
+                <div id="notify-target-dropdown" style="
+                  display:none;position:absolute;top:100%;left:0;right:0;z-index:10;
+                  background:var(--card-background-color,var(--secondary-background-color,#333));
+                  border:1px solid var(--divider-color);border-radius:4px;
+                  max-height:200px;overflow-y:auto;margin-top:2px;
+                  box-shadow:0 4px 12px rgba(0,0,0,0.3);">
+                  ${
+                    allNotifyTargets.length === 0
+                      ? `<div style="padding:8px 12px;font-size:0.8em;color:var(--secondary-text-color);">No notify targets found</div>`
+                      : allNotifyTargets
+                          .map(target => {
+                            const checked = selectedTargets.includes(target);
+                            const stateObj = hass.states[target];
+                            const friendly = stateObj?.attributes?.friendly_name;
+                            const displayName = friendly ? `${escapeHtml(friendly)} (${escapeHtml(target)})` : escapeHtml(target);
+                            return `<label style="display:flex;align-items:center;gap:8px;padding:6px 12px;cursor:pointer;font-size:0.85em;"
+                                       class="notify-option">
+                          <input type="checkbox" class="notify-target-cb" value="${escapeHtml(target)}"
+                                 ${checked ? "checked" : ""}
+                                 style="width:14px;height:14px;accent-color:var(--primary-color,#4dd9af);">
+                          <span>${displayName}</span>
+                        </label>`;
+                          })
+                          .join("")
+                  }
+                </div>
+              </div>
+            </div>
+
+            <div style="${FIELD_STYLE}">
+              <span style="${WIDE_LABEL_STYLE}">Persistent Alerts</span>
+              <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+                <input type="checkbox" id="g-persistent-notifications" ${persistentNotifications ? "checked" : ""}
+                       style="width:14px;height:14px;accent-color:var(--primary-color,#4dd9af);">
+                <span style="font-size:0.8em;color:var(--secondary-text-color);">Create persistent HA notifications</span>
+              </label>
+            </div>
+
+            <div style="${FIELD_STYLE}">
+              <span style="${WIDE_LABEL_STYLE}">Event Bus</span>
+              <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+                <input type="checkbox" id="g-event-bus" ${eventBus ? "checked" : ""}
+                       style="width:14px;height:14px;accent-color:var(--primary-color,#4dd9af);">
+                <span style="font-size:0.8em;color:var(--secondary-text-color);">Fire events on the HA event bus</span>
+              </label>
+            </div>
+
+            <div style="${FIELD_STYLE}">
+              <span style="${WIDE_LABEL_STYLE}">Priority</span>
+              <select id="g-priority" style="
+                background:var(--secondary-background-color,#333);
+                border:1px solid var(--divider-color);
+                color:var(--primary-text-color);
+                border-radius:4px;padding:6px 10px;font-size:0.85em;">
+                ${["default", "passive", "active", "time-sensitive", "critical"]
+                  .map(p => `<option value="${p}" ${currentPriority === p ? "selected" : ""}>${p.charAt(0).toUpperCase() + p.slice(1)}</option>`)
+                  .join("")}
+              </select>
+              <span style="font-size:0.75em;color:var(--secondary-text-color);margin-left:4px;">
+                ${
+                  currentPriority === "critical"
+                    ? "Overrides silent/DND"
+                    : currentPriority === "time-sensitive"
+                      ? "Breaks through Focus"
+                      : currentPriority === "passive"
+                        ? "Delivers silently"
+                        : currentPriority === "active"
+                          ? "Standard delivery"
+                          : ""
+                }
+              </span>
+            </div>
+
+            <div style="${FIELD_STYLE}">
+              <span style="${WIDE_LABEL_STYLE}">Title Template</span>
+              <input type="text" id="g-title-template"
+                     value="${escapeHtml(titleTemplate)}"
+                     placeholder="SPAN: {name} {alert_type}"
+                     style="${TEXT_INPUT_STYLE}">
+            </div>
+
+            <div style="${FIELD_STYLE}">
+              <span style="${WIDE_LABEL_STYLE}">Message Template</span>
+              <input type="text" id="g-message-template"
+                     value="${escapeHtml(messageTemplate)}"
+                     placeholder="{name} at {current_a}A ({utilization_pct}% of {breaker_rating_a}A)"
+                     style="${TEXT_INPUT_STYLE}">
+            </div>
+
+            <div style="font-size:0.75em;color:var(--secondary-text-color);margin-top:4px;line-height:1.4;">
+              Placeholders: <code>{name}</code> <code>{entity_id}</code> <code>{alert_type}</code>
+              <code>{current_a}</code> <code>{breaker_rating_a}</code> <code>{threshold_pct}</code>
+              <code>{utilization_pct}</code> <code>{window_m}</code>
+            </div>
           </div>
 
           <div id="global-status" style="font-size:0.8em;color:var(--secondary-text-color);margin-top:8px;min-height:1.2em;"></div>
@@ -217,6 +377,8 @@ export class MonitoringTab {
     }
 
     this._bindGlobalControls(container, hass);
+    this._bindNotifyTargetSelect(container, hass);
+    this._bindNotificationSettings(container, hass);
     this._bindToggleAll(container, hass, circuits, mains);
     this._bindCircuitToggles(container, hass);
     this._bindMainsToggles(container, hass);
@@ -293,6 +455,98 @@ export class MonitoringTab {
 
     for (const input of container.querySelectorAll("#global-fields input[type=number]")) {
       input.addEventListener("input", saveGlobal);
+    }
+  }
+
+  _bindNotifyTargetSelect(container, hass) {
+    const btn = container.querySelector("#notify-target-btn");
+    const dropdown = container.querySelector("#notify-target-dropdown");
+    const label = container.querySelector("#notify-target-label");
+    if (!btn || !dropdown) return;
+
+    btn.addEventListener("click", e => {
+      e.stopPropagation();
+      const isOpen = dropdown.style.display !== "none";
+      dropdown.style.display = isOpen ? "none" : "block";
+    });
+
+    // Close dropdown when clicking outside
+    const closeHandler = e => {
+      const selectEl = container.querySelector("#notify-target-select");
+      if (selectEl && !selectEl.contains(e.target)) {
+        dropdown.style.display = "none";
+      }
+    };
+    document.addEventListener("click", closeHandler);
+    // Store ref for cleanup on next render (dropdown rebuilt each render)
+    this._notifyCloseHandler = closeHandler;
+
+    // Handle checkbox changes
+    for (const cb of container.querySelectorAll(".notify-target-cb")) {
+      cb.addEventListener("change", () => {
+        const checked = [...container.querySelectorAll(".notify-target-cb:checked")];
+        const targets = checked.map(c => c.value);
+        label.textContent = targets.length ? targets.join(", ") : "None selected";
+
+        clearTimeout(this._debounceTimer);
+        this._debounceTimer = setTimeout(async () => {
+          try {
+            await this._callSetGlobal(hass, { notify_targets: targets.join(", ") });
+          } catch {
+            // will show on next render
+          }
+        }, 500);
+      });
+    }
+  }
+
+  _bindNotificationSettings(container, hass) {
+    const persistentCb = container.querySelector("#g-persistent-notifications");
+    const eventBusCb = container.querySelector("#g-event-bus");
+    const prioritySelect = container.querySelector("#g-priority");
+    const titleInput = container.querySelector("#g-title-template");
+    const messageInput = container.querySelector("#g-message-template");
+
+    const saveField = (field, value) => {
+      clearTimeout(this._debounceTimer);
+      this._debounceTimer = setTimeout(async () => {
+        try {
+          await this._callSetGlobal(hass, { [field]: value });
+        } catch {
+          // will show on next render
+        }
+      }, 500);
+    };
+
+    if (persistentCb) {
+      persistentCb.addEventListener("change", () => {
+        saveField("enable_persistent_notifications", persistentCb.checked);
+      });
+    }
+    if (eventBusCb) {
+      eventBusCb.addEventListener("change", () => {
+        saveField("enable_event_bus", eventBusCb.checked);
+      });
+    }
+    if (prioritySelect) {
+      prioritySelect.addEventListener("change", async () => {
+        try {
+          await this._callSetGlobal(hass, { notification_priority: prioritySelect.value });
+          await this.render(container, hass);
+        } catch {
+          // will show on next render
+        }
+      });
+    }
+    if (titleInput) {
+      titleInput.addEventListener("input", () => {
+        saveField("notification_title_template", titleInput.value);
+      });
+    }
+    if (messageInput) {
+      messageInput.addEventListener("input", () => {
+        saveField("notification_message_template", messageInput.value);
+      });
     }
   }
 
