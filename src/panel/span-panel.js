@@ -1,6 +1,8 @@
 import { INTEGRATION_DOMAIN } from "../constants.js";
 import "../core/side-panel.js";
 import { DashboardTab } from "./tab-dashboard.js";
+import { MonitoringTab } from "./tab-monitoring.js";
+import { SettingsTab } from "./tab-settings.js";
 
 const PANEL_STYLES = `
   :host {
@@ -59,6 +61,8 @@ export class SpanPanelElement extends HTMLElement {
     this._activeTab = "dashboard";
     this._discovered = false;
     this._dashboardTab = new DashboardTab();
+    this._monitoringTab = new MonitoringTab();
+    this._settingsTab = new SettingsTab();
   }
 
   set hass(val) {
@@ -168,10 +172,12 @@ export class SpanPanelElement extends HTMLElement {
         break;
       }
       case "monitoring":
-        container.innerHTML = `<p style="color:var(--secondary-text-color);">Monitoring tab — coming in Task 14</p>`;
+        container.innerHTML = "";
+        await this._monitoringTab.render(container, this._hass);
         break;
       case "settings":
-        container.innerHTML = `<p style="color:var(--secondary-text-color);">Settings tab — coming in Task 15</p>`;
+        container.innerHTML = "";
+        this._settingsTab.render(container);
         break;
     }
   }
