@@ -38,28 +38,78 @@ export class MonitoringTab {
     const isEnabled = status?.enabled === true;
     const circuits = status?.circuits || {};
     const mains = status?.mains || {};
-    const allEntries = [...Object.entries(circuits), ...Object.entries(mains)];
 
-    const monitoredRows = allEntries
+    const circuitEntries = Object.entries(circuits).sort(([, a], [, b]) => (a.name || "").localeCompare(b.name || ""));
+    const mainsEntries = Object.entries(mains);
+    const allPoints = [...circuitEntries, ...mainsEntries];
+    const allEnabled = allPoints.length > 0 && allPoints.every(([, c]) => c.monitoring_enabled !== false);
+    const someEnabled = allPoints.some(([, c]) => c.monitoring_enabled !== false);
+
+    const circuitRows = circuitEntries
       .map(([entityId, info]) => {
         const name = escapeHtml(info.name || entityId);
-        const continuous = info.continuous_threshold_pct;
-        const spike = info.spike_threshold_pct;
-        const window = info.window_duration_m;
-        const isMains = Object.prototype.hasOwnProperty.call(mains, entityId);
+        const enabled = info.monitoring_enabled !== false;
+        const hasOverride = info.has_override === true;
+        const dimStyle = enabled ? "" : "opacity:0.4;";
+        const badge = hasOverride
+          ? `<span style="font-size:0.7em;padding:1px 5px;border-radius:3px;background:var(--primary-color,#4dd9af);color:var(--text-primary-color,#000);margin-left:6px;">Custom</span>`
+          : "";
         return `
-          <tr>
-            <td style="padding:8px;">${name}</td>
-            <td style="padding:8px;">${continuous ?? "--"}%</td>
-            <td style="padding:8px;">${spike ?? "--"}%</td>
-            <td style="padding:8px;">${window ?? "--"}m</td>
-            <td style="padding:8px;">
-              <button class="reset-btn" data-entity="${escapeHtml(entityId)}"
-                      data-type="${isMains ? "mains" : "circuit"}"
-                      style="background:none;border:1px solid var(--divider-color);color:var(--primary-text-color);border-radius:4px;padding:4px 8px;cursor:pointer;font-size:0.8em;"
-                      title="Reset to global default thresholds">
-                Reset to Default
-              </button>
+          <tr style="${dimStyle}">
+            <td style="padding:6px 8px;">
+              <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+                <input type="checkbox" class="circuit-toggle" data-entity="${escapeHtml(entityId)}"
+                       ${enabled ? "checked" : ""}
+                       style="width:14px;height:14px;accent-color:var(--primary-color,#4dd9af);">
+                <span>${name}</span>${badge}
+              </label>
+            </td>
+            <td style="padding:6px 8px;">${info.continuous_threshold_pct ?? "--"}%</td>
+            <td style="padding:6px 8px;">${info.spike_threshold_pct ?? "--"}%</td>
+            <td style="padding:6px 8px;">${info.window_duration_m ?? "--"}m</td>
+            <td style="padding:6px 8px;">
+              ${
+                hasOverride
+                  ? `<button class="reset-btn" data-entity="${escapeHtml(entityId)}" data-type="circuit"
+                       style="background:none;border:1px solid var(--divider-color);color:var(--primary-text-color);border-radius:4px;padding:3px 6px;cursor:pointer;font-size:0.75em;">
+                    Reset
+                  </button>`
+                  : ""
+              }
+            </td>
+          </tr>
+        `;
+      })
+      .join("");
+
+    const mainsRows = Object.entries(mains)
+      .map(([entityId, info]) => {
+        const name = escapeHtml(info.name || entityId);
+        const enabled = info.monitoring_enabled !== false;
+        const hasOverride = info.has_override === true;
+        const dimStyle = enabled ? "" : "opacity:0.4;";
+        return `
+          <tr style="${dimStyle}">
+            <td style="padding:6px 8px;">
+              <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+                <input type="checkbox" class="mains-toggle" data-entity="${escapeHtml(entityId)}"
+                       ${enabled ? "checked" : ""}
+                       style="width:14px;height:14px;accent-color:var(--primary-color,#4dd9af);">
+                <span>${name}</span>
+              </label>
+            </td>
+            <td style="padding:6px 8px;">${info.continuous_threshold_pct ?? "--"}%</td>
+            <td style="padding:6px 8px;">${info.spike_threshold_pct ?? "--"}%</td>
+            <td style="padding:6px 8px;">${info.window_duration_m ?? "--"}m</td>
+            <td style="padding:6px 8px;">
+              ${
+                hasOverride
+                  ? `<button class="reset-btn" data-entity="${escapeHtml(entityId)}" data-type="mains"
+                       style="background:none;border:1px solid var(--divider-color);color:var(--primary-text-color);border-radius:4px;padding:3px 6px;cursor:pointer;font-size:0.75em;">
+                    Reset
+                  </button>`
+                  : ""
+              }
             </td>
           </tr>
         `;
@@ -110,37 +160,55 @@ export class MonitoringTab {
           <div id="global-status" style="font-size:0.8em;color:var(--secondary-text-color);margin-top:8px;min-height:1.2em;"></div>
         </div>
 
-        <h3>Per-Circuit Overrides</h3>
-        <p style="color:var(--secondary-text-color);margin-bottom:16px;font-size:0.85em;">
-          Use <em>Reset to Default</em> to clear a custom override and restore the circuit to global defaults.
-        </p>
-        ${
-          allEntries.length > 0
-            ? `
-          <table style="width:100%;border-collapse:collapse;">
-            <thead>
-              <tr style="text-align:left;border-bottom:1px solid var(--divider-color);">
-                <th style="padding:8px;">Name</th>
-                <th style="padding:8px;">Continuous</th>
-                <th style="padding:8px;">Spike</th>
-                <th style="padding:8px;">Window</th>
-                <th style="padding:8px;"></th>
-              </tr>
-            </thead>
-            <tbody>${monitoredRows}</tbody>
-          </table>
-        `
-            : `
-          <p style="color:var(--secondary-text-color);">
-            All circuits using global defaults. No per-circuit overrides are configured.
-          </p>
-        `
-        }
+        <h3>Monitored Points</h3>
+        <table style="width:100%;border-collapse:collapse;">
+          <thead>
+            <tr style="text-align:left;border-bottom:1px solid var(--divider-color);">
+              <th style="padding:6px 8px;">Name</th>
+              <th style="padding:6px 8px;">Continuous</th>
+              <th style="padding:6px 8px;">Spike</th>
+              <th style="padding:6px 8px;">Window</th>
+              <th style="padding:6px 8px;"></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr style="border-bottom:1px solid var(--divider-color,#333);">
+              <td style="padding:6px 8px;" colspan="5">
+                <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+                  <input type="checkbox" id="toggle-all-circuits"
+                         ${allEnabled ? "checked" : ""}
+                         style="width:14px;height:14px;accent-color:var(--primary-color,#4dd9af);">
+                  <span style="font-weight:600;font-size:0.85em;color:var(--secondary-text-color);">All / None</span>
+                </label>
+              </td>
+            </tr>
+            ${mainsRows}
+            ${circuitRows}
+          </tbody>
+        </table>
       </div>
     `;
 
+    // Set indeterminate state on toggle-all checkbox
+    const toggleAllCb = container.querySelector("#toggle-all-circuits");
+    if (toggleAllCb && !allEnabled && someEnabled) {
+      toggleAllCb.indeterminate = true;
+    }
+
     this._bindGlobalControls(container, hass);
+    this._bindToggleAll(container, hass, circuits, mains);
+    this._bindCircuitToggles(container, hass);
+    this._bindMainsToggles(container, hass);
     this._bindResetButtons(container, hass);
+  }
+
+  _callSetGlobal(hass, data) {
+    return hass.callWS({
+      type: "call_service",
+      domain: INTEGRATION_DOMAIN,
+      service: "set_global_monitoring",
+      service_data: data,
+    });
   }
 
   _bindGlobalControls(container, hass) {
@@ -148,7 +216,7 @@ export class MonitoringTab {
     const fieldsDiv = container.querySelector("#global-fields");
     const statusEl = container.querySelector("#global-status");
 
-    const saveGlobal = async () => {
+    const saveGlobal = () => {
       clearTimeout(this._debounceTimer);
       this._debounceTimer = setTimeout(async () => {
         const data = {
@@ -158,7 +226,7 @@ export class MonitoringTab {
           cooldown_duration_m: parseInt(container.querySelector("#g-cooldown").value, 10),
         };
         try {
-          await hass.callService(INTEGRATION_DOMAIN, "set_global_monitoring", data);
+          await this._callSetGlobal(hass, data);
           statusEl.textContent = "Saved";
           statusEl.style.color = "var(--success-color, #4caf50)";
           setTimeout(() => {
@@ -176,14 +244,25 @@ export class MonitoringTab {
         const enabled = enabledCheckbox.checked;
         fieldsDiv.style.opacity = enabled ? "" : "0.4";
         fieldsDiv.style.pointerEvents = enabled ? "" : "none";
-        if (enabled) {
-          await saveGlobal();
-        } else {
-          try {
-            await hass.callService(INTEGRATION_DOMAIN, "set_global_monitoring", { enabled: false });
-          } catch {
-            // ignore
+        const statusEl2 = container.querySelector("#global-status");
+        try {
+          if (enabled) {
+            const data = {
+              continuous_threshold_pct: parseInt(container.querySelector("#g-continuous").value, 10),
+              spike_threshold_pct: parseInt(container.querySelector("#g-spike").value, 10),
+              window_duration_m: parseInt(container.querySelector("#g-window").value, 10),
+              cooldown_duration_m: parseInt(container.querySelector("#g-cooldown").value, 10),
+            };
+            await this._callSetGlobal(hass, data);
+          } else {
+            await this._callSetGlobal(hass, { enabled: false });
           }
+        } catch (err) {
+          if (statusEl2) {
+            statusEl2.textContent = `Error: ${err.message || "Failed"}`;
+            statusEl2.style.color = "var(--error-color, #f44336)";
+          }
+          return;
         }
         await this.render(container, hass);
       });
@@ -191,6 +270,83 @@ export class MonitoringTab {
 
     for (const input of container.querySelectorAll("#global-fields input[type=number]")) {
       input.addEventListener("input", saveGlobal);
+    }
+  }
+
+  _bindToggleAll(container, hass, circuits, mains) {
+    const toggleAll = container.querySelector("#toggle-all-circuits");
+    if (!toggleAll) return;
+    toggleAll.addEventListener("change", async () => {
+      const enabled = toggleAll.checked;
+      const calls = [
+        ...Object.keys(circuits).map(entityId =>
+          hass
+            .callWS({
+              type: "call_service",
+              domain: INTEGRATION_DOMAIN,
+              service: "set_circuit_threshold",
+              service_data: { circuit_id: entityId, monitoring_enabled: enabled },
+            })
+            .catch(() => {})
+        ),
+        ...Object.keys(mains).map(entityId =>
+          hass
+            .callWS({
+              type: "call_service",
+              domain: INTEGRATION_DOMAIN,
+              service: "set_mains_threshold",
+              service_data: { leg: entityId, monitoring_enabled: enabled },
+            })
+            .catch(() => {})
+        ),
+      ];
+      await Promise.all(calls);
+      await this.render(container, hass);
+    });
+  }
+
+  _bindMainsToggles(container, hass) {
+    for (const cb of container.querySelectorAll(".mains-toggle")) {
+      cb.addEventListener("change", async () => {
+        const entityId = cb.dataset.entity;
+        const enabled = cb.checked;
+        try {
+          // Set both upstream legs together (single 240V breaker)
+          await Promise.all([
+            hass.callWS({
+              type: "call_service",
+              domain: INTEGRATION_DOMAIN,
+              service: "set_mains_threshold",
+              service_data: { leg: entityId, monitoring_enabled: enabled },
+            }),
+          ]);
+        } catch {
+          cb.checked = !enabled;
+          return;
+        }
+        await this.render(container, hass);
+      });
+    }
+  }
+
+  _bindCircuitToggles(container, hass) {
+    for (const cb of container.querySelectorAll(".circuit-toggle")) {
+      cb.addEventListener("change", async () => {
+        const entityId = cb.dataset.entity;
+        const enabled = cb.checked;
+        try {
+          await hass.callWS({
+            type: "call_service",
+            domain: INTEGRATION_DOMAIN,
+            service: "set_circuit_threshold",
+            service_data: { circuit_id: entityId, monitoring_enabled: enabled },
+          });
+        } catch {
+          cb.checked = !enabled;
+          return;
+        }
+        await this.render(container, hass);
+      });
     }
   }
 
