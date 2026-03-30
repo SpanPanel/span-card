@@ -25,6 +25,7 @@ export default [
         MutationObserver: "readonly",
         IntersectionObserver: "readonly",
         performance: "readonly",
+        localStorage: "readonly",
       },
     },
     rules: {
