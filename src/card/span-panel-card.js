@@ -158,7 +158,7 @@ export class SpanPanelCard extends HTMLElement {
       recordSample(this._powerHistory, uuid, rawValue, now, cutoff, maxPoints);
     }
 
-    for (const { entityId, key } of collectSubDeviceEntityIds(this._topology, this._hass)) {
+    for (const { entityId, key } of collectSubDeviceEntityIds(this._topology)) {
       const state = this._hass.states[entityId];
       const rawValue = state ? parseFloat(state.state) || 0 : 0;
       recordSample(this._powerHistory, key, rawValue, now, cutoff, maxPoints);
@@ -175,9 +175,8 @@ export class SpanPanelCard extends HTMLElement {
   // ── DOM updates (incremental) ──────────────────────────────────────────────
 
   _updateDOM() {
-    const config = { ...this._config, _durationMs: this._durationMs };
-    updateCircuitDOM(this.shadowRoot, this._hass, this._topology, config, this._powerHistory);
-    updateSubDeviceDOM(this.shadowRoot, this._hass, this._topology, config, this._powerHistory);
+    updateCircuitDOM(this.shadowRoot, this._hass, this._topology, this._config, this._powerHistory);
+    updateSubDeviceDOM(this.shadowRoot, this._hass, this._topology, this._config, this._powerHistory);
   }
 
   // ── Toggle click handler ───────────────────────────────────────────────────

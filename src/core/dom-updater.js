@@ -2,6 +2,7 @@ import { BESS_CHART_METRICS, DEVICE_TYPE_PV, RELAY_STATE_CLOSED } from "../const
 import { formatPowerSigned, formatPowerUnit, formatKw } from "../helpers/format.js";
 import { getChartMetric } from "../helpers/chart.js";
 import { findSubDevicePowerEntity } from "../helpers/entity-finder.js";
+import { getHistoryDurationMs } from "../helpers/history.js";
 import { updateChart } from "../chart/chart-update.js";
 
 // ── Private helper ─────────────────────────────────────────────────────────
@@ -45,7 +46,7 @@ function _updateHeaderStats(root, hass, topology, totalConsumption, solarProduct
 export function updateCircuitDOM(root, hass, topology, config, powerHistory) {
   if (!root || !topology || !hass) return;
 
-  const durationMs = config._durationMs;
+  const durationMs = getHistoryDurationMs(config);
   let totalConsumption = 0;
   let solarProduction = 0;
 
@@ -112,7 +113,7 @@ export function updateCircuitDOM(root, hass, topology, config, powerHistory) {
 
 export function updateSubDeviceDOM(root, hass, topology, config, powerHistory) {
   if (!topology.sub_devices) return;
-  const durationMs = config._durationMs;
+  const durationMs = getHistoryDurationMs(config);
 
   for (const [devId, sub] of Object.entries(topology.sub_devices)) {
     const section = root.querySelector(`[data-subdev="${devId}"]`);

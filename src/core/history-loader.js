@@ -75,24 +75,13 @@ async function loadRawHistory(hass, entityIds, uuidByEntity, durationMs, powerHi
  * Collect entity IDs for sub-devices into the provided arrays.
  *
  * @param {object} topology
- * @param {object} _hass - unused, kept for a consistent call signature
  * @param {string[]} entityIds - mutated in place
  * @param {Map<string,string>} uuidByEntity - mutated in place
  */
 function _collectSubDeviceEntityIdsInto(topology, entityIds, uuidByEntity) {
-  if (!topology.sub_devices) return;
-  for (const [devId, sub] of Object.entries(topology.sub_devices)) {
-    const eidMap = { power: findSubDevicePowerEntity(sub) };
-    if (sub.type === SUB_DEVICE_TYPE_BESS) {
-      eidMap.soc = findBatteryLevelEntity(sub);
-      eidMap.soe = findBatterySoeEntity(sub);
-    }
-    for (const [role, eid] of Object.entries(eidMap)) {
-      if (eid) {
-        entityIds.push(eid);
-        uuidByEntity.set(eid, `${SUB_DEVICE_KEY_PREFIX}${devId}_${role}`);
-      }
-    }
+  for (const { entityId, key } of collectSubDeviceEntityIds(topology)) {
+    entityIds.push(entityId);
+    uuidByEntity.set(entityId, key);
   }
 }
 
@@ -101,10 +90,9 @@ function _collectSubDeviceEntityIdsInto(topology, entityIds, uuidByEntity) {
  * Returns an array of { entityId, key } pairs so callers can record live samples.
  *
  * @param {object} topology
- * @param {object} _hass - reserved for future use
  * @returns {{ entityId: string, key: string }[]}
  */
-export function collectSubDeviceEntityIds(topology, _hass) {
+export function collectSubDeviceEntityIds(topology) {
   if (!topology.sub_devices) return [];
   const results = [];
   for (const [devId, sub] of Object.entries(topology.sub_devices)) {

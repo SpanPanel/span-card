@@ -108,8 +108,7 @@ export function buildSubEntityHTML(sub, hass, config, hideEids) {
  * @param {string|null} battSoeEid - Battery SoE entity ID, if available
  * @returns {string} HTML string
  */
-export function buildSubDeviceChartsHTML(devId, sub, isBess, powerEid, battLevelEid, battSoeEid) {
-  void sub; // reserved parameter; topology context may be needed in future
+export function buildSubDeviceChartsHTML(devId, _sub, isBess, powerEid, battLevelEid, battSoeEid) {
   if (isBess) {
     const bessCharts = [
       { key: `${SUB_DEVICE_KEY_PREFIX}${devId}_soc`, title: "SoC", available: !!battLevelEid },
