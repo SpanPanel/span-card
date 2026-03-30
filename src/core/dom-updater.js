@@ -19,26 +19,93 @@ function _findPanelEntity(hass, _topology, suffix) {
 
 // ── Header stats ───────────────────────────────────────────────────────────
 
-function _updateHeaderStats(root, hass, topology, totalConsumption, solarProduction) {
-  const panelPowerEntity = _findPanelEntity(hass, topology, "current_power");
-  if (panelPowerEntity) {
-    const state = hass.states[panelPowerEntity];
-    if (state) totalConsumption = Math.abs(parseFloat(state.state) || 0);
-  }
+function _updateHeaderStats(root, hass, topology, config, totalConsumption, solarProduction) {
+  const isAmpsMode = (config.chart_metric || "power") === "current";
 
+  // Site / consumption stat
   const consumptionEl = root.querySelector(".stat-consumption .stat-value");
-  if (consumptionEl) consumptionEl.textContent = formatKw(totalConsumption);
-
-  const currentEl = root.querySelector(".stat-current .stat-value");
-  if (currentEl) {
-    const panelPowerEid = _findPanelEntity(hass, topology, "current_power");
-    const panelPowerState = panelPowerEid ? hass.states[panelPowerEid] : null;
-    const amperage = panelPowerState ? parseFloat(panelPowerState.attributes?.amperage) : NaN;
-    currentEl.textContent = Number.isFinite(amperage) ? amperage.toFixed(1) : "--";
+  const consumptionUnitEl = root.querySelector(".stat-consumption .stat-unit");
+  if (isAmpsMode) {
+    const siteEid = _findPanelEntity(hass, topology, "current_power");
+    const siteState = siteEid ? hass.states[siteEid] : null;
+    const amps = siteState ? parseFloat(siteState.attributes?.amperage) : NaN;
+    if (consumptionEl) consumptionEl.textContent = Number.isFinite(amps) ? Math.abs(amps).toFixed(1) : "--";
+    if (consumptionUnitEl) consumptionUnitEl.textContent = "A";
+  } else {
+    const panelPowerEntity = _findPanelEntity(hass, topology, "current_power");
+    if (panelPowerEntity) {
+      const state = hass.states[panelPowerEntity];
+      if (state) totalConsumption = Math.abs(parseFloat(state.state) || 0);
+    }
+    if (consumptionEl) consumptionEl.textContent = formatKw(totalConsumption);
+    if (consumptionUnitEl) consumptionUnitEl.textContent = "kW";
   }
 
+  // Upstream stat
+  const upstreamEl = root.querySelector(".stat-upstream .stat-value");
+  const upstreamUnitEl = root.querySelector(".stat-upstream .stat-unit");
+  if (upstreamEl) {
+    const upEid = _findPanelEntity(hass, topology, "current_power");
+    const upState = upEid ? hass.states[upEid] : null;
+    if (isAmpsMode) {
+      const amps = upState ? parseFloat(upState.attributes?.amperage) : NaN;
+      upstreamEl.textContent = Number.isFinite(amps) ? Math.abs(amps).toFixed(1) : "--";
+      if (upstreamUnitEl) upstreamUnitEl.textContent = "A";
+    } else {
+      const w = upState ? Math.abs(parseFloat(upState.state) || 0) : 0;
+      upstreamEl.textContent = formatKw(w);
+      if (upstreamUnitEl) upstreamUnitEl.textContent = "kW";
+    }
+  }
+
+  // Downstream stat
+  const downstreamEl = root.querySelector(".stat-downstream .stat-value");
+  const downstreamUnitEl = root.querySelector(".stat-downstream .stat-unit");
+  if (downstreamEl) {
+    const downEid = _findPanelEntity(hass, topology, "feedthrough_power");
+    const downState = downEid ? hass.states[downEid] : null;
+    if (isAmpsMode) {
+      const amps = downState ? parseFloat(downState.attributes?.amperage) : NaN;
+      downstreamEl.textContent = Number.isFinite(amps) ? Math.abs(amps).toFixed(1) : "--";
+      if (downstreamUnitEl) downstreamUnitEl.textContent = "A";
+    } else {
+      const w = downState ? Math.abs(parseFloat(downState.state) || 0) : 0;
+      downstreamEl.textContent = formatKw(w);
+      if (downstreamUnitEl) downstreamUnitEl.textContent = "kW";
+    }
+  }
+
+  // Solar stat
   const solarEl = root.querySelector(".stat-solar .stat-value");
-  if (solarEl) solarEl.textContent = solarProduction > 0 ? formatKw(solarProduction) : "--";
+  const solarUnitEl = root.querySelector(".stat-solar .stat-unit");
+  if (solarEl) {
+    if (isAmpsMode) {
+      const solarEid = _findPanelEntity(hass, topology, "solar_inverter_instant_power");
+      const solarState = solarEid ? hass.states[solarEid] : null;
+      const amps = solarState ? parseFloat(solarState.attributes?.amperage) : NaN;
+      solarEl.textContent = Number.isFinite(amps) ? Math.abs(amps).toFixed(1) : "--";
+      if (solarUnitEl) solarUnitEl.textContent = "A";
+    } else {
+      solarEl.textContent = solarProduction > 0 ? formatKw(solarProduction) : "--";
+      if (solarUnitEl) solarUnitEl.textContent = "kW";
+    }
+  }
+
+  // Battery SoC (always %)
+  const batteryEl = root.querySelector(".stat-battery .stat-value");
+  if (batteryEl) {
+    const battEid = _findPanelEntity(hass, topology, "battery_percentage");
+    const battState = battEid ? hass.states[battEid] : null;
+    if (battState) batteryEl.textContent = `${Math.round(parseFloat(battState.state) || 0)}`;
+  }
+
+  // Grid / DSM state
+  const gridStateEl = root.querySelector(".stat-grid-state .stat-value");
+  if (gridStateEl) {
+    const gridEid = _findPanelEntity(hass, topology, "dsm_state");
+    const gridState = gridEid ? hass.states[gridEid] : null;
+    gridStateEl.textContent = gridState ? gridState.state : "--";
+  }
 }
 
 // ── Exported updaters ──────────────────────────────────────────────────────
@@ -62,7 +129,7 @@ export function updateCircuitDOM(root, hass, topology, config, powerHistory) {
     }
   }
 
-  _updateHeaderStats(root, hass, topology, totalConsumption, solarProduction);
+  _updateHeaderStats(root, hass, topology, config, totalConsumption, solarProduction);
 
   const chartMetric = getChartMetric(config);
   const showCurrent = chartMetric.entityRole === "current";

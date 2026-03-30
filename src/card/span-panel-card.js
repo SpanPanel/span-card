@@ -30,6 +30,7 @@ export class SpanPanelCard extends HTMLElement {
     this._rendered = false;
 
     this._handleToggleClick = this._onToggleClick.bind(this);
+    this._handleUnitToggle = this._onUnitToggle.bind(this);
   }
 
   connectedCallback() {
@@ -180,6 +181,25 @@ export class SpanPanelCard extends HTMLElement {
     updateSubDeviceDOM(this.shadowRoot, this._hass, this._topology, this._config, this._powerHistory);
   }
 
+  // ── Unit toggle (A/W) click handler ───────────────────────────────────────
+
+  _onUnitToggle(event) {
+    const btn = event.target.closest(".unit-btn");
+    if (!btn) return;
+    const unit = btn.dataset.unit;
+    if (!unit || unit === (this._config.chart_metric || "power")) return;
+    this._config = { ...this._config, chart_metric: unit };
+    this.dispatchEvent(
+      new CustomEvent("config-changed", {
+        detail: { config: this._config },
+        bubbles: true,
+        composed: true,
+      })
+    );
+    this._rendered = false;
+    this._render();
+  }
+
   // ── Toggle click handler ───────────────────────────────────────────────────
 
   _onToggleClick(ev) {
@@ -229,8 +249,9 @@ export class SpanPanelCard extends HTMLElement {
     const gridHTML = buildGridHTML(topo, totalRows, durationMs, hass, this._config, null);
     const subDevHTML = buildSubDevicesHTML(topo, hass, this._config, durationMs);
 
-    // Remove previous listener before replacing DOM
+    // Remove previous listeners before replacing DOM
     this.shadowRoot.removeEventListener("click", this._handleToggleClick);
+    this.shadowRoot.removeEventListener("click", this._handleUnitToggle);
 
     this.shadowRoot.innerHTML = `
       <style>${CARD_STYLES}</style>
@@ -249,8 +270,9 @@ export class SpanPanelCard extends HTMLElement {
       </ha-card>
     `;
 
-    // Attach single delegated click listener
+    // Attach delegated click listeners
     this.shadowRoot.addEventListener("click", this._handleToggleClick);
+    this.shadowRoot.addEventListener("click", this._handleUnitToggle);
 
     this._rendered = true;
     this._recordPowerHistory();
