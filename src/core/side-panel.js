@@ -446,7 +446,7 @@ class SpanSidePanel extends HTMLElement {
     thresholdsWrap.appendChild(this._createThresholdRow("Continuous %", "continuous", continuousVal, cfg));
     thresholdsWrap.appendChild(this._createThresholdRow("Spike %", "spike", spikeVal, cfg));
     thresholdsWrap.appendChild(this._createDurationRow("Window duration", "window-m", windowVal, 1, 180, "m", cfg));
-    thresholdsWrap.appendChild(this._createDurationRow("Cooldown", "cooldown-m", cooldownVal, 1, 180, "m", cfg, true));
+    thresholdsWrap.appendChild(this._createDurationRow("Cooldown", "cooldown-m", cooldownVal, 1, 180, "m", cfg));
     detailsWrap.appendChild(thresholdsWrap);
 
     // Event: monitoring enable toggle
@@ -498,11 +498,14 @@ class SpanSidePanel extends HTMLElement {
         const continuous = this.shadowRoot.querySelector('[data-role="threshold-continuous"]');
         const spike = this.shadowRoot.querySelector('[data-role="threshold-spike"]');
         const windowM = this.shadowRoot.querySelector('[data-role="threshold-window-m"]');
+        const cooldownM = this.shadowRoot.querySelector('[data-role="threshold-cooldown-m"]');
+        const entityId = cfg.entities?.power || cfg.uuid;
         this._callDomainService("set_circuit_threshold", {
-          circuit_id: cfg.uuid,
+          circuit_id: entityId,
           continuous_threshold_pct: continuous ? Number(continuous.value) : undefined,
           spike_threshold_pct: spike ? Number(spike.value) : undefined,
           window_duration_m: windowM ? Number(windowM.value) : undefined,
+          cooldown_duration_m: cooldownM ? Number(cooldownM.value) : undefined,
         }).catch(err => this._showError(`Save threshold failed: ${err.message ?? err}`));
       });
     });

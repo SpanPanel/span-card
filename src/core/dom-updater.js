@@ -97,7 +97,7 @@ function _updateHeaderStats(root, hass, topology, config, totalConsumption) {
   if (gridStateEl) {
     const gridEid = topology.panel_entities?.dsm_state;
     const gridState = gridEid ? hass.states[gridEid] : null;
-    gridStateEl.textContent = gridState ? gridState.state : "--";
+    gridStateEl.textContent = gridState ? hass.formatEntityState?.(gridState) || gridState.state : "--";
   }
 }
 
