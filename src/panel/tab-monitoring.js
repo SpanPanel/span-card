@@ -32,16 +32,20 @@ function thresholdCell(entityId, field, value, unit, type) {
 export class MonitoringTab {
   constructor() {
     this._debounceTimer = null;
+    this._configEntryId = null;
   }
 
-  async render(container, hass) {
+  async render(container, hass, configEntryId) {
+    if (configEntryId !== undefined) this._configEntryId = configEntryId;
     let status;
     try {
+      const serviceData = {};
+      if (this._configEntryId) serviceData.config_entry_id = this._configEntryId;
       const resp = await hass.callWS({
         type: "call_service",
         domain: INTEGRATION_DOMAIN,
         service: "get_monitoring_status",
-        service_data: {},
+        service_data: serviceData,
         return_response: true,
       });
       status = resp?.response || null;
@@ -80,6 +84,7 @@ export class MonitoringTab {
             ${thresholdCell(eid, "continuous_threshold_pct", info.continuous_threshold_pct, "%", "circuit")}
             ${thresholdCell(eid, "spike_threshold_pct", info.spike_threshold_pct, "%", "circuit")}
             ${thresholdCell(eid, "window_duration_m", info.window_duration_m, "m", "circuit")}
+            ${thresholdCell(eid, "cooldown_duration_m", info.cooldown_duration_m, "m", "circuit")}
             <td style="padding:6px 4px;">
               ${
                 hasOverride
@@ -115,6 +120,7 @@ export class MonitoringTab {
             ${thresholdCell(eid, "continuous_threshold_pct", info.continuous_threshold_pct, "%", "mains")}
             ${thresholdCell(eid, "spike_threshold_pct", info.spike_threshold_pct, "%", "mains")}
             ${thresholdCell(eid, "window_duration_m", info.window_duration_m, "m", "mains")}
+            ${thresholdCell(eid, "cooldown_duration_m", info.cooldown_duration_m, "m", "mains")}
             <td style="padding:6px 4px;">
               ${
                 hasOverride
@@ -182,6 +188,7 @@ export class MonitoringTab {
               <th style="padding:6px 8px;">Continuous</th>
               <th style="padding:6px 8px;">Spike</th>
               <th style="padding:6px 8px;">Window</th>
+              <th style="padding:6px 8px;">Cooldown</th>
               <th style="padding:6px 8px;"></th>
             </tr>
           </thead>
@@ -217,12 +224,17 @@ export class MonitoringTab {
     this._bindResetButtons(container, hass);
   }
 
+  _serviceData(data) {
+    if (this._configEntryId) data.config_entry_id = this._configEntryId;
+    return data;
+  }
+
   _callSetGlobal(hass, data) {
     return hass.callWS({
       type: "call_service",
       domain: INTEGRATION_DOMAIN,
       service: "set_global_monitoring",
-      service_data: data,
+      service_data: this._serviceData({ ...data }),
     });
   }
 
@@ -296,7 +308,7 @@ export class MonitoringTab {
               type: "call_service",
               domain: INTEGRATION_DOMAIN,
               service: "set_circuit_threshold",
-              service_data: { circuit_id: entityId, monitoring_enabled: enabled },
+              service_data: this._serviceData({ circuit_id: entityId, monitoring_enabled: enabled }),
             })
             .catch(() => {})
         ),
@@ -306,7 +318,7 @@ export class MonitoringTab {
               type: "call_service",
               domain: INTEGRATION_DOMAIN,
               service: "set_mains_threshold",
-              service_data: { leg: entityId, monitoring_enabled: enabled },
+              service_data: this._serviceData({ leg: entityId, monitoring_enabled: enabled }),
             })
             .catch(() => {})
         ),
@@ -328,7 +340,7 @@ export class MonitoringTab {
               type: "call_service",
               domain: INTEGRATION_DOMAIN,
               service: "set_mains_threshold",
-              service_data: { leg: entityId, monitoring_enabled: enabled },
+              service_data: this._serviceData({ leg: entityId, monitoring_enabled: enabled }),
             }),
           ]);
         } catch {
@@ -350,7 +362,7 @@ export class MonitoringTab {
             type: "call_service",
             domain: INTEGRATION_DOMAIN,
             service: "set_circuit_threshold",
-            service_data: { circuit_id: entityId, monitoring_enabled: enabled },
+            service_data: this._serviceData({ circuit_id: entityId, monitoring_enabled: enabled }),
           });
         } catch {
           cb.checked = !enabled;
@@ -382,7 +394,7 @@ export class MonitoringTab {
                 type: "call_service",
                 domain: INTEGRATION_DOMAIN,
                 service,
-                service_data: { [idField]: entityId, [field]: val },
+                service_data: this._serviceData({ [idField]: entityId, [field]: val }),
               });
               // Re-render to update Custom badge and Reset button
               await this.render(container, hass);
@@ -401,7 +413,7 @@ export class MonitoringTab {
         const entityId = btn.dataset.entity;
         const type = btn.dataset.type;
         const service = type === "mains" ? "clear_mains_threshold" : "clear_circuit_threshold";
-        const param = type === "mains" ? { leg: entityId } : { circuit_id: entityId };
+        const param = this._serviceData(type === "mains" ? { leg: entityId } : { circuit_id: entityId });
         await hass.callService(INTEGRATION_DOMAIN, service, param);
         await this.render(container, hass);
       });

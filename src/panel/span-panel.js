@@ -89,7 +89,7 @@ export class SpanPanelElement extends HTMLElement {
     const devices = await this._hass.callWS({
       type: "config/device_registry/list",
     });
-    this._panels = devices.filter(d => d.identifiers?.some(id => id[0] === INTEGRATION_DOMAIN));
+    this._panels = devices.filter(d => d.identifiers?.some(id => id[0] === INTEGRATION_DOMAIN) && !d.via_device_id);
 
     const stored = localStorage.getItem("span_panel_selected");
     if (stored && this._panels.some(p => p.id === stored)) {
@@ -213,10 +213,13 @@ export class SpanPanelElement extends HTMLElement {
         await this._dashboardTab.render(container, this._hass, this._selectedPanelId, config);
         break;
       }
-      case "monitoring":
+      case "monitoring": {
         container.innerHTML = "";
-        await this._monitoringTab.render(container, this._hass);
+        const monDevice = this._panels.find(p => p.id === this._selectedPanelId);
+        const monEntryId = monDevice?.config_entries?.[0] || null;
+        await this._monitoringTab.render(container, this._hass, monEntryId);
         break;
+      }
       case "settings": {
         container.innerHTML = "";
         const selectedDevice = this._panels.find(p => p.id === this._selectedPanelId);
