@@ -242,11 +242,7 @@ export class MonitoringTab {
         };
         try {
           await this._callSetGlobal(hass, data);
-          statusEl.textContent = "Saved";
-          statusEl.style.color = "var(--success-color, #4caf50)";
-          setTimeout(() => {
-            statusEl.textContent = "";
-          }, 2000);
+          await this.render(container, hass);
         } catch (err) {
           statusEl.textContent = `Error: ${err.message || "Failed to save"}`;
           statusEl.style.color = "var(--error-color, #f44336)";
