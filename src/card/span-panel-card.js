@@ -6,7 +6,6 @@ import {
   DEVICE_TYPE_PV,
   RELAY_STATE_CLOSED,
   SUB_DEVICE_TYPE_BESS,
-  SUB_DEVICE_TYPE_EVSE,
   SUB_DEVICE_KEY_PREFIX,
 } from "../constants.js";
 import { escapeHtml } from "../helpers/sanitize.js";
@@ -14,7 +13,8 @@ import { formatPowerSigned, formatPowerUnit, formatKw } from "../helpers/format.
 import { getHistoryDurationMs, getMaxHistoryPoints, getMinGapMs, recordSample, deduplicateAndTrim } from "../helpers/history.js";
 import { getChartMetric, getCircuitChartEntity } from "../helpers/chart.js";
 import { buildGridHTML } from "../core/grid-renderer.js";
-import { findSubDevicePowerEntity, findBatteryLevelEntity, findBatterySoeEntity, findBatteryCapacityEntity } from "../helpers/entity-finder.js";
+import { buildSubDevicesHTML } from "../core/sub-device-renderer.js";
+import { findSubDevicePowerEntity, findBatteryLevelEntity, findBatterySoeEntity } from "../helpers/entity-finder.js";
 import { updateChart } from "../chart/chart-update.js";
 import { discoverTopology, discoverEntitiesFallback } from "./card-discovery.js";
 import { CARD_STYLES } from "./card-styles.js";
@@ -490,7 +490,7 @@ export class SpanPanelCard extends HTMLElement {
     const durationMs = this._durationMs;
 
     const gridHTML = buildGridHTML(topo, totalRows, durationMs, hass, this._config);
-    const subDevHTML = this._buildSubDevicesHTML(topo, hass, durationMs);
+    const subDevHTML = buildSubDevicesHTML(topo, hass, this._config, durationMs);
 
     // Remove previous listener before replacing DOM
     this.shadowRoot.removeEventListener("click", this._handleToggleClick);
@@ -546,110 +546,5 @@ export class SpanPanelCard extends HTMLElement {
     this._rendered = true;
     this._recordPowerHistory();
     this._updateDOM();
-  }
-
-  _buildSubDevicesHTML(topo, hass, _durationMs) {
-    const showBattery = this._config.show_battery !== false;
-    const showEvse = this._config.show_evse !== false;
-    let subDevHTML = "";
-
-    if (!topo.sub_devices) return subDevHTML;
-
-    for (const [devId, sub] of Object.entries(topo.sub_devices)) {
-      if (sub.type === SUB_DEVICE_TYPE_BESS && !showBattery) continue;
-      if (sub.type === SUB_DEVICE_TYPE_EVSE && !showEvse) continue;
-
-      const label = sub.type === SUB_DEVICE_TYPE_EVSE ? "EV Charger" : sub.type === SUB_DEVICE_TYPE_BESS ? "Battery" : "Sub-device";
-      const powerEid = findSubDevicePowerEntity(sub);
-      const powerState = powerEid ? hass.states[powerEid] : null;
-      const powerW = powerState ? parseFloat(powerState.state) || 0 : 0;
-
-      const isBess = sub.type === SUB_DEVICE_TYPE_BESS;
-      const battLevelEid = isBess ? findBatteryLevelEntity(sub) : null;
-      const battSoeEid = isBess ? findBatterySoeEntity(sub) : null;
-      const battCapEid = isBess ? findBatteryCapacityEntity(sub) : null;
-
-      const hideEids = new Set([powerEid, battLevelEid, battSoeEid, battCapEid].filter(Boolean));
-      const entHTML = this._buildSubEntityHTML(sub, hass, hideEids);
-      const chartsHTML = this._buildSubDeviceChartsHTML(devId, sub, isBess, powerEid, battLevelEid, battSoeEid);
-
-      subDevHTML += `
-        <div class="sub-device ${isBess ? "sub-device-bess" : ""}" data-subdev="${escapeHtml(devId)}">
-          <div class="sub-device-header">
-            <span class="sub-device-type">${escapeHtml(label)}</span>
-            <span class="sub-device-name">${escapeHtml(sub.name || "")}</span>
-            ${powerEid ? `<span class="sub-power-value"><strong>${formatPowerSigned(powerW)}</strong> <span class="power-unit">${formatPowerUnit(powerW)}</span></span>` : ""}
-          </div>
-          ${chartsHTML}
-          ${entHTML}
-        </div>
-      `;
-    }
-    return subDevHTML;
-  }
-
-  _buildSubEntityHTML(sub, hass, hideEids) {
-    const visibleEnts = this._config.visible_sub_entities || {};
-    let entHTML = "";
-    if (!sub.entities) return entHTML;
-
-    for (const [entityId, info] of Object.entries(sub.entities)) {
-      if (hideEids.has(entityId)) continue;
-      if (visibleEnts[entityId] !== true) continue;
-      const state = hass.states[entityId];
-      if (!state) continue;
-      let name = info.original_name || state.attributes.friendly_name || entityId;
-      const devName = sub.name || "";
-      if (name.startsWith(devName + " ")) name = name.slice(devName.length + 1);
-      let displayValue;
-      if (hass.formatEntityState) {
-        displayValue = hass.formatEntityState(state);
-      } else {
-        displayValue = state.state;
-        const unit = state.attributes.unit_of_measurement || "";
-        if (unit) displayValue += " " + unit;
-      }
-      const rawUnit = state.attributes.unit_of_measurement || "";
-      if (rawUnit === "Wh") {
-        const wh = parseFloat(state.state);
-        if (!isNaN(wh)) displayValue = (wh / 1000).toFixed(1) + " kWh";
-      }
-      entHTML += `
-        <div class="sub-entity">
-          <span class="sub-entity-name">${escapeHtml(name)}:</span>
-          <span class="sub-entity-value" data-eid="${escapeHtml(entityId)}">${escapeHtml(displayValue)}</span>
-        </div>
-      `;
-    }
-    return entHTML;
-  }
-
-  _buildSubDeviceChartsHTML(devId, sub, isBess, powerEid, battLevelEid, battSoeEid) {
-    if (isBess) {
-      const bessCharts = [
-        { key: `${SUB_DEVICE_KEY_PREFIX}${devId}_soc`, title: "SoC", available: !!battLevelEid },
-        { key: `${SUB_DEVICE_KEY_PREFIX}${devId}_soe`, title: "SoE", available: !!battSoeEid },
-        { key: `${SUB_DEVICE_KEY_PREFIX}${devId}_power`, title: "Power", available: !!powerEid },
-      ].filter(c => c.available);
-
-      return `
-        <div class="bess-charts">
-          ${bessCharts
-            .map(
-              c => `
-            <div class="bess-chart-col">
-              <div class="bess-chart-title">${escapeHtml(c.title)}</div>
-              <div class="chart-container" data-chart-key="${escapeHtml(c.key)}"></div>
-            </div>
-          `
-            )
-            .join("")}
-        </div>
-      `;
-    }
-    if (powerEid) {
-      return `<div class="chart-container" data-chart-key="${SUB_DEVICE_KEY_PREFIX}${escapeHtml(devId)}_power"></div>`;
-    }
-    return "";
   }
 }
