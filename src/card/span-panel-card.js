@@ -1,20 +1,12 @@
-import {
-  CHART_METRICS,
-  BESS_CHART_METRICS,
-  DEFAULT_CHART_METRIC,
-  LIVE_SAMPLE_INTERVAL_MS,
-  DEVICE_TYPE_PV,
-  RELAY_STATE_CLOSED,
-  SUB_DEVICE_TYPE_BESS,
-  SUB_DEVICE_KEY_PREFIX,
-} from "../constants.js";
+import { CHART_METRICS, BESS_CHART_METRICS, DEFAULT_CHART_METRIC, LIVE_SAMPLE_INTERVAL_MS, DEVICE_TYPE_PV, RELAY_STATE_CLOSED } from "../constants.js";
 import { escapeHtml } from "../helpers/sanitize.js";
 import { formatPowerSigned, formatPowerUnit, formatKw } from "../helpers/format.js";
-import { getHistoryDurationMs, getMaxHistoryPoints, getMinGapMs, recordSample, deduplicateAndTrim } from "../helpers/history.js";
+import { getHistoryDurationMs, getMaxHistoryPoints, recordSample } from "../helpers/history.js";
 import { getChartMetric, getCircuitChartEntity } from "../helpers/chart.js";
 import { buildGridHTML } from "../core/grid-renderer.js";
 import { buildSubDevicesHTML } from "../core/sub-device-renderer.js";
-import { findSubDevicePowerEntity, findBatteryLevelEntity, findBatterySoeEntity } from "../helpers/entity-finder.js";
+import { findSubDevicePowerEntity } from "../helpers/entity-finder.js";
+import { loadHistory, collectSubDeviceEntityIds } from "../core/history-loader.js";
 import { updateChart } from "../chart/chart-update.js";
 import { discoverTopology, discoverEntitiesFallback } from "./card-discovery.js";
 import { CARD_STYLES } from "./card-styles.js";
@@ -144,120 +136,11 @@ export class SpanPanelCard extends HTMLElement {
   async _loadHistory() {
     if (this._historyLoaded || !this._topology || !this._hass) return;
     this._historyLoaded = true;
-
-    const durationMs = this._durationMs;
-    const entityIds = [];
-    const uuidByEntity = new Map();
-
-    for (const [uuid, circuit] of Object.entries(this._topology.circuits)) {
-      const eid = getCircuitChartEntity(circuit, this._config);
-      if (eid) {
-        entityIds.push(eid);
-        uuidByEntity.set(eid, uuid);
-      }
-    }
-
-    this._collectSubDeviceEntityIds(entityIds, uuidByEntity);
-
-    if (entityIds.length === 0) return;
-
-    const useStatistics = durationMs > 2 * 60 * 60 * 1000;
-
     try {
-      if (useStatistics) {
-        await this._loadStatisticsHistory(entityIds, uuidByEntity, durationMs);
-      } else {
-        await this._loadRawHistory(entityIds, uuidByEntity, durationMs);
-      }
+      await loadHistory(this._hass, this._topology, this._config, this._powerHistory);
       this._updateDOM();
     } catch (err) {
       console.warn("SPAN Panel: history fetch failed, charts will populate live", err);
-    }
-  }
-
-  async _loadStatisticsHistory(entityIds, uuidByEntity, durationMs) {
-    const startTime = new Date(Date.now() - durationMs).toISOString();
-    const durationHours = durationMs / (60 * 60 * 1000);
-    const period = durationHours > 72 ? "hour" : "5minute";
-
-    const result = await this._hass.callWS({
-      type: "recorder/statistics_during_period",
-      start_time: startTime,
-      statistic_ids: entityIds,
-      period,
-      types: ["mean"],
-    });
-
-    for (const [entityId, stats] of Object.entries(result)) {
-      const uuid = uuidByEntity.get(entityId);
-      if (!uuid || !stats) continue;
-
-      const hist = [];
-      for (const entry of stats) {
-        const val = entry.mean;
-        if (val == null || !Number.isFinite(val)) continue;
-        const time = entry.start;
-        if (time > 0) hist.push({ time, value: val });
-      }
-
-      if (hist.length > 0) {
-        const existing = this._powerHistory.get(uuid) || [];
-        const merged = [...hist, ...existing];
-        merged.sort((a, b) => a.time - b.time);
-        this._powerHistory.set(uuid, merged);
-      }
-    }
-  }
-
-  async _loadRawHistory(entityIds, uuidByEntity, durationMs) {
-    const startTime = new Date(Date.now() - durationMs).toISOString();
-    const result = await this._hass.callWS({
-      type: "history/history_during_period",
-      start_time: startTime,
-      entity_ids: entityIds,
-      minimal_response: true,
-      significant_changes_only: true,
-      no_attributes: true,
-    });
-
-    const maxPoints = getMaxHistoryPoints(durationMs);
-    const minGapMs = getMinGapMs(durationMs);
-    for (const [entityId, states] of Object.entries(result)) {
-      const uuid = uuidByEntity.get(entityId);
-      if (!uuid || !states) continue;
-
-      const hist = [];
-      for (const entry of states) {
-        const val = parseFloat(entry.s);
-        if (!Number.isFinite(val)) continue;
-        const tsSec = entry.lu || entry.lc || 0;
-        const time = tsSec * 1000;
-        if (time > 0) hist.push({ time, value: val });
-      }
-
-      if (hist.length > 0) {
-        const existing = this._powerHistory.get(uuid) || [];
-        const merged = [...hist, ...existing];
-        this._powerHistory.set(uuid, deduplicateAndTrim(merged, maxPoints, minGapMs));
-      }
-    }
-  }
-
-  // Collect entity IDs for sub-devices into the provided arrays.
-  _collectSubDeviceEntityIds(entityIds, uuidByEntity) {
-    if (!this._topology.sub_devices) return;
-    for (const [devId, sub] of Object.entries(this._topology.sub_devices)) {
-      const eidMap = { power: findSubDevicePowerEntity(sub) };
-      if (sub.type === SUB_DEVICE_TYPE_BESS) {
-        eidMap.soc = findBatteryLevelEntity(sub);
-        eidMap.soe = findBatterySoeEntity(sub);
-      }
-      for (const [role, eid] of Object.entries(eidMap)) {
-        if (eid) {
-          entityIds.push(eid);
-          uuidByEntity.set(eid, `${SUB_DEVICE_KEY_PREFIX}${devId}_${role}`);
-        }
-      }
     }
   }
 
@@ -277,21 +160,10 @@ export class SpanPanelCard extends HTMLElement {
       recordSample(this._powerHistory, uuid, rawValue, now, cutoff, maxPoints);
     }
 
-    if (this._topology.sub_devices) {
-      for (const [devId, sub] of Object.entries(this._topology.sub_devices)) {
-        const eidMap = { power: findSubDevicePowerEntity(sub) };
-        if (sub.type === SUB_DEVICE_TYPE_BESS) {
-          eidMap.soc = findBatteryLevelEntity(sub);
-          eidMap.soe = findBatterySoeEntity(sub);
-        }
-        for (const [role, entityId] of Object.entries(eidMap)) {
-          if (!entityId) continue;
-          const key = `${SUB_DEVICE_KEY_PREFIX}${devId}_${role}`;
-          const state = this._hass.states[entityId];
-          const rawValue = state ? parseFloat(state.state) || 0 : 0;
-          recordSample(this._powerHistory, key, rawValue, now, cutoff, maxPoints);
-        }
-      }
+    for (const { entityId, key } of collectSubDeviceEntityIds(this._topology, this._hass)) {
+      const state = this._hass.states[entityId];
+      const rawValue = state ? parseFloat(state.state) || 0 : 0;
+      recordSample(this._powerHistory, key, rawValue, now, cutoff, maxPoints);
     }
   }
 
