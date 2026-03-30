@@ -250,8 +250,7 @@ class SpanSidePanel extends HTMLElement {
     `;
     body.appendChild(info);
 
-    const link = document.createElement("a");
-    link.href = "/config/integrations/integration/span_panel";
+    const link = document.createElement("button");
     link.textContent = "Configure Global Thresholds";
     Object.assign(link.style, {
       display: "inline-block",
@@ -260,9 +259,14 @@ class SpanSidePanel extends HTMLElement {
       background: "var(--primary-color, #4dd9af)",
       color: "var(--text-primary-color, #000)",
       borderRadius: "4px",
-      textDecoration: "none",
+      border: "none",
+      cursor: "pointer",
       fontSize: "0.85em",
       fontWeight: "500",
+    });
+    link.addEventListener("click", () => {
+      this.close();
+      this.dispatchEvent(new CustomEvent("navigate-tab", { detail: "monitoring", bubbles: true, composed: true }));
     });
     body.appendChild(link);
 

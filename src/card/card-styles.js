@@ -137,7 +137,9 @@ export const CARD_STYLES = `
   .circuit-off .circuit-name,
   .circuit-off .breaker-badge,
   .circuit-off .power-value,
-  .circuit-off .chart-container { opacity: 0.45; }
+  .circuit-off .chart-container { opacity: 0.35; }
+  .circuit-off .toggle-pill,
+  .circuit-off .gear-icon { opacity: 1; }
 
   .circuit-empty {
     opacity: 0.2;

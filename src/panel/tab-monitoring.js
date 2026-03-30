@@ -1,26 +1,41 @@
 import { INTEGRATION_DOMAIN } from "../constants.js";
 import { escapeHtml } from "../helpers/sanitize.js";
 
+const FIELD_STYLE = `
+  display:flex;align-items:center;gap:8px;margin-bottom:8px;
+`;
+const INPUT_STYLE = `
+  background:var(--secondary-background-color,#333);
+  border:1px solid var(--divider-color);
+  color:var(--primary-text-color);
+  border-radius:4px;padding:6px 10px;width:80px;font-size:0.85em;
+`;
+const LABEL_STYLE = `
+  min-width:130px;font-size:0.85em;color:var(--secondary-text-color);
+`;
+
 export class MonitoringTab {
+  constructor() {
+    this._debounceTimer = null;
+  }
+
   async render(container, hass) {
     let status;
     try {
-      const resp = await hass.callService(INTEGRATION_DOMAIN, "get_monitoring_status", {}, undefined, true);
+      const resp = await hass.callWS({
+        type: "call_service",
+        domain: INTEGRATION_DOMAIN,
+        service: "get_monitoring_status",
+        service_data: {},
+        return_response: true,
+      });
       status = resp?.response || null;
     } catch {
-      container.innerHTML = `
-        <div style="padding:16px;">
-          <h2>Monitoring</h2>
-          <p style="color:var(--secondary-text-color);">
-            Monitoring is not enabled. Enable it in the integration's
-            options flow (Settings &gt; Devices &amp; Services &gt;
-            SPAN Panel &gt; Configure &gt; Monitoring).
-          </p>
-        </div>
-      `;
-      return;
+      status = null;
     }
 
+    const globalSettings = status?.global_settings || {};
+    const isEnabled = status?.enabled === true;
     const circuits = status?.circuits || {};
     const mains = status?.mains || {};
     const allEntries = [...Object.entries(circuits), ...Object.entries(mains)];
@@ -56,15 +71,43 @@ export class MonitoringTab {
         <h2 style="margin-top:0;">Monitoring</h2>
 
         <div style="margin-bottom:24px;padding:16px;background:var(--secondary-background-color,#252530);border-radius:8px;">
-          <h3 style="margin-top:0;">Global Settings</h3>
-          <p style="color:var(--secondary-text-color);font-size:0.85em;margin-bottom:12px;">
-            Global monitoring thresholds apply to all circuits without custom overrides.
-            Use the integration's options flow to change global settings.
-          </p>
-          <a href="/config/integrations/integration/span_panel"
-             style="display:inline-block;padding:8px 16px;background:var(--primary-color,#4dd9af);color:var(--text-primary-color,#000);border-radius:4px;text-decoration:none;font-size:0.85em;font-weight:500;">
-            Configure Global Thresholds
-          </a>
+          <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
+            <h3 style="margin:0;">Global Settings</h3>
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+              <input type="checkbox" id="monitoring-enabled" ${isEnabled ? "checked" : ""}
+                     style="width:16px;height:16px;accent-color:var(--primary-color,#4dd9af);">
+              <span style="font-size:0.85em;color:var(--secondary-text-color);">Enabled</span>
+            </label>
+          </div>
+
+          <div id="global-fields" style="${isEnabled ? "" : "opacity:0.4;pointer-events:none;"}">
+            <div style="${FIELD_STYLE}">
+              <span style="${LABEL_STYLE}">Continuous (%)</span>
+              <input type="number" id="g-continuous" min="1" max="200"
+                     value="${globalSettings.continuous_threshold_pct ?? 80}"
+                     style="${INPUT_STYLE}">
+            </div>
+            <div style="${FIELD_STYLE}">
+              <span style="${LABEL_STYLE}">Spike (%)</span>
+              <input type="number" id="g-spike" min="1" max="200"
+                     value="${globalSettings.spike_threshold_pct ?? 100}"
+                     style="${INPUT_STYLE}">
+            </div>
+            <div style="${FIELD_STYLE}">
+              <span style="${LABEL_STYLE}">Window (min)</span>
+              <input type="number" id="g-window" min="1" max="180"
+                     value="${globalSettings.window_duration_m ?? 5}"
+                     style="${INPUT_STYLE}">
+            </div>
+            <div style="${FIELD_STYLE}">
+              <span style="${LABEL_STYLE}">Cooldown (min)</span>
+              <input type="number" id="g-cooldown" min="1" max="180"
+                     value="${globalSettings.cooldown_duration_m ?? 15}"
+                     style="${INPUT_STYLE}">
+            </div>
+          </div>
+
+          <div id="global-status" style="font-size:0.8em;color:var(--secondary-text-color);margin-top:8px;min-height:1.2em;"></div>
         </div>
 
         <h3>Per-Circuit Overrides</h3>
@@ -96,7 +139,56 @@ export class MonitoringTab {
       </div>
     `;
 
-    // Reset button handlers
+    this._bindGlobalControls(container, hass);
+    this._bindResetButtons(container, hass);
+  }
+
+  _bindGlobalControls(container, hass) {
+    const enabledCheckbox = container.querySelector("#monitoring-enabled");
+    const fieldsDiv = container.querySelector("#global-fields");
+    const statusEl = container.querySelector("#global-status");
+
+    const saveGlobal = async () => {
+      clearTimeout(this._debounceTimer);
+      this._debounceTimer = setTimeout(async () => {
+        const data = {
+          continuous_threshold_pct: parseInt(container.querySelector("#g-continuous").value, 10),
+          spike_threshold_pct: parseInt(container.querySelector("#g-spike").value, 10),
+          window_duration_m: parseInt(container.querySelector("#g-window").value, 10),
+          cooldown_duration_m: parseInt(container.querySelector("#g-cooldown").value, 10),
+        };
+        try {
+          await hass.callService(INTEGRATION_DOMAIN, "set_global_monitoring", data);
+          statusEl.textContent = "Saved";
+          statusEl.style.color = "var(--success-color, #4caf50)";
+          setTimeout(() => {
+            statusEl.textContent = "";
+          }, 2000);
+        } catch (err) {
+          statusEl.textContent = `Error: ${err.message || "Failed to save"}`;
+          statusEl.style.color = "var(--error-color, #f44336)";
+        }
+      }, 500);
+    };
+
+    if (enabledCheckbox) {
+      enabledCheckbox.addEventListener("change", async () => {
+        const enabled = enabledCheckbox.checked;
+        fieldsDiv.style.opacity = enabled ? "" : "0.4";
+        fieldsDiv.style.pointerEvents = enabled ? "" : "none";
+        if (enabled) {
+          await saveGlobal();
+          await this.render(container, hass);
+        }
+      });
+    }
+
+    for (const input of container.querySelectorAll("#global-fields input[type=number]")) {
+      input.addEventListener("input", saveGlobal);
+    }
+  }
+
+  _bindResetButtons(container, hass) {
     for (const btn of container.querySelectorAll(".reset-btn")) {
       btn.addEventListener("click", async () => {
         const entityId = btn.dataset.entity;

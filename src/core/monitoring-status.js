@@ -28,7 +28,13 @@ export class MonitoringStatusCache {
 
     this._fetching = true;
     try {
-      const resp = await hass.callService(INTEGRATION_DOMAIN, "get_monitoring_status", {}, undefined, true);
+      const resp = await hass.callWS({
+        type: "call_service",
+        domain: INTEGRATION_DOMAIN,
+        service: "get_monitoring_status",
+        service_data: {},
+        return_response: true,
+      });
       this._status = resp?.response || null;
       this._lastFetch = now;
     } catch {

@@ -9,6 +9,7 @@ import { CARD_STYLES } from "../card/card-styles.js";
 import { getHistoryDurationMs, recordSample, getMaxHistoryPoints, getMinGapMs } from "../helpers/history.js";
 import { getCircuitChartEntity } from "../helpers/chart.js";
 import { LIVE_SAMPLE_INTERVAL_MS } from "../constants.js";
+import "../core/side-panel.js";
 
 export class DashboardTab {
   constructor() {
@@ -61,7 +62,11 @@ export class DashboardTab {
           : ""
       }
       ${subDevHTML ? `<div class="sub-devices">${subDevHTML}</div>` : ""}
+      <span-side-panel></span-side-panel>
     `;
+
+    this._bindGearClicks(container, topo);
+    this._bindToggleClicks(container, topo);
 
     try {
       await loadHistory(hass, topo, config, this._powerHistory);
@@ -102,6 +107,56 @@ export class DashboardTab {
 
       recordSample(this._powerHistory, uuid, val, now, cutoff, maxPoints);
     }
+  }
+
+  _bindToggleClicks(container, topology) {
+    container.addEventListener("click", e => {
+      const pill = e.target.closest(".toggle-pill");
+      if (!pill) return;
+      e.stopPropagation();
+      e.preventDefault();
+      const slot = pill.closest("[data-uuid]");
+      if (!slot || !topology || !this._hass) return;
+      const uuid = slot.dataset.uuid;
+      const circuit = topology.circuits[uuid];
+      if (!circuit) return;
+      const switchEntity = circuit.entities?.switch;
+      if (!switchEntity) return;
+      const switchState = this._hass.states[switchEntity];
+      if (!switchState) return;
+      const service = switchState.state === "on" ? "turn_off" : "turn_on";
+      this._hass.callService("switch", service, {}, { entity_id: switchEntity });
+    });
+  }
+
+  _bindGearClicks(container, topology) {
+    container.addEventListener("click", e => {
+      const gearBtn = e.target.closest(".gear-icon");
+      if (!gearBtn) return;
+
+      const sidePanel = container.querySelector("span-side-panel");
+      if (!sidePanel || !this._hass) return;
+      sidePanel.hass = this._hass;
+
+      if (gearBtn.classList.contains("panel-gear")) {
+        container.dispatchEvent(new CustomEvent("navigate-tab", { detail: "monitoring", bubbles: true, composed: true }));
+        return;
+      }
+
+      const uuid = gearBtn.dataset.uuid;
+      if (!uuid || !topology) return;
+
+      const circuit = topology.circuits[uuid];
+      if (!circuit) return;
+
+      const monitoringInfo = this._monitoringCache?.status?.circuits?.[circuit.entities?.current || circuit.entities?.power] || null;
+
+      sidePanel.open({
+        ...circuit,
+        uuid,
+        monitoringInfo,
+      });
+    });
   }
 
   stop() {

@@ -45,6 +45,11 @@ const PANEL_STYLES = `
     padding: 6px 12px;
     font-size: 0.9em;
   }
+  .panel-label {
+    font-size: 0.9em;
+    font-weight: 500;
+    color: var(--secondary-text-color);
+  }
   .tab-content {
     min-height: 400px;
   }
@@ -67,6 +72,7 @@ export class SpanPanelElement extends HTMLElement {
 
   set hass(val) {
     this._hass = val;
+    this._dashboardTab._hass = val;
     if (!this._discovered) {
       this._discoverPanels();
     }
@@ -92,19 +98,23 @@ export class SpanPanelElement extends HTMLElement {
       this._selectedPanelId = this._panels[0].id;
     }
 
+    this._chartMetric = localStorage.getItem("span_panel_metric") || "power";
+
     this._render();
   }
 
   _render() {
-    const showSelector = this._panels.length > 1;
+    const multiPanel = this._panels.length > 1;
+    const selectedPanel = this._panels.find(p => p.id === this._selectedPanelId);
+    const panelLabel = selectedPanel ? selectedPanel.name_by_user || selectedPanel.name || selectedPanel.id : "";
 
     this.shadowRoot.innerHTML = `
       <style>${PANEL_STYLES}</style>
 
-      ${
-        showSelector
-          ? `
-        <div class="panel-selector">
+      <div class="panel-selector">
+        ${
+          multiPanel
+            ? `
           <select id="panel-select">
             ${this._panels
               .map(
@@ -116,10 +126,10 @@ export class SpanPanelElement extends HTMLElement {
               )
               .join("")}
           </select>
-        </div>
-      `
-          : ""
-      }
+        `
+            : `<span class="panel-label">${panelLabel}</span>`
+        }
+      </div>
 
       <div class="panel-tabs">
         <button class="panel-tab ${this._activeTab === "dashboard" ? "active" : ""}" data-tab="dashboard">Panel</button>
@@ -149,7 +159,45 @@ export class SpanPanelElement extends HTMLElement {
       });
     }
 
+    this._bindUnitToggle();
+    this._bindTabNavigation();
     this._renderTab();
+  }
+
+  _bindUnitToggle() {
+    this.shadowRoot.addEventListener("click", e => {
+      const btn = e.target.closest(".unit-btn");
+      if (!btn) return;
+      const metric = btn.dataset.unit;
+      if (!metric || metric === this._chartMetric) return;
+      this._chartMetric = metric;
+      localStorage.setItem("span_panel_metric", metric);
+      if (this._activeTab === "dashboard") {
+        this._renderTab();
+      }
+    });
+  }
+
+  _bindTabNavigation() {
+    this.shadowRoot.addEventListener("navigate-tab", e => {
+      const tab = e.detail;
+      if (!tab) return;
+      this._activeTab = tab;
+      for (const t of this.shadowRoot.querySelectorAll(".panel-tab")) {
+        t.classList.toggle("active", t.dataset.tab === tab);
+      }
+      this._renderTab();
+    });
+  }
+
+  _buildDashboardConfig() {
+    return {
+      chart_metric: this._chartMetric,
+      history_minutes: 5,
+      show_panel: true,
+      show_battery: true,
+      show_evse: true,
+    };
   }
 
   async _renderTab() {
@@ -161,13 +209,7 @@ export class SpanPanelElement extends HTMLElement {
     switch (this._activeTab) {
       case "dashboard": {
         container.innerHTML = "";
-        const config = {
-          chart_metric: "power",
-          history_minutes: 5,
-          show_panel: true,
-          show_battery: true,
-          show_evse: true,
-        };
+        const config = this._buildDashboardConfig();
         await this._dashboardTab.render(container, this._hass, this._selectedPanelId, config);
         break;
       }
@@ -175,10 +217,13 @@ export class SpanPanelElement extends HTMLElement {
         container.innerHTML = "";
         await this._monitoringTab.render(container, this._hass);
         break;
-      case "settings":
+      case "settings": {
         container.innerHTML = "";
-        this._settingsTab.render(container);
+        const selectedDevice = this._panels.find(p => p.id === this._selectedPanelId);
+        const configEntryId = selectedDevice?.config_entries?.[0] || null;
+        this._settingsTab.render(container, configEntryId);
         break;
+      }
     }
   }
 }

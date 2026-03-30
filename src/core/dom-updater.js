@@ -7,22 +7,22 @@ import { updateChart } from "../chart/chart-update.js";
 
 // ── Header stats ───────────────────────────────────────────────────────────
 
-function _updateHeaderStats(root, hass, topology, config, totalConsumption, solarProduction) {
+function _updateHeaderStats(root, hass, topology, config, totalConsumption) {
   const isAmpsMode = (config.chart_metric || "power") === "current";
 
   // Site / consumption stat
   const consumptionEl = root.querySelector(".stat-consumption .stat-value");
   const consumptionUnitEl = root.querySelector(".stat-consumption .stat-unit");
   if (isAmpsMode) {
-    const siteEid = topology.panel_entities?.current_power;
+    const siteEid = topology.panel_entities?.site_power;
     const siteState = siteEid ? hass.states[siteEid] : null;
     const amps = siteState ? parseFloat(siteState.attributes?.amperage) : NaN;
     if (consumptionEl) consumptionEl.textContent = Number.isFinite(amps) ? Math.abs(amps).toFixed(1) : "--";
     if (consumptionUnitEl) consumptionUnitEl.textContent = "A";
   } else {
-    const panelPowerEntity = topology.panel_entities?.current_power;
-    if (panelPowerEntity) {
-      const state = hass.states[panelPowerEntity];
+    const siteEid = topology.panel_entities?.site_power;
+    if (siteEid) {
+      const state = hass.states[siteEid];
       if (state) totalConsumption = Math.abs(parseFloat(state.state) || 0);
     }
     if (consumptionEl) consumptionEl.textContent = formatKw(totalConsumption);
@@ -63,18 +63,23 @@ function _updateHeaderStats(root, hass, topology, config, totalConsumption, sola
     }
   }
 
-  // Solar stat
+  // Solar stat — always read from panel-level PV power entity
   const solarEl = root.querySelector(".stat-solar .stat-value");
   const solarUnitEl = root.querySelector(".stat-solar .stat-unit");
   if (solarEl) {
+    const solarEid = topology.panel_entities?.pv_power;
+    const solarState = solarEid ? hass.states[solarEid] : null;
     if (isAmpsMode) {
-      const solarEid = topology.panel_entities?.pv_power;
-      const solarState = solarEid ? hass.states[solarEid] : null;
       const amps = solarState ? parseFloat(solarState.attributes?.amperage) : NaN;
       solarEl.textContent = Number.isFinite(amps) ? Math.abs(amps).toFixed(1) : "--";
       if (solarUnitEl) solarUnitEl.textContent = "A";
     } else {
-      solarEl.textContent = solarProduction > 0 ? formatKw(solarProduction) : "--";
+      if (solarState) {
+        const w = Math.abs(parseFloat(solarState.state) || 0);
+        solarEl.textContent = formatKw(w);
+      } else {
+        solarEl.textContent = "--";
+      }
       if (solarUnitEl) solarUnitEl.textContent = "kW";
     }
   }
@@ -103,21 +108,18 @@ export function updateCircuitDOM(root, hass, topology, config, powerHistory) {
 
   const durationMs = getHistoryDurationMs(config);
   let totalConsumption = 0;
-  let solarProduction = 0;
 
   for (const [, circuit] of Object.entries(topology.circuits)) {
     const entityId = circuit.entities?.power;
     if (!entityId) continue;
     const state = hass.states[entityId];
     const power = state ? parseFloat(state.state) || 0 : 0;
-    if (circuit.device_type === DEVICE_TYPE_PV) {
-      solarProduction += Math.abs(power);
-    } else {
+    if (circuit.device_type !== DEVICE_TYPE_PV) {
       totalConsumption += Math.abs(power);
     }
   }
 
-  _updateHeaderStats(root, hass, topology, config, totalConsumption, solarProduction);
+  _updateHeaderStats(root, hass, topology, config, totalConsumption);
 
   const chartMetric = getChartMetric(config);
   const showCurrent = chartMetric.entityRole === "current";

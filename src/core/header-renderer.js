@@ -12,7 +12,7 @@ export function buildHeaderHTML(topology, config) {
   const firmware = escapeHtml(topology.firmware || "");
   const isAmpsMode = (config.chart_metric || "power") === "current";
 
-  const hasSite = !!topology.panel_entities?.current_power;
+  const hasSite = !!topology.panel_entities?.site_power;
   const hasGrid = !!topology.panel_entities?.dsm_state;
   const hasUpstream = !!topology.panel_entities?.current_power;
   const hasDownstream = !!topology.panel_entities?.feedthrough_power;
