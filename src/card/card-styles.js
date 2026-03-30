@@ -210,6 +210,39 @@ export const CARD_STYLES = `
     order: -1;
   }
 
+  .circuit-status {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    margin-top: 4px;
+    padding: 0 4px;
+  }
+  .shedding-icon { opacity: 0.8; cursor: default; }
+  .gear-icon {
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 2px;
+    opacity: 0.6;
+    transition: opacity 0.2s;
+    margin-left: auto;
+  }
+  .gear-icon:hover { opacity: 1; }
+  .utilization {
+    font-size: 0.75em;
+    font-weight: 600;
+  }
+  .utilization-normal { color: #4caf50; }
+  .utilization-warning { color: #ff9800; }
+  .utilization-alert { color: #f44336; }
+  .circuit-alert {
+    border-color: #f44336 !important;
+    box-shadow: 0 0 8px rgba(244, 67, 54, 0.3);
+  }
+  .circuit-custom-monitoring {
+    border-left: 3px solid #ff9800;
+  }
+
   .chart-container {
     width: 100%;
     margin-top: 4px;

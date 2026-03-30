@@ -49,3 +49,19 @@ export const BESS_CHART_METRICS = {
   },
   power: CHART_METRICS.power,
 };
+
+// ── Shedding priority ──────────────────────────────────────────────────────
+
+export const SHEDDING_PRIORITIES = {
+  never: { icon: "mdi:shield-check", color: "#4caf50", label: "Never" },
+  soc_threshold: { icon: "mdi:battery-alert-variant-outline", color: "#9c27b0", label: "SoC Threshold" },
+  off_grid: { icon: "mdi:transmission-tower", color: "#ff9800", label: "Off-Grid" },
+  unknown: { icon: "mdi:help-circle-outline", color: "#888", label: "Unknown" },
+};
+
+export const MONITORING_COLORS = {
+  normal: "#4caf50",
+  warning: "#ff9800",
+  alert: "#f44336",
+  custom: "#ff9800",
+};

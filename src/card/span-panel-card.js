@@ -226,7 +226,7 @@ export class SpanPanelCard extends HTMLElement {
     const durationMs = this._durationMs;
 
     const headerHTML = buildHeaderHTML(topo, this._config);
-    const gridHTML = buildGridHTML(topo, totalRows, durationMs, hass, this._config);
+    const gridHTML = buildGridHTML(topo, totalRows, durationMs, hass, this._config, null);
     const subDevHTML = buildSubDevicesHTML(topo, hass, this._config, durationMs);
 
     // Remove previous listener before replacing DOM

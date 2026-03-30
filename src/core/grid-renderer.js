@@ -2,7 +2,8 @@ import { escapeHtml } from "../helpers/sanitize.js";
 import { formatPowerSigned, formatPowerUnit } from "../helpers/format.js";
 import { tabToRow, tabToCol, classifyDualTab } from "../helpers/layout.js";
 import { getChartMetric } from "../helpers/chart.js";
-import { DEVICE_TYPE_PV, RELAY_STATE_CLOSED } from "../constants.js";
+import { DEVICE_TYPE_PV, RELAY_STATE_CLOSED, SHEDDING_PRIORITIES, MONITORING_COLORS } from "../constants.js";
+import { getCircuitMonitoringInfo, hasCustomOverrides, getUtilizationClass, isAlertActive } from "./monitoring-status.js";
 
 /**
  * Build the full grid HTML for the panel breaker grid.
@@ -14,7 +15,7 @@ import { DEVICE_TYPE_PV, RELAY_STATE_CLOSED } from "../constants.js";
  * @param {object} config - Card configuration object.
  * @returns {string} HTML string for the grid.
  */
-export function buildGridHTML(topology, totalRows, durationMs, hass, config) {
+export function buildGridHTML(topology, totalRows, durationMs, hass, config, monitoringStatus) {
   const tabMap = new Map();
   const occupiedTabs = new Set();
 
@@ -41,6 +42,14 @@ export function buildGridHTML(topology, totalRows, durationMs, hass, config) {
     }
   }
 
+  function lookupMonitoring(entry) {
+    const circuitEntityId = entry.circuit.entities?.current || entry.circuit.entities?.power;
+    const monInfo = monitoringStatus ? getCircuitMonitoringInfo(monitoringStatus, circuitEntityId) : null;
+    const selectEid = entry.circuit.entities?.select;
+    const sheddingPriority = selectEid && hass.states[selectEid] ? hass.states[selectEid].state : "unknown";
+    return { monInfo, sheddingPriority };
+  }
+
   let gridHTML = "";
   for (let row = 1; row <= totalRows; row++) {
     const leftTab = row * 2 - 1;
@@ -51,14 +60,16 @@ export function buildGridHTML(topology, totalRows, durationMs, hass, config) {
     gridHTML += `<div class="tab-label tab-left" style="grid-row: ${row}; grid-column: 1;">${leftTab}</div>`;
 
     if (leftEntry && leftEntry.layout === "row-span") {
-      gridHTML += renderCircuitSlot(leftEntry.uuid, leftEntry.circuit, row, "2 / 4", "row-span", durationMs, hass, config);
+      const { monInfo, sheddingPriority } = lookupMonitoring(leftEntry);
+      gridHTML += renderCircuitSlot(leftEntry.uuid, leftEntry.circuit, row, "2 / 4", "row-span", durationMs, hass, config, monInfo, sheddingPriority);
       gridHTML += `<div class="tab-label tab-right" style="grid-row: ${row}; grid-column: 4;">${rightTab}</div>`;
       continue;
     }
 
     if (!rowsToSkipLeft.has(row)) {
       if (leftEntry && (leftEntry.layout === "col-span" || leftEntry.layout === "single")) {
-        gridHTML += renderCircuitSlot(leftEntry.uuid, leftEntry.circuit, row, "2", leftEntry.layout, durationMs, hass, config);
+        const { monInfo, sheddingPriority } = lookupMonitoring(leftEntry);
+        gridHTML += renderCircuitSlot(leftEntry.uuid, leftEntry.circuit, row, "2", leftEntry.layout, durationMs, hass, config, monInfo, sheddingPriority);
       } else if (!occupiedTabs.has(leftTab)) {
         gridHTML += renderEmptySlot(row, "2");
       }
@@ -66,7 +77,8 @@ export function buildGridHTML(topology, totalRows, durationMs, hass, config) {
 
     if (!rowsToSkipRight.has(row)) {
       if (rightEntry && (rightEntry.layout === "col-span" || rightEntry.layout === "single")) {
-        gridHTML += renderCircuitSlot(rightEntry.uuid, rightEntry.circuit, row, "3", rightEntry.layout, durationMs, hass, config);
+        const { monInfo, sheddingPriority } = lookupMonitoring(rightEntry);
+        gridHTML += renderCircuitSlot(rightEntry.uuid, rightEntry.circuit, row, "3", rightEntry.layout, durationMs, hass, config, monInfo, sheddingPriority);
       } else if (!occupiedTabs.has(rightTab)) {
         gridHTML += renderEmptySlot(row, "3");
       }
@@ -90,7 +102,7 @@ export function buildGridHTML(topology, totalRows, durationMs, hass, config) {
  * @param {object} config - Card configuration object.
  * @returns {string} HTML string for the circuit slot.
  */
-export function renderCircuitSlot(uuid, circuit, row, col, layout, _durationMs, hass, config) {
+export function renderCircuitSlot(uuid, circuit, row, col, layout, _durationMs, hass, config, monitoringInfo, sheddingPriority) {
   const entityId = circuit.entities?.power;
   const state = entityId ? hass.states[entityId] : null;
   const powerW = state ? parseFloat(state.state) || 0 : 0;
@@ -116,11 +128,41 @@ export function renderCircuitSlot(uuid, circuit, row, col, layout, _durationMs, 
     valueHTML = `<strong>${formatPowerSigned(powerW)}</strong><span class="power-unit">${formatPowerUnit(powerW)}</span>`;
   }
 
+  // Shedding icon
+  const priority = sheddingPriority || "unknown";
+  const shedInfo = SHEDDING_PRIORITIES[priority] || SHEDDING_PRIORITIES.unknown;
+  const sheddingHTML = `<ha-icon class="shedding-icon"
+    icon="${shedInfo.icon}"
+    style="color:${shedInfo.color};--mdc-icon-size:16px;"
+    title="${shedInfo.label}"></ha-icon>`;
+
+  // Gear icon
+  const hasOverridesFlag = monitoringInfo && hasCustomOverrides(monitoringInfo);
+  const gearColor = hasOverridesFlag ? MONITORING_COLORS.custom : "#555";
+  const gearHTML = `<button class="gear-icon circuit-gear"
+    data-uuid="${escapeHtml(uuid)}" style="color:${gearColor};"
+    title="Configure circuit">
+    <ha-icon icon="mdi:cog" style="--mdc-icon-size:16px;"></ha-icon>
+  </button>`;
+
+  // Utilization (shown when monitoring is active)
+  let utilizationHTML = "";
+  if (monitoringInfo?.utilization_pct != null) {
+    const pct = monitoringInfo.utilization_pct;
+    const utilClass = getUtilizationClass(monitoringInfo);
+    utilizationHTML = `<span class="utilization ${utilClass}">${Math.round(pct)}%</span>`;
+  }
+
+  // Alert and custom monitoring classes
+  const alertActive = isAlertActive(monitoringInfo);
+  const alertClass = alertActive ? "circuit-alert" : "";
+  const customClass = hasOverridesFlag ? "circuit-custom-monitoring" : "";
+
   const rowSpan = layout === "col-span" ? `${row} / span 2` : `${row}`;
   const layoutClass = layout === "row-span" ? "circuit-row-span" : layout === "col-span" ? "circuit-col-span" : "";
 
   return `
-    <div class="circuit-slot ${isOn ? "" : "circuit-off"} ${isProducer ? "circuit-producer" : ""} ${layoutClass}"
+    <div class="circuit-slot ${isOn ? "" : "circuit-off"} ${isProducer ? "circuit-producer" : ""} ${layoutClass} ${alertClass} ${customClass}"
          style="grid-row: ${rowSpan}; grid-column: ${col};"
          data-uuid="${escapeHtml(uuid)}">
       <div class="circuit-header">
@@ -143,6 +185,11 @@ export function renderCircuitSlot(uuid, circuit, row, col, layout, _durationMs, 
               : ""
           }
         </div>
+      </div>
+      <div class="circuit-status">
+        ${sheddingHTML}
+        ${utilizationHTML}
+        ${gearHTML}
       </div>
       <div class="chart-container"></div>
     </div>
