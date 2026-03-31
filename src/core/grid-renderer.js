@@ -46,8 +46,13 @@ export function buildGridHTML(topology, totalRows, durationMs, hass, config, mon
   function lookupMonitoring(entry) {
     const circuitEntityId = entry.circuit.entities?.current || entry.circuit.entities?.power;
     const monInfo = monitoringStatus ? getCircuitMonitoringInfo(monitoringStatus, circuitEntityId) : null;
-    const selectEid = entry.circuit.entities?.select;
-    const sheddingPriority = selectEid && hass.states[selectEid] ? hass.states[selectEid].state : "unknown";
+    let sheddingPriority;
+    if (entry.circuit.always_on) {
+      sheddingPriority = "always_on";
+    } else {
+      const selectEid = entry.circuit.entities?.select;
+      sheddingPriority = selectEid && hass.states[selectEid] ? hass.states[selectEid].state : "unknown";
+    }
     return { monInfo, sheddingPriority };
   }
 
@@ -129,13 +134,25 @@ export function renderCircuitSlot(uuid, circuit, row, col, layout, _durationMs, 
     valueHTML = `<strong>${formatPowerSigned(powerW)}</strong><span class="power-unit">${formatPowerUnit(powerW)}</span>`;
   }
 
-  // Shedding icon
+  // Shedding icon (supports composite: dual-icon or icon+text)
   const priority = sheddingPriority || "unknown";
   const shedInfo = SHEDDING_PRIORITIES[priority] || SHEDDING_PRIORITIES.unknown;
-  const sheddingHTML = `<ha-icon class="shedding-icon"
-    icon="${shedInfo.icon}"
-    style="color:${shedInfo.color};--mdc-icon-size:16px;"
-    title="${shedInfo.label()}"></ha-icon>`;
+  let sheddingHTML;
+  if (shedInfo.icon2) {
+    sheddingHTML = `<span class="shedding-composite" title="${shedInfo.label()}">
+      <ha-icon class="shedding-icon" icon="${shedInfo.icon}" style="color:${shedInfo.color};--mdc-icon-size:16px;"></ha-icon>
+      <ha-icon class="shedding-icon-secondary" icon="${shedInfo.icon2}" style="color:${shedInfo.color};--mdc-icon-size:14px;"></ha-icon>
+    </span>`;
+  } else if (shedInfo.textLabel) {
+    sheddingHTML = `<span class="shedding-composite" title="${shedInfo.label()}">
+      <ha-icon class="shedding-icon" icon="${shedInfo.icon}" style="color:${shedInfo.color};--mdc-icon-size:16px;"></ha-icon>
+      <span class="shedding-label" style="color:${shedInfo.color}">${shedInfo.textLabel}</span>
+    </span>`;
+  } else {
+    sheddingHTML = `<ha-icon class="shedding-icon" icon="${shedInfo.icon}"
+      style="color:${shedInfo.color};--mdc-icon-size:16px;"
+      title="${shedInfo.label()}"></ha-icon>`;
+  }
 
   // Gear icon
   const hasOverridesFlag = monitoringInfo && hasCustomOverrides(monitoringInfo);

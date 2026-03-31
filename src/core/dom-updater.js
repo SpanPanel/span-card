@@ -161,15 +161,42 @@ export function updateCircuitDOM(root, hass, topology, config, powerHistory, hor
     slot.classList.toggle("circuit-producer", isProducer);
 
     // Update shedding priority icon
-    const selectEid = circuit.entities?.select;
-    const selectState = selectEid ? hass.states[selectEid] : null;
-    const priority = selectState ? selectState.state : "unknown";
+    let priority;
+    if (circuit.always_on) {
+      priority = "always_on";
+    } else {
+      const selectEid = circuit.entities?.select;
+      const selectState = selectEid ? hass.states[selectEid] : null;
+      priority = selectState ? selectState.state : "unknown";
+    }
     const shedInfo = SHEDDING_PRIORITIES[priority] || SHEDDING_PRIORITIES.unknown;
     const sheddingIcon = slot.querySelector(".shedding-icon");
     if (sheddingIcon) {
       sheddingIcon.setAttribute("icon", shedInfo.icon);
       sheddingIcon.style.color = shedInfo.color;
       sheddingIcon.title = shedInfo.label();
+    }
+    // Update secondary icon if present
+    const secondaryIcon = slot.querySelector(".shedding-icon-secondary");
+    if (secondaryIcon) {
+      if (shedInfo.icon2) {
+        secondaryIcon.setAttribute("icon", shedInfo.icon2);
+        secondaryIcon.style.color = shedInfo.color;
+        secondaryIcon.style.display = "";
+      } else {
+        secondaryIcon.style.display = "none";
+      }
+    }
+    // Update text label if present
+    const sheddingLabel = slot.querySelector(".shedding-label");
+    if (sheddingLabel) {
+      if (shedInfo.textLabel) {
+        sheddingLabel.textContent = shedInfo.textLabel;
+        sheddingLabel.style.color = shedInfo.color;
+        sheddingLabel.style.display = "";
+      } else {
+        sheddingLabel.style.display = "none";
+      }
     }
 
     const chartContainer = slot.querySelector(".chart-container");

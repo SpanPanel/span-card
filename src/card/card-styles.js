@@ -236,6 +236,17 @@ export const CARD_STYLES = `
     padding: 0 4px;
   }
   .shedding-icon { opacity: 0.8; cursor: default; }
+  .shedding-composite {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+  }
+  .shedding-icon-secondary { opacity: 0.8; }
+  .shedding-label {
+    font-size: 10px;
+    font-weight: 600;
+    opacity: 0.8;
+  }
   .gear-icon {
     background: none;
     border: none;

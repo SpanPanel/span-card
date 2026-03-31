@@ -72,8 +72,9 @@ export const BESS_CHART_METRICS = {
 // ── Shedding priority ──────────────────────────────────────────────────────
 
 export const SHEDDING_PRIORITIES = {
+  always_on: { icon: "mdi:battery", icon2: "mdi:router-wireless", color: "#4caf50", label: () => t("shedding.always_on") },
   never: { icon: "mdi:shield-check", color: "#4caf50", label: () => t("shedding.never") },
-  soc_threshold: { icon: "mdi:battery-alert-variant-outline", color: "#9c27b0", label: () => t("shedding.soc_threshold") },
+  soc_threshold: { icon: "mdi:battery-alert-variant-outline", color: "#9c27b0", label: () => t("shedding.soc_threshold"), textLabel: "SoC" },
   off_grid: { icon: "mdi:transmission-tower", color: "#ff9800", label: () => t("shedding.off_grid") },
   unknown: { icon: "mdi:help-circle-outline", color: "#888", label: () => t("shedding.unknown") },
 };
