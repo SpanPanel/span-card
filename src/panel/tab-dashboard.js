@@ -109,7 +109,7 @@ export class DashboardTab {
       } catch {
         // Will populate on next refresh
       }
-      updateCircuitDOM(container, this._hass, topo, this._config, this._powerHistory);
+      updateCircuitDOM(container, this._hass, topo, this._config, this._powerHistory, this._horizonMap);
       updateSubDeviceDOM(container, this._hass, topo, this._config, this._powerHistory);
     });
 
@@ -120,13 +120,13 @@ export class DashboardTab {
     }
 
     // Initial DOM update with history data
-    updateCircuitDOM(container, hass, topo, config, this._powerHistory);
+    updateCircuitDOM(container, hass, topo, config, this._powerHistory, this._horizonMap);
     updateSubDeviceDOM(container, hass, topo, config, this._powerHistory);
 
     // Start live update loop
     this._updateInterval = setInterval(() => {
       this._recordSamples();
-      updateCircuitDOM(container, this._hass, topo, this._config, this._powerHistory);
+      updateCircuitDOM(container, this._hass, topo, this._config, this._powerHistory, this._horizonMap);
       updateSubDeviceDOM(container, this._hass, topo, this._config, this._powerHistory);
     }, LIVE_SAMPLE_INTERVAL_MS);
 
@@ -146,7 +146,7 @@ export class DashboardTab {
       }
       try {
         await loadHistory(this._hass, this._topology, this._config, this._powerHistory, nonRealtimeMap);
-        updateCircuitDOM(container, this._hass, topo, this._config, this._powerHistory);
+        updateCircuitDOM(container, this._hass, topo, this._config, this._powerHistory, this._horizonMap);
       } catch {
         // Recorder data will refresh on next interval
       }

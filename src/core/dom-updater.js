@@ -3,7 +3,7 @@ import { formatPowerSigned, formatPowerUnit, formatKw } from "../helpers/format.
 import { t } from "../i18n.js";
 import { getChartMetric } from "../helpers/chart.js";
 import { findSubDevicePowerEntity } from "../helpers/entity-finder.js";
-import { getHistoryDurationMs } from "../helpers/history.js";
+import { getHistoryDurationMs, getHorizonDurationMs } from "../helpers/history.js";
 import { updateChart } from "../chart/chart-update.js";
 
 // ── Header stats ───────────────────────────────────────────────────────────
@@ -104,10 +104,10 @@ function _updateHeaderStats(root, hass, topology, config, totalConsumption) {
 
 // ── Exported updaters ──────────────────────────────────────────────────────
 
-export function updateCircuitDOM(root, hass, topology, config, powerHistory) {
+export function updateCircuitDOM(root, hass, topology, config, powerHistory, horizonMap) {
   if (!root || !topology || !hass) return;
 
-  const durationMs = getHistoryDurationMs(config);
+  const defaultDurationMs = getHistoryDurationMs(config);
   let totalConsumption = 0;
 
   for (const [, circuit] of Object.entries(topology.circuits)) {
@@ -176,7 +176,8 @@ export function updateCircuitDOM(root, hass, topology, config, powerHistory) {
     if (chartContainer) {
       const history = powerHistory.get(uuid) || [];
       const h = slot.classList.contains("circuit-col-span") ? 200 : 100;
-      updateChart(chartContainer, hass, history, durationMs, chartMetric, isProducer, h, circuit.breaker_rating_a);
+      const circuitDuration = horizonMap?.has(uuid) ? getHorizonDurationMs(horizonMap.get(uuid)) : defaultDurationMs;
+      updateChart(chartContainer, hass, history, circuitDuration, chartMetric, isProducer, h, circuit.breaker_rating_a);
     }
   }
 }
