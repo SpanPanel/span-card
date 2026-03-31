@@ -18,6 +18,7 @@ export const GRAPH_HORIZONS = {
   "5m": { ms: 5 * 60 * 1000, refreshMs: 1000, useRealtime: true },
   "1h": { ms: 60 * 60 * 1000, refreshMs: 30000, useRealtime: false },
   "1d": { ms: 24 * 60 * 60 * 1000, refreshMs: 60000, useRealtime: false },
+  "1w": { ms: 7 * 24 * 60 * 60 * 1000, refreshMs: 60000, useRealtime: false },
   "1M": { ms: 30 * 24 * 60 * 60 * 1000, refreshMs: 60000, useRealtime: false },
 };
 
