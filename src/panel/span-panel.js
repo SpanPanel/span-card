@@ -163,6 +163,15 @@ export class SpanPanelElement extends HTMLElement {
 
     this._bindUnitToggle();
     this._bindTabNavigation();
+
+    // Sync: if graph settings change (from side panel or settings tab),
+    // re-render settings tab if it's visible
+    this.shadowRoot.addEventListener("graph-settings-changed", () => {
+      if (this._activeTab === "settings") {
+        this._renderTab();
+      }
+    });
+
     this._renderTab();
   }
 
