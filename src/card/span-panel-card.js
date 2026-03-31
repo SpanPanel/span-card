@@ -1,8 +1,9 @@
-import { DEFAULT_CHART_METRIC, LIVE_SAMPLE_INTERVAL_MS } from "../constants.js";
+import { DEFAULT_CHART_METRIC, DEFAULT_GRAPH_HORIZON, GRAPH_HORIZONS, LIVE_SAMPLE_INTERVAL_MS } from "../constants.js";
 import { t } from "../i18n.js";
 import { escapeHtml } from "../helpers/sanitize.js";
-import { getHistoryDurationMs, getMaxHistoryPoints, recordSample } from "../helpers/history.js";
+import { getHistoryDurationMs, getHorizonDurationMs, getMaxHistoryPoints, recordSample } from "../helpers/history.js";
 import { getCircuitChartEntity } from "../helpers/chart.js";
+import { GraphSettingsCache } from "../core/graph-settings.js";
 import { buildHeaderHTML } from "../core/header-renderer.js";
 import { buildGridHTML } from "../core/grid-renderer.js";
 import { buildSubDevicesHTML } from "../core/sub-device-renderer.js";
@@ -36,6 +37,8 @@ export class SpanPanelCard extends HTMLElement {
     this._handleUnitToggle = this._onUnitToggle.bind(this);
     this._handleGearClick = this._onGearClick.bind(this);
     this._monitoringCache = new MonitoringStatusCache();
+    this._graphSettingsCache = new GraphSettingsCache();
+    this._horizonMap = new Map();
   }
 
   connectedCallback() {
@@ -59,7 +62,9 @@ export class SpanPanelCard extends HTMLElement {
     this._rendered = false;
     this._historyLoaded = false;
     this._powerHistory.clear();
+    this._horizonMap.clear();
     this._monitoringCache.clear();
+    this._graphSettingsCache.clear();
   }
 
   get _durationMs() {
@@ -145,8 +150,24 @@ export class SpanPanelCard extends HTMLElement {
   async _loadHistory() {
     if (this._historyLoaded || !this._topology || !this._hass) return;
     this._historyLoaded = true;
+
+    // Fetch graph settings and build horizon map
     try {
-      await loadHistory(this._hass, this._topology, this._config, this._powerHistory);
+      await this._graphSettingsCache.fetch(this._hass);
+      const settings = this._graphSettingsCache.settings;
+      if (settings && this._topology?.circuits) {
+        for (const uuid of Object.keys(this._topology.circuits)) {
+          const override = settings.circuits?.[uuid];
+          const horizon = override?.has_override ? override.horizon : settings.global_horizon || DEFAULT_GRAPH_HORIZON;
+          this._horizonMap.set(uuid, horizon);
+        }
+      }
+    } catch {
+      // Graph settings unavailable — use defaults
+    }
+
+    try {
+      await loadHistory(this._hass, this._topology, this._config, this._powerHistory, this._horizonMap);
       this._updateDOM();
     } catch (err) {
       console.warn("SPAN Panel: history fetch failed, charts will populate live", err);
@@ -158,21 +179,30 @@ export class SpanPanelCard extends HTMLElement {
   _recordPowerHistory() {
     if (!this._topology || !this._hass) return;
     const now = Date.now();
-    const cutoff = now - this._durationMs;
-    const maxPoints = getMaxHistoryPoints(this._durationMs);
 
     for (const [uuid, circuit] of Object.entries(this._topology.circuits)) {
+      const horizon = this._horizonMap?.get(uuid) || DEFAULT_GRAPH_HORIZON;
+      if (!GRAPH_HORIZONS[horizon]?.useRealtime) continue;
+
       const entityId = getCircuitChartEntity(circuit, this._config);
       if (!entityId) continue;
       const state = this._hass.states[entityId];
       const rawValue = state ? parseFloat(state.state) || 0 : 0;
+
+      const durationMs = getHorizonDurationMs(horizon);
+      const maxPoints = getMaxHistoryPoints(durationMs);
+      const cutoff = now - durationMs;
       recordSample(this._powerHistory, uuid, rawValue, now, cutoff, maxPoints);
     }
 
+    // Sub-devices always use default duration
+    const defaultDurationMs = getHistoryDurationMs(this._config);
+    const defaultMaxPoints = getMaxHistoryPoints(defaultDurationMs);
+    const defaultCutoff = now - defaultDurationMs;
     for (const { entityId, key } of collectSubDeviceEntityIds(this._topology)) {
       const state = this._hass.states[entityId];
       const rawValue = state ? parseFloat(state.state) || 0 : 0;
-      recordSample(this._powerHistory, key, rawValue, now, cutoff, maxPoints);
+      recordSample(this._powerHistory, key, rawValue, now, defaultCutoff, defaultMaxPoints);
     }
   }
 
@@ -186,7 +216,7 @@ export class SpanPanelCard extends HTMLElement {
   // ── DOM updates (incremental) ──────────────────────────────────────────────
 
   _updateDOM() {
-    updateCircuitDOM(this.shadowRoot, this._hass, this._topology, this._config, this._powerHistory);
+    updateCircuitDOM(this.shadowRoot, this._hass, this._topology, this._config, this._powerHistory, this._horizonMap);
     updateSubDeviceDOM(this.shadowRoot, this._hass, this._topology, this._config, this._powerHistory);
   }
 
