@@ -226,7 +226,7 @@ export class SpanPanelElement extends HTMLElement {
         container.innerHTML = "";
         const selectedDevice = this._panels.find(p => p.id === this._selectedPanelId);
         const configEntryId = selectedDevice?.config_entries?.[0] || null;
-        this._settingsTab.render(container, configEntryId);
+        await this._settingsTab.render(container, this._hass, configEntryId, this._selectedPanelId);
         break;
       }
     }
