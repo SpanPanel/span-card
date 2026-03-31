@@ -36,6 +36,9 @@ export function buildChartOptions(history, durationMs, metric, isProducer, break
     },
   ];
 
+  // Determine the max data value to ensure a meaningful Y-axis range
+  const dataMax = data.length > 0 ? Math.max(...data.map(d => d[1])) : 0;
+
   const yAxis = {
     type: "value",
     splitNumber: 4,
@@ -45,6 +48,10 @@ export function buildChartOptions(history, durationMs, metric, isProducer, break
   if (hasFixedRange) {
     yAxis.min = metric.fixedMin;
     yAxis.max = metric.fixedMax;
+  } else if (dataMax < 1) {
+    // Prevent all-zero Y-axis labels when values are very small
+    yAxis.min = 0;
+    yAxis.max = 1;
   }
 
   // When displaying current with a known breaker rating, fix Y-axis to 125%

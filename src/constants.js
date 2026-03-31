@@ -37,7 +37,12 @@ export const CHART_METRICS = {
     entityRole: "power",
     label: () => t("metric.power"),
     unit: v => (Math.abs(v) >= 1000 ? "kW" : "W"),
-    format: v => (Math.abs(v) >= 1000 ? (Math.abs(v) / 1000).toFixed(1) : String(Math.round(Math.abs(v)))),
+    format: v => {
+      const abs = Math.abs(v);
+      if (abs >= 1000) return (abs / 1000).toFixed(1);
+      if (abs < 10 && abs > 0) return abs.toFixed(1);
+      return String(Math.round(abs));
+    },
   },
   current: {
     entityRole: "current",
