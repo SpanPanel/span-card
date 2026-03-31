@@ -5,6 +5,7 @@ import { buildSubDevicesHTML } from "../core/sub-device-renderer.js";
 import { updateCircuitDOM, updateSubDeviceDOM } from "../core/dom-updater.js";
 import { loadHistory } from "../core/history-loader.js";
 import { MonitoringStatusCache, buildMonitoringSummaryHTML } from "../core/monitoring-status.js";
+import { GraphSettingsCache } from "../core/graph-settings.js";
 import { CARD_STYLES } from "../card/card-styles.js";
 import { getHistoryDurationMs, recordSample, getMaxHistoryPoints, getMinGapMs } from "../helpers/history.js";
 import { getCircuitChartEntity } from "../helpers/chart.js";
@@ -17,6 +18,7 @@ export class DashboardTab {
     this._panelSize = 0;
     this._powerHistory = new Map();
     this._monitoringCache = new MonitoringStatusCache();
+    this._graphSettingsCache = new GraphSettingsCache();
     this._updateInterval = null;
     this._hass = null;
     this._config = null;
@@ -38,6 +40,7 @@ export class DashboardTab {
     }
 
     await this._monitoringCache.fetch(hass);
+    await this._graphSettingsCache.fetch(hass);
 
     const topo = this._topology;
     const totalRows = Math.ceil(this._panelSize / 2);
@@ -70,6 +73,10 @@ export class DashboardTab {
     this._bindToggleClicks(container, topo);
     container.addEventListener("side-panel-closed", () => {
       this._monitoringCache.invalidate();
+      this._graphSettingsCache.invalidate();
+    });
+    container.addEventListener("graph-settings-changed", () => {
+      this._graphSettingsCache.invalidate();
     });
 
     try {
@@ -153,14 +160,21 @@ export class DashboardTab {
       const circuit = topology.circuits[uuid];
       if (!circuit) return;
 
-      // Always fetch fresh monitoring data before opening side panel
+      // Always fetch fresh monitoring and graph settings data before opening side panel
       await this._monitoringCache.fetch(this._hass);
       const monitoringInfo = this._monitoringCache?.status?.circuits?.[circuit.entities?.power] || null;
+
+      await this._graphSettingsCache.fetch(this._hass);
+      const graphSettings = this._graphSettingsCache.settings;
+      const graphHorizonInfo = graphSettings?.circuits?.[uuid]
+        ? graphSettings.circuits[uuid]
+        : { horizon: graphSettings?.global_horizon || "5m", has_override: false };
 
       sidePanel.open({
         ...circuit,
         uuid,
         monitoringInfo,
+        graphHorizonInfo,
       });
     });
   }

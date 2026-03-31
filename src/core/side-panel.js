@@ -1,6 +1,6 @@
 // src/core/side-panel.js
 import { escapeHtml } from "../helpers/sanitize.js";
-import { INTEGRATION_DOMAIN, SHEDDING_PRIORITIES } from "../constants.js";
+import { INTEGRATION_DOMAIN, SHEDDING_PRIORITIES, GRAPH_HORIZONS, DEFAULT_GRAPH_HORIZON } from "../constants.js";
 import { t } from "../i18n.js";
 
 const DEBOUNCE_MS = 500;
@@ -290,6 +290,7 @@ class SpanSidePanel extends HTMLElement {
 
     this._renderRelaySection(body, cfg);
     this._renderSheddingSection(body, cfg);
+    this._renderGraphHorizonSection(body, cfg);
     this._renderMonitoringSection(body, cfg);
   }
 
@@ -386,6 +387,92 @@ class SpanSidePanel extends HTMLElement {
     row.appendChild(label);
     row.appendChild(selectEl);
     section.appendChild(row);
+    body.appendChild(section);
+  }
+
+  // ── Graph horizon section ──────────────────────────────────────────
+
+  _renderGraphHorizonSection(body, cfg) {
+    const section = document.createElement("div");
+    section.className = "section";
+
+    const sectionLabel = document.createElement("div");
+    sectionLabel.className = "section-label";
+    sectionLabel.textContent = t("sidepanel.graph_horizon");
+    section.appendChild(sectionLabel);
+
+    const graphInfo = cfg.graphHorizonInfo;
+    const hasOverride = graphInfo?.has_override === true;
+    const currentHorizon = graphInfo?.horizon || DEFAULT_GRAPH_HORIZON;
+
+    // Global / Custom radio
+    const radioGroup = document.createElement("div");
+    radioGroup.className = "radio-group";
+    radioGroup.innerHTML = `
+      <label><input type="radio" name="graph-mode" value="global" ${!hasOverride ? "checked" : ""} /> ${t("sidepanel.global")}</label>
+      <label><input type="radio" name="graph-mode" value="custom" ${hasOverride ? "checked" : ""} /> ${t("sidepanel.custom")}</label>
+    `;
+    section.appendChild(radioGroup);
+
+    // Horizon dropdown
+    const selectWrap = document.createElement("div");
+    selectWrap.dataset.role = "graph-horizon-fields";
+    selectWrap.style.display = hasOverride ? "block" : "none";
+
+    const row = document.createElement("div");
+    row.className = "field-row";
+
+    const label = document.createElement("span");
+    label.className = "field-label";
+    label.textContent = t("settings.default_scale");
+
+    const selectEl = document.createElement("select");
+    selectEl.dataset.role = "graph-horizon-select";
+    for (const key of Object.keys(GRAPH_HORIZONS)) {
+      const opt = document.createElement("option");
+      opt.value = key;
+      opt.textContent = t(`horizon.${key}`);
+      if (key === currentHorizon) opt.selected = true;
+      selectEl.appendChild(opt);
+    }
+
+    row.appendChild(label);
+    row.appendChild(selectEl);
+    selectWrap.appendChild(row);
+    section.appendChild(selectWrap);
+
+    // Event: radio change
+    const radios = radioGroup.querySelectorAll('input[type="radio"]');
+    for (const radio of radios) {
+      radio.addEventListener("change", () => {
+        const isCustom = radio.value === "custom" && radio.checked;
+        selectWrap.style.display = isCustom ? "block" : "none";
+        if (!isCustom && radio.checked) {
+          const circuitId = cfg.uuid;
+          this._callDomainService("clear_circuit_graph_horizon", { circuit_id: circuitId })
+            .then(() => {
+              this.dispatchEvent(new CustomEvent("graph-settings-changed", { bubbles: true, composed: true }));
+            })
+            .catch(err => this._showError(`${t("sidepanel.clear_graph_horizon_failed")} ${err.message ?? err}`));
+        }
+      });
+    }
+
+    // Event: dropdown change (debounced)
+    selectEl.addEventListener("change", () => {
+      this._debounce("graph-horizon", DEBOUNCE_MS, () => {
+        const circuitId = cfg.uuid;
+        this._callDomainService("set_circuit_graph_horizon", {
+          circuit_id: circuitId,
+          horizon: selectEl.value,
+        })
+          .then(() => {
+            this.dispatchEvent(new CustomEvent("graph-settings-changed", { bubbles: true, composed: true }));
+          })
+          .catch(err => this._showError(`${t("sidepanel.graph_horizon_failed")} ${err.message ?? err}`));
+      });
+    });
+
     body.appendChild(section);
   }
 
