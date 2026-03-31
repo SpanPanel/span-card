@@ -38,18 +38,21 @@ export function buildChartOptions(history, durationMs, metric, isProducer, break
 
   // Determine the max data value to ensure a meaningful Y-axis range
   const dataMax = data.length > 0 ? Math.max(...data.map(d => d[1])) : 0;
+  const useDecimalAxis = dataMax < 10;
 
   const yAxis = {
     type: "value",
     splitNumber: 4,
-    axisLabel: { fontSize: 10, formatter: v => metric.format(v) },
+    axisLabel: {
+      fontSize: 10,
+      formatter: useDecimalAxis ? v => (v === 0 ? "0" : v.toFixed(1)) : v => metric.format(v),
+    },
     splitLine: { lineStyle: { opacity: 0.15 } },
   };
   if (hasFixedRange) {
     yAxis.min = metric.fixedMin;
     yAxis.max = metric.fixedMax;
   } else if (dataMax < 1) {
-    // Prevent all-zero Y-axis labels when values are very small
     yAxis.min = 0;
     yAxis.max = 1;
   }
