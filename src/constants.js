@@ -10,6 +10,17 @@ export const DEFAULT_HISTORY_MINUTES = 5;
 export const DEFAULT_CHART_METRIC = "power";
 export const LIVE_SAMPLE_INTERVAL_MS = 1000;
 
+// ── Graph time horizon presets ─────────────────────────────────────────────
+
+export const DEFAULT_GRAPH_HORIZON = "5m";
+
+export const GRAPH_HORIZONS = {
+  "5m": { ms: 5 * 60 * 1000, refreshMs: 1000, useRealtime: true },
+  "1h": { ms: 60 * 60 * 1000, refreshMs: 30000, useRealtime: false },
+  "1d": { ms: 24 * 60 * 60 * 1000, refreshMs: 60000, useRealtime: false },
+  "1M": { ms: 30 * 24 * 60 * 60 * 1000, refreshMs: 60000, useRealtime: false },
+};
+
 // ── Domain / type identifiers ───────────────────────────────────────────────
 
 export const INTEGRATION_DOMAIN = "span_panel";
