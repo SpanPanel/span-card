@@ -319,9 +319,10 @@ export class SpanPanelCard extends HTMLElement {
 
     await this._graphSettingsCache.fetch(this._hass);
     const graphSettings = this._graphSettingsCache.settings;
+    const globalHorizon = graphSettings?.global_horizon || DEFAULT_GRAPH_HORIZON;
     const graphHorizonInfo = graphSettings?.circuits?.[uuid]
-      ? graphSettings.circuits[uuid]
-      : { horizon: graphSettings?.global_horizon || "5m", has_override: false };
+      ? { ...graphSettings.circuits[uuid], globalHorizon }
+      : { horizon: globalHorizon, has_override: false, globalHorizon };
 
     sidePanel.open({
       ...circuit,

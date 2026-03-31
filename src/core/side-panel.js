@@ -145,6 +145,42 @@ const STYLES = `
     cursor: pointer;
   }
 
+  .horizon-bar {
+    display: flex;
+    border: 1px solid var(--divider-color, #e0e0e0);
+    border-radius: 6px;
+    overflow: hidden;
+    margin-top: 4px;
+  }
+  .horizon-segment {
+    flex: 1;
+    padding: 6px 0;
+    text-align: center;
+    font-size: 13px;
+    cursor: pointer;
+    background: var(--card-background-color, #fff);
+    color: var(--primary-text-color, #212121);
+    border: none;
+    border-right: 1px solid var(--divider-color, #e0e0e0);
+    transition: background 0.15s ease, color 0.15s ease;
+    user-select: none;
+    line-height: 1.4;
+  }
+  .horizon-segment:last-child {
+    border-right: none;
+  }
+  .horizon-segment:hover:not(.active) {
+    background: var(--secondary-background-color, #f5f5f5);
+  }
+  .horizon-segment.active {
+    background: var(--primary-color, #03a9f4);
+    color: #fff;
+    font-weight: 600;
+  }
+  .horizon-segment.referenced {
+    box-shadow: inset 0 -3px 0 var(--primary-color, #03a9f4);
+  }
+
   .monitoring-header {
     display: flex;
     align-items: center;
@@ -404,75 +440,64 @@ class SpanSidePanel extends HTMLElement {
     const graphInfo = cfg.graphHorizonInfo;
     const hasOverride = graphInfo?.has_override === true;
     const currentHorizon = graphInfo?.horizon || DEFAULT_GRAPH_HORIZON;
+    const globalHorizon = graphInfo?.globalHorizon || DEFAULT_GRAPH_HORIZON;
 
-    // Global / Custom radio
-    const radioGroup = document.createElement("div");
-    radioGroup.className = "radio-group";
-    radioGroup.innerHTML = `
-      <label><input type="radio" name="graph-mode" value="global" ${!hasOverride ? "checked" : ""} /> ${t("sidepanel.global")}</label>
-      <label><input type="radio" name="graph-mode" value="custom" ${hasOverride ? "checked" : ""} /> ${t("sidepanel.custom")}</label>
-    `;
-    section.appendChild(radioGroup);
+    // Segmented button bar: Global | 5m | 1h | 1d | 1w | 1M
+    const bar = document.createElement("div");
+    bar.className = "horizon-bar";
 
-    // Horizon dropdown
-    const selectWrap = document.createElement("div");
-    selectWrap.dataset.role = "graph-horizon-fields";
-    selectWrap.style.display = hasOverride ? "block" : "none";
-
-    const row = document.createElement("div");
-    row.className = "field-row";
-
-    const label = document.createElement("span");
-    label.className = "field-label";
-    label.textContent = t("settings.default_scale");
-
-    const selectEl = document.createElement("select");
-    selectEl.dataset.role = "graph-horizon-select";
+    const segments = [{ key: "global", label: t("sidepanel.global") }];
     for (const key of Object.keys(GRAPH_HORIZONS)) {
-      const opt = document.createElement("option");
-      opt.value = key;
-      opt.textContent = t(`horizon.${key}`);
-      if (key === currentHorizon) opt.selected = true;
-      selectEl.appendChild(opt);
+      segments.push({ key, label: key });
     }
 
-    row.appendChild(label);
-    row.appendChild(selectEl);
-    selectWrap.appendChild(row);
-    section.appendChild(selectWrap);
+    const activeKey = hasOverride ? currentHorizon : "global";
 
-    // Event: radio change
-    const radios = radioGroup.querySelectorAll('input[type="radio"]');
-    for (const radio of radios) {
-      radio.addEventListener("change", () => {
-        const isCustom = radio.value === "custom" && radio.checked;
-        selectWrap.style.display = isCustom ? "block" : "none";
-        if (!isCustom && radio.checked) {
-          const circuitId = cfg.uuid;
+    const updateSegmentStates = newActiveKey => {
+      for (const btn of bar.querySelectorAll(".horizon-segment")) {
+        const key = btn.dataset.horizon;
+        btn.classList.toggle("active", key === newActiveKey);
+        btn.classList.toggle("referenced", newActiveKey === "global" && key === globalHorizon);
+      }
+    };
+
+    for (const { key, label } of segments) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "horizon-segment";
+      btn.dataset.horizon = key;
+      btn.textContent = label;
+      btn.classList.toggle("active", key === activeKey);
+      btn.classList.toggle("referenced", activeKey === "global" && key === globalHorizon);
+
+      btn.addEventListener("click", () => {
+        if (btn.classList.contains("active")) return;
+
+        const circuitId = cfg.uuid;
+        if (key === "global") {
+          updateSegmentStates("global");
           this._callDomainService("clear_circuit_graph_horizon", { circuit_id: circuitId })
             .then(() => {
               this.dispatchEvent(new CustomEvent("graph-settings-changed", { bubbles: true, composed: true }));
             })
             .catch(err => this._showError(`${t("sidepanel.clear_graph_horizon_failed")} ${err.message ?? err}`));
+        } else {
+          updateSegmentStates(key);
+          this._callDomainService("set_circuit_graph_horizon", {
+            circuit_id: circuitId,
+            horizon: key,
+          })
+            .then(() => {
+              this.dispatchEvent(new CustomEvent("graph-settings-changed", { bubbles: true, composed: true }));
+            })
+            .catch(err => this._showError(`${t("sidepanel.graph_horizon_failed")} ${err.message ?? err}`));
         }
       });
+
+      bar.appendChild(btn);
     }
 
-    // Event: dropdown change (debounced)
-    selectEl.addEventListener("change", () => {
-      this._debounce("graph-horizon", DEBOUNCE_MS, () => {
-        const circuitId = cfg.uuid;
-        this._callDomainService("set_circuit_graph_horizon", {
-          circuit_id: circuitId,
-          horizon: selectEl.value,
-        })
-          .then(() => {
-            this.dispatchEvent(new CustomEvent("graph-settings-changed", { bubbles: true, composed: true }));
-          })
-          .catch(err => this._showError(`${t("sidepanel.graph_horizon_failed")} ${err.message ?? err}`));
-      });
-    });
-
+    section.appendChild(bar);
     body.appendChild(section);
   }
 
