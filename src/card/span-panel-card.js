@@ -31,11 +31,13 @@ export class SpanPanelCard extends HTMLElement {
     this._historyLoaded = false;
 
     this._updateInterval = null;
+    this._recorderRefreshInterval = null;
     this._rendered = false;
 
     this._handleToggleClick = this._onToggleClick.bind(this);
     this._handleUnitToggle = this._onUnitToggle.bind(this);
     this._handleGearClick = this._onGearClick.bind(this);
+    this._handleGraphSettingsChanged = this._onGraphSettingsChanged.bind(this);
     this._monitoringCache = new MonitoringStatusCache();
     this._graphSettingsCache = new GraphSettingsCache();
     this._horizonMap = new Map();
@@ -47,12 +49,36 @@ export class SpanPanelCard extends HTMLElement {
         this._updateData();
       }
     }, LIVE_SAMPLE_INTERVAL_MS);
+
+    this._recorderRefreshInterval = setInterval(async () => {
+      if (!this._discovered || !this._hass || !this._topology) return;
+      const nonRealtimeMap = new Map();
+      for (const [uuid, horizon] of this._horizonMap) {
+        if (!GRAPH_HORIZONS[horizon]?.useRealtime) {
+          nonRealtimeMap.set(uuid, horizon);
+        }
+      }
+      if (nonRealtimeMap.size === 0) return;
+      for (const uuid of nonRealtimeMap.keys()) {
+        this._powerHistory.delete(uuid);
+      }
+      try {
+        await loadHistory(this._hass, this._topology, this._config, this._powerHistory, nonRealtimeMap);
+        this._updateDOM();
+      } catch {
+        // Will refresh on next interval
+      }
+    }, 30000);
   }
 
   disconnectedCallback() {
     if (this._updateInterval) {
       clearInterval(this._updateInterval);
       this._updateInterval = null;
+    }
+    if (this._recorderRefreshInterval) {
+      clearInterval(this._recorderRefreshInterval);
+      this._recorderRefreshInterval = null;
     }
   }
 
@@ -270,7 +296,7 @@ export class SpanPanelCard extends HTMLElement {
 
   // ── Gear click handler ────────────────────────────────────────────────────
 
-  _onGearClick(event) {
+  async _onGearClick(event) {
     const gearBtn = event.target.closest(".gear-icon");
     if (!gearBtn) return;
 
@@ -291,11 +317,40 @@ export class SpanPanelCard extends HTMLElement {
 
     const monitoringInfo = this._monitoringCache?.status?.circuits?.[circuit.entities?.power] || null;
 
+    await this._graphSettingsCache.fetch(this._hass);
+    const graphSettings = this._graphSettingsCache.settings;
+    const graphHorizonInfo = graphSettings?.circuits?.[uuid]
+      ? graphSettings.circuits[uuid]
+      : { horizon: graphSettings?.global_horizon || "5m", has_override: false };
+
     sidePanel.open({
       ...circuit,
       uuid,
       monitoringInfo,
+      graphHorizonInfo,
     });
+  }
+
+  // ── Graph settings changed handler ────────────────────────────────────────
+
+  async _onGraphSettingsChanged() {
+    this._graphSettingsCache.invalidate();
+    await this._graphSettingsCache.fetch(this._hass);
+
+    // Rebuild horizon map
+    const settings = this._graphSettingsCache.settings;
+    if (settings && this._topology?.circuits) {
+      for (const uuid of Object.keys(this._topology.circuits)) {
+        const override = settings.circuits?.[uuid];
+        const horizon = override?.has_override ? override.horizon : settings.global_horizon || DEFAULT_GRAPH_HORIZON;
+        this._horizonMap.set(uuid, horizon);
+      }
+    }
+
+    // Reload all history with new horizons
+    this._powerHistory.clear();
+    this._historyLoaded = false;
+    await this._loadHistory();
   }
 
   // ── Full render ────────────────────────────────────────────────────────────
@@ -328,6 +383,7 @@ export class SpanPanelCard extends HTMLElement {
     this.shadowRoot.removeEventListener("click", this._handleToggleClick);
     this.shadowRoot.removeEventListener("click", this._handleUnitToggle);
     this.shadowRoot.removeEventListener("click", this._handleGearClick);
+    this.shadowRoot.removeEventListener("graph-settings-changed", this._handleGraphSettingsChanged);
 
     this.shadowRoot.innerHTML = `
       <style>${CARD_STYLES}</style>
@@ -352,6 +408,7 @@ export class SpanPanelCard extends HTMLElement {
     this.shadowRoot.addEventListener("click", this._handleToggleClick);
     this.shadowRoot.addEventListener("click", this._handleUnitToggle);
     this.shadowRoot.addEventListener("click", this._handleGearClick);
+    this.shadowRoot.addEventListener("graph-settings-changed", this._handleGraphSettingsChanged);
 
     const sidePanel = this.shadowRoot.querySelector("span-side-panel");
     if (sidePanel) sidePanel.hass = hass;
