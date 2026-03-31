@@ -192,7 +192,7 @@ export class SpanPanelCard extends HTMLElement {
 
   // ── Unit toggle (A/W) click handler ───────────────────────────────────────
 
-  _onUnitToggle(event) {
+  async _onUnitToggle(event) {
     const btn = event.target.closest(".unit-btn");
     if (!btn) return;
     const unit = btn.dataset.unit;
@@ -205,8 +205,12 @@ export class SpanPanelCard extends HTMLElement {
         composed: true,
       })
     );
+    this._powerHistory.clear();
+    this._historyLoaded = false;
     this._rendered = false;
     this._render();
+    await this._loadHistory();
+    this._updateDOM();
   }
 
   // ── Toggle click handler ───────────────────────────────────────────────────

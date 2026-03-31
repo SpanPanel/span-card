@@ -25,6 +25,7 @@ export class DashboardTab {
   async render(container, hass, deviceId, config) {
     this.stop();
     this._hass = hass;
+    this._powerHistory.clear();
     this._config = config;
 
     try {
