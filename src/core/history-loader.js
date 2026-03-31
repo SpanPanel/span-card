@@ -1,4 +1,4 @@
-import { getHistoryDurationMs, getMaxHistoryPoints, getMinGapMs, deduplicateAndTrim } from "../helpers/history.js";
+import { getHistoryDurationMs, getMaxHistoryPoints, getMinGapMs, deduplicateAndTrim, getHorizonDurationMs } from "../helpers/history.js";
 import { getCircuitChartEntity } from "../helpers/chart.js";
 import { findSubDevicePowerEntity, findBatteryLevelEntity, findBatterySoeEntity } from "../helpers/entity-finder.js";
 import { SUB_DEVICE_TYPE_BESS, SUB_DEVICE_KEY_PREFIX } from "../constants.js";
@@ -112,36 +112,56 @@ export function collectSubDeviceEntityIds(topology) {
 
 /**
  * Load historical power data from HA recorder into the powerHistory Map.
+ * Supports per-circuit horizons by grouping circuits by their effective duration.
  *
  * @param {object} hass
  * @param {object} topology
- * @param {object} config
+ * @param {object} config - card config (fallback for duration)
  * @param {Map<string, {time: number, value: number}[]>} powerHistory - mutated in place
+ * @param {Map<string, string>} [horizonMap] - optional uuid → horizon key map
  */
-export async function loadHistory(hass, topology, config, powerHistory) {
+export async function loadHistory(hass, topology, config, powerHistory, horizonMap) {
   if (!topology || !hass) return;
 
-  const durationMs = getHistoryDurationMs(config);
-  const entityIds = [];
-  const uuidByEntity = new Map();
+  // Group circuits by effective duration
+  const groups = new Map(); // durationMs → { entityIds: [], uuidByEntity: Map }
 
   for (const [uuid, circuit] of Object.entries(topology.circuits)) {
     const eid = getCircuitChartEntity(circuit, config);
-    if (eid) {
-      entityIds.push(eid);
-      uuidByEntity.set(eid, uuid);
+    if (!eid) continue;
+
+    let durationMs;
+    if (horizonMap && horizonMap.has(uuid)) {
+      durationMs = getHorizonDurationMs(horizonMap.get(uuid));
+    } else {
+      durationMs = getHistoryDurationMs(config);
+    }
+
+    if (!groups.has(durationMs)) {
+      groups.set(durationMs, { entityIds: [], uuidByEntity: new Map() });
+    }
+    const group = groups.get(durationMs);
+    group.entityIds.push(eid);
+    group.uuidByEntity.set(eid, uuid);
+  }
+
+  // Add sub-device entities to the default duration group
+  const defaultDurationMs = getHistoryDurationMs(config);
+  if (!groups.has(defaultDurationMs)) {
+    groups.set(defaultDurationMs, { entityIds: [], uuidByEntity: new Map() });
+  }
+  _collectSubDeviceEntityIdsInto(topology, groups.get(defaultDurationMs).entityIds, groups.get(defaultDurationMs).uuidByEntity);
+
+  // Load each group in parallel
+  const promises = [];
+  for (const [durationMs, group] of groups) {
+    if (group.entityIds.length === 0) continue;
+    const useStatistics = durationMs > 2 * 60 * 60 * 1000;
+    if (useStatistics) {
+      promises.push(loadStatisticsHistory(hass, group.entityIds, group.uuidByEntity, durationMs, powerHistory));
+    } else {
+      promises.push(loadRawHistory(hass, group.entityIds, group.uuidByEntity, durationMs, powerHistory));
     }
   }
-
-  _collectSubDeviceEntityIdsInto(topology, entityIds, uuidByEntity);
-
-  if (entityIds.length === 0) return;
-
-  const useStatistics = durationMs > 2 * 60 * 60 * 1000;
-
-  if (useStatistics) {
-    await loadStatisticsHistory(hass, entityIds, uuidByEntity, durationMs, powerHistory);
-  } else {
-    await loadRawHistory(hass, entityIds, uuidByEntity, durationMs, powerHistory);
-  }
+  await Promise.all(promises);
 }

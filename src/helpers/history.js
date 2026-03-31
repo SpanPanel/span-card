@@ -1,4 +1,4 @@
-import { DEFAULT_HISTORY_DAYS, DEFAULT_HISTORY_HOURS, DEFAULT_HISTORY_MINUTES } from "../constants.js";
+import { DEFAULT_HISTORY_DAYS, DEFAULT_HISTORY_HOURS, DEFAULT_HISTORY_MINUTES, GRAPH_HORIZONS, DEFAULT_GRAPH_HORIZON } from "../constants.js";
 
 export function getHistoryDurationMs(config) {
   const hasAny = config.history_days !== undefined || config.history_hours !== undefined || config.history_minutes !== undefined;
@@ -7,6 +7,16 @@ export function getHistoryDurationMs(config) {
   const m = hasAny ? parseInt(config.history_minutes) || 0 : DEFAULT_HISTORY_MINUTES;
   const total = ((d * 24 + h) * 60 + m) * 60 * 1000;
   return Math.max(total, 60000);
+}
+
+/**
+ * Get duration in ms for a horizon key.
+ * @param {string} horizonKey - e.g. "5m", "1h", "1d", "1M"
+ * @returns {number} Duration in milliseconds
+ */
+export function getHorizonDurationMs(horizonKey) {
+  const h = GRAPH_HORIZONS[horizonKey];
+  return h ? h.ms : GRAPH_HORIZONS[DEFAULT_GRAPH_HORIZON].ms;
 }
 
 export function getMaxHistoryPoints(durationMs) {

@@ -7,9 +7,9 @@ import { loadHistory } from "../core/history-loader.js";
 import { MonitoringStatusCache, buildMonitoringSummaryHTML } from "../core/monitoring-status.js";
 import { GraphSettingsCache } from "../core/graph-settings.js";
 import { CARD_STYLES } from "../card/card-styles.js";
-import { getHistoryDurationMs, recordSample, getMaxHistoryPoints, getMinGapMs } from "../helpers/history.js";
+import { getHistoryDurationMs, recordSample, getMaxHistoryPoints, getMinGapMs, getHorizonDurationMs } from "../helpers/history.js";
 import { getCircuitChartEntity } from "../helpers/chart.js";
-import { LIVE_SAMPLE_INTERVAL_MS } from "../constants.js";
+import { LIVE_SAMPLE_INTERVAL_MS, GRAPH_HORIZONS, DEFAULT_GRAPH_HORIZON } from "../constants.js";
 import "../core/side-panel.js";
 
 export class DashboardTab {
@@ -20,6 +20,8 @@ export class DashboardTab {
     this._monitoringCache = new MonitoringStatusCache();
     this._graphSettingsCache = new GraphSettingsCache();
     this._updateInterval = null;
+    this._recorderRefreshInterval = null;
+    this._horizonMap = new Map();
     this._hass = null;
     this._config = null;
   }
@@ -43,6 +45,17 @@ export class DashboardTab {
     await this._graphSettingsCache.fetch(hass);
 
     const topo = this._topology;
+
+    // Build per-circuit horizon map
+    this._horizonMap = new Map();
+    const graphSettings = this._graphSettingsCache.settings;
+    if (topo?.circuits) {
+      for (const uuid of Object.keys(topo.circuits)) {
+        const override = graphSettings?.circuits?.[uuid];
+        const horizon = override?.has_override ? override.horizon : graphSettings?.global_horizon || DEFAULT_GRAPH_HORIZON;
+        this._horizonMap.set(uuid, horizon);
+      }
+    }
     const totalRows = Math.ceil(this._panelSize / 2);
     const durationMs = getHistoryDurationMs(config);
     const monitoringStatus = this._monitoringCache.status;
@@ -75,12 +88,33 @@ export class DashboardTab {
       this._monitoringCache.invalidate();
       this._graphSettingsCache.invalidate();
     });
-    container.addEventListener("graph-settings-changed", () => {
+    container.addEventListener("graph-settings-changed", async () => {
       this._graphSettingsCache.invalidate();
+      await this._graphSettingsCache.fetch(this._hass);
+
+      // Rebuild horizon map
+      const newSettings = this._graphSettingsCache.settings;
+      if (topo?.circuits) {
+        for (const uuid of Object.keys(topo.circuits)) {
+          const override = newSettings?.circuits?.[uuid];
+          const horizon = override?.has_override ? override.horizon : newSettings?.global_horizon || DEFAULT_GRAPH_HORIZON;
+          this._horizonMap.set(uuid, horizon);
+        }
+      }
+
+      // Reload all history with new horizons
+      this._powerHistory.clear();
+      try {
+        await loadHistory(this._hass, topo, this._config, this._powerHistory, this._horizonMap);
+      } catch {
+        // Will populate on next refresh
+      }
+      updateCircuitDOM(container, this._hass, topo, this._config, this._powerHistory);
+      updateSubDeviceDOM(container, this._hass, topo, this._config, this._powerHistory);
     });
 
     try {
-      await loadHistory(hass, topo, config, this._powerHistory);
+      await loadHistory(hass, topo, config, this._powerHistory, this._horizonMap);
     } catch {
       // Charts will populate live
     }
@@ -95,23 +129,49 @@ export class DashboardTab {
       updateCircuitDOM(container, this._hass, topo, this._config, this._powerHistory);
       updateSubDeviceDOM(container, this._hass, topo, this._config, this._powerHistory);
     }, LIVE_SAMPLE_INTERVAL_MS);
+
+    // Periodic recorder refresh for non-realtime horizons
+    this._recorderRefreshInterval = setInterval(async () => {
+      if (!this._topology || !this._hass) return;
+      const nonRealtimeMap = new Map();
+      for (const [uuid, horizon] of this._horizonMap) {
+        if (!GRAPH_HORIZONS[horizon]?.useRealtime) {
+          nonRealtimeMap.set(uuid, horizon);
+        }
+      }
+      if (nonRealtimeMap.size === 0) return;
+      // Clear and reload history for non-realtime circuits
+      for (const uuid of nonRealtimeMap.keys()) {
+        this._powerHistory.delete(uuid);
+      }
+      try {
+        await loadHistory(this._hass, this._topology, this._config, this._powerHistory, nonRealtimeMap);
+        updateCircuitDOM(container, this._hass, topo, this._config, this._powerHistory);
+      } catch {
+        // Recorder data will refresh on next interval
+      }
+    }, 30000);
   }
 
   _recordSamples() {
     if (!this._topology || !this._hass) return;
-    const durationMs = getHistoryDurationMs(this._config);
-    const maxPoints = getMaxHistoryPoints(durationMs);
-    const minGap = getMinGapMs(durationMs);
     const now = Date.now();
-    const cutoff = now - durationMs;
 
     for (const [uuid, circuit] of Object.entries(this._topology.circuits)) {
+      const horizon = this._horizonMap?.get(uuid) || DEFAULT_GRAPH_HORIZON;
+      if (!GRAPH_HORIZONS[horizon]?.useRealtime) continue;
+
       const eid = getCircuitChartEntity(circuit, this._config);
       if (!eid) continue;
       const state = this._hass.states[eid];
       if (!state) continue;
       const val = parseFloat(state.state);
       if (isNaN(val)) continue;
+
+      const durationMs = getHorizonDurationMs(horizon);
+      const maxPoints = getMaxHistoryPoints(durationMs);
+      const minGap = getMinGapMs(durationMs);
+      const cutoff = now - durationMs;
 
       const hist = this._powerHistory.get(uuid) || [];
       if (hist.length > 0 && now - hist[hist.length - 1].time < minGap) continue;
@@ -183,6 +243,10 @@ export class DashboardTab {
     if (this._updateInterval) {
       clearInterval(this._updateInterval);
       this._updateInterval = null;
+    }
+    if (this._recorderRefreshInterval) {
+      clearInterval(this._recorderRefreshInterval);
+      this._recorderRefreshInterval = null;
     }
   }
 }
