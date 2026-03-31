@@ -24,8 +24,8 @@ async function loadStatisticsHistory(hass, entityIds, uuidByEntity, durationMs, 
     for (const entry of stats) {
       const val = entry.mean;
       if (val == null || !Number.isFinite(val)) continue;
-      // HA statistics returns start as epoch seconds; convert to milliseconds
-      const time = entry.start * 1000;
+      // HA statistics WS API returns start as epoch milliseconds
+      const time = entry.start;
       if (time > 0) hist.push({ time, value: val });
     }
 
