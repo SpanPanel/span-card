@@ -52,8 +52,16 @@ export const CARD_STYLES = `
   .stat-value { font-size: 1.5em; font-weight: 700; color: var(--primary-text-color, #fff); }
   .stat-unit { font-size: 0.7em; font-weight: 400; color: var(--secondary-text-color, #999); }
 
-  .header-right { display: flex; gap: 20px; align-items: center; padding-top: 8px; }
+  .header-right { display: flex; flex-direction: column; align-items: flex-end; justify-content: space-between; padding-top: 8px; align-self: stretch; }
+  .header-right-top { display: flex; gap: 20px; align-items: center; }
   .meta-item { font-size: 0.8em; color: var(--secondary-text-color, #999); }
+
+  .shedding-legend { display: flex; gap: 12px; flex-wrap: wrap; justify-content: flex-end; }
+  .shedding-legend-item { display: inline-flex; align-items: center; gap: 3px; }
+  .shedding-legend-item ha-icon { --mdc-icon-size: 16px; }
+  .shedding-legend-secondary { --mdc-icon-size: 12px; opacity: 0.8; }
+  .shedding-legend-text { font-size: 9px; font-weight: 600; }
+  .shedding-legend-label { font-size: 0.7em; color: var(--secondary-text-color, #999); }
 
   .panel-gear {
     background: none;

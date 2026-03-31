@@ -1,5 +1,6 @@
 import { escapeHtml } from "../helpers/sanitize.js";
 import { t } from "../i18n.js";
+import { SHEDDING_PRIORITIES } from "../constants.js";
 
 /**
  * Build the panel header HTML with stats, gear icon, and A/W toggle.
@@ -105,10 +106,28 @@ export function buildHeaderHTML(topology, config) {
         </div>
       </div>
       <div class="header-right">
-        <span class="meta-item">${firmware}</span>
-        <div class="unit-toggle" title="${t("header.toggle_units")}">
-          <button class="unit-btn ${isAmpsMode ? "" : "unit-active"}" data-unit="power">W</button>
-          <button class="unit-btn ${isAmpsMode ? "unit-active" : ""}" data-unit="current">A</button>
+        <div class="header-right-top">
+          <span class="meta-item">${firmware}</span>
+          <div class="unit-toggle" title="${t("header.toggle_units")}">
+            <button class="unit-btn ${isAmpsMode ? "" : "unit-active"}" data-unit="power">W</button>
+            <button class="unit-btn ${isAmpsMode ? "unit-active" : ""}" data-unit="current">A</button>
+          </div>
+        </div>
+        <div class="shedding-legend">
+          ${Object.entries(SHEDDING_PRIORITIES)
+            .filter(([key]) => key !== "unknown")
+            .map(([, cfg]) => {
+              let icons;
+              if (cfg.icon2) {
+                icons = `<ha-icon icon="${cfg.icon}" style="color:${cfg.color}"></ha-icon><ha-icon class="shedding-legend-secondary" icon="${cfg.icon2}" style="color:${cfg.color}"></ha-icon>`;
+              } else if (cfg.textLabel) {
+                icons = `<ha-icon icon="${cfg.icon}" style="color:${cfg.color}"></ha-icon><span class="shedding-legend-text" style="color:${cfg.color}">${cfg.textLabel}</span>`;
+              } else {
+                icons = `<ha-icon icon="${cfg.icon}" style="color:${cfg.color}"></ha-icon>`;
+              }
+              return `<div class="shedding-legend-item">${icons}<span class="shedding-legend-label">${cfg.label()}</span></div>`;
+            })
+            .join("")}
         </div>
       </div>
     </div>
