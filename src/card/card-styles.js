@@ -74,6 +74,70 @@ export const CARD_STYLES = `
     vertical-align: middle;
   }
   .panel-gear:hover { opacity: 1; }
+  .header-center {
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding-top: 8px;
+  }
+  .slide-confirm {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    width: 160px;
+    height: 28px;
+    border-radius: 14px;
+    background: color-mix(in srgb, var(--primary-color, #4dd9af) 20%, var(--secondary-background-color, #333));
+    vertical-align: middle;
+    overflow: hidden;
+    user-select: none;
+    touch-action: none;
+  }
+  .slide-confirm-text {
+    position: absolute;
+    width: 100%;
+    text-align: center;
+    font-size: 0.65em;
+    font-weight: 600;
+    color: var(--secondary-text-color, #999);
+    pointer-events: none;
+    z-index: 0;
+  }
+  .slide-confirm-knob {
+    position: absolute;
+    left: 2px;
+    top: 2px;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: var(--secondary-text-color, #666);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: grab;
+    z-index: 1;
+    transition: none;
+  }
+  .slide-confirm-knob ha-icon {
+    --mdc-icon-size: 14px;
+    color: var(--card-background-color, #1c1c1c);
+  }
+  .slide-confirm-knob.snapping {
+    transition: left 0.25s ease;
+  }
+  .slide-confirm.confirmed {
+    background: color-mix(in srgb, var(--state-active-color, var(--span-accent)) 25%, transparent);
+  }
+  .slide-confirm.confirmed .slide-confirm-text {
+    color: var(--state-active-color, var(--span-accent));
+  }
+  .slide-confirm.confirmed .slide-confirm-knob {
+    background: var(--state-active-color, var(--span-accent));
+  }
+  .switches-disabled .toggle-pill {
+    opacity: 0.3;
+    pointer-events: none;
+  }
   .unit-toggle {
     display: inline-flex;
     background: var(--secondary-background-color, #333);

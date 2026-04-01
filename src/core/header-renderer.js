@@ -105,6 +105,14 @@ export function buildHeaderHTML(topology, config) {
           }
         </div>
       </div>
+      <div class="header-center">
+        <div class="slide-confirm" data-text-off="${t("header.enable_switches")}" data-text-on="${t("header.switches_enabled")}">
+          <span class="slide-confirm-text">${t("header.enable_switches")}</span>
+          <div class="slide-confirm-knob">
+            <ha-icon icon="mdi:lock"></ha-icon>
+          </div>
+        </div>
+      </div>
       <div class="header-right">
         <div class="header-right-top">
           <span class="meta-item">${firmware}</span>

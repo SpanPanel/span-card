@@ -294,11 +294,83 @@ export class SpanPanelCard extends HTMLElement {
     this._updateDOM();
   }
 
+  // ── Slide-to-confirm safety switch ─────────────────────────────────────────
+
+  _bindSlideConfirm(slideEl, parent) {
+    const knob = slideEl.querySelector(".slide-confirm-knob");
+    const textEl = slideEl.querySelector(".slide-confirm-text");
+    if (!knob) return;
+    const THRESHOLD = 0.9;
+    let dragging = false;
+    let startX = 0;
+    let maxX = 0;
+
+    const begin = clientX => {
+      if (slideEl.classList.contains("confirmed")) return;
+      dragging = true;
+      startX = clientX - knob.offsetLeft;
+      maxX = slideEl.offsetWidth - knob.offsetWidth - 4;
+      knob.classList.remove("snapping");
+    };
+    const move = clientX => {
+      if (!dragging) return;
+      const x = Math.max(2, Math.min(clientX - startX, maxX));
+      knob.style.left = x + "px";
+    };
+    const end = () => {
+      if (!dragging) return;
+      dragging = false;
+      const pos = (knob.offsetLeft - 2) / maxX;
+      if (pos >= THRESHOLD) {
+        knob.style.left = maxX + "px";
+        slideEl.classList.add("confirmed");
+        knob.querySelector("ha-icon").setAttribute("icon", "mdi:lock-open");
+        textEl.textContent = slideEl.dataset.textOn;
+        if (parent) parent.classList.remove("switches-disabled");
+      } else {
+        knob.classList.add("snapping");
+        knob.style.left = "2px";
+      }
+    };
+
+    knob.addEventListener("mousedown", e => {
+      e.preventDefault();
+      begin(e.clientX);
+    });
+    slideEl.addEventListener("mousemove", e => move(e.clientX));
+    slideEl.addEventListener("mouseup", end);
+    slideEl.addEventListener("mouseleave", end);
+    knob.addEventListener(
+      "touchstart",
+      e => {
+        e.preventDefault();
+        begin(e.touches[0].clientX);
+      },
+      { passive: false }
+    );
+    slideEl.addEventListener("touchmove", e => move(e.touches[0].clientX), { passive: true });
+    slideEl.addEventListener("touchend", end);
+    slideEl.addEventListener("touchcancel", end);
+
+    // Click the confirmed slider to re-lock
+    slideEl.addEventListener("click", () => {
+      if (!slideEl.classList.contains("confirmed")) return;
+      slideEl.classList.remove("confirmed");
+      knob.classList.add("snapping");
+      knob.style.left = "2px";
+      knob.querySelector("ha-icon").setAttribute("icon", "mdi:lock");
+      textEl.textContent = slideEl.dataset.textOff;
+      if (parent) parent.classList.add("switches-disabled");
+    });
+  }
+
   // ── Toggle click handler ───────────────────────────────────────────────────
 
   _onToggleClick(ev) {
     const pill = ev.target.closest(".toggle-pill");
     if (!pill) return;
+    const cb = this.shadowRoot.querySelector(".slide-confirm");
+    if (!cb || !cb.classList.contains("confirmed")) return;
     ev.stopPropagation();
     ev.preventDefault();
     const slot = pill.closest("[data-uuid]");
@@ -435,6 +507,13 @@ export class SpanPanelCard extends HTMLElement {
     this.shadowRoot.addEventListener("click", this._handleUnitToggle);
     this.shadowRoot.addEventListener("click", this._handleGearClick);
     this.shadowRoot.addEventListener("graph-settings-changed", this._handleGraphSettingsChanged);
+
+    const slideEl = this.shadowRoot.querySelector(".slide-confirm");
+    if (slideEl) {
+      this._bindSlideConfirm(slideEl, this.shadowRoot.querySelector("ha-card"));
+      const card = this.shadowRoot.querySelector("ha-card");
+      if (card) card.classList.add("switches-disabled");
+    }
 
     const sidePanel = this.shadowRoot.querySelector("span-side-panel");
     if (sidePanel) sidePanel.hass = hass;
