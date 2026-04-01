@@ -7,49 +7,73 @@ import { SettingsTab } from "./tab-settings.js";
 
 const PANEL_STYLES = `
   :host {
-    display: block;
-    padding: 16px;
-    max-width: 900px;
-    margin: 0 auto;
+    color: var(--primary-text-color);
+  }
+  .header {
+    background-color: var(--app-header-background-color);
+    color: var(--app-header-text-color, white);
+    border-bottom: var(--app-header-border-bottom, none);
+  }
+  .toolbar {
+    height: var(--header-height);
+    display: flex;
+    align-items: center;
+    font-size: 20px;
+    padding: 0 16px;
+    font-weight: 400;
+    box-sizing: border-box;
+  }
+  .main-title {
+    margin: 0 0 0 24px;
+    line-height: 20px;
+    flex-grow: 1;
+  }
+  .panel-selector select {
+    background: transparent;
+    border: none;
+    color: inherit;
+    font-size: inherit;
+    font-weight: inherit;
+    cursor: pointer;
+    padding: 0;
+    appearance: none;
+    -webkit-appearance: none;
+  }
+  .panel-selector select option {
+    background: var(--card-background-color, #333);
+    color: var(--primary-text-color);
   }
   .panel-tabs {
+    margin-left: max(env(safe-area-inset-left), 24px);
+    margin-right: max(env(safe-area-inset-right), 24px);
     display: flex;
     gap: 0;
-    border-bottom: 2px solid var(--divider-color, #333);
-    margin-bottom: 16px;
   }
   .panel-tab {
     padding: 8px 20px;
     cursor: pointer;
     font-size: 0.9em;
     font-weight: 500;
-    color: var(--secondary-text-color);
+    color: var(--app-header-text-color, white);
+    opacity: 0.7;
     border-bottom: 2px solid transparent;
-    margin-bottom: -2px;
     background: none;
     border-top: none;
     border-left: none;
     border-right: none;
   }
   .panel-tab.active {
-    color: var(--primary-color);
-    border-bottom-color: var(--primary-color);
+    opacity: 1;
+    border-bottom-color: var(--app-header-text-color, white);
   }
-  .panel-selector {
-    margin-bottom: 16px;
+  .view {
+    display: flex;
+    justify-content: center;
+    padding: 16px;
   }
-  .panel-selector select {
-    background: var(--secondary-background-color, #333);
-    border: 1px solid var(--divider-color);
-    color: var(--primary-text-color);
-    border-radius: 4px;
-    padding: 6px 12px;
-    font-size: 0.9em;
-  }
-  .panel-label {
-    font-size: 0.9em;
-    font-weight: 500;
-    color: var(--secondary-text-color);
+  .view-content {
+    width: 100%;
+    max-width: 900px;
   }
   .tab-content {
     min-height: 400px;
@@ -66,6 +90,7 @@ export class SpanPanelElement extends HTMLElement {
     this._selectedPanelId = null;
     this._activeTab = "dashboard";
     this._discovered = false;
+    this._narrow = false;
     this._dashboardTab = new DashboardTab();
     this._monitoringTab = new MonitoringTab();
     this._settingsTab = new SettingsTab();
@@ -96,9 +121,18 @@ export class SpanPanelElement extends HTMLElement {
   set hass(val) {
     this._hass = val;
     this._dashboardTab._hass = val;
+    // Update ha-menu-button if already rendered
+    const menuBtn = this.shadowRoot.querySelector("ha-menu-button");
+    if (menuBtn) menuBtn.hass = val;
     if (!this._discovered) {
       this._discoverPanels();
     }
+  }
+
+  set narrow(val) {
+    this._narrow = val;
+    const menuBtn = this.shadowRoot.querySelector("ha-menu-button");
+    if (menuBtn) menuBtn.narrow = val;
   }
 
   setConfig(config) {
@@ -135,34 +169,52 @@ export class SpanPanelElement extends HTMLElement {
     this.shadowRoot.innerHTML = `
       <style>${PANEL_STYLES}</style>
 
-      <div class="panel-selector">
-        ${
-          multiPanel
-            ? `
-          <select id="panel-select">
-            ${this._panels
-              .map(
-                p => `
-              <option value="${p.id}" ${p.id === this._selectedPanelId ? "selected" : ""}>
-                ${p.name_by_user || p.name || p.id}
-              </option>
-            `
-              )
-              .join("")}
-          </select>
-        `
-            : `<span class="panel-label">${panelLabel}</span>`
-        }
+      <div class="header">
+        <div class="toolbar">
+          <ha-menu-button></ha-menu-button>
+          <div class="main-title">
+            <span class="panel-selector">
+              ${
+                multiPanel
+                  ? `
+                <select id="panel-select">
+                  ${this._panels
+                    .map(
+                      p => `
+                    <option value="${p.id}" ${p.id === this._selectedPanelId ? "selected" : ""}>
+                      ${p.name_by_user || p.name || p.id}
+                    </option>
+                  `
+                    )
+                    .join("")}
+                </select>
+              `
+                  : panelLabel
+              }
+            </span>
+          </div>
+        </div>
+
+        <div class="panel-tabs">
+          <button class="panel-tab ${this._activeTab === "dashboard" ? "active" : ""}" data-tab="dashboard">${t("tab.panel")}</button>
+          <button class="panel-tab ${this._activeTab === "monitoring" ? "active" : ""}" data-tab="monitoring">${t("tab.monitoring")}</button>
+          <button class="panel-tab ${this._activeTab === "settings" ? "active" : ""}" data-tab="settings">${t("tab.settings")}</button>
+        </div>
       </div>
 
-      <div class="panel-tabs">
-        <button class="panel-tab ${this._activeTab === "dashboard" ? "active" : ""}" data-tab="dashboard">${t("tab.panel")}</button>
-        <button class="panel-tab ${this._activeTab === "monitoring" ? "active" : ""}" data-tab="monitoring">${t("tab.monitoring")}</button>
-        <button class="panel-tab ${this._activeTab === "settings" ? "active" : ""}" data-tab="settings">${t("tab.settings")}</button>
+      <div class="view">
+        <div class="view-content">
+          <div class="tab-content" id="tab-content"></div>
+        </div>
       </div>
-
-      <div class="tab-content" id="tab-content"></div>
     `;
+
+    // Wire up ha-menu-button
+    const menuBtn = this.shadowRoot.querySelector("ha-menu-button");
+    if (menuBtn) {
+      menuBtn.hass = this._hass;
+      menuBtn.narrow = this._narrow;
+    }
 
     const select = this.shadowRoot.getElementById("panel-select");
     if (select) {
