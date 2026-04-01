@@ -69,6 +69,18 @@ export class SpanPanelCard extends HTMLElement {
         // Will refresh on next interval
       }
     }, 30000);
+
+    // Re-render when card is reconnected after navigation
+    if (this._discovered && this._hass && this._rendered) {
+      this._updateDOM();
+    }
+
+    this._onVisibilityChange = () => {
+      if (document.visibilityState === "visible" && this._discovered && this._hass) {
+        this._updateDOM();
+      }
+    };
+    document.addEventListener("visibilitychange", this._onVisibilityChange);
   }
 
   disconnectedCallback() {
@@ -79,6 +91,10 @@ export class SpanPanelCard extends HTMLElement {
     if (this._recorderRefreshInterval) {
       clearInterval(this._recorderRefreshInterval);
       this._recorderRefreshInterval = null;
+    }
+    if (this._onVisibilityChange) {
+      document.removeEventListener("visibilitychange", this._onVisibilityChange);
+      this._onVisibilityChange = null;
     }
   }
 

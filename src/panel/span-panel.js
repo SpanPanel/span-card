@@ -71,6 +71,28 @@ export class SpanPanelElement extends HTMLElement {
     this._settingsTab = new SettingsTab();
   }
 
+  connectedCallback() {
+    // When HA navigates back to this panel, re-render if we already have data
+    if (this._discovered && this._hass) {
+      this._render();
+    }
+
+    this._onVisibilityChange = () => {
+      if (document.visibilityState === "visible" && this._discovered && this._hass) {
+        this._renderTab();
+      }
+    };
+    document.addEventListener("visibilitychange", this._onVisibilityChange);
+  }
+
+  disconnectedCallback() {
+    this._dashboardTab.stop();
+    if (this._onVisibilityChange) {
+      document.removeEventListener("visibilitychange", this._onVisibilityChange);
+      this._onVisibilityChange = null;
+    }
+  }
+
   set hass(val) {
     this._hass = val;
     this._dashboardTab._hass = val;
