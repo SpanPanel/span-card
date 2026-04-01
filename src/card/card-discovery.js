@@ -4,6 +4,9 @@ import { t } from "../i18n.js";
 // ── Primary discovery via custom WebSocket API ───────────────────────────────
 
 export async function discoverTopology(hass, deviceId) {
+  if (!deviceId) {
+    throw new Error(t("card.device_not_found"));
+  }
   const topology = await hass.callWS({
     type: `${INTEGRATION_DOMAIN}/panel_topology`,
     device_id: deviceId,

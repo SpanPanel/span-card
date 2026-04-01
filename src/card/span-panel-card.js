@@ -59,11 +59,20 @@ export class SpanPanelCard extends HTMLElement {
         }
       }
       if (nonRealtimeMap.size === 0) return;
-      for (const uuid of nonRealtimeMap.keys()) {
-        this._powerHistory.delete(uuid);
-      }
+      // Load into a temporary map so charts keep showing stale data
+      // until fresh data is ready (avoids blank-chart flash).
+      const freshHistory = new Map();
       try {
-        await loadHistory(this._hass, this._topology, this._config, this._powerHistory, nonRealtimeMap);
+        await loadHistory(this._hass, this._topology, this._config, freshHistory, nonRealtimeMap);
+        // Atomically replace only the non-realtime entries
+        for (const uuid of nonRealtimeMap.keys()) {
+          const data = freshHistory.get(uuid);
+          if (data) {
+            this._powerHistory.set(uuid, data);
+          } else {
+            this._powerHistory.delete(uuid);
+          }
+        }
         this._updateDOM();
       } catch {
         // Will refresh on next interval

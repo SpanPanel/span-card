@@ -739,4 +739,6 @@ class SpanSidePanel extends HTMLElement {
   }
 }
 
-customElements.define("span-side-panel", SpanSidePanel);
+if (!customElements.get("span-side-panel")) {
+  customElements.define("span-side-panel", SpanSidePanel);
+}
