@@ -390,16 +390,16 @@ export const CARD_STYLES = `
   .sub-entity-name { color: var(--secondary-text-color, #999); }
   .sub-entity-value { font-weight: 500; color: var(--primary-text-color, #e0e0e0); }
 
-  @media (max-width: 600px) {
-    ha-card { padding: 12px; }
-    .panel-header { flex-direction: column; }
-    .panel-identity { flex-direction: column; gap: 4px; }
-    .panel-title { font-size: 1.4em; }
-    .panel-stats { gap: 16px; flex-wrap: wrap; }
-    .header-right { margin-top: 8px; }
-    .circuit-slot { min-height: 100px; padding: 10px 12px 16px; }
-    .circuit-col-span { min-height: 200px; }
-    .chart-container { height: 60px; }
-    .circuit-col-span .chart-container { height: 140px; }
-  }
+  ha-card.narrow { padding: 12px; }
+  .narrow .panel-header { flex-direction: column; }
+  .narrow .panel-identity { flex-direction: column; gap: 4px; }
+  .narrow .panel-title { font-size: 1.4em; }
+  .narrow .panel-stats { gap: 16px; flex-wrap: wrap; }
+  .narrow .header-center { margin-top: 8px; }
+  .narrow .header-right { margin-top: 8px; align-items: flex-start; }
+  .narrow .shedding-legend { justify-content: flex-start; }
+  .narrow .circuit-slot { min-height: 100px; padding: 10px 12px 16px; }
+  .narrow .circuit-col-span { min-height: 200px; }
+  .narrow .chart-container { height: 60px; }
+  .narrow .circuit-col-span .chart-container { height: 140px; }
 `;

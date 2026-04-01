@@ -41,6 +41,7 @@ export class SpanPanelCard extends HTMLElement {
     this._monitoringCache = new MonitoringStatusCache();
     this._graphSettingsCache = new GraphSettingsCache();
     this._horizonMap = new Map();
+    this._resizeObserver = null;
   }
 
   connectedCallback() {
@@ -84,6 +85,16 @@ export class SpanPanelCard extends HTMLElement {
       this._updateDOM();
     }
 
+    this._resizeObserver = new ResizeObserver(entries => {
+      for (const entry of entries) {
+        const card = this.shadowRoot.querySelector("ha-card");
+        if (card) {
+          card.classList.toggle("narrow", entry.contentRect.width < 600);
+        }
+      }
+    });
+    this._resizeObserver.observe(this);
+
     this._onVisibilityChange = () => {
       if (document.visibilityState === "visible" && this._discovered && this._hass) {
         this._updateDOM();
@@ -100,6 +111,10 @@ export class SpanPanelCard extends HTMLElement {
     if (this._recorderRefreshInterval) {
       clearInterval(this._recorderRefreshInterval);
       this._recorderRefreshInterval = null;
+    }
+    if (this._resizeObserver) {
+      this._resizeObserver.disconnect();
+      this._resizeObserver = null;
     }
     if (this._onVisibilityChange) {
       document.removeEventListener("visibilitychange", this._onVisibilityChange);
@@ -501,6 +516,12 @@ export class SpanPanelCard extends HTMLElement {
       </ha-card>
       <span-side-panel></span-side-panel>
     `;
+
+    // Apply narrow class immediately based on current element width
+    const card = this.shadowRoot.querySelector("ha-card");
+    if (card) {
+      card.classList.toggle("narrow", this.offsetWidth < 600);
+    }
 
     // Attach delegated click listeners
     this.shadowRoot.addEventListener("click", this._handleToggleClick);
