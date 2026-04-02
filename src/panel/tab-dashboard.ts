@@ -11,6 +11,8 @@ import type { HomeAssistant, CardConfig } from "../types.js";
 export class DashboardTab {
   private readonly _ctrl = new DashboardController();
   private _container: HTMLElement | null = null;
+  private _onGearClick: ((ev: Event) => void) | null = null;
+  private _onToggleClick: ((ev: Event) => void) | null = null;
   private _onSidePanelClosed: (() => void) | null = null;
   private _onGraphSettingsChanged: (() => void) | null = null;
 
@@ -24,6 +26,7 @@ export class DashboardTab {
 
   async render(container: HTMLElement, hass: HomeAssistant, deviceId: string, config: CardConfig, configEntryId?: string | null): Promise<void> {
     this.stop();
+    this._ctrl.reset();
     this._container = container;
     this._ctrl.hass = hass;
 
@@ -66,8 +69,14 @@ export class DashboardTab {
       <span-side-panel></span-side-panel>
     `;
 
-    container.addEventListener("click", (ev: Event) => this._ctrl.onGearClick(ev, container));
-    container.addEventListener("click", (ev: Event) => this._ctrl.onToggleClick(ev, container));
+    this._onGearClick = (ev: Event) => {
+      this._ctrl.onGearClick(ev, container);
+    };
+    this._onToggleClick = (ev: Event) => {
+      this._ctrl.onToggleClick(ev, container);
+    };
+    container.addEventListener("click", this._onGearClick);
+    container.addEventListener("click", this._onToggleClick);
 
     this._onSidePanelClosed = () => {
       this._ctrl.monitoringCache.invalidate();
@@ -98,13 +107,23 @@ export class DashboardTab {
 
   stop(): void {
     this._ctrl.stopIntervals();
-    if (this._container && this._onSidePanelClosed) {
-      this._container.removeEventListener("side-panel-closed", this._onSidePanelClosed);
-      this._onSidePanelClosed = null;
-    }
-    if (this._container && this._onGraphSettingsChanged) {
-      this._container.removeEventListener("graph-settings-changed", this._onGraphSettingsChanged);
-      this._onGraphSettingsChanged = null;
+    if (this._container) {
+      if (this._onGearClick) {
+        this._container.removeEventListener("click", this._onGearClick);
+        this._onGearClick = null;
+      }
+      if (this._onToggleClick) {
+        this._container.removeEventListener("click", this._onToggleClick);
+        this._onToggleClick = null;
+      }
+      if (this._onSidePanelClosed) {
+        this._container.removeEventListener("side-panel-closed", this._onSidePanelClosed);
+        this._onSidePanelClosed = null;
+      }
+      if (this._onGraphSettingsChanged) {
+        this._container.removeEventListener("graph-settings-changed", this._onGraphSettingsChanged);
+        this._onGraphSettingsChanged = null;
+      }
     }
   }
 }

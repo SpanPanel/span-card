@@ -151,7 +151,16 @@ export class DashboardController {
         nonRealtimeMap.set(uuid, horizon);
       }
     }
-    if (nonRealtimeMap.size === 0) return;
+
+    let hasNonRealtimeSubDevices = false;
+    for (const [, horizon] of this.subDeviceHorizonMap) {
+      if (!GRAPH_HORIZONS[horizon]?.useRealtime) {
+        hasNonRealtimeSubDevices = true;
+        break;
+      }
+    }
+
+    if (nonRealtimeMap.size === 0 && !hasNonRealtimeSubDevices) return;
 
     const freshHistory: HistoryMap = new Map();
     try {

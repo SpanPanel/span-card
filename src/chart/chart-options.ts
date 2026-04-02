@@ -82,7 +82,6 @@ export function buildChartOptions(
   const startTime = now - durationMs;
 
   const hasFixedRange = metric.fixedMin !== undefined && metric.fixedMax !== undefined;
-  const unit = metric.unit(0);
 
   const data: DataPair[] = (history ?? []).filter(p => p.time >= startTime).map((p): DataPair => [p.time, Math.abs(p.value)]);
 
@@ -185,7 +184,7 @@ export function buildChartOptions(
           second: "2-digit",
         });
         const val = parseFloat(p.value[1].toFixed(2));
-        return `<div style="font-size:12px">${timeStr}<br/><strong>${val} ${unit}</strong></div>`;
+        return `<div style="font-size:12px">${timeStr}<br/><strong>${metric.format(val)} ${metric.unit(val)}</strong></div>`;
       },
     },
     animation: false,

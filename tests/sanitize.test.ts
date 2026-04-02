@@ -24,7 +24,7 @@ describe("escapeHtml", () => {
     expect(escapeHtml("")).toBe("");
   });
 
-  it("does not double-escape", () => {
+  it("escapes already-escaped entities (no special-case for entities)", () => {
     expect(escapeHtml("&amp;")).toBe("&amp;amp;");
   });
 });

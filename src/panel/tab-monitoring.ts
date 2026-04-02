@@ -36,7 +36,7 @@ const CELL_INPUT_STYLE = `
 function thresholdCell(entityId: string, field: string, value: number | undefined, unit: string, type: string): string {
   return `<td style="padding:6px 4px;">
     <input type="number" class="threshold-input" data-entity="${entityId}" data-field="${field}" data-type="${type}"
-           value="${value ?? ""}" min="1" max="${field === "window_duration_m" ? 180 : 200}"
+           value="${value ?? ""}" min="1" max="${field === "window_duration_m" || field === "cooldown_duration_m" ? 180 : 200}"
            style="${CELL_INPUT_STYLE}"><span style="font-size:0.75em;color:var(--secondary-text-color);">${unit}</span>
   </td>`;
 }
@@ -620,15 +620,12 @@ export class MonitoringTab {
         const entityId = cb.dataset.entity;
         const enabled = cb.checked;
         try {
-          // Set both upstream legs together (single 240V breaker)
-          await Promise.all([
-            hass.callWS({
-              type: "call_service",
-              domain: INTEGRATION_DOMAIN,
-              service: "set_mains_threshold",
-              service_data: this._serviceData({ leg: entityId, monitoring_enabled: enabled }),
-            }),
-          ]);
+          await hass.callWS({
+            type: "call_service",
+            domain: INTEGRATION_DOMAIN,
+            service: "set_mains_threshold",
+            service_data: this._serviceData({ leg: entityId, monitoring_enabled: enabled }),
+          });
         } catch {
           cb.checked = !enabled;
           return;

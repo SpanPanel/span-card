@@ -99,6 +99,7 @@ export class SpanPanelElement extends HTMLElement {
   private _chartMetric: string | undefined;
   private _onVisibilityChange: (() => void) | null;
   private _deviceRegistryUnsub: Promise<() => void> | null;
+  private _shadowListenersBound: boolean;
 
   constructor() {
     super();
@@ -114,6 +115,7 @@ export class SpanPanelElement extends HTMLElement {
     this._settingsTab = new SettingsTab();
     this._onVisibilityChange = null;
     this._deviceRegistryUnsub = null;
+    this._shadowListenersBound = false;
   }
 
   connectedCallback(): void {
@@ -286,16 +288,19 @@ export class SpanPanelElement extends HTMLElement {
       });
     }
 
-    this._bindUnitToggle();
-    this._bindTabNavigation();
+    if (!this._shadowListenersBound) {
+      this._bindUnitToggle();
+      this._bindTabNavigation();
 
-    // Sync: if graph settings change (from side panel or settings tab),
-    // re-render settings tab if it's visible
-    this.shadowRoot!.addEventListener("graph-settings-changed", () => {
-      if (this._activeTab === "settings") {
-        this._renderTab();
-      }
-    });
+      // Sync: if graph settings change (from side panel or settings tab),
+      // re-render settings tab if it's visible
+      this.shadowRoot!.addEventListener("graph-settings-changed", () => {
+        if (this._activeTab === "settings") {
+          this._renderTab();
+        }
+      });
+      this._shadowListenersBound = true;
+    }
 
     this._renderTab();
   }
