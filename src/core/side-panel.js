@@ -266,6 +266,8 @@ class SpanSidePanel extends HTMLElement {
 
     if (cfg.panelMode) {
       this._renderPanelMode(panel);
+    } else if (cfg.subDeviceMode) {
+      this._renderSubDeviceMode(panel, cfg);
     } else {
       this._renderCircuitMode(panel, cfg);
     }
@@ -406,6 +408,87 @@ class SpanSidePanel extends HTMLElement {
       body.appendChild(circuitSection);
     }
 
+    // ── Per-sub-device horizon scales ──
+    const subDeviceSettings = graphSettings?.sub_devices ?? {};
+    if (topology?.sub_devices) {
+      const subDevSection = document.createElement("div");
+      subDevSection.className = "section";
+
+      const subDevLabel = document.createElement("div");
+      subDevLabel.className = "section-label";
+      subDevLabel.textContent = t("sidepanel.subdevice_scales");
+      subDevSection.appendChild(subDevLabel);
+
+      const subDevices = Object.entries(topology.sub_devices).sort(([, a], [, b]) => (a.name || "").localeCompare(b.name || ""));
+
+      for (const [devId, sub] of subDevices) {
+        const row = document.createElement("div");
+        row.className = "field-row";
+
+        const nameLabel = document.createElement("span");
+        nameLabel.className = "field-label";
+        nameLabel.textContent = sub.name || devId;
+        nameLabel.style.cssText = "overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1;";
+        row.appendChild(nameLabel);
+
+        const subDevData = subDeviceSettings[devId] || {};
+        const effectiveHorizon = subDevData.has_override ? subDevData.horizon : globalHorizon;
+
+        const select = document.createElement("select");
+        select.dataset.subdevId = devId;
+        for (const key of Object.keys(GRAPH_HORIZONS)) {
+          const opt = document.createElement("option");
+          opt.value = key;
+          opt.textContent = key;
+          if (key === effectiveHorizon) opt.selected = true;
+          select.appendChild(opt);
+        }
+        select.addEventListener("change", () => {
+          this._debounce(`subdev-${devId}`, DEBOUNCE_MS, () => {
+            this._callDomainService("set_subdevice_graph_horizon", {
+              subdevice_id: devId,
+              horizon: select.value,
+            })
+              .then(() => {
+                this.dispatchEvent(new CustomEvent("graph-settings-changed", { bubbles: true, composed: true }));
+              })
+              .catch(err => this._showError(`${err.message ?? err}`));
+          });
+        });
+        row.appendChild(select);
+
+        if (subDevData.has_override) {
+          const resetBtn = document.createElement("button");
+          resetBtn.textContent = "\u21ba";
+          resetBtn.title = t("sidepanel.reset_to_global");
+          Object.assign(resetBtn.style, {
+            background: "none",
+            border: "1px solid var(--divider-color, #e0e0e0)",
+            color: "var(--primary-text-color)",
+            borderRadius: "4px",
+            padding: "3px 6px",
+            cursor: "pointer",
+            marginLeft: "4px",
+            fontSize: "0.85em",
+          });
+          resetBtn.addEventListener("click", () => {
+            this._callDomainService("clear_subdevice_graph_horizon", { subdevice_id: devId })
+              .then(() => {
+                select.value = globalHorizon;
+                resetBtn.remove();
+                this.dispatchEvent(new CustomEvent("graph-settings-changed", { bubbles: true, composed: true }));
+              })
+              .catch(err => this._showError(`${err.message ?? err}`));
+          });
+          row.appendChild(resetBtn);
+        }
+
+        subDevSection.appendChild(row);
+      }
+
+      body.appendChild(subDevSection);
+    }
+
     panel.appendChild(body);
   }
 
@@ -428,6 +511,95 @@ class SpanSidePanel extends HTMLElement {
     this._renderSheddingSection(body, cfg);
     this._renderGraphHorizonSection(body, cfg);
     this._renderMonitoringSection(body, cfg);
+  }
+
+  _renderSubDeviceMode(panel, cfg) {
+    const header = this._createHeader(escapeHtml(cfg.name), escapeHtml(cfg.deviceType));
+    panel.appendChild(header);
+
+    const body = document.createElement("div");
+    body.className = "panel-body";
+    panel.appendChild(body);
+
+    const errorEl = document.createElement("div");
+    errorEl.className = "error-msg";
+    errorEl.id = "error-msg";
+    errorEl.style.display = "none";
+    body.appendChild(errorEl);
+
+    this._renderSubDeviceHorizonSection(body, cfg);
+  }
+
+  _renderSubDeviceHorizonSection(body, cfg) {
+    const section = document.createElement("div");
+    section.className = "section";
+
+    const sectionLabel = document.createElement("div");
+    sectionLabel.className = "section-label";
+    sectionLabel.textContent = t("sidepanel.graph_horizon");
+    section.appendChild(sectionLabel);
+
+    const graphInfo = cfg.graphHorizonInfo;
+    const hasOverride = graphInfo?.has_override === true;
+    const currentHorizon = graphInfo?.horizon || DEFAULT_GRAPH_HORIZON;
+    const globalHorizon = graphInfo?.globalHorizon || DEFAULT_GRAPH_HORIZON;
+
+    const bar = document.createElement("div");
+    bar.className = "horizon-bar";
+
+    const segments = [{ key: "global", label: t("sidepanel.global") }];
+    for (const key of Object.keys(GRAPH_HORIZONS)) {
+      segments.push({ key, label: key });
+    }
+
+    const activeKey = hasOverride ? currentHorizon : "global";
+
+    const updateSegmentStates = newActiveKey => {
+      for (const btn of bar.querySelectorAll(".horizon-segment")) {
+        const key = btn.dataset.horizon;
+        btn.classList.toggle("active", key === newActiveKey);
+        btn.classList.toggle("referenced", newActiveKey === "global" && key === globalHorizon);
+      }
+    };
+
+    for (const { key, label } of segments) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "horizon-segment";
+      btn.dataset.horizon = key;
+      btn.textContent = label;
+      btn.classList.toggle("active", key === activeKey);
+      btn.classList.toggle("referenced", activeKey === "global" && key === globalHorizon);
+
+      btn.addEventListener("click", () => {
+        if (btn.classList.contains("active")) return;
+
+        const subDeviceId = cfg.subDeviceId;
+        if (key === "global") {
+          updateSegmentStates("global");
+          this._callDomainService("clear_subdevice_graph_horizon", { subdevice_id: subDeviceId })
+            .then(() => {
+              this.dispatchEvent(new CustomEvent("graph-settings-changed", { bubbles: true, composed: true }));
+            })
+            .catch(err => this._showError(`${t("sidepanel.clear_graph_horizon_failed")} ${err.message ?? err}`));
+        } else {
+          updateSegmentStates(key);
+          this._callDomainService("set_subdevice_graph_horizon", {
+            subdevice_id: subDeviceId,
+            horizon: key,
+          })
+            .then(() => {
+              this.dispatchEvent(new CustomEvent("graph-settings-changed", { bubbles: true, composed: true }));
+            })
+            .catch(err => this._showError(`${t("sidepanel.graph_horizon_failed")} ${err.message ?? err}`));
+        }
+      });
+
+      bar.appendChild(btn);
+    }
+
+    section.appendChild(bar);
+    body.appendChild(section);
   }
 
   _createHeader(title, subtitle) {
