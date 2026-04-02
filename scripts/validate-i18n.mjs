@@ -1,6 +1,5 @@
 #!/usr/bin/env node
-/* eslint-disable no-console */
-/* global process */
+/* eslint-disable no-console, no-redeclare */
 /**
  * Validate that every t() key used in source files exists in all translation
  * languages defined in src/i18n.js, and that English has no orphaned keys.
@@ -12,7 +11,7 @@ import { readFileSync, readdirSync, statSync } from "fs";
 import { join, relative } from "path";
 
 const ROOT = new URL("..", import.meta.url).pathname.replace(/\/$/, "");
-const I18N_PATH = join(ROOT, "src", "i18n.js");
+const I18N_PATH = join(ROOT, "src", "i18n.ts");
 
 // ── Extract translation keys from i18n.js ──────────────────────────────────
 
@@ -59,7 +58,7 @@ function collectSourceKeys(dir, results = new Map()) {
     if (stat.isDirectory()) {
       if (entry === "node_modules" || entry === "dist") continue;
       collectSourceKeys(full, results);
-    } else if (entry.endsWith(".js") && full !== I18N_PATH) {
+    } else if ((entry.endsWith(".ts") || entry.endsWith(".js")) && full !== I18N_PATH) {
       const content = readFileSync(full, "utf8");
       // Match t("key") and t('key') — both template and regular strings
       const re = /\bt\(\s*["']([^"']+)["']\s*\)/g;
@@ -92,13 +91,13 @@ const languages = Object.keys(langKeys);
 const enKeys = langKeys.en;
 
 if (!enKeys || enKeys.size === 0) {
-  console.error("ERROR: No English translation keys found in src/i18n.js");
+  console.error("ERROR: No English translation keys found in src/i18n.ts");
   process.exit(1);
 }
 
 const srcDir = join(ROOT, "src");
 const usedKeys = collectSourceKeys(srcDir);
-let errors = [];
+const errors = [];
 
 // 1. Every t() key must exist in English
 for (const [key, files] of usedKeys) {

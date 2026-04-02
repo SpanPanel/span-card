@@ -19,7 +19,9 @@ jobs:
 
       - run: npm ci
       - run: npx eslint src/
-      - run: npx prettier --check "**/*.{js,mjs,json,md,yml,yaml}"
+      - run: npx prettier --check "**/*.{ts,js,mjs,json,md,yml,yaml}"
+      - run: npx tsc --noEmit
+      - run: npx vitest run
       - run: npx markdownlint-cli2 "**/*.md"
 
   build:
