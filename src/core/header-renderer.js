@@ -30,6 +30,12 @@ export function buildHeaderHTML(topology, config) {
           <button class="gear-icon panel-gear" title="${t("header.monitoring_settings")}">
             <ha-icon icon="mdi:cog"></ha-icon>
           </button>
+          <div class="slide-confirm" data-text-off="${t("header.enable_switches")}" data-text-on="${t("header.switches_enabled")}">
+            <span class="slide-confirm-text">${t("header.enable_switches")}</span>
+            <div class="slide-confirm-knob">
+              <ha-icon icon="mdi:lock"></ha-icon>
+            </div>
+          </div>
         </div>
         <div class="panel-stats">
           ${
@@ -103,14 +109,6 @@ export function buildHeaderHTML(topology, config) {
           </div>`
               : ""
           }
-        </div>
-      </div>
-      <div class="header-center">
-        <div class="slide-confirm" data-text-off="${t("header.enable_switches")}" data-text-on="${t("header.switches_enabled")}">
-          <span class="slide-confirm-text">${t("header.enable_switches")}</span>
-          <div class="slide-confirm-knob">
-            <ha-icon icon="mdi:lock"></ha-icon>
-          </div>
         </div>
       </div>
       <div class="header-right">

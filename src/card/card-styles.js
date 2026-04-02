@@ -28,8 +28,9 @@ export const CARD_STYLES = `
 
   .panel-identity {
     display: flex;
-    align-items: baseline;
-    gap: 12px;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px 12px;
     margin-bottom: 12px;
   }
 
@@ -85,6 +86,9 @@ export const CARD_STYLES = `
     align-items: flex-start;
     justify-content: center;
     padding-top: 8px;
+  }
+  .panel-identity .panel-gear {
+    margin-left: 0;
   }
   .slide-confirm {
     position: relative;
@@ -383,7 +387,7 @@ export const CARD_STYLES = `
   .sub-device-name { font-size: 0.85em; color: var(--secondary-text-color, #999); flex: 1; }
   .sub-power-value { font-size: 0.9em; color: var(--primary-text-color, #fff); white-space: nowrap; }
   .sub-power-value strong { font-weight: 700; font-size: 1.1em; }
-  .sub-device .chart-container { margin-bottom: 8px; }
+  .sub-device .chart-container { margin-bottom: 8px; aspect-ratio: auto; }
 
   .bess-charts {
     display: grid;
@@ -400,7 +404,7 @@ export const CARD_STYLES = `
     color: var(--secondary-text-color, #999);
     margin-bottom: 4px;
   }
-  .bess-chart-col .chart-container { }
+  .bess-chart-col .chart-container { aspect-ratio: auto; }
   .sub-entity { display: flex; gap: 6px; padding: 3px 0; font-size: 0.85em; }
   .sub-entity-name { color: var(--secondary-text-color, #999); }
   .sub-entity-value { font-weight: 500; color: var(--primary-text-color, #e0e0e0); }
