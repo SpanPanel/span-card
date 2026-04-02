@@ -18,30 +18,23 @@ positions.
 
 ## Requirements
 
-- [SPAN Panel integration](https://github.com/SpanPanel/span) installed and configured
+- [SPAN Panel integration](https://github.com/SpanPanel/span) **v2.0.5 or later** installed and configured
 - Circuits must have `tabs` attributes (included in SPAN Panel integration v1.2+)
 
 ## Installation
 
-### HACS (Custom Repository)
+As of SPAN Panel integration **v2.0.5**, this card is automatically registered as a Lovelace resource by the integration itself — no separate installation is
+required. The integration serves the card JS from its own static path and writes the resource entry on setup.
 
-1. Open HACS in Home Assistant
-2. Click the three-dot menu in the top right and select **Custom repositories**
-3. Add the repository URL and select **Dashboard** as the category
-4. Click **Add**
-5. Search for "SPAN Panel Card" in HACS and click **Install**
-6. Restart Home Assistant
-
-### Manual
-
-1. Download `span-panel-card.js` from the [latest release](../../releases/latest)
-2. Copy the file to your `config/www/` directory
-3. Add the resource in Home Assistant:
-   - Go to **Settings > Dashboards > Resources**
-   - Click **Add Resource**
-   - URL: `/local/span-panel-card.js`
-   - Type: **JavaScript Module**
-4. Refresh your browser
+> **Migrating from HACS or manual install?** If you previously installed this card via HACS or manually copied `span-panel-card.js` to your `www/` directory,
+> you should:
+>
+> 1. Remove the HACS-managed dashboard resource (HACS > Dashboard > SPAN Panel Card > Remove) — or delete the manual `/local/span-panel-card.js` resource from
+>    **Settings > Dashboards > Resources**
+> 2. Remove `span-panel-card.js` from your `config/www/` directory if present
+> 3. Restart Home Assistant
+>
+> The integration will register its own copy of the card automatically on next startup.
 
 ## Configuration
 
