@@ -209,9 +209,9 @@ export function updateCircuitDOM(root, hass, topology, config, powerHistory, hor
   }
 }
 
-export function updateSubDeviceDOM(root, hass, topology, config, powerHistory) {
+export function updateSubDeviceDOM(root, hass, topology, config, powerHistory, subDeviceHorizonMap) {
   if (!topology.sub_devices) return;
-  const durationMs = getHistoryDurationMs(config);
+  const defaultDurationMs = getHistoryDurationMs(config);
 
   for (const [devId, sub] of Object.entries(topology.sub_devices)) {
     const section = root.querySelector(`[data-subdev="${devId}"]`);
@@ -235,7 +235,8 @@ export function updateSubDeviceDOM(root, hass, topology, config, powerHistory) {
       if (chartKey.endsWith("_soc")) metric = BESS_CHART_METRICS.soc;
       else if (chartKey.endsWith("_soe")) metric = BESS_CHART_METRICS.soe;
       const isBessCol = !!cc.closest(".bess-chart-col");
-      updateChart(cc, hass, history, durationMs, metric, false, isBessCol ? 120 : 150);
+      const devDuration = subDeviceHorizonMap?.has(devId) ? getHorizonDurationMs(subDeviceHorizonMap.get(devId)) : defaultDurationMs;
+      updateChart(cc, hass, history, devDuration, metric, false, isBessCol ? 120 : 150);
     }
 
     for (const entityId of Object.keys(sub.entities || {})) {
