@@ -293,7 +293,12 @@ export class DashboardTab {
       sidePanel.hass = this._hass;
 
       if (gearBtn.classList.contains("panel-gear")) {
-        container.dispatchEvent(new CustomEvent("navigate-tab", { detail: "monitoring", bubbles: true, composed: true }));
+        await this._graphSettingsCache.fetch(this._hass);
+        sidePanel.open({
+          panelMode: true,
+          topology,
+          graphSettings: this._graphSettingsCache.settings,
+        });
         return;
       }
 

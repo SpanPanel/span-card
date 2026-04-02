@@ -272,39 +272,139 @@ class SpanSidePanel extends HTMLElement {
   }
 
   _renderPanelMode(panel) {
-    const header = this._createHeader(t("sidepanel.panel_monitoring"), t("sidepanel.global_defaults"));
+    const cfg = this._config;
+    const header = this._createHeader(t("sidepanel.graph_settings"), t("sidepanel.global_defaults"));
     panel.appendChild(header);
 
     const body = document.createElement("div");
     body.className = "panel-body";
 
-    const info = document.createElement("div");
-    info.className = "panel-mode-info";
-    info.innerHTML = `
-      <p>${t("sidepanel.global_info")}</p>
-      <p>${t("sidepanel.custom_info_prefix")} <strong>${t("sidepanel.custom")}</strong> ${t("sidepanel.custom_info_suffix")}</p>
-    `;
-    body.appendChild(info);
+    const errorEl = document.createElement("div");
+    errorEl.className = "error-msg";
+    errorEl.id = "error-msg";
+    errorEl.style.display = "none";
+    body.appendChild(errorEl);
 
-    const link = document.createElement("button");
-    link.textContent = t("sidepanel.configure_global");
-    Object.assign(link.style, {
-      display: "inline-block",
-      marginTop: "8px",
-      padding: "8px 16px",
-      background: "var(--primary-color, #4dd9af)",
-      color: "var(--text-primary-color, #000)",
-      borderRadius: "4px",
-      border: "none",
-      cursor: "pointer",
-      fontSize: "0.85em",
-      fontWeight: "500",
+    const graphSettings = cfg.graphSettings;
+    const topology = cfg.topology;
+    const globalHorizon = graphSettings?.global_horizon ?? DEFAULT_GRAPH_HORIZON;
+    const circuitSettings = graphSettings?.circuits ?? {};
+
+    // ── Global default horizon ──
+    const globalSection = document.createElement("div");
+    globalSection.className = "section";
+
+    const globalLabel = document.createElement("div");
+    globalLabel.className = "section-label";
+    globalLabel.textContent = t("sidepanel.graph_horizon");
+    globalSection.appendChild(globalLabel);
+
+    const globalRow = document.createElement("div");
+    globalRow.className = "field-row";
+
+    const globalFieldLabel = document.createElement("span");
+    globalFieldLabel.className = "field-label";
+    globalFieldLabel.textContent = t("sidepanel.global_default");
+    globalRow.appendChild(globalFieldLabel);
+
+    const globalSelect = document.createElement("select");
+    for (const key of Object.keys(GRAPH_HORIZONS)) {
+      const opt = document.createElement("option");
+      opt.value = key;
+      opt.textContent = key;
+      if (key === globalHorizon) opt.selected = true;
+      globalSelect.appendChild(opt);
+    }
+    globalSelect.addEventListener("change", () => {
+      this._callDomainService("set_graph_time_horizon", { horizon: globalSelect.value })
+        .then(() => {
+          this.dispatchEvent(new CustomEvent("graph-settings-changed", { bubbles: true, composed: true }));
+        })
+        .catch(err => this._showError(`${err.message ?? err}`));
     });
-    link.addEventListener("click", () => {
-      this.close();
-      this.dispatchEvent(new CustomEvent("navigate-tab", { detail: "monitoring", bubbles: true, composed: true }));
-    });
-    body.appendChild(link);
+    globalRow.appendChild(globalSelect);
+    globalSection.appendChild(globalRow);
+    body.appendChild(globalSection);
+
+    // ── Per-circuit horizon scales ──
+    if (topology?.circuits) {
+      const circuitSection = document.createElement("div");
+      circuitSection.className = "section";
+
+      const circuitLabel = document.createElement("div");
+      circuitLabel.className = "section-label";
+      circuitLabel.textContent = t("sidepanel.circuit_scales");
+      circuitSection.appendChild(circuitLabel);
+
+      const circuits = Object.entries(topology.circuits).sort(([, a], [, b]) => (a.name || "").localeCompare(b.name || ""));
+
+      for (const [uuid, circuit] of circuits) {
+        const row = document.createElement("div");
+        row.className = "field-row";
+
+        const nameLabel = document.createElement("span");
+        nameLabel.className = "field-label";
+        nameLabel.textContent = circuit.name || uuid;
+        nameLabel.style.cssText = "overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1;";
+        row.appendChild(nameLabel);
+
+        const circuitData = circuitSettings[uuid] || {};
+        const effectiveHorizon = circuitData.has_override ? circuitData.horizon : globalHorizon;
+
+        const select = document.createElement("select");
+        select.dataset.uuid = uuid;
+        for (const key of Object.keys(GRAPH_HORIZONS)) {
+          const opt = document.createElement("option");
+          opt.value = key;
+          opt.textContent = key;
+          if (key === effectiveHorizon) opt.selected = true;
+          select.appendChild(opt);
+        }
+        select.addEventListener("change", () => {
+          this._debounce(`circuit-${uuid}`, DEBOUNCE_MS, () => {
+            this._callDomainService("set_circuit_graph_horizon", {
+              circuit_id: uuid,
+              horizon: select.value,
+            })
+              .then(() => {
+                this.dispatchEvent(new CustomEvent("graph-settings-changed", { bubbles: true, composed: true }));
+              })
+              .catch(err => this._showError(`${err.message ?? err}`));
+          });
+        });
+        row.appendChild(select);
+
+        if (circuitData.has_override) {
+          const resetBtn = document.createElement("button");
+          resetBtn.textContent = "\u21ba";
+          resetBtn.title = t("sidepanel.reset_to_global");
+          Object.assign(resetBtn.style, {
+            background: "none",
+            border: "1px solid var(--divider-color, #e0e0e0)",
+            color: "var(--primary-text-color)",
+            borderRadius: "4px",
+            padding: "3px 6px",
+            cursor: "pointer",
+            marginLeft: "4px",
+            fontSize: "0.85em",
+          });
+          resetBtn.addEventListener("click", () => {
+            this._callDomainService("clear_circuit_graph_horizon", { circuit_id: uuid })
+              .then(() => {
+                select.value = globalHorizon;
+                resetBtn.remove();
+                this.dispatchEvent(new CustomEvent("graph-settings-changed", { bubbles: true, composed: true }));
+              })
+              .catch(err => this._showError(`${err.message ?? err}`));
+          });
+          row.appendChild(resetBtn);
+        }
+
+        circuitSection.appendChild(row);
+      }
+
+      body.appendChild(circuitSection);
+    }
 
     panel.appendChild(body);
   }

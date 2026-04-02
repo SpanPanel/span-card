@@ -402,7 +402,12 @@ export class SpanPanelCard extends HTMLElement {
     sidePanel.hass = this._hass;
 
     if (gearBtn.classList.contains("panel-gear")) {
-      sidePanel.open({ panelMode: true });
+      await this._graphSettingsCache.fetch(this._hass);
+      sidePanel.open({
+        panelMode: true,
+        topology: this._topology,
+        graphSettings: this._graphSettingsCache.settings,
+      });
       return;
     }
 
