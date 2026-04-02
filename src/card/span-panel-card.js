@@ -493,6 +493,7 @@ export class SpanPanelCard extends HTMLElement {
       <ha-card>
         ${headerHTML}
         ${monitoringSummaryHTML}
+        ${subDevHTML ? `<div class="sub-devices">${subDevHTML}</div>` : ""}
         ${
           this._config.show_panel !== false
             ? `
@@ -502,7 +503,6 @@ export class SpanPanelCard extends HTMLElement {
         `
             : ""
         }
-        ${subDevHTML ? `<div class="sub-devices">${subDevHTML}</div>` : ""}
       </ha-card>
       <span-side-panel></span-side-panel>
     `;

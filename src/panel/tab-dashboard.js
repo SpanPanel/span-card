@@ -69,6 +69,7 @@ export class DashboardTab {
       <style>${CARD_STYLES}</style>
       ${headerHTML}
       ${monitoringSummaryHTML}
+      ${subDevHTML ? `<div class="sub-devices">${subDevHTML}</div>` : ""}
       ${
         config.show_panel !== false
           ? `
@@ -78,7 +79,6 @@ export class DashboardTab {
       `
           : ""
       }
-      ${subDevHTML ? `<div class="sub-devices">${subDevHTML}</div>` : ""}
       <span-side-panel></span-side-panel>
     `;
 

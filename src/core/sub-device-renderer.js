@@ -16,14 +16,22 @@ import { SUB_DEVICE_TYPE_BESS, SUB_DEVICE_TYPE_EVSE, SUB_DEVICE_KEY_PREFIX } fro
 export function buildSubDevicesHTML(topology, hass, config, _durationMs) {
   const showBattery = config.show_battery !== false;
   const showEvse = config.show_evse !== false;
+
+  if (!topology.sub_devices) return "";
+
+  const entries = Object.entries(topology.sub_devices).filter(([, sub]) => {
+    if (sub.type === SUB_DEVICE_TYPE_BESS && !showBattery) return false;
+    if (sub.type === SUB_DEVICE_TYPE_EVSE && !showEvse) return false;
+    return true;
+  });
+
+  if (entries.length === 0) return "";
+
+  const evseCount = entries.filter(([, sub]) => sub.type === SUB_DEVICE_TYPE_EVSE).length;
+  let evseIndex = 0;
+
   let subDevHTML = "";
-
-  if (!topology.sub_devices) return subDevHTML;
-
-  for (const [devId, sub] of Object.entries(topology.sub_devices)) {
-    if (sub.type === SUB_DEVICE_TYPE_BESS && !showBattery) continue;
-    if (sub.type === SUB_DEVICE_TYPE_EVSE && !showEvse) continue;
-
+  for (const [devId, sub] of entries) {
     const label =
       sub.type === SUB_DEVICE_TYPE_EVSE ? t("subdevice.ev_charger") : sub.type === SUB_DEVICE_TYPE_BESS ? t("subdevice.battery") : t("subdevice.fallback");
     const powerEid = findSubDevicePowerEntity(sub);
@@ -31,6 +39,7 @@ export function buildSubDevicesHTML(topology, hass, config, _durationMs) {
     const powerW = powerState ? parseFloat(powerState.state) || 0 : 0;
 
     const isBess = sub.type === SUB_DEVICE_TYPE_BESS;
+    const isEvse = sub.type === SUB_DEVICE_TYPE_EVSE;
     const battLevelEid = isBess ? findBatteryLevelEntity(sub) : null;
     const battSoeEid = isBess ? findBatterySoeEntity(sub) : null;
     const battCapEid = isBess ? findBatteryCapacityEntity(sub) : null;
@@ -39,8 +48,19 @@ export function buildSubDevicesHTML(topology, hass, config, _durationMs) {
     const entHTML = buildSubEntityHTML(sub, hass, config, hideEids);
     const chartsHTML = buildSubDeviceChartsHTML(devId, sub, isBess, powerEid, battLevelEid, battSoeEid);
 
+    // EVSE: span full row if it's the odd one out (last on its row alone)
+    let spanClass = "";
+    if (isBess) {
+      spanClass = "sub-device-bess";
+    } else if (isEvse) {
+      evseIndex++;
+      if (evseIndex === evseCount && evseCount % 2 === 1) {
+        spanClass = "sub-device-full";
+      }
+    }
+
     subDevHTML += `
-      <div class="sub-device ${isBess ? "sub-device-bess" : ""}" data-subdev="${escapeHtml(devId)}">
+      <div class="sub-device ${spanClass}" data-subdev="${escapeHtml(devId)}">
         <div class="sub-device-header">
           <span class="sub-device-type">${escapeHtml(label)}</span>
           <span class="sub-device-name">${escapeHtml(sub.name || "")}</span>

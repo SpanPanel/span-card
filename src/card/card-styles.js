@@ -357,17 +357,23 @@ export const CARD_STYLES = `
   }
 
   .sub-devices {
-    margin-top: 20px;
-    padding-top: 16px;
-    border-top: 1px solid var(--divider-color, #333);
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+    margin-bottom: 20px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--divider-color, #333);
   }
 
   .sub-device {
-    margin-bottom: 12px;
     background: var(--secondary-background-color, var(--card-background-color, #2a2a2a));
     border: 1px solid var(--divider-color, #333);
     border-radius: 12px;
     padding: 14px 16px;
+  }
+  .sub-device-bess,
+  .sub-device-full {
+    grid-column: 1 / -1;
   }
 
   .sub-device-header { display: flex; gap: 10px; align-items: baseline; margin-bottom: 8px; }
