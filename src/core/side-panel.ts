@@ -31,6 +31,7 @@ interface CircuitModeConfig {
   is_user_controllable?: boolean;
   always_on?: boolean;
   monitoringInfo: MonitoringPointInfo | null;
+  showMonitoring?: boolean;
   graphHorizonInfo: GraphHorizonInfo;
 }
 
@@ -559,7 +560,9 @@ class SpanSidePanel extends HTMLElement {
     this._renderRelaySection(body, cfg);
     this._renderSheddingSection(body, cfg);
     this._renderGraphHorizonSection(body, cfg);
-    this._renderMonitoringSection(body, cfg);
+    if (cfg.showMonitoring) {
+      this._renderMonitoringSection(body, cfg);
+    }
   }
 
   private _renderSubDeviceMode(panel: HTMLDivElement, cfg: SubDeviceModeConfig): void {

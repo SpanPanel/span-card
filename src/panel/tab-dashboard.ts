@@ -27,6 +27,7 @@ export class DashboardTab {
   async render(container: HTMLElement, hass: HomeAssistant, deviceId: string, config: CardConfig, configEntryId?: string | null): Promise<void> {
     this.stop();
     this._ctrl.reset();
+    this._ctrl.showMonitoring = true;
     this._container = container;
     this._ctrl.hass = hass;
 

@@ -36,6 +36,7 @@ export class DashboardController {
   private _config: CardConfig | null = null;
   private _configEntryId: string | null = null;
 
+  private _showMonitoring = false;
   private _updateInterval: ReturnType<typeof setInterval> | null = null;
   private _recorderRefreshInterval: ReturnType<typeof setInterval> | null = null;
   private _resizeObserver: ResizeObserver | null = null;
@@ -56,6 +57,10 @@ export class DashboardController {
 
   get config(): CardConfig | null {
     return this._config;
+  }
+
+  set showMonitoring(val: boolean) {
+    this._showMonitoring = val;
   }
 
   init(topology: PanelTopology | null, config: CardConfig, hass: HomeAssistant | null, configEntryId: string | null): void {
@@ -280,6 +285,7 @@ export class DashboardController {
           ...circuit,
           uuid,
           monitoringInfo,
+          showMonitoring: this._showMonitoring,
           graphHorizonInfo,
         } as Record<string, unknown>);
         return;
