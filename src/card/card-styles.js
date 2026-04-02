@@ -354,6 +354,8 @@ export const CARD_STYLES = `
     width: 100%;
     aspect-ratio: 4 / 1;
     margin-top: 4px;
+    overflow: hidden;
+    min-width: 0;
   }
 
   .sub-devices {

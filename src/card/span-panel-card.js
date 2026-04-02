@@ -42,6 +42,9 @@ export class SpanPanelCard extends HTMLElement {
     this._graphSettingsCache = new GraphSettingsCache();
     this._horizonMap = new Map();
     this._subDeviceHorizonMap = new Map();
+    this._resizeObserver = null;
+    this._lastCardWidth = 0;
+    this._resizeDebounce = null;
   }
 
   connectedCallback() {
@@ -105,6 +108,14 @@ export class SpanPanelCard extends HTMLElement {
     if (this._onVisibilityChange) {
       document.removeEventListener("visibilitychange", this._onVisibilityChange);
       this._onVisibilityChange = null;
+    }
+    if (this._resizeObserver) {
+      this._resizeObserver.disconnect();
+      this._resizeObserver = null;
+    }
+    if (this._resizeDebounce) {
+      clearTimeout(this._resizeDebounce);
+      this._resizeDebounce = null;
     }
   }
 
@@ -499,6 +510,37 @@ export class SpanPanelCard extends HTMLElement {
     await this._loadHistory();
   }
 
+  // ── Resize handling ────────────────────────────────────────────────────────
+
+  _invalidateCharts() {
+    for (const container of this.shadowRoot.querySelectorAll(".chart-container")) {
+      const chart = container.querySelector("ha-chart-base");
+      if (chart) chart.remove();
+    }
+  }
+
+  _setupResizeObserver() {
+    if (this._resizeObserver) {
+      this._resizeObserver.disconnect();
+    }
+    const card = this.shadowRoot.querySelector("ha-card");
+    if (!card) return;
+    this._lastCardWidth = card.clientWidth;
+    this._resizeObserver = new ResizeObserver(entries => {
+      const entry = entries[0];
+      if (!entry) return;
+      const newWidth = entry.contentRect.width;
+      if (Math.abs(newWidth - this._lastCardWidth) < 5) return;
+      this._lastCardWidth = newWidth;
+      if (this._resizeDebounce) clearTimeout(this._resizeDebounce);
+      this._resizeDebounce = setTimeout(() => {
+        this._invalidateCharts();
+        this._updateDOM();
+      }, 150);
+    });
+    this._resizeObserver.observe(card);
+  }
+
   // ── Full render ────────────────────────────────────────────────────────────
 
   _render() {
@@ -569,5 +611,6 @@ export class SpanPanelCard extends HTMLElement {
     this._rendered = true;
     this._recordPowerHistory();
     this._updateDOM();
+    this._setupResizeObserver();
   }
 }

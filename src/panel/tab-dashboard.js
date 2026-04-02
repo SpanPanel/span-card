@@ -25,6 +25,10 @@ export class DashboardTab {
     this._subDeviceHorizonMap = new Map();
     this._hass = null;
     this._config = null;
+    this._resizeObserver = null;
+    this._lastContainerWidth = 0;
+    this._resizeDebounce = null;
+    this._container = null;
   }
 
   async render(container, hass, deviceId, config) {
@@ -32,6 +36,7 @@ export class DashboardTab {
     this._hass = hass;
     this._powerHistory.clear();
     this._config = config;
+    this._container = container;
 
     try {
       const result = await discoverTopology(hass, deviceId);
@@ -146,6 +151,8 @@ export class DashboardTab {
       this._bindSlideConfirm(slideEl, container);
       container.classList.add("switches-disabled");
     }
+
+    this._setupResizeObserver(container, topo, config);
 
     // Start live update loop
     this._updateInterval = setInterval(() => {
@@ -389,6 +396,30 @@ export class DashboardTab {
     });
   }
 
+  _setupResizeObserver(container, topo, config) {
+    if (this._resizeObserver) {
+      this._resizeObserver.disconnect();
+    }
+    this._lastContainerWidth = container.clientWidth;
+    this._resizeObserver = new ResizeObserver(entries => {
+      const entry = entries[0];
+      if (!entry) return;
+      const newWidth = entry.contentRect.width;
+      if (Math.abs(newWidth - this._lastContainerWidth) < 5) return;
+      this._lastContainerWidth = newWidth;
+      if (this._resizeDebounce) clearTimeout(this._resizeDebounce);
+      this._resizeDebounce = setTimeout(() => {
+        for (const cc of container.querySelectorAll(".chart-container")) {
+          const chart = cc.querySelector("ha-chart-base");
+          if (chart) chart.remove();
+        }
+        updateCircuitDOM(container, this._hass, topo, config, this._powerHistory, this._horizonMap);
+        updateSubDeviceDOM(container, this._hass, topo, config, this._powerHistory, this._subDeviceHorizonMap);
+      }, 150);
+    });
+    this._resizeObserver.observe(container);
+  }
+
   stop() {
     if (this._updateInterval) {
       clearInterval(this._updateInterval);
@@ -397,6 +428,14 @@ export class DashboardTab {
     if (this._recorderRefreshInterval) {
       clearInterval(this._recorderRefreshInterval);
       this._recorderRefreshInterval = null;
+    }
+    if (this._resizeObserver) {
+      this._resizeObserver.disconnect();
+      this._resizeObserver = null;
+    }
+    if (this._resizeDebounce) {
+      clearTimeout(this._resizeDebounce);
+      this._resizeDebounce = null;
     }
   }
 }
