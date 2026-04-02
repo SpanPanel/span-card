@@ -352,6 +352,7 @@ export const CARD_STYLES = `
 
   .chart-container {
     width: 100%;
+    aspect-ratio: 4 / 1;
     margin-top: 4px;
   }
 
