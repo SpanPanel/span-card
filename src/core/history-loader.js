@@ -73,25 +73,11 @@ async function loadRawHistory(hass, entityIds, uuidByEntity, durationMs, powerHi
 }
 
 /**
- * Collect entity IDs for sub-devices into the provided arrays.
- *
- * @param {object} topology
- * @param {string[]} entityIds - mutated in place
- * @param {Map<string,string>} uuidByEntity - mutated in place
- */
-function _collectSubDeviceEntityIdsInto(topology, entityIds, uuidByEntity) {
-  for (const { entityId, key } of collectSubDeviceEntityIds(topology)) {
-    entityIds.push(entityId);
-    uuidByEntity.set(entityId, key);
-  }
-}
-
-/**
  * Build the entity ID list for all sub-devices.
  * Returns an array of { entityId, key } pairs so callers can record live samples.
  *
  * @param {object} topology
- * @returns {{ entityId: string, key: string }[]}
+ * @returns {{ entityId: string, key: string, devId: string }[]}
  */
 export function collectSubDeviceEntityIds(topology) {
   if (!topology.sub_devices) return [];
@@ -104,7 +90,7 @@ export function collectSubDeviceEntityIds(topology) {
     }
     for (const [role, eid] of Object.entries(eidMap)) {
       if (eid) {
-        results.push({ entityId: eid, key: `${SUB_DEVICE_KEY_PREFIX}${devId}_${role}` });
+        results.push({ entityId: eid, key: `${SUB_DEVICE_KEY_PREFIX}${devId}_${role}`, devId });
       }
     }
   }
@@ -120,8 +106,9 @@ export function collectSubDeviceEntityIds(topology) {
  * @param {object} config - card config (fallback for duration)
  * @param {Map<string, {time: number, value: number}[]>} powerHistory - mutated in place
  * @param {Map<string, string>} [horizonMap] - optional uuid → horizon key map
+ * @param {Map<string, string>} [subDeviceHorizonMap] - optional devId → horizon key map
  */
-export async function loadHistory(hass, topology, config, powerHistory, horizonMap) {
+export async function loadHistory(hass, topology, config, powerHistory, horizonMap, subDeviceHorizonMap) {
   if (!topology || !hass) return;
 
   // Group circuits by effective duration
@@ -146,12 +133,21 @@ export async function loadHistory(hass, topology, config, powerHistory, horizonM
     group.uuidByEntity.set(eid, uuid);
   }
 
-  // Add sub-device entities to the default duration group
-  const defaultDurationMs = getHistoryDurationMs(config);
-  if (!groups.has(defaultDurationMs)) {
-    groups.set(defaultDurationMs, { entityIds: [], uuidByEntity: new Map() });
+  // Add sub-device entities grouped by their effective horizon
+  for (const { entityId, key, devId } of collectSubDeviceEntityIds(topology)) {
+    let durationMs;
+    if (subDeviceHorizonMap && subDeviceHorizonMap.has(devId)) {
+      durationMs = getHorizonDurationMs(subDeviceHorizonMap.get(devId));
+    } else {
+      durationMs = getHistoryDurationMs(config);
+    }
+    if (!groups.has(durationMs)) {
+      groups.set(durationMs, { entityIds: [], uuidByEntity: new Map() });
+    }
+    const group = groups.get(durationMs);
+    group.entityIds.push(entityId);
+    group.uuidByEntity.set(entityId, key);
   }
-  _collectSubDeviceEntityIdsInto(topology, groups.get(defaultDurationMs).entityIds, groups.get(defaultDurationMs).uuidByEntity);
 
   // Load each group in parallel
   const promises = [];
