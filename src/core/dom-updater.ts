@@ -272,8 +272,9 @@ export function updateSubDeviceDOM(
       if (!valEl) continue;
       const state = hass.states[entityId];
       if (state) {
-        const unit = state.attributes.unit_of_measurement as string | undefined;
-        valEl.textContent = `${state.state}${unit ? " " + unit : ""}`;
+        valEl.textContent = hass.formatEntityState
+          ? hass.formatEntityState(state)
+          : `${state.state}${state.attributes.unit_of_measurement ? " " + state.attributes.unit_of_measurement : ""}`;
       }
     }
   }

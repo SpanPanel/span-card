@@ -5,7 +5,11 @@ import type { HomeAssistant, PanelTopology, GraphSettings, CallServiceResponse }
 
 function horizonOptions(selectedKey: string): string {
   return Object.keys(GRAPH_HORIZONS)
-    .map(key => `<option value="${key}" ${key === selectedKey ? "selected" : ""}>${t(`horizon.${key}`) || key}</option>`)
+    .map(key => {
+      const labelKey = `horizon.${key}`;
+      const translated = t(labelKey);
+      return `<option value="${key}" ${key === selectedKey ? "selected" : ""}>${translated !== labelKey ? translated : key}</option>`;
+    })
     .join("");
 }
 

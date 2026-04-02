@@ -33,13 +33,13 @@ export function getMinGapMs(durationMs: number): number {
 }
 
 // Record a single sample into a history map, pruning old entries.
-// Uses findIndex + splice instead of shift() loop for O(1) amortized pruning.
+// Uses findIndex + splice instead of a shift() loop to prune in a single pass.
 export function recordSample(historyMap: HistoryMap, key: string, value: number, now: number, cutoff: number, maxPoints: number): void {
   if (!historyMap.has(key)) historyMap.set(key, []);
   const hist = historyMap.get(key)!;
   hist.push({ time: now, value });
 
-  // Prune entries older than cutoff using binary-style findIndex + splice
+  // Prune entries older than cutoff
   const firstValid = hist.findIndex(p => p.time >= cutoff);
   if (firstValid > 0) {
     hist.splice(0, firstValid);

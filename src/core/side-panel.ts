@@ -363,7 +363,9 @@ class SpanSidePanel extends HTMLElement {
     for (const key of Object.keys(GRAPH_HORIZONS)) {
       const opt = document.createElement("option");
       opt.value = key;
-      opt.textContent = t(`horizon.${key}`) || key;
+      const labelKey = `horizon.${key}`;
+      const translated = t(labelKey);
+      opt.textContent = translated !== labelKey ? translated : key;
       if (key === globalHorizon) opt.selected = true;
       globalSelect.appendChild(opt);
     }
@@ -408,7 +410,9 @@ class SpanSidePanel extends HTMLElement {
         for (const key of Object.keys(GRAPH_HORIZONS)) {
           const opt = document.createElement("option");
           opt.value = key;
-          opt.textContent = t(`horizon.${key}`) || key;
+          const labelKey = `horizon.${key}`;
+          const translated = t(labelKey);
+          opt.textContent = translated !== labelKey ? translated : key;
           if (key === effectiveHorizon) opt.selected = true;
           select.appendChild(opt);
         }
@@ -489,7 +493,9 @@ class SpanSidePanel extends HTMLElement {
         for (const key of Object.keys(GRAPH_HORIZONS)) {
           const opt = document.createElement("option");
           opt.value = key;
-          opt.textContent = t(`horizon.${key}`) || key;
+          const labelKey = `horizon.${key}`;
+          const translated = t(labelKey);
+          opt.textContent = translated !== labelKey ? translated : key;
           if (key === effectiveHorizon) opt.selected = true;
           select.appendChild(opt);
         }
