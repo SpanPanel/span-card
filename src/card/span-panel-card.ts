@@ -90,8 +90,52 @@ export class SpanPanelCard extends HTMLElement {
     if (!this._config.device_id) {
       this.shadowRoot!.innerHTML = `
         <ha-card>
-          <div style="padding: 24px; color: var(--secondary-text-color);">
-            ${t("card.no_device")}
+          <div style="padding: 16px;">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
+              <span style="font-weight:600;font-size:1.1em;color:var(--primary-text-color);">SPAN Panel</span>
+              <span style="font-size:0.75em;color:var(--secondary-text-color);">Live Power</span>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+              ${[
+                {
+                  name: "Kitchen",
+                  watts: "120",
+                  path: "M0,28 L8,26 L16,24 L24,22 L32,25 L40,20 L48,18 L56,22 L64,19 L72,16 L80,18 L88,15 L96,17 L104,14 L112,16 L120,13",
+                },
+                {
+                  name: "Living Room",
+                  watts: "85",
+                  path: "M0,22 L8,24 L16,20 L24,26 L32,18 L40,22 L48,16 L56,20 L64,24 L72,18 L80,22 L88,20 L96,16 L104,22 L112,18 L120,20",
+                },
+                {
+                  name: "Master Bed",
+                  watts: "193",
+                  path: "M0,8 L8,10 L16,8 L24,12 L32,10 L40,8 L48,10 L56,8 L64,10 L72,8 L80,12 L88,10 L96,8 L104,10 L112,8 L120,10",
+                },
+                {
+                  name: "HVAC",
+                  watts: "64",
+                  path: "M0,30 L8,28 L16,26 L24,22 L32,18 L40,14 L48,18 L56,22 L64,26 L72,22 L80,18 L88,22 L96,26 L104,22 L112,18 L120,22",
+                },
+              ]
+                .map(
+                  c => `
+                <div style="background:var(--card-background-color,#1c1c1c);border:1px solid var(--divider-color,#333);border-radius:8px;padding:8px;">
+                  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+                    <span style="font-size:0.7em;color:var(--primary-text-color);">${c.name}</span>
+                    <span style="font-size:0.7em;font-weight:600;color:var(--primary-text-color);">${c.watts}<span style="font-size:0.8em;color:var(--secondary-text-color);">W</span></span>
+                  </div>
+                  <svg viewBox="0 0 120 32" style="width:100%;height:24px;" preserveAspectRatio="none">
+                    <path d="${c.path}" fill="none" stroke="var(--primary-color,#4dd9af)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                  </svg>
+                </div>
+              `
+                )
+                .join("")}
+            </div>
+            <div style="margin-top:8px;font-size:0.7em;color:var(--secondary-text-color);">
+              ${t("card.no_device")}
+            </div>
           </div>
         </ha-card>
       `;
