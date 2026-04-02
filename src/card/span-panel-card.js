@@ -41,6 +41,7 @@ export class SpanPanelCard extends HTMLElement {
     this._monitoringCache = new MonitoringStatusCache();
     this._graphSettingsCache = new GraphSettingsCache();
     this._horizonMap = new Map();
+    this._subDeviceHorizonMap = new Map();
   }
 
   connectedCallback() {
@@ -114,6 +115,7 @@ export class SpanPanelCard extends HTMLElement {
     this._historyLoaded = false;
     this._powerHistory.clear();
     this._horizonMap.clear();
+    this._subDeviceHorizonMap.clear();
     this._monitoringCache.clear();
     this._graphSettingsCache.clear();
   }
@@ -213,12 +215,20 @@ export class SpanPanelCard extends HTMLElement {
           this._horizonMap.set(uuid, horizon);
         }
       }
+      // Build sub-device horizon map
+      if (settings && this._topology?.sub_devices) {
+        for (const devId of Object.keys(this._topology.sub_devices)) {
+          const override = settings.sub_devices?.[devId];
+          const horizon = override?.has_override ? override.horizon : settings.global_horizon || DEFAULT_GRAPH_HORIZON;
+          this._subDeviceHorizonMap.set(devId, horizon);
+        }
+      }
     } catch {
       // Graph settings unavailable — use defaults
     }
 
     try {
-      await loadHistory(this._hass, this._topology, this._config, this._powerHistory, this._horizonMap);
+      await loadHistory(this._hass, this._topology, this._config, this._powerHistory, this._horizonMap, this._subDeviceHorizonMap);
       this._updateDOM();
     } catch (err) {
       console.warn("SPAN Panel: history fetch failed, charts will populate live", err);
@@ -246,14 +256,17 @@ export class SpanPanelCard extends HTMLElement {
       recordSample(this._powerHistory, uuid, rawValue, now, cutoff, maxPoints);
     }
 
-    // Sub-devices always use default duration
-    const defaultDurationMs = getHistoryDurationMs(this._config);
-    const defaultMaxPoints = getMaxHistoryPoints(defaultDurationMs);
-    const defaultCutoff = now - defaultDurationMs;
-    for (const { entityId, key } of collectSubDeviceEntityIds(this._topology)) {
+    // Sub-devices use per-device horizon when available
+    for (const { entityId, key, devId } of collectSubDeviceEntityIds(this._topology)) {
+      const horizon = this._subDeviceHorizonMap?.get(devId) || DEFAULT_GRAPH_HORIZON;
+      if (!GRAPH_HORIZONS[horizon]?.useRealtime) continue;
+
       const state = this._hass.states[entityId];
       const rawValue = state ? parseFloat(state.state) || 0 : 0;
-      recordSample(this._powerHistory, key, rawValue, now, defaultCutoff, defaultMaxPoints);
+      const durationMs = getHorizonDurationMs(horizon);
+      const maxPoints = getMaxHistoryPoints(durationMs);
+      const cutoff = now - durationMs;
+      recordSample(this._powerHistory, key, rawValue, now, cutoff, maxPoints);
     }
   }
 
@@ -268,7 +281,7 @@ export class SpanPanelCard extends HTMLElement {
 
   _updateDOM() {
     updateCircuitDOM(this.shadowRoot, this._hass, this._topology, this._config, this._powerHistory, this._horizonMap);
-    updateSubDeviceDOM(this.shadowRoot, this._hass, this._topology, this._config, this._powerHistory);
+    updateSubDeviceDOM(this.shadowRoot, this._hass, this._topology, this._config, this._powerHistory, this._subDeviceHorizonMap);
   }
 
   // ── Unit toggle (A/W) click handler ───────────────────────────────────────
@@ -412,26 +425,47 @@ export class SpanPanelCard extends HTMLElement {
     }
 
     const uuid = gearBtn.dataset.uuid;
-    if (!uuid || !this._topology) return;
+    if (uuid && this._topology) {
+      const circuit = this._topology.circuits[uuid];
+      if (circuit) {
+        const monitoringInfo = this._monitoringCache?.status?.circuits?.[circuit.entities?.power] || null;
 
-    const circuit = this._topology.circuits[uuid];
-    if (!circuit) return;
+        await this._graphSettingsCache.fetch(this._hass);
+        const graphSettings = this._graphSettingsCache.settings;
+        const globalHorizon = graphSettings?.global_horizon || DEFAULT_GRAPH_HORIZON;
+        const graphHorizonInfo = graphSettings?.circuits?.[uuid]
+          ? { ...graphSettings.circuits[uuid], globalHorizon }
+          : { horizon: globalHorizon, has_override: false, globalHorizon };
 
-    const monitoringInfo = this._monitoringCache?.status?.circuits?.[circuit.entities?.power] || null;
+        sidePanel.open({
+          ...circuit,
+          uuid,
+          monitoringInfo,
+          graphHorizonInfo,
+        });
+        return;
+      }
+    }
 
-    await this._graphSettingsCache.fetch(this._hass);
-    const graphSettings = this._graphSettingsCache.settings;
-    const globalHorizon = graphSettings?.global_horizon || DEFAULT_GRAPH_HORIZON;
-    const graphHorizonInfo = graphSettings?.circuits?.[uuid]
-      ? { ...graphSettings.circuits[uuid], globalHorizon }
-      : { horizon: globalHorizon, has_override: false, globalHorizon };
+    const subDevId = gearBtn.dataset.subdevId;
+    if (subDevId && this._topology?.sub_devices?.[subDevId]) {
+      const sub = this._topology.sub_devices[subDevId];
 
-    sidePanel.open({
-      ...circuit,
-      uuid,
-      monitoringInfo,
-      graphHorizonInfo,
-    });
+      await this._graphSettingsCache.fetch(this._hass);
+      const graphSettings = this._graphSettingsCache.settings;
+      const globalHorizon = graphSettings?.global_horizon || DEFAULT_GRAPH_HORIZON;
+      const graphHorizonInfo = graphSettings?.sub_devices?.[subDevId]
+        ? { ...graphSettings.sub_devices[subDevId], globalHorizon }
+        : { horizon: globalHorizon, has_override: false, globalHorizon };
+
+      sidePanel.open({
+        subDeviceMode: true,
+        subDeviceId: subDevId,
+        name: sub.name || subDevId,
+        deviceType: sub.type || "",
+        graphHorizonInfo,
+      });
+    }
   }
 
   // ── Graph settings changed handler ────────────────────────────────────────
@@ -447,6 +481,15 @@ export class SpanPanelCard extends HTMLElement {
         const override = settings.circuits?.[uuid];
         const horizon = override?.has_override ? override.horizon : settings.global_horizon || DEFAULT_GRAPH_HORIZON;
         this._horizonMap.set(uuid, horizon);
+      }
+    }
+
+    // Rebuild sub-device horizon map
+    if (settings && this._topology?.sub_devices) {
+      for (const devId of Object.keys(this._topology.sub_devices)) {
+        const override = settings.sub_devices?.[devId];
+        const horizon = override?.has_override ? override.horizon : settings.global_horizon || DEFAULT_GRAPH_HORIZON;
+        this._subDeviceHorizonMap.set(devId, horizon);
       }
     }
 
