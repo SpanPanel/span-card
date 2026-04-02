@@ -1,7 +1,9 @@
 import { CARD_VERSION } from "../constants.js";
 import { SpanPanelElement } from "./span-panel.js";
 
-customElements.define("span-panel", SpanPanelElement);
+if (!customElements.get("span-panel")) {
+  customElements.define("span-panel", SpanPanelElement);
+}
 
 console.warn(
   `%c SPAN-PANEL %c v${CARD_VERSION} `,

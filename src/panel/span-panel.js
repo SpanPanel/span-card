@@ -29,15 +29,14 @@ const PANEL_STYLES = `
     flex-grow: 1;
   }
   .panel-selector select {
-    background: transparent;
-    border: none;
     color: inherit;
     font-size: inherit;
     font-weight: inherit;
     cursor: pointer;
-    padding: 0;
-    appearance: none;
-    -webkit-appearance: none;
+    padding: 4px 8px;
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    border-radius: 6px;
+    background-color: rgba(255, 255, 255, 0.1);
   }
   .panel-selector select option {
     background: var(--card-background-color, #333);
@@ -105,6 +104,8 @@ export class SpanPanelElement extends HTMLElement {
       }
     };
     document.addEventListener("visibilitychange", this._onVisibilityChange);
+
+    this._subscribeDeviceRegistry();
   }
 
   disconnectedCallback() {
@@ -113,9 +114,43 @@ export class SpanPanelElement extends HTMLElement {
       document.removeEventListener("visibilitychange", this._onVisibilityChange);
       this._onVisibilityChange = null;
     }
+    this._unsubscribeDeviceRegistry();
+  }
+
+  _subscribeDeviceRegistry() {
+    if (this._deviceRegistryUnsub || !this._hass?.connection) return;
+    this._deviceRegistryUnsub = this._hass.connection.subscribeEvents(() => this._refreshPanels(), "device_registry_updated");
+  }
+
+  _unsubscribeDeviceRegistry() {
+    if (this._deviceRegistryUnsub) {
+      this._deviceRegistryUnsub.then(unsub => unsub());
+      this._deviceRegistryUnsub = null;
+    }
+  }
+
+  async _refreshPanels() {
+    if (!this._hass || !this._discovered) return;
+
+    const devices = await this._hass.callWS({
+      type: "config/device_registry/list",
+    });
+    const panels = devices.filter(d => d.identifiers?.some(id => id[0] === INTEGRATION_DOMAIN) && !d.via_device_id);
+
+    const currentIds = new Set(this._panels.map(p => p.id));
+    const newIds = new Set(panels.map(p => p.id));
+    if (currentIds.size === newIds.size && [...currentIds].every(id => newIds.has(id))) return;
+
+    this._panels = panels;
+    if (!this._panels.some(p => p.id === this._selectedPanelId) && this._panels.length > 0) {
+      this._selectedPanelId = this._panels[0].id;
+      localStorage.setItem("span_panel_selected", this._selectedPanelId);
+    }
+    this._render();
   }
 
   set hass(val) {
+    const firstHass = !this._hass && val;
     this._hass = val;
     this._dashboardTab._hass = val;
     // Update ha-menu-button if already rendered
@@ -123,6 +158,9 @@ export class SpanPanelElement extends HTMLElement {
     if (menuBtn) menuBtn.hass = val;
     if (!this._discovered) {
       this._discoverPanels();
+    }
+    if (firstHass) {
+      this._subscribeDeviceRegistry();
     }
   }
 
@@ -159,10 +197,6 @@ export class SpanPanelElement extends HTMLElement {
 
   _render() {
     setLanguage(this._hass?.language);
-    const multiPanel = this._panels.length > 1;
-    const selectedPanel = this._panels.find(p => p.id === this._selectedPanelId);
-    const panelLabel = selectedPanel ? selectedPanel.name_by_user || selectedPanel.name || selectedPanel.id : "";
-
     this.shadowRoot.innerHTML = `
       <style>${PANEL_STYLES}</style>
 
@@ -171,23 +205,17 @@ export class SpanPanelElement extends HTMLElement {
           <ha-menu-button></ha-menu-button>
           <div class="main-title">
             <span class="panel-selector">
-              ${
-                multiPanel
-                  ? `
-                <select id="panel-select">
-                  ${this._panels
-                    .map(
-                      p => `
-                    <option value="${p.id}" ${p.id === this._selectedPanelId ? "selected" : ""}>
-                      ${p.name_by_user || p.name || p.id}
-                    </option>
-                  `
-                    )
-                    .join("")}
-                </select>
-              `
-                  : panelLabel
-              }
+              <select id="panel-select">
+                ${this._panels
+                  .map(
+                    p => `
+                  <option value="${p.id}" ${p.id === this._selectedPanelId ? "selected" : ""}>
+                    ${p.name_by_user || p.name || p.id}
+                  </option>
+                `
+                  )
+                  .join("")}
+              </select>
             </span>
           </div>
         </div>
