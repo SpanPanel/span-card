@@ -3,7 +3,7 @@ import { buildHeaderHTML } from "../core/header-renderer.js";
 import { buildGridHTML } from "../core/grid-renderer.js";
 import { buildSubDevicesHTML } from "../core/sub-device-renderer.js";
 import { updateCircuitDOM, updateSubDeviceDOM } from "../core/dom-updater.js";
-import { loadHistory } from "../core/history-loader.js";
+import { loadHistory, collectSubDeviceEntityIds } from "../core/history-loader.js";
 import { MonitoringStatusCache, buildMonitoringSummaryHTML } from "../core/monitoring-status.js";
 import { GraphSettingsCache } from "../core/graph-settings.js";
 import { CARD_STYLES } from "../card/card-styles.js";
@@ -22,6 +22,7 @@ export class DashboardTab {
     this._updateInterval = null;
     this._recorderRefreshInterval = null;
     this._horizonMap = new Map();
+    this._subDeviceHorizonMap = new Map();
     this._hass = null;
     this._config = null;
   }
@@ -54,6 +55,14 @@ export class DashboardTab {
         const override = graphSettings?.circuits?.[uuid];
         const horizon = override?.has_override ? override.horizon : graphSettings?.global_horizon || DEFAULT_GRAPH_HORIZON;
         this._horizonMap.set(uuid, horizon);
+      }
+    }
+    // Build sub-device horizon map
+    if (topo?.sub_devices) {
+      for (const devId of Object.keys(topo.sub_devices)) {
+        const override = graphSettings?.sub_devices?.[devId];
+        const horizon = override?.has_override ? override.horizon : graphSettings?.global_horizon || DEFAULT_GRAPH_HORIZON;
+        this._subDeviceHorizonMap.set(devId, horizon);
       }
     }
     const totalRows = Math.ceil(this._panelSize / 2);
@@ -102,26 +111,35 @@ export class DashboardTab {
         }
       }
 
+      // Rebuild sub-device horizon map
+      if (topo?.sub_devices) {
+        for (const devId of Object.keys(topo.sub_devices)) {
+          const override = newSettings?.sub_devices?.[devId];
+          const horizon = override?.has_override ? override.horizon : newSettings?.global_horizon || DEFAULT_GRAPH_HORIZON;
+          this._subDeviceHorizonMap.set(devId, horizon);
+        }
+      }
+
       // Reload all history with new horizons
       this._powerHistory.clear();
       try {
-        await loadHistory(this._hass, topo, this._config, this._powerHistory, this._horizonMap);
+        await loadHistory(this._hass, topo, this._config, this._powerHistory, this._horizonMap, this._subDeviceHorizonMap);
       } catch {
         // Will populate on next refresh
       }
       updateCircuitDOM(container, this._hass, topo, this._config, this._powerHistory, this._horizonMap);
-      updateSubDeviceDOM(container, this._hass, topo, this._config, this._powerHistory);
+      updateSubDeviceDOM(container, this._hass, topo, this._config, this._powerHistory, this._subDeviceHorizonMap);
     });
 
     try {
-      await loadHistory(hass, topo, config, this._powerHistory, this._horizonMap);
+      await loadHistory(hass, topo, config, this._powerHistory, this._horizonMap, this._subDeviceHorizonMap);
     } catch {
       // Charts will populate live
     }
 
     // Initial DOM update with history data
     updateCircuitDOM(container, hass, topo, config, this._powerHistory, this._horizonMap);
-    updateSubDeviceDOM(container, hass, topo, config, this._powerHistory);
+    updateSubDeviceDOM(container, hass, topo, config, this._powerHistory, this._subDeviceHorizonMap);
 
     const slideEl = container.querySelector(".slide-confirm");
     if (slideEl) {
@@ -133,7 +151,7 @@ export class DashboardTab {
     this._updateInterval = setInterval(() => {
       this._recordSamples();
       updateCircuitDOM(container, this._hass, topo, this._config, this._powerHistory, this._horizonMap);
-      updateSubDeviceDOM(container, this._hass, topo, this._config, this._powerHistory);
+      updateSubDeviceDOM(container, this._hass, topo, this._config, this._powerHistory, this._subDeviceHorizonMap);
     }, LIVE_SAMPLE_INTERVAL_MS);
 
     // Periodic recorder refresh for non-realtime horizons
@@ -150,7 +168,7 @@ export class DashboardTab {
       // until fresh data is ready (avoids blank-chart flash).
       const freshHistory = new Map();
       try {
-        await loadHistory(this._hass, this._topology, this._config, freshHistory, nonRealtimeMap);
+        await loadHistory(this._hass, this._topology, this._config, freshHistory, nonRealtimeMap, this._subDeviceHorizonMap);
         // Atomically replace only the non-realtime entries
         for (const uuid of nonRealtimeMap.keys()) {
           const data = freshHistory.get(uuid);
@@ -191,6 +209,27 @@ export class DashboardTab {
       if (hist.length > 0 && now - hist[hist.length - 1].time < minGap) continue;
 
       recordSample(this._powerHistory, uuid, val, now, cutoff, maxPoints);
+    }
+
+    // Sub-device samples with per-device horizons
+    for (const { entityId, key, devId } of collectSubDeviceEntityIds(this._topology)) {
+      const horizon = this._subDeviceHorizonMap?.get(devId) || DEFAULT_GRAPH_HORIZON;
+      if (!GRAPH_HORIZONS[horizon]?.useRealtime) continue;
+
+      const state = this._hass.states[entityId];
+      if (!state) continue;
+      const val = parseFloat(state.state);
+      if (isNaN(val)) continue;
+
+      const durationMs = getHorizonDurationMs(horizon);
+      const maxPoints = getMaxHistoryPoints(durationMs);
+      const minGap = getMinGapMs(durationMs);
+      const cutoff = now - durationMs;
+
+      const hist = this._powerHistory.get(key) || [];
+      if (hist.length > 0 && now - hist[hist.length - 1].time < minGap) continue;
+
+      recordSample(this._powerHistory, key, val, now, cutoff, maxPoints);
     }
   }
 
@@ -303,28 +342,50 @@ export class DashboardTab {
       }
 
       const uuid = gearBtn.dataset.uuid;
-      if (!uuid || !topology) return;
+      if (uuid && topology) {
+        const circuit = topology.circuits[uuid];
+        if (circuit) {
+          // Always fetch fresh monitoring and graph settings data before opening side panel
+          await this._monitoringCache.fetch(this._hass);
+          const monitoringInfo = this._monitoringCache?.status?.circuits?.[circuit.entities?.power] || null;
 
-      const circuit = topology.circuits[uuid];
-      if (!circuit) return;
+          await this._graphSettingsCache.fetch(this._hass);
+          const graphSettings = this._graphSettingsCache.settings;
+          const globalHorizon = graphSettings?.global_horizon || DEFAULT_GRAPH_HORIZON;
+          const graphHorizonInfo = graphSettings?.circuits?.[uuid]
+            ? { ...graphSettings.circuits[uuid], globalHorizon }
+            : { horizon: globalHorizon, has_override: false, globalHorizon };
 
-      // Always fetch fresh monitoring and graph settings data before opening side panel
-      await this._monitoringCache.fetch(this._hass);
-      const monitoringInfo = this._monitoringCache?.status?.circuits?.[circuit.entities?.power] || null;
+          sidePanel.open({
+            ...circuit,
+            uuid,
+            monitoringInfo,
+            graphHorizonInfo,
+          });
+          return;
+        }
+      }
 
-      await this._graphSettingsCache.fetch(this._hass);
-      const graphSettings = this._graphSettingsCache.settings;
-      const globalHorizon = graphSettings?.global_horizon || DEFAULT_GRAPH_HORIZON;
-      const graphHorizonInfo = graphSettings?.circuits?.[uuid]
-        ? { ...graphSettings.circuits[uuid], globalHorizon }
-        : { horizon: globalHorizon, has_override: false, globalHorizon };
+      const subDevId = gearBtn.dataset.subdevId;
+      if (subDevId && topology?.sub_devices?.[subDevId]) {
+        const sub = topology.sub_devices[subDevId];
 
-      sidePanel.open({
-        ...circuit,
-        uuid,
-        monitoringInfo,
-        graphHorizonInfo,
-      });
+        await this._graphSettingsCache.fetch(this._hass);
+        const graphSettings = this._graphSettingsCache.settings;
+        const globalHorizon = graphSettings?.global_horizon || DEFAULT_GRAPH_HORIZON;
+        const graphHorizonInfo = graphSettings?.sub_devices?.[subDevId]
+          ? { ...graphSettings.sub_devices[subDevId], globalHorizon }
+          : { horizon: globalHorizon, has_override: false, globalHorizon };
+
+        sidePanel.open({
+          subDeviceMode: true,
+          subDeviceId: subDevId,
+          name: sub.name || subDevId,
+          deviceType: sub.type || "",
+          graphHorizonInfo,
+        });
+        return;
+      }
     });
   }
 
