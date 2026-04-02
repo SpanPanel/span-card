@@ -1050,14 +1050,13 @@ class SpanSidePanel extends HTMLElement {
     return Promise.resolve(this._hass.callService(domain, service, data));
   }
 
-  private _callDomainService(service: string, data: Record<string, unknown>): Promise<unknown> {
+  private _callDomainService(service: string, data: Record<string, unknown>): Promise<void> {
     if (!this._hass) return Promise.resolve();
     return this._hass.callWS({
       type: "call_service",
       domain: INTEGRATION_DOMAIN,
       service,
       service_data: data,
-      return_response: true,
     });
   }
 
