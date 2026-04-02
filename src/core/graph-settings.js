@@ -77,3 +77,16 @@ export function getEffectiveHorizon(settings, circuitId) {
   if (override?.has_override) return override.horizon;
   return settings.global_horizon || DEFAULT_GRAPH_HORIZON;
 }
+
+/**
+ * Get the effective horizon for a sub-device.
+ * @param {object|null} settings - Full graph settings from get_graph_settings
+ * @param {string} subDeviceId - Sub-device identifier
+ * @returns {string} Horizon key (e.g., "5m", "1h")
+ */
+export function getEffectiveSubDeviceHorizon(settings, subDeviceId) {
+  if (!settings) return DEFAULT_GRAPH_HORIZON;
+  const override = settings.sub_devices?.[subDeviceId];
+  if (override?.has_override) return override.horizon;
+  return settings.global_horizon || DEFAULT_GRAPH_HORIZON;
+}
