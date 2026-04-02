@@ -152,25 +152,41 @@ export class DashboardController {
       }
     }
 
-    let hasNonRealtimeSubDevices = false;
-    for (const [, horizon] of this.subDeviceHorizonMap) {
+    const nonRealtimeSubDeviceMap = new Map<string, string>();
+    for (const [devId, horizon] of this.subDeviceHorizonMap) {
       if (!GRAPH_HORIZONS[horizon]?.useRealtime) {
-        hasNonRealtimeSubDevices = true;
-        break;
+        nonRealtimeSubDeviceMap.set(devId, horizon);
       }
     }
 
-    if (nonRealtimeMap.size === 0 && !hasNonRealtimeSubDevices) return;
+    if (nonRealtimeMap.size === 0 && nonRealtimeSubDeviceMap.size === 0) return;
+
+    const nonRealtimeSubDeviceKeys = new Set<string>();
+    if (nonRealtimeSubDeviceMap.size > 0 && this._topology) {
+      for (const { key, devId } of collectSubDeviceEntityIds(this._topology)) {
+        if (nonRealtimeSubDeviceMap.has(devId)) {
+          nonRealtimeSubDeviceKeys.add(key);
+        }
+      }
+    }
 
     const freshHistory: HistoryMap = new Map();
     try {
-      await loadHistory(this._hass, this._topology, this._config, freshHistory, nonRealtimeMap, this.subDeviceHorizonMap);
+      await loadHistory(this._hass, this._topology, this._config, freshHistory, nonRealtimeMap, nonRealtimeSubDeviceMap);
       for (const uuid of nonRealtimeMap.keys()) {
         const data = freshHistory.get(uuid);
         if (data) {
           this.powerHistory.set(uuid, data);
         } else {
           this.powerHistory.delete(uuid);
+        }
+      }
+      for (const key of nonRealtimeSubDeviceKeys) {
+        const data = freshHistory.get(key);
+        if (data) {
+          this.powerHistory.set(key, data);
+        } else {
+          this.powerHistory.delete(key);
         }
       }
       this.updateDOM(root);
