@@ -14,12 +14,17 @@ export const CARD_STYLES = `
 
   .panel-header {
     display: flex;
+    flex-wrap: wrap;
     justify-content: space-between;
     align-items: flex-start;
+    gap: 8px 16px;
     margin-bottom: 20px;
     padding-bottom: 16px;
     border-bottom: 1px solid var(--divider-color, #333);
   }
+  .header-left { flex: 1 1 300px; min-width: 0; }
+  .header-center { flex: 0 0 auto; }
+  .header-right { flex: 0 1 auto; min-width: 0; }
 
   .panel-identity {
     display: flex;
@@ -43,7 +48,8 @@ export const CARD_STYLES = `
 
   .panel-stats {
     display: flex;
-    gap: 32px;
+    flex-wrap: wrap;
+    gap: 16px 32px;
   }
 
   .stat { display: flex; flex-direction: column; }
@@ -52,7 +58,7 @@ export const CARD_STYLES = `
   .stat-value { font-size: 1.5em; font-weight: 700; color: var(--primary-text-color, #fff); }
   .stat-unit { font-size: 0.7em; font-weight: 400; color: var(--secondary-text-color, #999); }
 
-  .header-right { display: flex; flex-direction: column; align-items: flex-end; justify-content: space-between; padding-top: 8px; align-self: stretch; }
+  .header-right { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; padding-top: 8px; }
   .header-right-top { display: flex; gap: 20px; align-items: center; }
   .meta-item { font-size: 0.8em; color: var(--secondary-text-color, #999); }
 
@@ -390,16 +396,4 @@ export const CARD_STYLES = `
   .sub-entity-name { color: var(--secondary-text-color, #999); }
   .sub-entity-value { font-weight: 500; color: var(--primary-text-color, #e0e0e0); }
 
-  ha-card.narrow { padding: 12px; }
-  .narrow .panel-header { flex-direction: column; }
-  .narrow .panel-identity { flex-direction: column; gap: 4px; }
-  .narrow .panel-title { font-size: 1.4em; }
-  .narrow .panel-stats { gap: 16px; flex-wrap: wrap; }
-  .narrow .header-center { margin-top: 8px; }
-  .narrow .header-right { margin-top: 8px; align-items: flex-start; }
-  .narrow .shedding-legend { justify-content: flex-start; }
-  .narrow .circuit-slot { min-height: 100px; padding: 10px 12px 16px; }
-  .narrow .circuit-col-span { min-height: 200px; }
-  .narrow .chart-container { height: 60px; }
-  .narrow .circuit-col-span .chart-container { height: 140px; }
 `;
