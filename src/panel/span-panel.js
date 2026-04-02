@@ -67,13 +67,10 @@ const PANEL_STYLES = `
     border-bottom-color: var(--app-header-text-color, white);
   }
   .view {
-    display: flex;
-    justify-content: center;
     padding: 16px;
   }
   .view-content {
     width: 100%;
-    max-width: 900px;
   }
   .tab-content {
     min-height: 400px;
