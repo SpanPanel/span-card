@@ -1,5 +1,5 @@
 import { DEFAULT_CHART_METRIC, DEFAULT_GRAPH_HORIZON, GRAPH_HORIZONS, LIVE_SAMPLE_INTERVAL_MS } from "../constants.js";
-import { t } from "../i18n.js";
+import { setLanguage, t } from "../i18n.js";
 import { escapeHtml } from "../helpers/sanitize.js";
 import { getHistoryDurationMs, getHorizonDurationMs, getMaxHistoryPoints, recordSample } from "../helpers/history.js";
 import { getCircuitChartEntity } from "../helpers/chart.js";
@@ -135,8 +135,13 @@ export class SpanPanelCard extends HTMLElement {
     return getHistoryDurationMs(this._config);
   }
 
+  get _configEntryId() {
+    return this._panelDevice?.config_entries?.[0] || null;
+  }
+
   set hass(hass) {
     this._hass = hass;
+    setLanguage(hass?.language);
     if (!this._config.device_id) {
       this.shadowRoot.innerHTML = `
         <ha-card>
@@ -154,7 +159,7 @@ export class SpanPanelCard extends HTMLElement {
         this._discovering = false;
         this._render();
         this._loadHistory();
-        this._monitoringCache.fetch(hass).then(() => {
+        this._monitoringCache.fetch(hass, this._configEntryId).then(() => {
           if (this._rendered) this._updateDOM();
         });
       });
@@ -217,7 +222,7 @@ export class SpanPanelCard extends HTMLElement {
 
     // Fetch graph settings and build horizon map
     try {
-      await this._graphSettingsCache.fetch(this._hass);
+      await this._graphSettingsCache.fetch(this._hass, this._configEntryId);
       const settings = this._graphSettingsCache.settings;
       if (settings && this._topology?.circuits) {
         for (const uuid of Object.keys(this._topology.circuits)) {
@@ -426,7 +431,7 @@ export class SpanPanelCard extends HTMLElement {
     sidePanel.hass = this._hass;
 
     if (gearBtn.classList.contains("panel-gear")) {
-      await this._graphSettingsCache.fetch(this._hass);
+      await this._graphSettingsCache.fetch(this._hass, this._configEntryId);
       sidePanel.open({
         panelMode: true,
         topology: this._topology,
@@ -441,7 +446,7 @@ export class SpanPanelCard extends HTMLElement {
       if (circuit) {
         const monitoringInfo = this._monitoringCache?.status?.circuits?.[circuit.entities?.power] || null;
 
-        await this._graphSettingsCache.fetch(this._hass);
+        await this._graphSettingsCache.fetch(this._hass, this._configEntryId);
         const graphSettings = this._graphSettingsCache.settings;
         const globalHorizon = graphSettings?.global_horizon || DEFAULT_GRAPH_HORIZON;
         const graphHorizonInfo = graphSettings?.circuits?.[uuid]
@@ -462,7 +467,7 @@ export class SpanPanelCard extends HTMLElement {
     if (subDevId && this._topology?.sub_devices?.[subDevId]) {
       const sub = this._topology.sub_devices[subDevId];
 
-      await this._graphSettingsCache.fetch(this._hass);
+      await this._graphSettingsCache.fetch(this._hass, this._configEntryId);
       const graphSettings = this._graphSettingsCache.settings;
       const globalHorizon = graphSettings?.global_horizon || DEFAULT_GRAPH_HORIZON;
       const graphHorizonInfo = graphSettings?.sub_devices?.[subDevId]
@@ -483,7 +488,7 @@ export class SpanPanelCard extends HTMLElement {
 
   async _onGraphSettingsChanged() {
     this._graphSettingsCache.invalidate();
-    await this._graphSettingsCache.fetch(this._hass);
+    await this._graphSettingsCache.fetch(this._hass, this._configEntryId);
 
     // Rebuild horizon map
     const settings = this._graphSettingsCache.settings;

@@ -46,6 +46,17 @@ export class MonitoringTab {
     this._configEntryId = null;
   }
 
+  stop() {
+    if (this._notifyCloseHandler) {
+      document.removeEventListener("click", this._notifyCloseHandler);
+      this._notifyCloseHandler = null;
+    }
+    if (this._debounceTimer) {
+      clearTimeout(this._debounceTimer);
+      this._debounceTimer = null;
+    }
+  }
+
   async render(container, hass, configEntryId) {
     if (configEntryId !== undefined) this._configEntryId = configEntryId;
     if (this._notifyCloseHandler) {

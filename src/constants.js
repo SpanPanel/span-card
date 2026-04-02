@@ -1,6 +1,6 @@
 import { t } from "./i18n.js";
 
-export const CARD_VERSION = "0.8.9";
+export const CARD_VERSION = "0.9.0";
 
 // ── Defaults ────────────────────────────────────────────────────────────────
 

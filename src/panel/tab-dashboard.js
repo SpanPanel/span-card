@@ -31,12 +31,13 @@ export class DashboardTab {
     this._container = null;
   }
 
-  async render(container, hass, deviceId, config) {
+  async render(container, hass, deviceId, config, configEntryId) {
     this.stop();
     this._hass = hass;
     this._powerHistory.clear();
     this._config = config;
     this._container = container;
+    this._configEntryId = configEntryId || null;
 
     try {
       const result = await discoverTopology(hass, deviceId);
@@ -47,8 +48,8 @@ export class DashboardTab {
       return;
     }
 
-    await this._monitoringCache.fetch(hass);
-    await this._graphSettingsCache.fetch(hass);
+    await this._monitoringCache.fetch(hass, this._configEntryId);
+    await this._graphSettingsCache.fetch(hass, this._configEntryId);
 
     const topo = this._topology;
 
@@ -98,13 +99,13 @@ export class DashboardTab {
 
     this._bindGearClicks(container, topo);
     this._bindToggleClicks(container, topo);
-    container.addEventListener("side-panel-closed", () => {
+    this._onSidePanelClosed = () => {
       this._monitoringCache.invalidate();
       this._graphSettingsCache.invalidate();
-    });
-    container.addEventListener("graph-settings-changed", async () => {
+    };
+    this._onGraphSettingsChanged = async () => {
       this._graphSettingsCache.invalidate();
-      await this._graphSettingsCache.fetch(this._hass);
+      await this._graphSettingsCache.fetch(this._hass, this._configEntryId);
 
       // Rebuild horizon map
       const newSettings = this._graphSettingsCache.settings;
@@ -134,7 +135,9 @@ export class DashboardTab {
       }
       updateCircuitDOM(container, this._hass, topo, this._config, this._powerHistory, this._horizonMap);
       updateSubDeviceDOM(container, this._hass, topo, this._config, this._powerHistory, this._subDeviceHorizonMap);
-    });
+    };
+    container.addEventListener("side-panel-closed", this._onSidePanelClosed);
+    container.addEventListener("graph-settings-changed", this._onGraphSettingsChanged);
 
     try {
       await loadHistory(hass, topo, config, this._powerHistory, this._horizonMap, this._subDeviceHorizonMap);
@@ -339,7 +342,7 @@ export class DashboardTab {
       sidePanel.hass = this._hass;
 
       if (gearBtn.classList.contains("panel-gear")) {
-        await this._graphSettingsCache.fetch(this._hass);
+        await this._graphSettingsCache.fetch(this._hass, this._configEntryId);
         sidePanel.open({
           panelMode: true,
           topology,
@@ -356,7 +359,7 @@ export class DashboardTab {
           await this._monitoringCache.fetch(this._hass);
           const monitoringInfo = this._monitoringCache?.status?.circuits?.[circuit.entities?.power] || null;
 
-          await this._graphSettingsCache.fetch(this._hass);
+          await this._graphSettingsCache.fetch(this._hass, this._configEntryId);
           const graphSettings = this._graphSettingsCache.settings;
           const globalHorizon = graphSettings?.global_horizon || DEFAULT_GRAPH_HORIZON;
           const graphHorizonInfo = graphSettings?.circuits?.[uuid]
@@ -377,7 +380,7 @@ export class DashboardTab {
       if (subDevId && topology?.sub_devices?.[subDevId]) {
         const sub = topology.sub_devices[subDevId];
 
-        await this._graphSettingsCache.fetch(this._hass);
+        await this._graphSettingsCache.fetch(this._hass, this._configEntryId);
         const graphSettings = this._graphSettingsCache.settings;
         const globalHorizon = graphSettings?.global_horizon || DEFAULT_GRAPH_HORIZON;
         const graphHorizonInfo = graphSettings?.sub_devices?.[subDevId]
@@ -436,6 +439,14 @@ export class DashboardTab {
     if (this._resizeDebounce) {
       clearTimeout(this._resizeDebounce);
       this._resizeDebounce = null;
+    }
+    if (this._container && this._onSidePanelClosed) {
+      this._container.removeEventListener("side-panel-closed", this._onSidePanelClosed);
+      this._onSidePanelClosed = null;
+    }
+    if (this._container && this._onGraphSettingsChanged) {
+      this._container.removeEventListener("graph-settings-changed", this._onGraphSettingsChanged);
+      this._onGraphSettingsChanged = null;
     }
   }
 }

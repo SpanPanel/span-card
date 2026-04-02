@@ -110,6 +110,8 @@ export class SpanPanelElement extends HTMLElement {
 
   disconnectedCallback() {
     this._dashboardTab.stop();
+    this._monitoringTab.stop();
+    this._settingsTab.stop();
     if (this._onVisibilityChange) {
       document.removeEventListener("visibilitychange", this._onVisibilityChange);
       this._onVisibilityChange = null;
@@ -320,7 +322,9 @@ export class SpanPanelElement extends HTMLElement {
       case "dashboard": {
         container.innerHTML = "";
         const config = this._buildDashboardConfig();
-        await this._dashboardTab.render(container, this._hass, this._selectedPanelId, config);
+        const dashDevice = this._panels.find(p => p.id === this._selectedPanelId);
+        const dashEntryId = dashDevice?.config_entries?.[0] || null;
+        await this._dashboardTab.render(container, this._hass, this._selectedPanelId, config, dashEntryId);
         break;
       }
       case "monitoring": {

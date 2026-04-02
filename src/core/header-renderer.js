@@ -27,7 +27,7 @@ export function buildHeaderHTML(topology, config) {
         <div class="panel-identity">
           <h1 class="panel-title">${panelName}</h1>
           <span class="panel-serial">${serial}</span>
-          <button class="gear-icon panel-gear" title="${t("header.monitoring_settings")}">
+          <button class="gear-icon panel-gear" title="${t("header.graph_settings")}">
             <ha-icon icon="mdi:cog"></ha-icon>
           </button>
           <div class="slide-confirm" data-text-off="${t("header.enable_switches")}" data-text-on="${t("header.switches_enabled")}">

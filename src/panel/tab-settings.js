@@ -4,7 +4,7 @@ import { t } from "../i18n.js";
 
 function horizonOptions(selectedKey) {
   return Object.keys(GRAPH_HORIZONS)
-    .map(key => `<option value="${key}" ${key === selectedKey ? "selected" : ""}>${key}</option>`)
+    .map(key => `<option value="${key}" ${key === selectedKey ? "selected" : ""}>${t(`horizon.${key}`) || key}</option>`)
     .join("");
 }
 
@@ -20,6 +20,13 @@ export class SettingsTab {
     this._debounceTimers = new Map();
     this._configEntryId = null;
     this._deviceId = null;
+  }
+
+  stop() {
+    for (const timer of this._debounceTimers.values()) {
+      clearTimeout(timer);
+    }
+    this._debounceTimers.clear();
   }
 
   async render(container, hass, configEntryId, deviceId) {

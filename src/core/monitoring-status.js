@@ -20,7 +20,7 @@ export class MonitoringStatusCache {
    * @param {object} hass - Home Assistant instance
    * @returns {Promise<object|null>} Monitoring status or null
    */
-  async fetch(hass) {
+  async fetch(hass, configEntryId) {
     const now = Date.now();
     if (this._fetching) return this._status;
     if (this._status && now - this._lastFetch < MONITORING_POLL_INTERVAL_MS) {
@@ -29,11 +29,13 @@ export class MonitoringStatusCache {
 
     this._fetching = true;
     try {
+      const serviceData = {};
+      if (configEntryId) serviceData.config_entry_id = configEntryId;
       const resp = await hass.callWS({
         type: "call_service",
         domain: INTEGRATION_DOMAIN,
         service: "get_monitoring_status",
-        service_data: {},
+        service_data: serviceData,
         return_response: true,
       });
       this._status = resp?.response || null;
