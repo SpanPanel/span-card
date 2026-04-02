@@ -4,7 +4,7 @@ import { INTEGRATION_DOMAIN, SHEDDING_PRIORITIES, GRAPH_HORIZONS, DEFAULT_GRAPH_
 import { t } from "../i18n.js";
 import type { HomeAssistant, PanelTopology, GraphSettings, CircuitEntities, CircuitGraphOverride, MonitoringPointInfo } from "../types.js";
 
-const PRIORITY_OPTIONS: string[] = Object.keys(SHEDDING_PRIORITIES).filter(k => k !== "unknown");
+const PRIORITY_OPTIONS: string[] = Object.keys(SHEDDING_PRIORITIES).filter(k => k !== "unknown" && k !== "always_on");
 
 // ── Interfaces for config shapes passed to open() ────────────────────────
 
@@ -733,7 +733,7 @@ class SpanSidePanel extends HTMLElement {
       if (!priority) continue;
       const opt = document.createElement("option");
       opt.value = key;
-      opt.textContent = priority.label();
+      opt.textContent = t(`shedding.select.${key}`) || priority.label();
       if (key === currentPriority) opt.selected = true;
       selectEl.appendChild(opt);
     }
