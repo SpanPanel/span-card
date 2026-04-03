@@ -2,10 +2,31 @@ import { CARD_VERSION } from "./constants.js";
 import { SpanPanelCard } from "./card/span-panel-card.js";
 import { SpanPanelCardEditor } from "./editor/span-panel-card-editor.js";
 
-customElements.define("span-panel-card", SpanPanelCard);
-customElements.define("span-panel-card-editor", SpanPanelCardEditor);
+try {
+  if (!customElements.get("span-panel-card")) {
+    customElements.define("span-panel-card", SpanPanelCard);
+  }
+  if (!customElements.get("span-panel-card-editor")) {
+    customElements.define("span-panel-card-editor", SpanPanelCardEditor);
+  }
+} catch {
+  // Scoped custom element registry may throw on duplicate registration after upgrade
+}
 
-window.customCards = window.customCards || [];
+interface CustomCardDef {
+  type: string;
+  name: string;
+  description: string;
+  preview: boolean;
+}
+
+declare global {
+  interface Window {
+    customCards?: CustomCardDef[];
+  }
+}
+
+window.customCards = window.customCards ?? [];
 window.customCards.push({
   type: "span-panel-card",
   name: "SPAN Panel",

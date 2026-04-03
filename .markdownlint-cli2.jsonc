@@ -1,7 +1,8 @@
 {
   "globs": [
     "*.md",
-    "docs/**/*.md"
+    "docs/**/*.md",
+    ".github/**/*.md"
   ],
   "ignores": [
     ".venv/**",

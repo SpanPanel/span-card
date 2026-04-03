@@ -2,12 +2,18 @@ pre-commit:
   parallel: true
   jobs:
     - name: prettier
-      glob: "*.{js,mjs,json,md,yml,yaml}"
+      glob: "*.{ts,js,mjs,json,md,yml,yaml}"
       run: npx prettier --check {staged_files}
       stage_fixed: true
     - name: eslint
-      glob: "*.{js,mjs}"
+      glob: "*.{ts,js,mjs}"
       run: npx eslint {staged_files}
+    - name: typecheck
+      glob: "src/**/*.ts"
+      run: npx tsc --noEmit
     - name: markdownlint
-      glob: "*.md"
+      glob: "**/*.md"
       run: npx markdownlint-cli2 {staged_files}
+    - name: i18n-validate
+      glob: "src/**/*.ts"
+      run: node scripts/validate-i18n.mjs
