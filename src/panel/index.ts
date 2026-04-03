@@ -1,8 +1,12 @@
 import { CARD_VERSION } from "../constants.js";
 import { SpanPanelElement } from "./span-panel.js";
 
-if (!customElements.get("span-panel")) {
-  customElements.define("span-panel", SpanPanelElement);
+try {
+  if (!customElements.get("span-panel")) {
+    customElements.define("span-panel", SpanPanelElement);
+  }
+} catch {
+  // Scoped custom element registry may throw on duplicate registration after upgrade
 }
 
 console.warn(
