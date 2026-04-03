@@ -126,7 +126,11 @@ export class SpanPanelElement extends HTMLElement {
 
     this._onVisibilityChange = (): void => {
       if (document.visibilityState === "visible" && this._discovered && this._hass) {
-        this._renderTab();
+        if (!this.shadowRoot!.getElementById("tab-content")) {
+          this._render();
+        } else {
+          this._renderTab();
+        }
       }
     };
     document.addEventListener("visibilitychange", this._onVisibilityChange);
@@ -186,6 +190,9 @@ export class SpanPanelElement extends HTMLElement {
     if (menuBtn) menuBtn.hass = val;
     if (!this._discovered) {
       this._discoverPanels();
+    } else if (!this.shadowRoot!.getElementById("tab-content")) {
+      // Shell DOM was lost (e.g. after prolonged background) — rebuild
+      this._render();
     }
     if (firstHass) {
       this._subscribeDeviceRegistry();
