@@ -867,7 +867,7 @@ class SpanSidePanel extends HTMLElement {
     detailsWrap.style.display = isEnabled ? "block" : "none";
     section.appendChild(detailsWrap);
 
-    const hasCustom = info?.continuous_threshold_pct !== undefined;
+    const hasCustom = info?.has_override === true;
 
     // Global / Custom radio
     const radioGroup = document.createElement("div");
