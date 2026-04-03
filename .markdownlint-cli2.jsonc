@@ -14,7 +14,8 @@
     "dist/**",
     "build/**",
     ".cursor/**",
-    "tests/**"
+    "tests/**",
+    ".github/instructions/**"
   ],
   "config": {
     "default": true,
