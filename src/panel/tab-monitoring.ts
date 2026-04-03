@@ -90,41 +90,26 @@ export class MonitoringTab {
     const circuits = status?.circuits ?? {};
     const mains = status?.mains ?? {};
 
-    // Discover notify targets from three sources, deduplicated:
-    // 1. Mobile app services derived from person entity device_trackers
-    // 2. Entity-based notify targets (notify.*) from hass.states
-    // 3. Legacy service-based targets from hass.services.notify
+    // Discover notify targets from entity state and service registry
     const targetSet = new Set<string>();
-
-    // Derive mobile app notify services from person entities + device_trackers
-    for (const [eid, stateObj] of Object.entries(hass.states || {})) {
-      if (!eid.startsWith("person.")) continue;
-      const trackers = stateObj.attributes?.device_trackers as string[] | undefined;
-      if (!trackers) continue;
-      for (const tracker of trackers) {
-        const deviceName = tracker.split(".")[1];
-        if (deviceName) targetSet.add(`notify.mobile_app_${deviceName}`);
-      }
-    }
-
-    // Add notify.* entities from hass.states
     for (const eid of Object.keys(hass.states || {})) {
       if (eid.startsWith("notify.")) targetSet.add(eid);
     }
-
-    // Add legacy service-based targets from hass.services.notify
+    // Include service-based targets not yet migrated to entities,
+    // excluding the broadcast "notify" and the "send_message" action
+    const excludedServices = new Set(["notify", "send_message"]);
     for (const svc of Object.keys(hass.services?.notify || {})) {
-      targetSet.add(`notify.${svc}`);
+      if (!excludedServices.has(svc)) targetSet.add(`notify.${svc}`);
     }
-
+    // Event bus is a virtual target — always available
+    targetSet.add("event_bus");
     const allNotifyTargets = [...targetSet].sort();
 
-    const rawTargets = globalSettings.notify_targets ?? "notify.notify";
+    const rawTargets = globalSettings.notify_targets ?? "";
     const selectedTargets = (typeof rawTargets === "string" ? rawTargets.split(",") : rawTargets).map((s: string) => s.trim()).filter(Boolean);
+    const allTargetsSelected = allNotifyTargets.length > 0 && allNotifyTargets.every(tgt => selectedTargets.includes(tgt));
     const titleTemplate = globalSettings.notification_title_template ?? "SPAN: {name} {alert_type}";
     const messageTemplate = globalSettings.notification_message_template ?? "{name} at {current_a}A ({utilization_pct}% of {breaker_rating_a}A rating)";
-    const persistentNotifications = globalSettings.enable_persistent_notifications !== false;
-    const eventBus = globalSettings.enable_event_bus !== false;
     const currentPriority = globalSettings.notification_priority ?? "default";
 
     const circuitEntries = Object.entries(circuits).sort(([, a], [, b]) => (a.name ?? "").localeCompare(b.name ?? ""));
@@ -250,14 +235,20 @@ export class MonitoringTab {
 
             <div style="${FIELD_STYLE}">
               <span style="${WIDE_LABEL_STYLE}">${t("notification.targets")}</span>
+              <label style="display:flex;align-items:center;gap:6px;cursor:pointer;margin-right:12px;">
+                <input type="checkbox" id="notify-all-targets" ${allTargetsSelected ? "checked" : ""}
+                       style="width:14px;height:14px;accent-color:var(--primary-color,#4dd9af);">
+                <span style="font-size:0.8em;color:var(--secondary-text-color);">${t("notification.all_targets")}</span>
+              </label>
               <div id="notify-target-select" style="position:relative;flex:1;">
                 <button id="notify-target-btn" type="button" style="
                   background:var(--secondary-background-color,#333);
                   border:1px solid var(--divider-color);
                   color:var(--primary-text-color);
                   border-radius:4px;padding:6px 10px;width:100%;font-size:0.85em;
-                  text-align:left;cursor:pointer;display:flex;align-items:center;justify-content:space-between;">
-                  <span id="notify-target-label">${selectedTargets.length ? selectedTargets.map((s: string) => escapeHtml(s)).join(", ") : t("notification.none_selected")}</span>
+                  text-align:left;cursor:pointer;display:flex;align-items:center;justify-content:space-between;
+                  ${allTargetsSelected ? "opacity:0.4;pointer-events:none;" : ""}">
+                  <span id="notify-target-label">${selectedTargets.length ? selectedTargets.map((s: string) => (s === "event_bus" ? t("notification.event_bus_target") : escapeHtml(s))).join(", ") : t("notification.none_selected")}</span>
                   <span style="font-size:0.7em;margin-left:8px;">&#9660;</span>
                 </button>
                 <div id="notify-target-dropdown" style="
@@ -272,39 +263,26 @@ export class MonitoringTab {
                       : allNotifyTargets
                           .map(target => {
                             const checked = selectedTargets.includes(target);
-                            const stateObj = hass.states[target];
+                            const isEventBus = target === "event_bus";
+                            const stateObj = isEventBus ? null : hass.states[target];
                             const friendly = stateObj?.attributes?.friendly_name as string | undefined;
-                            const displayName = friendly ? `${escapeHtml(friendly)} (${escapeHtml(target)})` : escapeHtml(target);
+                            const displayLabel = isEventBus
+                              ? t("notification.event_bus_target")
+                              : friendly
+                                ? `${escapeHtml(friendly)} (${escapeHtml(target)})`
+                                : escapeHtml(target);
                             return `<label style="display:flex;align-items:center;gap:8px;padding:6px 12px;cursor:pointer;font-size:0.85em;"
                                        class="notify-option">
-                          <input type="checkbox" class="notify-target-cb" value="${escapeHtml(target)}"
-                                 ${checked ? "checked" : ""}
-                                 style="width:14px;height:14px;accent-color:var(--primary-color,#4dd9af);">
-                          <span>${displayName}</span>
-                        </label>`;
+                              <input type="checkbox" class="notify-target-cb" value="${escapeHtml(target)}"
+                                     ${checked ? "checked" : ""}
+                                     style="width:14px;height:14px;accent-color:var(--primary-color,#4dd9af);">
+                              <span>${displayLabel}</span>
+                            </label>`;
                           })
                           .join("")
                   }
                 </div>
               </div>
-            </div>
-
-            <div style="${FIELD_STYLE}">
-              <span style="${WIDE_LABEL_STYLE}">${t("notification.persistent")}</span>
-              <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
-                <input type="checkbox" id="g-persistent-notifications" ${persistentNotifications ? "checked" : ""}
-                       style="width:14px;height:14px;accent-color:var(--primary-color,#4dd9af);">
-                <span style="font-size:0.8em;color:var(--secondary-text-color);">${t("notification.persistent_hint")}</span>
-              </label>
-            </div>
-
-            <div style="${FIELD_STYLE}">
-              <span style="${WIDE_LABEL_STYLE}">${t("notification.event_bus")}</span>
-              <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
-                <input type="checkbox" id="g-event-bus" ${eventBus ? "checked" : ""}
-                       style="width:14px;height:14px;accent-color:var(--primary-color,#4dd9af);">
-                <span style="font-size:0.8em;color:var(--secondary-text-color);">${t("notification.event_bus_hint")}</span>
-              </label>
             </div>
 
             <div style="${FIELD_STYLE}">
@@ -354,6 +332,24 @@ export class MonitoringTab {
               <code>{current_a}</code> <code>{breaker_rating_a}</code> <code>{threshold_pct}</code>
               <code>{utilization_pct}</code> <code>{window_m}</code>
             </div>
+            <div style="font-size:0.75em;color:var(--secondary-text-color);margin-top:6px;line-height:1.4;">
+              ${t("notification.event_bus_help")} <code>span_panel_current_alert</code>
+              ${t("notification.event_bus_payload")} <code>alert_source</code> <code>alert_id</code>
+              <code>alert_name</code> <code>alert_type</code> <code>current_a</code>
+              <code>breaker_rating_a</code> <code>threshold_pct</code> <code>utilization_pct</code>
+              <code>panel_serial</code> <code>window_duration_s</code>
+            </div>
+
+            <div style="display:flex;align-items:center;gap:10px;margin-top:12px;">
+              <span style="${WIDE_LABEL_STYLE}">${t("notification.test_label")}</span>
+              <button id="test-notification-btn" type="button" style="
+                background:var(--primary-color,#4dd9af);color:#000;border:none;
+                border-radius:4px;padding:6px 16px;font-size:0.85em;cursor:pointer;
+                font-weight:500;">
+                ${t("notification.test_button")}
+              </button>
+              <span id="test-notification-status" style="font-size:0.8em;color:var(--secondary-text-color);"></span>
+            </div>
           </div>
 
           <div id="global-status" style="font-size:0.8em;color:var(--secondary-text-color);margin-top:8px;min-height:1.2em;"></div>
@@ -393,6 +389,15 @@ export class MonitoringTab {
     const toggleAllCb = container.querySelector<HTMLInputElement>("#toggle-all-circuits");
     if (toggleAllCb && !allEnabled && someEnabled) {
       toggleAllCb.indeterminate = true;
+    }
+
+    // Set indeterminate state on all-targets toggle
+    const allTargetsInit = container.querySelector<HTMLInputElement>("#notify-all-targets");
+    if (allTargetsInit && allNotifyTargets.length > 0) {
+      const someSelected = selectedTargets.length > 0;
+      if (!allTargetsSelected && someSelected) {
+        allTargetsInit.indeterminate = true;
+      }
     }
 
     this._bindGlobalControls(container, hass);
@@ -506,30 +511,57 @@ export class MonitoringTab {
     // Store ref for cleanup on next render (dropdown rebuilt each render)
     this._notifyCloseHandler = closeHandler;
 
-    // Handle checkbox changes
+    const saveTargets = (): void => {
+      const checked = [...container.querySelectorAll<HTMLInputElement>(".notify-target-cb:checked")];
+      const targets = checked.map(c => c.value);
+      if (label) {
+        const displayTargets = targets.map(v => (v === "event_bus" ? t("notification.event_bus_target") : v));
+        label.textContent = displayTargets.length ? displayTargets.join(", ") : t("notification.none_selected");
+      }
+      // Sync the "All Targets" checkbox state
+      const allCb = container.querySelector<HTMLInputElement>("#notify-all-targets");
+      if (allCb) {
+        const allCbs = [...container.querySelectorAll<HTMLInputElement>(".notify-target-cb")];
+        allCb.checked = allCbs.length > 0 && allCbs.every(c => c.checked);
+        allCb.indeterminate = !allCb.checked && allCbs.some(c => c.checked);
+      }
+      if (this._debounceTimer) clearTimeout(this._debounceTimer);
+      this._debounceTimer = setTimeout(async () => {
+        try {
+          await this._callSetGlobal(hass, { notify_targets: targets.join(", ") });
+        } catch {
+          // will show on next render
+        }
+      }, INPUT_DEBOUNCE_MS);
+    };
+
+    // "All Targets" toggle
+    const allTargetsCb = container.querySelector<HTMLInputElement>("#notify-all-targets");
+    if (allTargetsCb) {
+      allTargetsCb.addEventListener("change", () => {
+        for (const cb of container.querySelectorAll<HTMLInputElement>(".notify-target-cb")) {
+          cb.checked = allTargetsCb.checked;
+        }
+        // Enable/disable dropdown
+        const btnEl = container.querySelector<HTMLButtonElement>("#notify-target-btn");
+        if (btnEl) {
+          btnEl.style.opacity = allTargetsCb.checked ? "0.4" : "";
+          btnEl.style.pointerEvents = allTargetsCb.checked ? "none" : "";
+        }
+        if (allTargetsCb.checked) dropdown.style.display = "none";
+        saveTargets();
+      });
+    }
+
+    // Individual target checkboxes
     for (const cb of container.querySelectorAll<HTMLInputElement>(".notify-target-cb")) {
       cb.addEventListener("change", () => {
-        const checked = [...container.querySelectorAll<HTMLInputElement>(".notify-target-cb:checked")];
-        const targets = checked.map(c => c.value);
-        if (label) {
-          label.textContent = targets.length ? targets.join(", ") : t("notification.none_selected");
-        }
-
-        if (this._debounceTimer) clearTimeout(this._debounceTimer);
-        this._debounceTimer = setTimeout(async () => {
-          try {
-            await this._callSetGlobal(hass, { notify_targets: targets.join(", ") });
-          } catch {
-            // will show on next render
-          }
-        }, INPUT_DEBOUNCE_MS);
+        saveTargets();
       });
     }
   }
 
   private _bindNotificationSettings(container: HTMLElement, hass: HomeAssistant): void {
-    const persistentCb = container.querySelector<HTMLInputElement>("#g-persistent-notifications");
-    const eventBusCb = container.querySelector<HTMLInputElement>("#g-event-bus");
     const prioritySelect = container.querySelector<HTMLSelectElement>("#g-priority");
     const titleInput = container.querySelector<HTMLInputElement>("#g-title-template");
     const messageInput = container.querySelector<HTMLInputElement>("#g-message-template");
@@ -545,16 +577,6 @@ export class MonitoringTab {
       }, INPUT_DEBOUNCE_MS);
     };
 
-    if (persistentCb) {
-      persistentCb.addEventListener("change", () => {
-        saveField("enable_persistent_notifications", persistentCb.checked);
-      });
-    }
-    if (eventBusCb) {
-      eventBusCb.addEventListener("change", () => {
-        saveField("enable_event_bus", eventBusCb.checked);
-      });
-    }
     if (prioritySelect) {
       prioritySelect.addEventListener("change", async () => {
         try {
@@ -573,6 +595,50 @@ export class MonitoringTab {
     if (messageInput) {
       messageInput.addEventListener("input", () => {
         saveField("notification_message_template", messageInput.value);
+      });
+    }
+
+    const testBtn = container.querySelector<HTMLButtonElement>("#test-notification-btn");
+    const testStatus = container.querySelector<HTMLElement>("#test-notification-status");
+    if (testBtn) {
+      testBtn.addEventListener("click", async () => {
+        testBtn.disabled = true;
+        if (testStatus) {
+          testStatus.textContent = t("notification.test_sending");
+          testStatus.style.color = "var(--secondary-text-color)";
+        }
+        try {
+          // Flush any pending settings save before testing
+          if (this._debounceTimer) {
+            clearTimeout(this._debounceTimer);
+            this._debounceTimer = null;
+          }
+          // Save current notify_targets so the test uses the latest selections
+          const checked = [...container.querySelectorAll<HTMLInputElement>(".notify-target-cb:checked")];
+          const currentTargets = checked.map(c => c.value).join(", ");
+          await this._callSetGlobal(hass, { notify_targets: currentTargets });
+
+          const serviceData: Record<string, unknown> = {};
+          if (this._configEntryId) serviceData.config_entry_id = this._configEntryId;
+          await hass.callWS({
+            type: "call_service",
+            domain: INTEGRATION_DOMAIN,
+            service: "test_notification",
+            service_data: serviceData,
+          });
+          if (testStatus) {
+            testStatus.textContent = t("notification.test_sent");
+            testStatus.style.color = "var(--success-color, #4caf50)";
+          }
+        } catch (err: unknown) {
+          if (testStatus) {
+            const message = err instanceof Error ? err.message : t("error.failed");
+            testStatus.textContent = `${t("error.prefix")} ${message}`;
+            testStatus.style.color = "var(--error-color, #f44336)";
+          }
+        } finally {
+          testBtn.disabled = false;
+        }
       });
     }
   }
