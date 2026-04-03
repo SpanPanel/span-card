@@ -25,11 +25,6 @@ export class DashboardTab {
     this._ctrl.hass = val;
   }
 
-  /** Invalidate cached graph settings so the next render fetches fresh data. */
-  invalidateGraphSettings(): void {
-    this._ctrl.graphSettingsCache.invalidate();
-  }
-
   async render(container: HTMLElement, hass: HomeAssistant, deviceId: string, config: CardConfig, configEntryId?: string | null): Promise<void> {
     this.stop();
     this._ctrl.reset();

@@ -291,38 +291,6 @@ class SpanSidePanel extends HTMLElement {
     this.dispatchEvent(new CustomEvent("side-panel-closed", { bubbles: true, composed: true }));
   }
 
-  /** The circuit UUID shown by the panel, if a circuit is open. */
-  get currentUuid(): string | null {
-    const cfg = this._config;
-    if (!cfg || cfg.panelMode || cfg.subDeviceMode) return null;
-    return cfg.uuid;
-  }
-
-  /** The sub-device ID shown by the panel, if a sub-device is open. */
-  get currentSubDeviceId(): string | null {
-    const cfg = this._config;
-    if (!cfg || !cfg.subDeviceMode) return null;
-    return cfg.subDeviceId;
-  }
-
-  /** Whether the panel is showing the panel-wide settings view. */
-  get isPanelMode(): boolean {
-    return this._config?.panelMode === true;
-  }
-
-  /** Update graph horizon data on an open panel and re-render. */
-  updateGraphSettings(graphHorizonInfo: GraphHorizonInfo): void;
-  updateGraphSettings(graphSettings: GraphSettings | null): void;
-  updateGraphSettings(data: GraphHorizonInfo | GraphSettings | null): void {
-    if (!this._config || !this.hasAttribute("open")) return;
-    if (this._config.panelMode) {
-      this._config = { ...this._config, graphSettings: data as GraphSettings | null };
-    } else {
-      this._config = { ...this._config, graphHorizonInfo: data as GraphHorizonInfo };
-    }
-    this._render();
-  }
-
   // ── Rendering ─────────────────────────────────────────────────────────
 
   private _render(): void {

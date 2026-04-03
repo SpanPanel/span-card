@@ -300,9 +300,8 @@ export class SpanPanelElement extends HTMLElement {
       this._bindTabNavigation();
 
       // Sync: if graph settings change (from side panel or settings tab),
-      // invalidate the dashboard cache and re-render the active tab
+      // re-render settings tab if it's visible
       this.shadowRoot!.addEventListener("graph-settings-changed", () => {
-        this._dashboardTab.invalidateGraphSettings();
         if (this._activeTab === "settings") {
           this._renderTab();
         }
