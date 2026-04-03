@@ -12,7 +12,7 @@ pre-commit:
       glob: "src/**/*.ts"
       run: npx tsc --noEmit
     - name: markdownlint
-      glob: "*.md"
+      glob: "**/*.md"
       run: npx markdownlint-cli2 {staged_files}
     - name: i18n-validate
       glob: "src/**/*.ts"
