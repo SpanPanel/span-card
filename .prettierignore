@@ -11,5 +11,8 @@ node_modules/
 # OS files
 .DS_Store
 
+# GitHub auto-generated files
+.github/instructions/
+
 # Git
 .git/
