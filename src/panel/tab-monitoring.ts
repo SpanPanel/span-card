@@ -323,21 +323,21 @@ export class MonitoringTab {
               <span style="${WIDE_LABEL_STYLE}">${t("notification.message_template")}</span>
               <input type="text" id="g-message-template"
                      value="${escapeHtml(messageTemplate)}"
-                     placeholder="{name} at {current_a}A ({utilization_pct}% of {breaker_rating_a}A)"
+                     placeholder="{name} at {current_a}A ({utilization_pct}% of {breaker_rating_a}A) at {local_time}"
                      style="${TEXT_INPUT_STYLE}">
             </div>
 
             <div style="font-size:0.75em;color:var(--secondary-text-color);margin-top:4px;line-height:1.4;">
               ${t("notification.placeholders")} <code>{name}</code> <code>{entity_id}</code> <code>{alert_type}</code>
               <code>{current_a}</code> <code>{breaker_rating_a}</code> <code>{threshold_pct}</code>
-              <code>{utilization_pct}</code> <code>{window_m}</code>
+              <code>{utilization_pct}</code> <code>{window_m}</code> <code>{local_time}</code>
             </div>
             <div style="font-size:0.75em;color:var(--secondary-text-color);margin-top:6px;line-height:1.4;">
               ${t("notification.event_bus_help")} <code>span_panel_current_alert</code>
               ${t("notification.event_bus_payload")} <code>alert_source</code> <code>alert_id</code>
               <code>alert_name</code> <code>alert_type</code> <code>current_a</code>
               <code>breaker_rating_a</code> <code>threshold_pct</code> <code>utilization_pct</code>
-              <code>panel_serial</code> <code>window_duration_s</code>
+              <code>panel_serial</code> <code>window_duration_s</code> <code>local_time</code>
             </div>
 
             <div style="display:flex;align-items:center;gap:10px;margin-top:12px;">
