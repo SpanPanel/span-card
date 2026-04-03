@@ -125,13 +125,8 @@ export class SpanPanelElement extends HTMLElement {
     }
 
     this._onVisibilityChange = (): void => {
-      if (document.visibilityState === "visible" && this._discovered && this._hass) {
-        if (!this.shadowRoot!.getElementById("tab-content")) {
-          this._render();
-        } else {
-          this._renderTab();
-        }
-      }
+      if (document.visibilityState !== "visible" || !this._discovered || !this._hass) return;
+      this._recoverIfNeeded();
     };
     document.addEventListener("visibilitychange", this._onVisibilityChange);
 
@@ -207,6 +202,25 @@ export class SpanPanelElement extends HTMLElement {
 
   setConfig(_config: CardConfig): void {
     // Config is set by HA but the dashboard tab builds its own config
+  }
+
+  /**
+   * Rebuild the panel if the shell DOM was lost (e.g. after a WS reconnect
+   * or browser memory reclamation while the tab was hidden).
+   * If the render fails (WS still reconnecting), retry up to 3 times.
+   */
+  private async _recoverIfNeeded(attempt = 0): Promise<void> {
+    try {
+      if (!this.shadowRoot!.getElementById("tab-content")) {
+        this._render();
+      } else {
+        await this._renderTab();
+      }
+    } catch {
+      if (attempt < 3) {
+        setTimeout(() => this._recoverIfNeeded(attempt + 1), 2000 * (attempt + 1));
+      }
+    }
   }
 
   private async _discoverPanels(): Promise<void> {
