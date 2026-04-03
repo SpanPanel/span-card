@@ -6,7 +6,7 @@ import { updateCircuitDOM, updateSubDeviceDOM } from "./dom-updater.js";
 import { getEffectiveHorizon, getEffectiveSubDeviceHorizon } from "./graph-settings.js";
 import { MonitoringStatusCache } from "./monitoring-status.js";
 import { GraphSettingsCache } from "./graph-settings.js";
-import type { HomeAssistant, PanelTopology, CardConfig, HistoryMap, GraphSettings } from "../types.js";
+import type { HomeAssistant, PanelTopology, CardConfig, HistoryMap, GraphSettings, CircuitGraphOverride } from "../types.js";
 
 const RECORDER_REFRESH_MS = 30_000;
 const RESIZE_THRESHOLD_PX = 5;
@@ -15,9 +15,17 @@ const SLIDE_THRESHOLD = 0.9;
 
 type DOMRoot = Element | ShadowRoot;
 
+interface GraphHorizonInfo extends CircuitGraphOverride {
+  globalHorizon: string;
+}
+
 interface SpanSidePanelElement extends HTMLElement {
   hass: HomeAssistant;
   open(config: Record<string, unknown>): void;
+  currentUuid: string | null;
+  currentSubDeviceId: string | null;
+  isPanelMode: boolean;
+  updateGraphSettings(data: GraphHorizonInfo | GraphSettings | null): void;
 }
 
 /**
@@ -221,6 +229,36 @@ export class DashboardController {
       // Will populate on next refresh
     }
     this.updateDOM(root);
+    this.refreshOpenSidePanel(root);
+  }
+
+  /** If the side panel is open, push fresh graph settings into it. */
+  private refreshOpenSidePanel(root: DOMRoot): void {
+    const sidePanel = root.querySelector("span-side-panel") as SpanSidePanelElement | null;
+    if (!sidePanel?.hasAttribute("open")) return;
+
+    const graphSettings = this.graphSettingsCache.settings;
+    const globalHorizon = graphSettings?.global_horizon ?? DEFAULT_GRAPH_HORIZON;
+
+    if (sidePanel.isPanelMode) {
+      sidePanel.updateGraphSettings(graphSettings);
+      return;
+    }
+
+    const uuid = sidePanel.currentUuid;
+    if (uuid) {
+      const circuitOverride = graphSettings?.circuits?.[uuid];
+      const graphHorizonInfo = circuitOverride ? { ...circuitOverride, globalHorizon } : { horizon: globalHorizon, has_override: false, globalHorizon };
+      sidePanel.updateGraphSettings(graphHorizonInfo);
+      return;
+    }
+
+    const subDevId = sidePanel.currentSubDeviceId;
+    if (subDevId) {
+      const subOverride = graphSettings?.sub_devices?.[subDevId];
+      const graphHorizonInfo = subOverride ? { ...subOverride, globalHorizon } : { horizon: globalHorizon, has_override: false, globalHorizon };
+      sidePanel.updateGraphSettings(graphHorizonInfo);
+    }
   }
 
   onToggleClick(ev: Event, root: DOMRoot): void {
