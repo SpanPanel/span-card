@@ -761,6 +761,7 @@ export class MonitoringTab {
     for (const btn of container.querySelectorAll<HTMLElement>(".reset-btn")) {
       btn.addEventListener("click", async () => {
         const entityId = btn.dataset.entity;
+        if (!entityId) return;
         const type = btn.dataset.type;
         const service = type === "mains" ? "clear_mains_threshold" : "clear_circuit_threshold";
         const param = this._serviceData(type === "mains" ? { leg: entityId } : { circuit_id: entityId });

@@ -272,9 +272,20 @@ export function updateSubDeviceDOM(
       if (!valEl) continue;
       const state = hass.states[entityId];
       if (state) {
-        valEl.textContent = hass.formatEntityState
-          ? hass.formatEntityState(state)
-          : `${state.state}${state.attributes.unit_of_measurement ? " " + state.attributes.unit_of_measurement : ""}`;
+        let displayValue: string;
+        if (hass.formatEntityState) {
+          displayValue = hass.formatEntityState(state);
+        } else {
+          displayValue = state.state;
+          const unit = (state.attributes.unit_of_measurement as string) || "";
+          if (unit) displayValue += " " + unit;
+        }
+        const rawUnit = (state.attributes.unit_of_measurement as string) || "";
+        if (rawUnit === "Wh") {
+          const wh = parseFloat(state.state);
+          if (!isNaN(wh)) displayValue = (wh / 1000).toFixed(1) + " kWh";
+        }
+        valEl.textContent = displayValue;
       }
     }
   }

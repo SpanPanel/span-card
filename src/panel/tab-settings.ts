@@ -183,6 +183,7 @@ export class SettingsTab {
     for (const select of container.querySelectorAll<HTMLSelectElement>(".horizon-select")) {
       select.addEventListener("change", () => {
         const uuid = select.dataset.circuit;
+        if (!uuid) return;
         const key = `circuit-${uuid}`;
         const existing = this._debounceTimers.get(key);
         if (existing) clearTimeout(existing);
@@ -207,6 +208,7 @@ export class SettingsTab {
     for (const btn of container.querySelectorAll<HTMLElement>(".reset-btn")) {
       btn.addEventListener("click", async () => {
         const uuid = btn.dataset.circuit;
+        if (!uuid) return;
         await hass.callWS({
           type: "call_service",
           domain: INTEGRATION_DOMAIN,

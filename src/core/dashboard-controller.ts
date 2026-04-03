@@ -75,6 +75,8 @@ export class DashboardController {
   }
 
   buildHorizonMaps(settings: GraphSettings | null): void {
+    this.horizonMap.clear();
+    this.subDeviceHorizonMap.clear();
     if (settings && this._topology?.circuits) {
       for (const uuid of Object.keys(this._topology.circuits)) {
         this.horizonMap.set(uuid, getEffectiveHorizon(settings, uuid));
