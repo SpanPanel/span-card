@@ -344,6 +344,8 @@ export class SpanPanelElement extends HTMLElement {
 
   private async _renderTab(): Promise<void> {
     this._dashboardTab.stop();
+    this._monitoringTab.stop();
+    this._settingsTab.stop();
 
     const container = this.shadowRoot!.getElementById("tab-content");
     if (!container) return;

@@ -272,8 +272,8 @@ export class DashboardController {
       const circuit = this._topology.circuits[uuid];
       if (circuit) {
         await this.monitoringCache.fetch(this._hass, this._configEntryId);
-        const powerEntity = circuit.entities?.power;
-        const monitoringInfo = powerEntity ? (this.monitoringCache.status?.circuits?.[powerEntity] ?? null) : null;
+        const monitoringEntity = circuit.entities?.current ?? circuit.entities?.power;
+        const monitoringInfo = monitoringEntity ? (this.monitoringCache.status?.circuits?.[monitoringEntity] ?? null) : null;
 
         await this.graphSettingsCache.fetch(this._hass, this._configEntryId);
         const graphSettings = this.graphSettingsCache.settings;
