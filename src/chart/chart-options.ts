@@ -75,7 +75,7 @@ export function buildChartOptions(
   metric: ChartMetricDef | undefined,
   isProducer: boolean,
   breakerRatingA: number | undefined,
-  isPV: boolean
+  useLinearInterpolation = false
 ): BuildChartResult {
   if (!metric) metric = CHART_METRICS[DEFAULT_CHART_METRIC]!;
   const accentRgb = isProducer ? "140, 160, 220" : "77, 217, 175";
@@ -93,8 +93,8 @@ export function buildChartOptions(
       data,
       showSymbol: false,
       smooth: false,
-      // PV follows the sun's arc so linear interpolation is faithful; all others are discrete
-      ...(isPV ? {} : { step: "end" as const }),
+      // Continuous signals (PV, SoC) suit linear interpolation; discrete readings use step
+      ...(useLinearInterpolation ? {} : { step: "end" as const }),
       lineStyle: { width: 1.5, color: accentColor },
       areaStyle: {
         color: {
