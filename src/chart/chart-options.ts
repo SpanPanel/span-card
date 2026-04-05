@@ -8,6 +8,7 @@ interface SeriesDef {
   data: DataPair[];
   showSymbol: boolean;
   smooth?: boolean;
+  step?: "start" | "middle" | "end" | false;
   lineStyle: { width: number; color: string; type?: string };
   areaStyle?: {
     color: {
@@ -73,7 +74,8 @@ export function buildChartOptions(
   durationMs: number,
   metric: ChartMetricDef | undefined,
   isProducer: boolean,
-  breakerRatingA: number | undefined
+  breakerRatingA: number | undefined,
+  useLinearInterpolation = false
 ): BuildChartResult {
   if (!metric) metric = CHART_METRICS[DEFAULT_CHART_METRIC]!;
   const accentRgb = isProducer ? "140, 160, 220" : "77, 217, 175";
@@ -91,6 +93,8 @@ export function buildChartOptions(
       data,
       showSymbol: false,
       smooth: false,
+      // Continuous signals (PV, SoC) suit linear interpolation; discrete readings use step
+      ...(useLinearInterpolation ? {} : { step: "end" as const }),
       lineStyle: { width: 1.5, color: accentColor },
       areaStyle: {
         color: {

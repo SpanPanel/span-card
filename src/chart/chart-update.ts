@@ -16,9 +16,10 @@ export function updateChart(
   metric: ChartMetricDef | undefined,
   isProducer: boolean,
   heightPx: number | undefined,
-  breakerRatingA?: number
+  breakerRatingA?: number,
+  useLinearInterpolation?: boolean
 ): void {
-  const { options, series } = buildChartOptions(history, durationMs, metric, isProducer, breakerRatingA);
+  const { options, series } = buildChartOptions(history, durationMs, metric, isProducer, breakerRatingA, useLinearInterpolation);
   const minH = heightPx ?? 120;
   container.style.minHeight = minH + "px";
 

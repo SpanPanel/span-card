@@ -224,7 +224,8 @@ export function updateCircuitDOM(
       const history = powerHistory.get(uuid) || [];
       const h = slot.classList.contains("circuit-col-span") ? CIRCUIT_COL_SPAN_CHART_HEIGHT : CIRCUIT_CHART_HEIGHT;
       const circuitDuration = horizonMap?.has(uuid) ? getHorizonDurationMs(horizonMap.get(uuid)!) : defaultDurationMs;
-      updateChart(chartContainer, hass, history, circuitDuration, chartMetric, isProducer, h, circuit.breaker_rating_a ?? undefined);
+      const useLinear = circuit.device_type === DEVICE_TYPE_PV;
+      updateChart(chartContainer, hass, history, circuitDuration, chartMetric, isProducer, h, circuit.breaker_rating_a ?? undefined, useLinear);
     }
   }
 }
@@ -264,7 +265,8 @@ export function updateSubDeviceDOM(
       else if (chartKey.endsWith("_soe")) metric = BESS_CHART_METRICS["soe"]!;
       const isBessCol = !!cc.closest(".bess-chart-col");
       const devDuration = subDeviceHorizonMap?.has(devId) ? getHorizonDurationMs(subDeviceHorizonMap.get(devId)!) : defaultDurationMs;
-      updateChart(cc as HTMLElement, hass, history, devDuration, metric, false, isBessCol ? BESS_CHART_COL_HEIGHT : EVSE_CHART_HEIGHT);
+      const useLinear = chartKey.endsWith("_soc") || chartKey.endsWith("_soe");
+      updateChart(cc as HTMLElement, hass, history, devDuration, metric, false, isBessCol ? BESS_CHART_COL_HEIGHT : EVSE_CHART_HEIGHT, undefined, useLinear);
     }
 
     for (const entityId of Object.keys(sub.entities || {})) {
