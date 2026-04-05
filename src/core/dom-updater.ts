@@ -224,7 +224,9 @@ export function updateCircuitDOM(
       const history = powerHistory.get(uuid) || [];
       const h = slot.classList.contains("circuit-col-span") ? CIRCUIT_COL_SPAN_CHART_HEIGHT : CIRCUIT_CHART_HEIGHT;
       const circuitDuration = horizonMap?.has(uuid) ? getHorizonDurationMs(horizonMap.get(uuid)!) : defaultDurationMs;
-      updateChart(chartContainer, hass, history, circuitDuration, chartMetric, isProducer, h, circuit.breaker_rating_a ?? undefined);
+      // PV gets linear interpolation (solar ramps with the sun); all others get step
+      const isPV = circuit.device_type === DEVICE_TYPE_PV;
+      updateChart(chartContainer, hass, history, circuitDuration, chartMetric, isProducer, h, circuit.breaker_rating_a ?? undefined, isPV);
     }
   }
 }
