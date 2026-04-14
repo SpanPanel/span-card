@@ -27,6 +27,7 @@ export class SpanPanelElement extends LitElement {
   @state() private _selectedPanelId: string | null = null;
   @state() private _activeTab: TabName = "dashboard";
   @state() private _discovered = false;
+  @state() private _discoveryError: string | null = null;
   @state() private _chartMetric: string | undefined;
 
   private _dashboardTab = new DashboardTab();
@@ -182,7 +183,17 @@ export class SpanPanelElement extends LitElement {
     setLanguage(this.hass?.language);
 
     if (!this._discovered) {
-      return html``;
+      return html`
+        <div class="header">
+          <div class="toolbar">
+            <ha-menu-button></ha-menu-button>
+            <div class="main-title">Span Panel</div>
+          </div>
+        </div>
+        <div class="view">
+          <div class="view-content" style="padding: 24px; color: var(--secondary-text-color);">${this._discoveryError ?? "Loading\u2026"}</div>
+        </div>
+      `;
     }
 
     return html`
@@ -333,9 +344,11 @@ export class SpanPanelElement extends LitElement {
       this._panels = devices.filter((d: PanelDevice) => d.identifiers?.some(id => id[0] === INTEGRATION_DOMAIN) && !d.via_device_id);
     } catch (err) {
       console.error("SPAN Panel: device discovery failed", err);
+      this._discoveryError = `Discovery failed: ${(err as Error).message ?? err}`;
       return;
     }
 
+    this._discoveryError = null;
     this._discovered = true;
 
     const stored = localStorage.getItem("span_panel_selected");
