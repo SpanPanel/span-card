@@ -1,13 +1,5 @@
 import { CARD_VERSION } from "../constants.js";
-import { SpanPanelElement } from "./span-panel.js";
-
-try {
-  if (!customElements.get("span-panel")) {
-    customElements.define("span-panel", SpanPanelElement);
-  }
-} catch {
-  // Scoped custom element registry may throw on duplicate registration after upgrade
-}
+import "./span-panel.js";
 
 console.warn(
   `%c SPAN-PANEL %c v${CARD_VERSION} `,

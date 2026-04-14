@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.9.1
+
+### Fixed
+
+- **Blank dashboard after backgrounding** — Migrated panel and card from vanilla `HTMLElement` to LitElement. HA's frontend removes vanilla custom panels during
+  WebSocket reconnection without re-creating them; LitElement survives this lifecycle.
+
+### Changed
+
+- Build output switched from IIFE to ESM
+- Added `lit` ^3.3.2 dependency
+
 ## 0.9.0
 
 - Add integration panel with tab router and multi-panel selector
