@@ -10,11 +10,13 @@ import type { Circuit, HomeAssistant, CardConfig, MonitoringPointInfo, SheddingP
 /**
  * Build the search bar HTML for the list view.
  */
-export function buildSearchBarHTML(): string {
+export function buildSearchBarHTML(currentQuery: string = ""): string {
+  const valueAttr = currentQuery ? ` value="${escapeHtml(currentQuery)}"` : "";
+  const clearDisplay = currentQuery ? "" : "display:none;";
   return `
     <div class="list-search-container">
-      <input class="list-search" type="text" placeholder="${escapeHtml(t("list.search_placeholder"))}" />
-      <button class="list-search-clear" style="display:none;">
+      <input class="list-search" type="text" placeholder="${escapeHtml(t("list.search_placeholder"))}"${valueAttr} />
+      <button class="list-search-clear" style="${clearDisplay}">
         <ha-icon icon="mdi:close" style="--mdc-icon-size:18px;"></ha-icon>
       </button>
     </div>

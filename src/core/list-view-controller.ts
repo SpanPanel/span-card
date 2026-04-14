@@ -93,7 +93,7 @@ export class ListViewController {
     const entries: [string, Circuit][] = Object.entries(topology.circuits);
     const sorted = sortCircuitEntries(entries, hass, config);
 
-    let html = buildSearchBarHTML() + buildUnitToggleHTML(config);
+    let html = buildSearchBarHTML(this._searchQuery) + buildUnitToggleHTML(config);
     html += '<div class="list-view">';
 
     for (const [uuid, circuit] of sorted) {
@@ -112,6 +112,7 @@ export class ListViewController {
     const sidePanel = container.querySelector("span-side-panel") as SpanSidePanelElement | null;
     if (sidePanel) sidePanel.hass = hass;
     this._bindEvents(container);
+    if (this._searchQuery) this._applyFilter(container);
     this._ctrl.updateDOM(container);
   }
 
@@ -143,7 +144,7 @@ export class ListViewController {
       return a.localeCompare(b);
     });
 
-    let html = buildSearchBarHTML() + buildUnitToggleHTML(config);
+    let html = buildSearchBarHTML(this._searchQuery) + buildUnitToggleHTML(config);
     html += '<div class="list-view">';
 
     for (const areaName of areaNames) {
@@ -170,6 +171,7 @@ export class ListViewController {
     const areaSidePanel = container.querySelector("span-side-panel") as SpanSidePanelElement | null;
     if (areaSidePanel) areaSidePanel.hass = hass;
     this._bindEvents(container);
+    if (this._searchQuery) this._applyFilter(container);
     this._ctrl.updateDOM(container);
   }
 
@@ -288,41 +290,7 @@ export class ListViewController {
       if (!input || !input.classList.contains("list-search")) return;
 
       this._searchQuery = input.value.toLowerCase();
-      const clearBtn = container.querySelector<HTMLElement>(".list-search-clear");
-      if (clearBtn) clearBtn.style.display = this._searchQuery ? "" : "none";
-      const rows = container.querySelectorAll<HTMLElement>(".list-row[data-row-uuid]");
-
-      for (const row of rows) {
-        const nameEl = row.querySelector(".list-circuit-name");
-        const name = nameEl?.textContent?.toLowerCase() ?? "";
-        const matches = name.includes(this._searchQuery);
-
-        row.style.display = matches ? "" : "none";
-
-        // Also hide/show corresponding expanded content
-        const uuid = row.dataset.rowUuid;
-        if (uuid) {
-          const expandedContent = container.querySelector<HTMLElement>(`.list-expanded-content[data-expanded-uuid="${uuid}"]`);
-          if (expandedContent) {
-            expandedContent.style.display = matches ? "" : "none";
-          }
-        }
-      }
-
-      // Hide area headers that have no visible rows beneath them
-      const areaHeaders = container.querySelectorAll<HTMLElement>(".area-header");
-      for (const header of areaHeaders) {
-        let hasVisibleRow = false;
-        let sibling = header.nextElementSibling;
-        while (sibling && !sibling.classList.contains("area-header")) {
-          if (sibling.classList.contains("list-row") && (sibling as HTMLElement).style.display !== "none") {
-            hasVisibleRow = true;
-            break;
-          }
-          sibling = sibling.nextElementSibling;
-        }
-        header.style.display = hasVisibleRow ? "" : "none";
-      }
+      this._applyFilter(container);
     };
 
     this._graphSettingsHandler = (): void => {
@@ -355,6 +323,42 @@ export class ListViewController {
     this._clickHandler = null;
     this._inputHandler = null;
     this._graphSettingsHandler = null;
+  }
+
+  private _applyFilter(container: HTMLElement): void {
+    const clearBtn = container.querySelector<HTMLElement>(".list-search-clear");
+    if (clearBtn) clearBtn.style.display = this._searchQuery ? "" : "none";
+
+    const rows = container.querySelectorAll<HTMLElement>(".list-row[data-row-uuid]");
+    for (const row of rows) {
+      const nameEl = row.querySelector(".list-circuit-name");
+      const name = nameEl?.textContent?.toLowerCase() ?? "";
+      const matches = name.includes(this._searchQuery);
+
+      row.style.display = matches ? "" : "none";
+
+      const uuid = row.dataset.rowUuid;
+      if (uuid) {
+        const expandedContent = container.querySelector<HTMLElement>(`.list-expanded-content[data-expanded-uuid="${uuid}"]`);
+        if (expandedContent) {
+          expandedContent.style.display = matches ? "" : "none";
+        }
+      }
+    }
+
+    const areaHeaders = container.querySelectorAll<HTMLElement>(".area-header");
+    for (const header of areaHeaders) {
+      let hasVisibleRow = false;
+      let sibling = header.nextElementSibling;
+      while (sibling && !sibling.classList.contains("area-header")) {
+        if (sibling.classList.contains("list-row") && (sibling as HTMLElement).style.display !== "none") {
+          hasVisibleRow = true;
+          break;
+        }
+        sibling = sibling.nextElementSibling;
+      }
+      header.style.display = hasVisibleRow ? "" : "none";
+    }
   }
 
   private _toggleExpand(uuid: string): void {
