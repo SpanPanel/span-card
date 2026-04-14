@@ -95,20 +95,24 @@ export async function subscribeAreaUpdates(hass: HomeAssistant, topology: PanelT
   }
 
   const handler = async (): Promise<void> => {
-    // Snapshot current area values
-    const before = new Map<string, string | undefined>();
-    for (const [id, circuit] of Object.entries(topology.circuits)) {
-      before.set(id, circuit.area);
-    }
-
-    await resolveAndAssignAreas(hass, topology);
-
-    // Check for changes
-    for (const [id, circuit] of Object.entries(topology.circuits)) {
-      if (circuit.area !== before.get(id)) {
-        callback();
-        return;
+    try {
+      // Snapshot current area values
+      const before = new Map<string, string | undefined>();
+      for (const [id, circuit] of Object.entries(topology.circuits)) {
+        before.set(id, circuit.area);
       }
+
+      await resolveAndAssignAreas(hass, topology);
+
+      // Check for changes
+      for (const [id, circuit] of Object.entries(topology.circuits)) {
+        if (circuit.area !== before.get(id)) {
+          callback();
+          return;
+        }
+      }
+    } catch (err) {
+      console.warn("[span-panel] area registry update failed:", err);
     }
   };
 

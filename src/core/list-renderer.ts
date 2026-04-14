@@ -13,7 +13,7 @@ import type { Circuit, HomeAssistant, CardConfig, MonitoringPointInfo, SheddingP
 export function buildSearchBarHTML(): string {
   return `
     <div class="list-search-container">
-      <input class="list-search" type="text" placeholder="${t("list.search_placeholder")}" />
+      <input class="list-search" type="text" placeholder="${escapeHtml(t("list.search_placeholder"))}" />
       <button class="list-search-clear" style="display:none;">
         <ha-icon icon="mdi:close" style="--mdc-icon-size:18px;"></ha-icon>
       </button>
@@ -27,7 +27,7 @@ export function buildSearchBarHTML(): string {
 export function buildUnitToggleHTML(config: CardConfig): string {
   const isAmpsMode = (config.chart_metric || "power") === "current";
   return `
-    <div class="unit-toggle list-unit-toggle" title="${t("header.toggle_units")}">
+    <div class="unit-toggle list-unit-toggle" title="${escapeHtml(t("header.toggle_units"))}">
       <button class="unit-btn ${isAmpsMode ? "" : "unit-active"}" data-unit="power">W</button>
       <button class="unit-btn ${isAmpsMode ? "unit-active" : ""}" data-unit="current">A</button>
     </div>

@@ -13,10 +13,11 @@ export function buildTabBarHTML(tabs: TabDef[], activeTab: string, style: "text"
   const buttons = tabs
     .map(tab => {
       const activeClass = tab.id === activeTab ? " active" : "";
+      const safeId = escapeHtml(tab.id);
       if (style === "icon") {
-        return `<button class="shared-tab${activeClass}" data-tab="${tab.id}" title="${escapeHtml(tab.label)}"><ha-icon icon="${tab.icon}" style="--mdc-icon-size:20px;"></ha-icon></button>`;
+        return `<button class="shared-tab${activeClass}" data-tab="${safeId}" title="${escapeHtml(tab.label)}"><ha-icon icon="${escapeHtml(tab.icon)}" style="--mdc-icon-size:20px;"></ha-icon></button>`;
       }
-      return `<button class="shared-tab${activeClass}" data-tab="${tab.id}">${escapeHtml(tab.label)}</button>`;
+      return `<button class="shared-tab${activeClass}" data-tab="${safeId}">${escapeHtml(tab.label)}</button>`;
     })
     .join("");
 

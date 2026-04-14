@@ -472,7 +472,10 @@ export class SpanPanelElement extends LitElement {
           this._listDashCtrl.updateDOM(container);
           this._listDashCtrl.startIntervals(container);
         } catch (err) {
-          container.innerHTML += `<p style="color:var(--error-color);">${(err as Error).message}</p>`;
+          const errEl = document.createElement("p");
+          errEl.style.color = "var(--error-color)";
+          errEl.textContent = (err as Error).message;
+          container.appendChild(errEl);
         }
         break;
       }
@@ -504,7 +507,10 @@ export class SpanPanelElement extends LitElement {
               .catch(() => {});
           }
         } catch (err) {
-          container.innerHTML += `<p style="color:var(--error-color);">${(err as Error).message}</p>`;
+          const errEl = document.createElement("p");
+          errEl.style.color = "var(--error-color)";
+          errEl.textContent = (err as Error).message;
+          container.appendChild(errEl);
         }
         break;
       }
