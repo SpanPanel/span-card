@@ -1,5 +1,6 @@
+import { LitElement, html, css } from "lit";
+import { customElement, property, state } from "lit/decorators.js";
 import { INTEGRATION_DOMAIN } from "../constants.js";
-import { escapeHtml } from "../helpers/sanitize.js";
 import { setLanguage, t } from "../i18n.js";
 import "../core/side-panel.js";
 import { DashboardTab } from "./tab-dashboard.js";
@@ -12,121 +13,105 @@ interface HaMenuButton extends HTMLElement {
   narrow: boolean;
 }
 
-const PANEL_STYLES = `
-  :host {
-    color: var(--primary-text-color);
-  }
-  .header {
-    background-color: var(--app-header-background-color);
-    color: var(--app-header-text-color, white);
-    border-bottom: var(--app-header-border-bottom, none);
-  }
-  .toolbar {
-    height: var(--header-height);
-    display: flex;
-    align-items: center;
-    font-size: 20px;
-    padding: 0 16px;
-    font-weight: 400;
-    box-sizing: border-box;
-  }
-  .main-title {
-    margin: 0 0 0 24px;
-    line-height: 20px;
-    flex-grow: 1;
-  }
-  .panel-selector select {
-    color: inherit;
-    font-size: inherit;
-    font-weight: inherit;
-    cursor: pointer;
-    padding: 4px 8px;
-    border: 1px solid rgba(255, 255, 255, 0.3);
-    border-radius: 6px;
-    background-color: rgba(255, 255, 255, 0.1);
-  }
-  .panel-selector select option {
-    background: var(--card-background-color, #333);
-    color: var(--primary-text-color);
-  }
-  .panel-tabs {
-    margin-left: max(env(safe-area-inset-left), 24px);
-    margin-right: max(env(safe-area-inset-right), 24px);
-    display: flex;
-    gap: 0;
-  }
-  .panel-tab {
-    padding: 8px 20px;
-    cursor: pointer;
-    font-size: 0.9em;
-    font-weight: 500;
-    color: var(--app-header-text-color, white);
-    opacity: 0.7;
-    border-bottom: 2px solid transparent;
-    background: none;
-    border-top: none;
-    border-left: none;
-    border-right: none;
-  }
-  .panel-tab.active {
-    opacity: 1;
-    border-bottom-color: var(--app-header-text-color, white);
-  }
-  .view {
-    padding: 16px;
-  }
-  .view-content {
-    width: 100%;
-  }
-  .tab-content {
-    min-height: 400px;
-  }
-`;
-
 type TabName = "dashboard" | "monitoring" | "settings";
 
-export class SpanPanelElement extends HTMLElement {
-  private _hass: HomeAssistant | null;
-  // _config is set by HA but dashboard builds its own config
-  private _panels: PanelDevice[];
-  private _selectedPanelId: string | null;
-  private _activeTab: TabName;
-  private _discovered: boolean;
-  private _narrow: boolean;
-  private _dashboardTab: DashboardTab;
-  private _monitoringTab: MonitoringTab;
-  private _settingsTab: SettingsTab;
-  private _chartMetric: string | undefined;
-  private _onVisibilityChange: (() => void) | null;
-  private _deviceRegistryUnsub: Promise<() => void> | null;
-  private _shadowListenersBound: boolean;
+@customElement("span-panel")
+export class SpanPanelElement extends LitElement {
+  @property({ attribute: false })
+  hass!: HomeAssistant;
 
-  constructor() {
-    super();
-    this.attachShadow({ mode: "open" });
-    this._hass = null;
-    this._panels = [];
-    this._selectedPanelId = null;
-    this._activeTab = "dashboard";
-    this._discovered = false;
-    this._narrow = false;
-    this._dashboardTab = new DashboardTab();
-    this._monitoringTab = new MonitoringTab();
-    this._settingsTab = new SettingsTab();
-    this._onVisibilityChange = null;
-    this._deviceRegistryUnsub = null;
-    this._shadowListenersBound = false;
-  }
+  @property({ type: Boolean, reflect: true })
+  narrow = false;
+
+  @state() private _panels: PanelDevice[] = [];
+  @state() private _selectedPanelId: string | null = null;
+  @state() private _activeTab: TabName = "dashboard";
+  @state() private _discovered = false;
+  @state() private _chartMetric: string | undefined;
+
+  private _dashboardTab = new DashboardTab();
+  private _monitoringTab = new MonitoringTab();
+  private _settingsTab = new SettingsTab();
+  private _onVisibilityChange: (() => void) | null = null;
+  private _deviceRegistryUnsub: Promise<() => void> | null = null;
+
+  static styles = css`
+    :host {
+      color: var(--primary-text-color);
+    }
+    .header {
+      background-color: var(--app-header-background-color);
+      color: var(--app-header-text-color, white);
+      border-bottom: var(--app-header-border-bottom, none);
+    }
+    .toolbar {
+      height: var(--header-height);
+      display: flex;
+      align-items: center;
+      font-size: 20px;
+      padding: 0 16px;
+      font-weight: 400;
+      box-sizing: border-box;
+    }
+    .main-title {
+      margin: 0 0 0 24px;
+      line-height: 20px;
+      flex-grow: 1;
+    }
+    .panel-selector select {
+      color: inherit;
+      font-size: inherit;
+      font-weight: inherit;
+      cursor: pointer;
+      padding: 4px 8px;
+      border: 1px solid rgba(255, 255, 255, 0.3);
+      border-radius: 6px;
+      background-color: rgba(255, 255, 255, 0.1);
+    }
+    .panel-selector select option {
+      background: var(--card-background-color, #333);
+      color: var(--primary-text-color);
+    }
+    .panel-tabs {
+      margin-left: max(env(safe-area-inset-left), 24px);
+      margin-right: max(env(safe-area-inset-right), 24px);
+      display: flex;
+      gap: 0;
+    }
+    .panel-tab {
+      padding: 8px 20px;
+      cursor: pointer;
+      font-size: 0.9em;
+      font-weight: 500;
+      color: var(--app-header-text-color, white);
+      opacity: 0.7;
+      border-bottom: 2px solid transparent;
+      background: none;
+      border-top: none;
+      border-left: none;
+      border-right: none;
+    }
+    .panel-tab.active {
+      opacity: 1;
+      border-bottom-color: var(--app-header-text-color, white);
+    }
+    .view {
+      padding: 16px;
+    }
+    .view-content {
+      width: 100%;
+    }
+    .tab-content {
+      min-height: 400px;
+    }
+  `;
 
   connectedCallback(): void {
-    // When HA navigates back to this panel, re-render if we already have data
-    if (this._discovered && this._hass) {
-      this._render();
-    }
+    super.connectedCallback();
 
     this._onVisibilityChange = (): void => {
-      if (document.visibilityState !== "visible" || !this._discovered || !this._hass) return;
-      this._recoverIfNeeded();
+      if (document.visibilityState !== "visible" || !this._discovered || !this.hass) return;
+      this._scheduleTabRender();
     };
     document.addEventListener("visibilitychange", this._onVisibilityChange);
 
@@ -142,11 +127,166 @@ export class SpanPanelElement extends HTMLElement {
       this._onVisibilityChange = null;
     }
     this._unsubscribeDeviceRegistry();
+    super.disconnectedCallback();
   }
 
+  firstUpdated(): void {
+    if (this.hass && !this._discovered) {
+      this._discoverPanels();
+    }
+  }
+
+  updated(changedProps: Map<string, unknown>): void {
+    if (changedProps.has("hass")) {
+      const oldHass = changedProps.get("hass") as HomeAssistant | undefined;
+      this._dashboardTab.hass = this.hass;
+
+      // Wire up ha-menu-button with current hass/narrow
+      const menuBtn = this.renderRoot.querySelector<HaMenuButton>("ha-menu-button");
+      if (menuBtn) {
+        menuBtn.hass = this.hass;
+        menuBtn.narrow = this.narrow;
+      }
+
+      if (!this._discovered) {
+        this._discoverPanels();
+      } else if (!this.shadowRoot!.getElementById("tab-content")) {
+        // Re-render only if the tab-content container was lost
+        this._scheduleTabRender();
+      }
+
+      if (!oldHass && this.hass) {
+        this._subscribeDeviceRegistry();
+      }
+    }
+
+    if (changedProps.has("narrow")) {
+      const menuBtn = this.renderRoot.querySelector<HaMenuButton>("ha-menu-button");
+      if (menuBtn) menuBtn.narrow = this.narrow;
+    }
+  }
+
+  setConfig(_config: CardConfig): void {
+    // Config is set by HA but the dashboard tab builds its own config
+  }
+
+  protected render(): unknown {
+    setLanguage(this.hass?.language);
+
+    if (!this._discovered) {
+      return html``;
+    }
+
+    return html`
+      <div class="header">
+        <div class="toolbar">
+          <ha-menu-button></ha-menu-button>
+          <div class="main-title">
+            <span class="panel-selector">
+              <select id="panel-select" @change=${this._onPanelChange}>
+                ${this._panels.map(p => html` <option value=${p.id} ?selected=${p.id === this._selectedPanelId}>${p.name_by_user || p.name || p.id}</option> `)}
+              </select>
+            </span>
+          </div>
+        </div>
+
+        <div class="panel-tabs">
+          <button class="panel-tab ${this._activeTab === "dashboard" ? "active" : ""}" data-tab="dashboard" @click=${this._onTabClick}>
+            ${t("tab.panel")}
+          </button>
+          <button class="panel-tab ${this._activeTab === "monitoring" ? "active" : ""}" data-tab="monitoring" @click=${this._onTabClick}>
+            ${t("tab.monitoring")}
+          </button>
+          <button class="panel-tab ${this._activeTab === "settings" ? "active" : ""}" data-tab="settings" @click=${this._onTabClick}>
+            ${t("tab.settings")}
+          </button>
+        </div>
+      </div>
+
+      <div class="view">
+        <div class="view-content">
+          <div
+            class="tab-content"
+            id="tab-content"
+            @click=${this._onTabContentClick}
+            @side-panel-closed=${this._onSidePanelClosed}
+            @graph-settings-changed=${this._onGraphSettingsChanged}
+            @navigate-tab=${this._onNavigateTab}
+          ></div>
+        </div>
+      </div>
+    `;
+  }
+
+  // ── Event handlers ──────────────────────────────────────────────────
+
+  private _onPanelChange(e: Event): void {
+    const select = e.target as HTMLSelectElement;
+    this._selectedPanelId = select.value;
+    localStorage.setItem("span_panel_selected", select.value);
+    this._scheduleTabRender();
+  }
+
+  private _onTabClick(e: Event): void {
+    const btn = e.currentTarget as HTMLElement;
+    const tab = btn.dataset.tab as TabName | undefined;
+    if (!tab || tab === this._activeTab) return;
+    this._activeTab = tab;
+    this._scheduleTabRender();
+  }
+
+  private _onTabContentClick(e: Event): void {
+    const target = e.target as HTMLElement;
+
+    // Unit toggle
+    const btn = target.closest<HTMLElement>(".unit-btn");
+    if (btn) {
+      const metric = btn.dataset.unit;
+      if (!metric || metric === this._chartMetric) return;
+      this._chartMetric = metric;
+      localStorage.setItem("span_panel_metric", metric);
+      if (this._activeTab === "dashboard") {
+        this._scheduleTabRender();
+      }
+      return;
+    }
+
+    // Gear/toggle clicks handled by DashboardController
+    // (DashboardTab registers its own click listeners on the container)
+  }
+
+  private _onSidePanelClosed(): void {
+    if (this._activeTab === "dashboard") {
+      const ctrl = this._dashboardTab["_ctrl"];
+      ctrl.monitoringCache.invalidate();
+      ctrl.graphSettingsCache.invalidate();
+    }
+  }
+
+  private _onGraphSettingsChanged(): void {
+    if (this._activeTab === "dashboard") {
+      const container = this.shadowRoot!.getElementById("tab-content");
+      if (container) {
+        const ctrl = this._dashboardTab["_ctrl"];
+        ctrl.onGraphSettingsChanged(container);
+      }
+    } else if (this._activeTab === "settings") {
+      this._scheduleTabRender();
+    }
+  }
+
+  private _onNavigateTab(e: Event): void {
+    const tab = (e as CustomEvent<string>).detail;
+    if (!tab) return;
+    this._activeTab = tab as TabName;
+    this._scheduleTabRender();
+  }
+
+  // ── Internal helpers ────────────────────────────────────────────────
+
   private _subscribeDeviceRegistry(): void {
-    if (this._deviceRegistryUnsub || !this._hass?.connection) return;
-    this._deviceRegistryUnsub = this._hass.connection.subscribeEvents(() => this._refreshPanels(), "device_registry_updated");
+    if (this._deviceRegistryUnsub || !this.hass?.connection) return;
+    this._deviceRegistryUnsub = this.hass.connection.subscribeEvents(() => this._refreshPanels(), "device_registry_updated");
   }
 
   private _unsubscribeDeviceRegistry(): void {
@@ -157,9 +297,9 @@ export class SpanPanelElement extends HTMLElement {
   }
 
   private async _refreshPanels(): Promise<void> {
-    if (!this._hass || !this._discovered) return;
+    if (!this.hass || !this._discovered) return;
 
-    const devices = await this._hass.callWS<PanelDevice[]>({
+    const devices = await this.hass.callWS<PanelDevice[]>({
       type: "config/device_registry/list",
     });
     const panels = devices.filter((d: PanelDevice) => d.identifiers?.some(id => id[0] === INTEGRATION_DOMAIN) && !d.via_device_id);
@@ -173,64 +313,22 @@ export class SpanPanelElement extends HTMLElement {
       this._selectedPanelId = this._panels[0]!.id;
       localStorage.setItem("span_panel_selected", this._selectedPanelId);
     }
-    this._render();
-  }
-
-  set hass(val: HomeAssistant) {
-    const firstHass = !this._hass && val;
-    this._hass = val;
-    this._dashboardTab.hass = val;
-    // Update ha-menu-button if already rendered
-    const menuBtn = this.shadowRoot!.querySelector<HaMenuButton>("ha-menu-button");
-    if (menuBtn) menuBtn.hass = val;
-    if (!this._discovered) {
-      this._discoverPanels();
-    } else if (!this.shadowRoot!.getElementById("tab-content")) {
-      // Shell DOM was lost (e.g. after prolonged background) — rebuild
-      this._render();
-    }
-    if (firstHass) {
-      this._subscribeDeviceRegistry();
-    }
-  }
-
-  set narrow(val: boolean) {
-    this._narrow = val;
-    const menuBtn = this.shadowRoot!.querySelector<HaMenuButton>("ha-menu-button");
-    if (menuBtn) menuBtn.narrow = val;
-  }
-
-  setConfig(_config: CardConfig): void {
-    // Config is set by HA but the dashboard tab builds its own config
-  }
-
-  /**
-   * Rebuild the panel if the shell DOM was lost (e.g. after a WS reconnect
-   * or browser memory reclamation while the tab was hidden).
-   * If the render fails (WS still reconnecting), retry up to 3 times.
-   */
-  private async _recoverIfNeeded(attempt = 0): Promise<void> {
-    try {
-      if (!this.shadowRoot!.getElementById("tab-content")) {
-        this._render();
-      } else {
-        await this._renderTab();
-      }
-    } catch {
-      if (attempt < 3) {
-        setTimeout(() => this._recoverIfNeeded(attempt + 1), 2000 * (attempt + 1));
-      }
-    }
   }
 
   private async _discoverPanels(): Promise<void> {
-    if (!this._hass) return;
-    this._discovered = true;
+    if (!this.hass) return;
 
-    const devices = await this._hass.callWS<PanelDevice[]>({
-      type: "config/device_registry/list",
-    });
-    this._panels = devices.filter((d: PanelDevice) => d.identifiers?.some(id => id[0] === INTEGRATION_DOMAIN) && !d.via_device_id);
+    try {
+      const devices = await this.hass.callWS<PanelDevice[]>({
+        type: "config/device_registry/list",
+      });
+      this._panels = devices.filter((d: PanelDevice) => d.identifiers?.some(id => id[0] === INTEGRATION_DOMAIN) && !d.via_device_id);
+    } catch (err) {
+      console.error("SPAN Panel: device discovery failed", err);
+      return;
+    }
+
+    this._discovered = true;
 
     const stored = localStorage.getItem("span_panel_selected");
     if (stored && this._panels.some(p => p.id === stored)) {
@@ -240,117 +338,6 @@ export class SpanPanelElement extends HTMLElement {
     }
 
     this._chartMetric = localStorage.getItem("span_panel_metric") || "power";
-
-    this._render();
-  }
-
-  private _render(): void {
-    setLanguage(this._hass?.language);
-    this.shadowRoot!.innerHTML = `
-      <style>${PANEL_STYLES}</style>
-
-      <div class="header">
-        <div class="toolbar">
-          <ha-menu-button></ha-menu-button>
-          <div class="main-title">
-            <span class="panel-selector">
-              <select id="panel-select">
-                ${this._panels
-                  .map(
-                    p => `
-                  <option value="${p.id}" ${p.id === this._selectedPanelId ? "selected" : ""}>
-                    ${escapeHtml(p.name_by_user || p.name || p.id)}
-                  </option>
-                `
-                  )
-                  .join("")}
-              </select>
-            </span>
-          </div>
-        </div>
-
-        <div class="panel-tabs">
-          <button class="panel-tab ${this._activeTab === "dashboard" ? "active" : ""}" data-tab="dashboard">${t("tab.panel")}</button>
-          <button class="panel-tab ${this._activeTab === "monitoring" ? "active" : ""}" data-tab="monitoring">${t("tab.monitoring")}</button>
-          <button class="panel-tab ${this._activeTab === "settings" ? "active" : ""}" data-tab="settings">${t("tab.settings")}</button>
-        </div>
-      </div>
-
-      <div class="view">
-        <div class="view-content">
-          <div class="tab-content" id="tab-content"></div>
-        </div>
-      </div>
-    `;
-
-    // Wire up ha-menu-button
-    const menuBtn = this.shadowRoot!.querySelector<HaMenuButton>("ha-menu-button");
-    if (menuBtn) {
-      menuBtn.hass = this._hass!;
-      menuBtn.narrow = this._narrow;
-    }
-
-    const select = this.shadowRoot!.getElementById("panel-select") as HTMLSelectElement | null;
-    if (select) {
-      select.addEventListener("change", () => {
-        this._selectedPanelId = select.value;
-        localStorage.setItem("span_panel_selected", select.value);
-        this._renderTab();
-      });
-    }
-
-    for (const tab of this.shadowRoot!.querySelectorAll<HTMLElement>(".panel-tab")) {
-      tab.addEventListener("click", () => {
-        this._activeTab = tab.dataset.tab as TabName;
-        for (const tabEl of this.shadowRoot!.querySelectorAll<HTMLElement>(".panel-tab")) {
-          tabEl.classList.toggle("active", tabEl.dataset.tab === this._activeTab);
-        }
-        this._renderTab();
-      });
-    }
-
-    if (!this._shadowListenersBound) {
-      this._bindUnitToggle();
-      this._bindTabNavigation();
-
-      // Sync: if graph settings change (from side panel or settings tab),
-      // re-render settings tab if it's visible
-      this.shadowRoot!.addEventListener("graph-settings-changed", () => {
-        if (this._activeTab === "settings") {
-          this._renderTab();
-        }
-      });
-      this._shadowListenersBound = true;
-    }
-
-    this._renderTab();
-  }
-
-  private _bindUnitToggle(): void {
-    this.shadowRoot!.addEventListener("click", (e: Event) => {
-      const target = e.target as HTMLElement;
-      const btn = target.closest<HTMLElement>(".unit-btn");
-      if (!btn) return;
-      const metric = btn.dataset.unit;
-      if (!metric || metric === this._chartMetric) return;
-      this._chartMetric = metric;
-      localStorage.setItem("span_panel_metric", metric);
-      if (this._activeTab === "dashboard") {
-        this._renderTab();
-      }
-    });
-  }
-
-  private _bindTabNavigation(): void {
-    this.shadowRoot!.addEventListener("navigate-tab", (e: Event) => {
-      const tab = (e as CustomEvent<string>).detail;
-      if (!tab) return;
-      this._activeTab = tab as TabName;
-      for (const tabEl of this.shadowRoot!.querySelectorAll<HTMLElement>(".panel-tab")) {
-        tabEl.classList.toggle("active", tabEl.dataset.tab === tab);
-      }
-      this._renderTab();
-    });
   }
 
   private _buildDashboardConfig(): CardConfig {
@@ -361,6 +348,11 @@ export class SpanPanelElement extends HTMLElement {
       show_battery: true,
       show_evse: true,
     };
+  }
+
+  private async _scheduleTabRender(): Promise<void> {
+    await this.updateComplete;
+    await this._renderTab();
   }
 
   private async _renderTab(): Promise<void> {
@@ -377,21 +369,21 @@ export class SpanPanelElement extends HTMLElement {
         const config = this._buildDashboardConfig();
         const dashDevice = this._panels.find(p => p.id === this._selectedPanelId);
         const dashEntryId = dashDevice?.config_entries?.[0] ?? null;
-        await this._dashboardTab.render(container, this._hass!, this._selectedPanelId ?? "", config, dashEntryId);
+        await this._dashboardTab.render(container, this.hass, this._selectedPanelId ?? "", config, dashEntryId);
         break;
       }
       case "monitoring": {
         container.innerHTML = "";
         const monDevice = this._panels.find(p => p.id === this._selectedPanelId);
         const monEntryId = monDevice?.config_entries?.[0] ?? null;
-        await this._monitoringTab.render(container, this._hass!, monEntryId ?? undefined);
+        await this._monitoringTab.render(container, this.hass, monEntryId ?? undefined);
         break;
       }
       case "settings": {
         container.innerHTML = "";
         const selectedDevice = this._panels.find(p => p.id === this._selectedPanelId);
         const configEntryId = selectedDevice?.config_entries?.[0] ?? null;
-        await this._settingsTab.render(container, this._hass!, configEntryId ?? undefined, this._selectedPanelId ?? undefined);
+        await this._settingsTab.render(container, this.hass, configEntryId ?? undefined, this._selectedPanelId ?? undefined);
         break;
       }
     }
