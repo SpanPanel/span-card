@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.9.1
+
+### Fixed
+
+- **Blank dashboard after backgrounding or navigation** — The panel and card could go permanently blank when returning after the browser tab was backgrounded or
+  after navigating away within HA. Root cause was unawaited async renders that cleared the container before WS calls, with no recovery when those calls failed.
+  - Panel: `_render()` now separates shell creation from tab rendering; all async tab renders are properly awaited with retry logic and a 15-second timeout to
+    prevent hung WS calls from blocking recovery
+  - Panel: `_discoverPanels()` no longer marks discovery complete until the WS call succeeds, so a failed discovery retries on the next `hass` update
+  - Card: Added DOM health checks in `connectedCallback`, `visibilitychange`, and `hass` setter — re-renders from existing topology if `<ha-card>` is missing
+  - Card: Added `.catch()` on discovery promise chain to prevent `_discovering` from being permanently stuck
+
 ## 0.9.0
 
 - Add integration panel with tab router and multi-panel selector
