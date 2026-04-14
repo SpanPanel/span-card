@@ -164,6 +164,14 @@ export class SpanPanelElement extends LitElement {
       const menuBtn = this.renderRoot.querySelector<HaMenuButton>("ha-menu-button");
       if (menuBtn) menuBtn.narrow = this.narrow;
     }
+
+    // Render tab content when discovery completes or active tab/panel/metric changes
+    if (
+      this._discovered &&
+      (changedProps.has("_discovered") || changedProps.has("_activeTab") || changedProps.has("_selectedPanelId") || changedProps.has("_chartMetric"))
+    ) {
+      this._scheduleTabRender();
+    }
   }
 
   setConfig(_config: CardConfig): void {
