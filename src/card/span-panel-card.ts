@@ -1,3 +1,5 @@
+import { LitElement, html, unsafeCSS } from "lit";
+import { customElement, property, state } from "lit/decorators.js";
 import { DEFAULT_CHART_METRIC } from "../constants.js";
 import { setLanguage, t } from "../i18n.js";
 import { escapeHtml } from "../helpers/sanitize.js";
@@ -15,48 +17,60 @@ interface SpanSidePanelElement extends HTMLElement {
   hass: HomeAssistant;
 }
 
-export class SpanPanelCard extends HTMLElement {
-  private _hass: HomeAssistant | null = null;
-  private _config: CardConfig = {};
-  private _discovered = false;
-  private _discovering = false;
-  private _discoveryError: string | null = null;
+const PREVIEW_CIRCUITS = [
+  {
+    name: "Kitchen",
+    watts: "120",
+    path: "M0,28 L8,26 L16,24 L24,22 L32,25 L40,20 L48,18 L56,22 L64,19 L72,16 L80,18 L88,15 L96,17 L104,14 L112,16 L120,13",
+  },
+  {
+    name: "Living Room",
+    watts: "85",
+    path: "M0,22 L8,24 L16,20 L24,26 L32,18 L40,22 L48,16 L56,20 L64,24 L72,18 L80,22 L88,20 L96,16 L104,22 L112,18 L120,20",
+  },
+  {
+    name: "Master Bed",
+    watts: "193",
+    path: "M0,8 L8,10 L16,8 L24,12 L32,10 L40,8 L48,10 L56,8 L64,10 L72,8 L80,12 L88,10 L96,8 L104,10 L112,8 L120,10",
+  },
+  {
+    name: "HVAC",
+    watts: "64",
+    path: "M0,30 L8,28 L16,26 L24,22 L32,18 L40,14 L48,18 L56,22 L64,26 L72,22 L80,18 L88,22 L96,26 L104,22 L112,18 L120,22",
+  },
+];
 
-  private _topology: PanelTopology | null = null;
+@customElement("span-panel-card")
+export class SpanPanelCard extends LitElement {
+  @property({ attribute: false })
+  hass!: HomeAssistant;
+
+  @state() private _config: CardConfig = {};
+  @state() private _discovered = false;
+  @state() private _discovering = false;
+  @state() private _discoveryError: string | null = null;
+  @state() private _topology: PanelTopology | null = null;
+
   private _panelDevice: PanelDevice | null = null;
   private _panelSize = 0;
-
   private _historyLoaded = false;
-  private _rendered = false;
-
   private readonly _ctrl = new DashboardController();
-
-  private readonly _handleToggleClick: (ev: Event) => void;
-  private readonly _handleUnitToggle: (ev: Event) => void;
-  private readonly _handleGearClick: (ev: Event) => void;
-  private readonly _handleGraphSettingsChanged: () => void;
   private _onVisibilityChange: (() => void) | null = null;
 
-  constructor() {
-    super();
-    this.attachShadow({ mode: "open" });
-    this._handleToggleClick = (ev: Event) => this._ctrl.onToggleClick(ev, this.shadowRoot!);
-    this._handleUnitToggle = this._onUnitToggle.bind(this);
-    this._handleGearClick = (ev: Event) => this._ctrl.onGearClick(ev, this.shadowRoot!);
-    this._handleGraphSettingsChanged = () => this._ctrl.onGraphSettingsChanged(this.shadowRoot!);
+  static override styles = unsafeCSS(CARD_STYLES);
+
+  private get _configEntryId(): string | null {
+    return this._panelDevice?.config_entries?.[0] ?? null;
   }
 
   connectedCallback(): void {
+    super.connectedCallback();
     this._ctrl.startIntervals(this.shadowRoot!);
 
-    if (this._discovered && this._hass && this._rendered) {
-      this._ctrl.updateDOM(this.shadowRoot!);
-    }
-
     this._onVisibilityChange = () => {
-      if (document.visibilityState === "visible" && this._discovered && this._hass) {
-        this._ctrl.updateDOM(this.shadowRoot!);
-      }
+      if (document.visibilityState !== "visible" || !this._discovered || !this.hass) return;
+      this._ctrl.recordSamples();
+      this._ctrl.updateDOM(this.shadowRoot!);
     };
     document.addEventListener("visibilitychange", this._onVisibilityChange);
   }
@@ -67,98 +81,20 @@ export class SpanPanelCard extends HTMLElement {
       document.removeEventListener("visibilitychange", this._onVisibilityChange);
       this._onVisibilityChange = null;
     }
+    super.disconnectedCallback();
   }
 
   setConfig(config: CardConfig): void {
     this._config = config;
     this._discovered = false;
-    this._rendered = false;
+    this._discovering = false;
     this._historyLoaded = false;
     this._discoveryError = null;
+    this._topology = null;
+    this._panelDevice = null;
+    this._panelSize = 0;
     this._ctrl.reset();
     this._ctrl.setConfig(config);
-  }
-
-  private get _configEntryId(): string | null {
-    return this._panelDevice?.config_entries?.[0] ?? null;
-  }
-
-  set hass(hass: HomeAssistant) {
-    this._hass = hass;
-    this._ctrl.hass = hass;
-    setLanguage(hass?.language);
-    if (!this._config.device_id) {
-      this.shadowRoot!.innerHTML = `
-        <ha-card>
-          <div style="padding: 16px;">
-            <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
-              <span style="font-weight:600;font-size:1.1em;color:var(--primary-text-color);">SPAN Panel</span>
-              <span style="font-size:0.75em;color:var(--secondary-text-color);">Live Power</span>
-            </div>
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
-              ${[
-                {
-                  name: "Kitchen",
-                  watts: "120",
-                  path: "M0,28 L8,26 L16,24 L24,22 L32,25 L40,20 L48,18 L56,22 L64,19 L72,16 L80,18 L88,15 L96,17 L104,14 L112,16 L120,13",
-                },
-                {
-                  name: "Living Room",
-                  watts: "85",
-                  path: "M0,22 L8,24 L16,20 L24,26 L32,18 L40,22 L48,16 L56,20 L64,24 L72,18 L80,22 L88,20 L96,16 L104,22 L112,18 L120,20",
-                },
-                {
-                  name: "Master Bed",
-                  watts: "193",
-                  path: "M0,8 L8,10 L16,8 L24,12 L32,10 L40,8 L48,10 L56,8 L64,10 L72,8 L80,12 L88,10 L96,8 L104,10 L112,8 L120,10",
-                },
-                {
-                  name: "HVAC",
-                  watts: "64",
-                  path: "M0,30 L8,28 L16,26 L24,22 L32,18 L40,14 L48,18 L56,22 L64,26 L72,22 L80,18 L88,22 L96,26 L104,22 L112,18 L120,22",
-                },
-              ]
-                .map(
-                  c => `
-                <div style="background:var(--card-background-color,#1c1c1c);border:1px solid var(--divider-color,#333);border-radius:8px;padding:8px;">
-                  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
-                    <span style="font-size:0.7em;color:var(--primary-text-color);">${c.name}</span>
-                    <span style="font-size:0.7em;font-weight:600;color:var(--primary-text-color);">${c.watts}<span style="font-size:0.8em;color:var(--secondary-text-color);">W</span></span>
-                  </div>
-                  <svg viewBox="0 0 120 32" style="width:100%;height:24px;" preserveAspectRatio="none">
-                    <path d="${c.path}" fill="none" stroke="var(--primary-color,#4dd9af)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-                  </svg>
-                </div>
-              `
-                )
-                .join("")}
-            </div>
-            <div style="margin-top:8px;font-size:0.7em;color:var(--secondary-text-color);">
-              ${t("card.no_device")}
-            </div>
-          </div>
-        </ha-card>
-      `;
-      return;
-    }
-    if (!this._discovered && !this._discovering) {
-      this._discovering = true;
-      this._discoverTopology().then(() => {
-        this._discovered = true;
-        this._discovering = false;
-        this._ctrl.init(this._topology, this._config, this._hass, this._configEntryId);
-        this._render();
-        this._loadHistory();
-        this._ctrl.monitoringCache.fetch(hass, this._configEntryId).then(() => {
-          if (this._rendered) this._ctrl.updateDOM(this.shadowRoot!);
-        });
-      });
-      return;
-    }
-    if (this._discovered) {
-      this._ctrl.recordSamples();
-      this._ctrl.updateDOM(this.shadowRoot!);
-    }
   }
 
   getCardSize(): number {
@@ -182,17 +118,99 @@ export class SpanPanelCard extends HTMLElement {
     };
   }
 
+  protected render(): unknown {
+    setLanguage(this.hass?.language);
+
+    // State 1: No device_id — show placeholder preview
+    if (!this._config.device_id) {
+      return this._renderPreview();
+    }
+
+    // State 2: Not yet discovered or error
+    if (!this._discovered) {
+      if (this._discoveryError) {
+        return html`
+          <ha-card>
+            <div style="padding: 24px; color: var(--secondary-text-color);">${escapeHtml(this._discoveryError)}</div>
+          </ha-card>
+        `;
+      }
+      return html`
+        <ha-card>
+          <div style="padding: 24px; color: var(--secondary-text-color);">${escapeHtml(t("card.loading"))}</div>
+        </ha-card>
+      `;
+    }
+
+    // State 3: Discovered — render card shell; content populated imperatively
+    return html`
+      <ha-card @click=${this._onCardClick} @graph-settings-changed=${this._onGraphSettingsChanged}>
+        <div id="card-content"></div>
+      </ha-card>
+      <span-side-panel @side-panel-closed=${this._onSidePanelClosed}></span-side-panel>
+    `;
+  }
+
+  updated(changedProps: Map<string, unknown>): void {
+    if (!changedProps.has("hass") || !this.hass) return;
+
+    setLanguage(this.hass.language);
+    this._ctrl.hass = this.hass;
+
+    if (!this._config.device_id) return;
+
+    if (!this._discovered && !this._discovering) {
+      this._startDiscovery();
+      return;
+    }
+
+    if (this._discovered) {
+      this._ctrl.recordSamples();
+      this._ctrl.updateDOM(this.shadowRoot!);
+
+      const sidePanel = this.shadowRoot!.querySelector("span-side-panel") as SpanSidePanelElement | null;
+      if (sidePanel) sidePanel.hass = this.hass;
+    }
+  }
+
+  // ── Discovery ──────────────────────────────────────────────────────────
+
+  private async _startDiscovery(): Promise<void> {
+    this._discovering = true;
+
+    await this._discoverTopology();
+
+    if (this._discoveryError) {
+      this._discovering = false;
+      return;
+    }
+
+    this._discovered = true;
+    this._discovering = false;
+    this._ctrl.init(this._topology, this._config, this.hass, this._configEntryId);
+
+    // Wait for lit to render the card-content div
+    await this.updateComplete;
+
+    this._populateCardContent();
+    this._loadHistory();
+
+    this._ctrl.monitoringCache.fetch(this.hass, this._configEntryId).then(() => {
+      if (this._discovered) this._ctrl.updateDOM(this.shadowRoot!);
+    });
+  }
+
   private async _discoverTopology(): Promise<void> {
-    if (!this._hass) return;
+    if (!this.hass) return;
     try {
-      const result = await discoverTopology(this._hass, this._config.device_id);
+      const result = await discoverTopology(this.hass, this._config.device_id);
       this._topology = result.topology;
       this._panelDevice = result.panelDevice;
       this._panelSize = result.panelSize;
     } catch (err) {
       console.error("SPAN Panel: topology fetch failed, falling back to entity discovery", err);
       try {
-        const result = await discoverEntitiesFallback(this._hass, this._config.device_id);
+        const result = await discoverEntitiesFallback(this.hass, this._config.device_id);
         this._topology = result.topology;
         this._panelDevice = result.panelDevice;
         this._panelSize = result.panelSize;
@@ -204,7 +222,7 @@ export class SpanPanelCard extends HTMLElement {
   }
 
   private async _loadHistory(): Promise<void> {
-    if (this._historyLoaded || !this._topology || !this._hass) return;
+    if (this._historyLoaded || !this._topology || !this.hass) return;
     this._historyLoaded = true;
 
     await this._ctrl.fetchAndBuildHorizonMaps();
@@ -217,12 +235,73 @@ export class SpanPanelCard extends HTMLElement {
     }
   }
 
-  private async _onUnitToggle(event: Event): Promise<void> {
-    const target = event.target as HTMLElement | null;
-    const btn = target?.closest(".unit-btn") as HTMLElement | null;
-    if (!btn) return;
+  // ── Imperative card content ────────────────────────────────────────────
+
+  private _populateCardContent(): void {
+    const container = this.shadowRoot!.querySelector("#card-content");
+    if (!container || !this.hass || !this._topology || !this._panelSize) return;
+
+    const totalRows = Math.ceil(this._panelSize / 2);
+    const headerHTML = buildHeaderHTML(this._topology, this._config);
+    const monitoringStatus = this._ctrl.monitoringCache.status;
+    const monitoringSummaryHTML = buildMonitoringSummaryHTML(monitoringStatus);
+    const gridHTML = buildGridHTML(this._topology, totalRows, this.hass, this._config, monitoringStatus);
+    const subDevHTML = buildSubDevicesHTML(this._topology, this.hass, this._config);
+
+    container.innerHTML = `
+      ${headerHTML}
+      ${monitoringSummaryHTML}
+      ${subDevHTML ? `<div class="sub-devices">${subDevHTML}</div>` : ""}
+      ${this._config.show_panel !== false ? `<div class="panel-grid" style="grid-template-rows: repeat(${totalRows}, auto);">${gridHTML}</div>` : ""}
+    `;
+
+    const slideEl = container.querySelector(".slide-confirm");
+    if (slideEl) {
+      const haCard = this.shadowRoot!.querySelector("ha-card");
+      this._ctrl.bindSlideConfirm(slideEl, haCard);
+      if (haCard) haCard.classList.add("switches-disabled");
+    }
+
+    const sidePanel = this.shadowRoot!.querySelector("span-side-panel") as SpanSidePanelElement | null;
+    if (sidePanel) sidePanel.hass = this.hass;
+
+    this._ctrl.recordSamples();
+    this._ctrl.updateDOM(this.shadowRoot!);
+    this._ctrl.setupResizeObserver(this.shadowRoot!, this.shadowRoot!.querySelector("ha-card"));
+  }
+
+  // ── Event handlers ─────────────────────────────────────────────────────
+
+  private _onCardClick(ev: Event): void {
+    const target = ev.target as HTMLElement | null;
+    if (!target) return;
+
+    // Unit toggle
+    const unitBtn = target.closest(".unit-btn") as HTMLElement | null;
+    if (unitBtn) {
+      this._onUnitToggle(unitBtn);
+      return;
+    }
+
+    // Toggle pill
+    const togglePill = target.closest(".toggle-pill");
+    if (togglePill) {
+      this._ctrl.onToggleClick(ev, this.shadowRoot!);
+      return;
+    }
+
+    // Gear icon
+    const gearBtn = target.closest(".gear-icon") as HTMLElement | null;
+    if (gearBtn) {
+      this._ctrl.onGearClick(ev, this.shadowRoot!);
+      return;
+    }
+  }
+
+  private async _onUnitToggle(btn: HTMLElement): Promise<void> {
     const unit = btn.dataset.unit;
     if (!unit || unit === (this._config.chart_metric ?? "power")) return;
+
     this._config = { ...this._config, chart_metric: unit };
     this._ctrl.setConfig(this._config);
     this.dispatchEvent(
@@ -232,80 +311,53 @@ export class SpanPanelCard extends HTMLElement {
         composed: true,
       })
     );
+
     this._ctrl.powerHistory.clear();
     this._historyLoaded = false;
-    this._rendered = false;
-    this._render();
+    this._populateCardContent();
     await this._loadHistory();
     this._ctrl.updateDOM(this.shadowRoot!);
   }
 
-  private _render(): void {
-    const hass = this._hass;
-    if (!hass || !this._topology || !this._panelSize) {
-      const msg = this._discoveryError ?? (!this._topology ? t("card.device_not_found") : t("card.loading"));
-      this.shadowRoot!.innerHTML = `
-        <ha-card>
-          <div style="padding: 24px; color: var(--secondary-text-color);">
-            ${escapeHtml(msg)}
+  private _onGraphSettingsChanged(): void {
+    this._ctrl.onGraphSettingsChanged(this.shadowRoot!);
+  }
+
+  private _onSidePanelClosed(): void {
+    this._ctrl.monitoringCache.invalidate();
+    this._ctrl.graphSettingsCache.invalidate();
+  }
+
+  // ── Preview render ─────────────────────────────────────────────────────
+
+  private _renderPreview(): unknown {
+    const cards = PREVIEW_CIRCUITS.map(
+      c => html`
+        <div style="background:var(--card-background-color,#1c1c1c);border:1px solid var(--divider-color,#333);border-radius:8px;padding:8px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+            <span style="font-size:0.7em;color:var(--primary-text-color);">${c.name}</span>
+            <span style="font-size:0.7em;font-weight:600;color:var(--primary-text-color);"
+              >${c.watts}<span style="font-size:0.8em;color:var(--secondary-text-color);">W</span></span
+            >
           </div>
-        </ha-card>
-      `;
-      return;
-    }
-
-    const topo = this._topology;
-    const totalRows = Math.ceil(this._panelSize / 2);
-    const headerHTML = buildHeaderHTML(topo, this._config);
-    const monitoringStatus = this._ctrl.monitoringCache.status;
-    const monitoringSummaryHTML = buildMonitoringSummaryHTML(monitoringStatus);
-    const gridHTML = buildGridHTML(topo, totalRows, hass, this._config, monitoringStatus);
-    const subDevHTML = buildSubDevicesHTML(topo, hass, this._config);
-
-    const sr = this.shadowRoot!;
-
-    sr.removeEventListener("click", this._handleToggleClick);
-    sr.removeEventListener("click", this._handleUnitToggle);
-    sr.removeEventListener("click", this._handleGearClick);
-    sr.removeEventListener("graph-settings-changed", this._handleGraphSettingsChanged);
-
-    sr.innerHTML = `
-      <style>${CARD_STYLES}</style>
-      <ha-card>
-        ${headerHTML}
-        ${monitoringSummaryHTML}
-        ${subDevHTML ? `<div class="sub-devices">${subDevHTML}</div>` : ""}
-        ${
-          this._config.show_panel !== false
-            ? `
-        <div class="panel-grid" style="grid-template-rows: repeat(${totalRows}, auto);">
-          ${gridHTML}
+          <svg viewBox="0 0 120 32" style="width:100%;height:24px;" preserveAspectRatio="none">
+            <path d="${c.path}" fill="none" stroke="var(--primary-color,#4dd9af)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
         </div>
-        `
-            : ""
-        }
+      `
+    );
+
+    return html`
+      <ha-card>
+        <div style="padding: 16px;">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
+            <span style="font-weight:600;font-size:1.1em;color:var(--primary-text-color);">SPAN Panel</span>
+            <span style="font-size:0.75em;color:var(--secondary-text-color);">Live Power</span>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">${cards}</div>
+          <div style="margin-top:8px;font-size:0.7em;color:var(--secondary-text-color);">${t("card.no_device")}</div>
+        </div>
       </ha-card>
-      <span-side-panel></span-side-panel>
     `;
-
-    sr.addEventListener("click", this._handleToggleClick);
-    sr.addEventListener("click", this._handleUnitToggle);
-    sr.addEventListener("click", this._handleGearClick);
-    sr.addEventListener("graph-settings-changed", this._handleGraphSettingsChanged);
-
-    const slideEl = sr.querySelector(".slide-confirm");
-    if (slideEl) {
-      this._ctrl.bindSlideConfirm(slideEl, sr.querySelector("ha-card"));
-      const card = sr.querySelector("ha-card");
-      if (card) card.classList.add("switches-disabled");
-    }
-
-    const sidePanel = sr.querySelector("span-side-panel") as SpanSidePanelElement | null;
-    if (sidePanel) sidePanel.hass = hass;
-
-    this._rendered = true;
-    this._ctrl.recordSamples();
-    this._ctrl.updateDOM(sr);
-    this._ctrl.setupResizeObserver(sr, sr.querySelector("ha-card"));
   }
 }

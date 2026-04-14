@@ -43,36 +43,20 @@ const Ce={attribute:!0,type:String,converter:L,reflect:!1,hasChanged:I},Ee=(e=Ce
           <div class="main-title">
             <span class="panel-selector">
               <select id="panel-select" @change=${this._onPanelChange}>
-                ${this._panels.map(e=>se`
-                    <option value=${e.id} ?selected=${e.id===this._selectedPanelId}>
-                      ${e.name_by_user||e.name||e.id}
-                    </option>
-                  `)}
+                ${this._panels.map(e=>se` <option value=${e.id} ?selected=${e.id===this._selectedPanelId}>${e.name_by_user||e.name||e.id}</option> `)}
               </select>
             </span>
           </div>
         </div>
 
         <div class="panel-tabs">
-          <button
-            class="panel-tab ${"dashboard"===this._activeTab?"active":""}"
-            data-tab="dashboard"
-            @click=${this._onTabClick}
-          >
+          <button class="panel-tab ${"dashboard"===this._activeTab?"active":""}" data-tab="dashboard" @click=${this._onTabClick}>
             ${n("tab.panel")}
           </button>
-          <button
-            class="panel-tab ${"monitoring"===this._activeTab?"active":""}"
-            data-tab="monitoring"
-            @click=${this._onTabClick}
-          >
+          <button class="panel-tab ${"monitoring"===this._activeTab?"active":""}" data-tab="monitoring" @click=${this._onTabClick}>
             ${n("tab.monitoring")}
           </button>
-          <button
-            class="panel-tab ${"settings"===this._activeTab?"active":""}"
-            data-tab="settings"
-            @click=${this._onTabClick}
-          >
+          <button class="panel-tab ${"settings"===this._activeTab?"active":""}" data-tab="settings" @click=${this._onTabClick}>
             ${n("tab.settings")}
           </button>
         </div>

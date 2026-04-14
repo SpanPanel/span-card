@@ -1,11 +1,8 @@
 import { CARD_VERSION } from "./constants.js";
-import { SpanPanelCard } from "./card/span-panel-card.js";
+import "./card/span-panel-card.js";
 import { SpanPanelCardEditor } from "./editor/span-panel-card-editor.js";
 
 try {
-  if (!customElements.get("span-panel-card")) {
-    customElements.define("span-panel-card", SpanPanelCard);
-  }
   if (!customElements.get("span-panel-card-editor")) {
     customElements.define("span-panel-card-editor", SpanPanelCardEditor);
   }
