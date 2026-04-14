@@ -28,6 +28,7 @@ export function updateChart(
     chart = document.createElement("ha-chart-base") as HaChartBaseElement;
     chart.style.display = "block";
     chart.style.width = "100%";
+    chart.hass = hass;
     container.innerHTML = "";
     container.appendChild(chart);
   }

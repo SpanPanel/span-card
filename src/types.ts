@@ -40,6 +40,7 @@ export interface Circuit {
   is_user_controllable?: boolean;
   always_on?: boolean;
   voltage?: number;
+  area?: string;
 }
 
 export interface SubDeviceEntityInfo {
@@ -103,6 +104,7 @@ export interface CardConfig {
   show_battery?: boolean;
   show_evse?: boolean;
   visible_sub_entities?: Record<string, boolean>;
+  tab_style?: "text" | "icon";
 }
 
 // -- Chart & history types --

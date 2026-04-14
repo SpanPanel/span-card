@@ -29,6 +29,7 @@ export class SpanPanelCardEditor extends HTMLElement {
   private _metricSelect: HTMLSelectElement | null = null;
   private _checkboxes: Record<string, HTMLInputElement> = {};
   private _entityContainers: Record<string, HTMLElement> = {};
+  private _tabStyleSelect: HTMLSelectElement | null = null;
 
   setConfig(config: CardConfig): void {
     this._config = { ...config };
@@ -82,6 +83,7 @@ export class SpanPanelCardEditor extends HTMLElement {
     this._buildPanelSelector(wrapper, fieldStyle, labelStyle, groupStyle);
     this._buildTimeWindow(wrapper, fieldStyle, labelStyle, groupStyle);
     this._buildMetricSelector(wrapper, fieldStyle, labelStyle, groupStyle);
+    this._buildTabStyleSelector(wrapper, fieldStyle, labelStyle, groupStyle);
     this._buildSectionCheckboxes(wrapper, labelStyle, groupStyle);
 
     this.appendChild(wrapper);
@@ -208,6 +210,39 @@ export class SpanPanelCardEditor extends HTMLElement {
     group.appendChild(select);
     wrapper.appendChild(group);
     this._metricSelect = select;
+  }
+
+  private _buildTabStyleSelector(wrapper: HTMLElement, fieldStyle: string, labelStyle: string, groupStyle: string): void {
+    const group = document.createElement("div");
+    group.style.cssText = groupStyle;
+    const label = document.createElement("label");
+    label.textContent = t("editor.tab_style");
+    label.style.cssText = labelStyle;
+    const select = document.createElement("select");
+    select.style.cssText = fieldStyle;
+
+    const options = [
+      { value: "text", text: t("editor.tab_style_text") },
+      { value: "icon", text: t("editor.tab_style_icon") },
+    ];
+
+    for (const opt of options) {
+      const option = document.createElement("option");
+      option.value = opt.value;
+      option.textContent = opt.text;
+      if (opt.value === (this._config.tab_style ?? "text")) option.selected = true;
+      select.appendChild(option);
+    }
+
+    select.addEventListener("change", () => {
+      this._config = { ...this._config, tab_style: select.value as "text" | "icon" };
+      this._fireConfigChanged();
+    });
+
+    group.appendChild(label);
+    group.appendChild(select);
+    wrapper.appendChild(group);
+    this._tabStyleSelect = select;
   }
 
   private _buildSectionCheckboxes(wrapper: HTMLElement, labelStyle: string, groupStyle: string): void {
@@ -369,6 +404,7 @@ export class SpanPanelCardEditor extends HTMLElement {
         cb.checked = (this._config as Record<string, unknown>)[key] !== false;
       }
     }
+    if (this._tabStyleSelect) this._tabStyleSelect.value = this._config.tab_style ?? "text";
   }
 
   private _fireConfigChanged(): void {

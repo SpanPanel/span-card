@@ -8,6 +8,9 @@ import { buildGridHTML } from "../core/grid-renderer.js";
 import { buildSubDevicesHTML } from "../core/sub-device-renderer.js";
 import { buildMonitoringSummaryHTML } from "../core/monitoring-status.js";
 import { DashboardController } from "../core/dashboard-controller.js";
+import { ListViewController } from "../core/list-view-controller.js";
+import { buildTabBarHTML, bindTabBarEvents } from "../core/tab-bar-renderer.js";
+import { subscribeAreaUpdates } from "../core/area-resolver.js";
 import { discoverTopology, discoverEntitiesFallback } from "./card-discovery.js";
 import { CARD_STYLES } from "./card-styles.js";
 import "../core/side-panel.js";
@@ -50,11 +53,15 @@ export class SpanPanelCard extends LitElement {
   @state() private _discovering = false;
   @state() private _discoveryError: string | null = null;
   @state() private _topology: PanelTopology | null = null;
+  @state() private _activeTab: "panel" | "activity" | "area" = "panel";
 
   private _panelDevice: PanelDevice | null = null;
   private _panelSize = 0;
   private _historyLoaded = false;
   private readonly _ctrl = new DashboardController();
+  private readonly _listCtrl = new ListViewController(this._ctrl);
+  private _areaUnsub: (() => void) | null = null;
+  private _tabBarCleanup: (() => void) | null = null;
   private _onVisibilityChange: (() => void) | null = null;
 
   static override styles = unsafeCSS(CARD_STYLES);
@@ -77,6 +84,15 @@ export class SpanPanelCard extends LitElement {
 
   disconnectedCallback(): void {
     this._ctrl.stopIntervals();
+    this._listCtrl.stop();
+    if (this._areaUnsub) {
+      this._areaUnsub();
+      this._areaUnsub = null;
+    }
+    if (this._tabBarCleanup) {
+      this._tabBarCleanup();
+      this._tabBarCleanup = null;
+    }
     if (this._onVisibilityChange) {
       document.removeEventListener("visibilitychange", this._onVisibilityChange);
       this._onVisibilityChange = null;
@@ -93,6 +109,7 @@ export class SpanPanelCard extends LitElement {
     this._topology = null;
     this._panelDevice = null;
     this._panelSize = 0;
+    this._activeTab = "panel";
     this._ctrl.reset();
     this._ctrl.setConfig(config);
   }
@@ -144,7 +161,13 @@ export class SpanPanelCard extends LitElement {
 
     // State 3: Discovered — render card shell; content populated imperatively
     return html`
-      <ha-card @click=${this._onCardClick} @graph-settings-changed=${this._onGraphSettingsChanged}>
+      <ha-card
+        @click=${this._onCardClick}
+        @graph-settings-changed=${this._onGraphSettingsChanged}
+        @unit-changed=${this._onListUnitChanged}
+        @side-panel-closed=${this._onSidePanelClosed}
+      >
+        <div id="card-tabs"></div>
         <div id="card-content"></div>
       </ha-card>
       <span-side-panel @side-panel-closed=${this._onSidePanelClosed}></span-side-panel>
@@ -171,6 +194,10 @@ export class SpanPanelCard extends LitElement {
       const sidePanel = this.shadowRoot!.querySelector("span-side-panel") as SpanSidePanelElement | null;
       if (sidePanel) sidePanel.hass = this.hass;
     }
+
+    if (this._discovered && this._activeTab !== "panel" && this._topology) {
+      this._listCtrl.updateCollapsedRows(this.shadowRoot!, this.hass, this._topology, this._config);
+    }
   }
 
   // ── Discovery ──────────────────────────────────────────────────────────
@@ -188,6 +215,19 @@ export class SpanPanelCard extends LitElement {
     this._discovered = true;
     this._discovering = false;
     this._ctrl.init(this._topology, this._config, this.hass, this._configEntryId);
+
+    // Subscribe to area changes
+    if (this._topology) {
+      subscribeAreaUpdates(this.hass, this._topology, () => {
+        if (this._activeTab === "area" && this._discovered) {
+          this._populateCardContent();
+        }
+      })
+        .then(unsub => {
+          this._areaUnsub = unsub;
+        })
+        .catch(() => {});
+    }
 
     // Wait for lit to render the card-content div
     await this.updateComplete;
@@ -241,38 +281,76 @@ export class SpanPanelCard extends LitElement {
     const container = this.shadowRoot!.querySelector("#card-content");
     if (!container || !this.hass || !this._topology || !this._panelSize) return;
 
-    const totalRows = Math.ceil(this._panelSize / 2);
-    const headerHTML = buildHeaderHTML(this._topology, this._config);
-    const monitoringStatus = this._ctrl.monitoringCache.status;
-    const monitoringSummaryHTML = buildMonitoringSummaryHTML(monitoringStatus);
-    const gridHTML = buildGridHTML(this._topology, totalRows, this.hass, this._config, monitoringStatus);
-    const subDevHTML = buildSubDevicesHTML(this._topology, this.hass, this._config);
+    // Populate tab bar
+    const tabsContainer = this.shadowRoot!.querySelector("#card-tabs");
+    if (tabsContainer) {
+      const tabDefs = [
+        { id: "panel", label: t("tab.by_panel"), icon: "mdi:view-dashboard" },
+        { id: "activity", label: t("tab.by_activity"), icon: "mdi:sort-descending" },
+        { id: "area", label: t("tab.by_area"), icon: "mdi:home-group" },
+      ];
+      tabsContainer.innerHTML = buildTabBarHTML(tabDefs, this._activeTab, this._config.tab_style ?? "text");
 
-    container.innerHTML = `
-      ${headerHTML}
-      ${monitoringSummaryHTML}
-      ${subDevHTML ? `<div class="sub-devices">${subDevHTML}</div>` : ""}
-      ${this._config.show_panel !== false ? `<div class="panel-grid" style="grid-template-rows: repeat(${totalRows}, auto);">${gridHTML}</div>` : ""}
-    `;
-
-    const slideEl = container.querySelector(".slide-confirm");
-    if (slideEl) {
-      const haCard = this.shadowRoot!.querySelector("ha-card");
-      this._ctrl.bindSlideConfirm(slideEl, haCard);
-      if (haCard) haCard.classList.add("switches-disabled");
+      // Clean up previous tab bar events
+      if (this._tabBarCleanup) {
+        this._tabBarCleanup();
+        this._tabBarCleanup = null;
+      }
+      // Bind new tab bar events
+      this._tabBarCleanup = bindTabBarEvents(tabsContainer, tabId => {
+        const validTabs = ["panel", "activity", "area"] as const;
+        type ValidTab = (typeof validTabs)[number];
+        if (validTabs.includes(tabId as ValidTab)) {
+          this._activeTab = tabId as ValidTab;
+          this._listCtrl.stop();
+          this._populateCardContent();
+        }
+      });
     }
 
-    const sidePanel = this.shadowRoot!.querySelector("span-side-panel") as SpanSidePanelElement | null;
-    if (sidePanel) sidePanel.hass = this.hass;
+    if (this._activeTab === "panel") {
+      const totalRows = Math.ceil(this._panelSize / 2);
+      const headerHTML = buildHeaderHTML(this._topology, this._config);
+      const monitoringStatus = this._ctrl.monitoringCache.status;
+      const monitoringSummaryHTML = buildMonitoringSummaryHTML(monitoringStatus);
+      const gridHTML = buildGridHTML(this._topology, totalRows, this.hass, this._config, monitoringStatus);
+      const subDevHTML = buildSubDevicesHTML(this._topology, this.hass, this._config);
 
-    this._ctrl.recordSamples();
-    this._ctrl.updateDOM(this.shadowRoot!);
-    this._ctrl.setupResizeObserver(this.shadowRoot!, this.shadowRoot!.querySelector("ha-card"));
+      container.innerHTML = `
+        ${headerHTML}
+        ${monitoringSummaryHTML}
+        ${subDevHTML ? `<div class="sub-devices">${subDevHTML}</div>` : ""}
+        ${this._config.show_panel !== false ? `<div class="panel-grid" style="grid-template-rows: repeat(${totalRows}, auto);">${gridHTML}</div>` : ""}
+      `;
+
+      const slideEl = container.querySelector(".slide-confirm");
+      if (slideEl) {
+        const haCard = this.shadowRoot!.querySelector("ha-card");
+        this._ctrl.bindSlideConfirm(slideEl, haCard);
+        if (haCard) haCard.classList.add("switches-disabled");
+      }
+
+      const sidePanel = this.shadowRoot!.querySelector("span-side-panel") as SpanSidePanelElement | null;
+      if (sidePanel) sidePanel.hass = this.hass;
+
+      this._ctrl.recordSamples();
+      this._ctrl.updateDOM(this.shadowRoot!);
+      this._ctrl.setupResizeObserver(this.shadowRoot!, this.shadowRoot!.querySelector("ha-card"));
+    } else if (this._activeTab === "activity") {
+      container.innerHTML = "";
+      this._listCtrl.renderActivityView(container as HTMLElement, this.hass, this._topology, this._config, this._ctrl.monitoringCache.status);
+      this._ctrl.updateDOM(this.shadowRoot!);
+    } else if (this._activeTab === "area") {
+      container.innerHTML = "";
+      this._listCtrl.renderAreaView(container as HTMLElement, this.hass, this._topology, this._config, this._ctrl.monitoringCache.status);
+      this._ctrl.updateDOM(this.shadowRoot!);
+    }
   }
 
   // ── Event handlers ─────────────────────────────────────────────────────
 
   private _onCardClick(ev: Event): void {
+    if (this._activeTab !== "panel") return;
     const target = ev.target as HTMLElement | null;
     if (!target) return;
 
@@ -300,6 +378,27 @@ export class SpanPanelCard extends LitElement {
 
   private async _onUnitToggle(btn: HTMLElement): Promise<void> {
     const unit = btn.dataset.unit;
+    if (!unit || unit === (this._config.chart_metric ?? "power")) return;
+
+    this._config = { ...this._config, chart_metric: unit };
+    this._ctrl.setConfig(this._config);
+    this.dispatchEvent(
+      new CustomEvent("config-changed", {
+        detail: { config: this._config },
+        bubbles: true,
+        composed: true,
+      })
+    );
+
+    this._ctrl.powerHistory.clear();
+    this._historyLoaded = false;
+    this._populateCardContent();
+    await this._loadHistory();
+    this._ctrl.updateDOM(this.shadowRoot!);
+  }
+
+  private async _onListUnitChanged(e: Event): Promise<void> {
+    const unit = (e as CustomEvent<string>).detail;
     if (!unit || unit === (this._config.chart_metric ?? "power")) return;
 
     this._config = { ...this._config, chart_metric: unit };

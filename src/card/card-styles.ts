@@ -409,4 +409,202 @@ export const CARD_STYLES: string = `
   .sub-entity-name { color: var(--secondary-text-color, #999); }
   .sub-entity-value { font-weight: 500; color: var(--primary-text-color, #e0e0e0); }
 
+  /* ── Shared tab bar ────────────────────────────────────── */
+
+  .shared-tab-bar {
+    display: flex;
+    gap: 0;
+    margin-bottom: 16px;
+    border-bottom: 1px solid var(--divider-color, #333);
+  }
+
+  .shared-tab {
+    padding: 8px 16px;
+    cursor: pointer;
+    font-size: 0.9em;
+    font-weight: 500;
+    color: var(--primary-text-color);
+    opacity: 0.6;
+    border: none;
+    border-bottom: 2px solid transparent;
+    background: none;
+    transition: opacity 0.15s;
+  }
+
+  .shared-tab:hover {
+    opacity: 0.85;
+  }
+
+  .shared-tab.active {
+    opacity: 1;
+    border-bottom-color: var(--span-accent);
+  }
+
+  /* ── List view search ──────────────────────────────────── */
+
+  .list-search-container {
+    margin-bottom: 12px;
+    position: relative;
+  }
+
+  .list-search {
+    width: 100%;
+    padding: 8px 36px 8px 12px;
+    border-radius: 8px;
+    border: 1px solid var(--divider-color, #333);
+    background: var(--secondary-background-color, #2a2a2a);
+    color: var(--primary-text-color);
+    font-size: 0.9em;
+    box-sizing: border-box;
+    outline: none;
+  }
+
+  .list-search:focus {
+    border-color: var(--span-accent);
+  }
+
+  .list-search-clear {
+    position: absolute;
+    right: 8px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: none;
+    border: none;
+    color: var(--secondary-text-color);
+    cursor: pointer;
+    padding: 2px;
+    display: flex;
+    align-items: center;
+    opacity: 0.7;
+  }
+
+  .list-search-clear:hover {
+    opacity: 1;
+  }
+
+  .list-unit-toggle {
+    display: inline-flex;
+    margin-bottom: 12px;
+  }
+
+  /* ── List rows ─────────────────────────────────────────── */
+
+  .list-view {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .list-row {
+    display: flex;
+    align-items: center;
+    padding: 12px 16px;
+    gap: 10px;
+    background: var(--card-background-color, #1c1c1c);
+    border: 1px solid var(--divider-color, #333);
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+
+  .list-row:hover {
+    background: var(--secondary-background-color, #2a2a2a);
+  }
+
+  .list-row.circuit-off {
+    opacity: 0.5;
+  }
+
+  .list-row.list-row-expanded {
+    border-bottom-left-radius: 0;
+    border-bottom-right-radius: 0;
+    border-bottom-color: transparent;
+  }
+
+  .list-circuit-name {
+    flex: 1;
+    color: var(--primary-text-color);
+    font-size: 0.9em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .list-status-badge {
+    font-size: 0.75em;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 4px;
+    flex-shrink: 0;
+  }
+
+  .list-status-on {
+    color: #4dd9af;
+  }
+
+  .list-status-off {
+    color: #f44336;
+  }
+
+  .list-power-value {
+    font-size: 0.9em;
+    font-weight: 600;
+    min-width: 70px;
+    text-align: right;
+    flex-shrink: 0;
+  }
+
+  .list-expand-toggle {
+    background: none;
+    border: none;
+    color: var(--secondary-text-color);
+    cursor: pointer;
+    padding: 4px;
+    transition: transform 0.2s;
+    display: flex;
+    align-items: center;
+    flex-shrink: 0;
+  }
+
+  .list-expand-toggle.expanded {
+    transform: rotate(180deg);
+  }
+
+  /* ── Expanded circuit content ──────────────────────────── */
+
+  .list-expanded-content {
+    padding: 12px;
+    background: var(--card-background-color, #1c1c1c);
+    border: 1px solid var(--divider-color, #333);
+    border-top: none;
+    border-radius: 0 0 8px 8px;
+    margin-top: -6px;
+    margin-bottom: 2px;
+  }
+
+  .list-expanded-content .circuit-slot {
+    border: none;
+    margin: 0;
+    background: none;
+  }
+
+  /* ── Area headers ──────────────────────────────────────── */
+
+  .area-header {
+    padding: 16px 12px 6px;
+    font-weight: 600;
+    font-size: 0.85em;
+    color: var(--secondary-text-color);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  /* ── No results ────────────────────────────────────────── */
+
+  .list-no-results {
+    padding: 24px;
+    text-align: center;
+    color: var(--secondary-text-color);
+  }
+
 `;

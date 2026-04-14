@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.9.2
+
+### Added
+
+- **By Activity view** — Circuits sorted by power consumption (or current) with collapsible rows that expand to full circuit graphs. Includes search filtering
+  and W/A unit toggle.
+- **By Area view** — Circuits grouped by Home Assistant area with the same expandable row format. Areas resolve from entity assignments first, then fall back to
+  the device area. Live registry subscriptions update grouping when areas change.
+- **Shared tab bar** — Both the integration panel and Lovelace card now show By Panel, By Activity, and By Area tabs. The card supports a configurable tab style
+  (text or icon) via the card editor.
+- **Search with clear button** — Incremental search filtering by circuit name with an X button to reset.
+
+### Changed
+
+- Settings tab removed from the integration panel; graph settings remain accessible via the gear icon in the panel header.
+- Shedding icons hidden for circuits with unknown priority (e.g. PV systems).
+
+### Fixed
+
+- `ha-chart-base` receives `hass` before DOM insertion, preventing `performUpdate` errors.
+
 ## 0.9.1
 
 ### Fixed
