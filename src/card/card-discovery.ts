@@ -1,4 +1,5 @@
 import { INTEGRATION_DOMAIN } from "../constants.js";
+import { resolveAndAssignAreas } from "../core/area-resolver.js";
 import { t } from "../i18n.js";
 import type { HomeAssistant, PanelTopology, PanelDevice, DiscoveryResult, Circuit, CircuitEntities } from "../types.js";
 
@@ -42,6 +43,8 @@ export async function discoverTopology(hass: HomeAssistant, deviceId: string | u
     type: "config/device_registry/list",
   });
   const panelDevice = deviceToPanelDevice(devices.find(d => d.id === deviceId));
+
+  await resolveAndAssignAreas(hass, topology);
 
   return { topology, panelDevice, panelSize };
 }
@@ -215,6 +218,8 @@ export async function discoverEntitiesFallback(hass: HomeAssistant, deviceId: st
     circuits,
     sub_devices: subDeviceMap,
   };
+
+  await resolveAndAssignAreas(hass, topology);
 
   return { topology, panelDevice, panelSize };
 }

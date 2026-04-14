@@ -1,11 +1,17 @@
 import { LitElement, html, css } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
+import { unsafeHTML } from "lit/directives/unsafe-html.js";
 import { INTEGRATION_DOMAIN } from "../constants.js";
 import { setLanguage, t } from "../i18n.js";
 import "../core/side-panel.js";
 import { DashboardTab } from "./tab-dashboard.js";
 import { MonitoringTab } from "./tab-monitoring.js";
-import { SettingsTab } from "./tab-settings.js";
+import { ListViewController } from "../core/list-view-controller.js";
+import { DashboardController } from "../core/dashboard-controller.js";
+import { buildTabBarHTML } from "../core/tab-bar-renderer.js";
+import { subscribeAreaUpdates } from "../core/area-resolver.js";
+import { discoverTopology } from "../card/card-discovery.js";
+import { CARD_STYLES } from "../card/card-styles.js";
 import type { HomeAssistant, PanelDevice, CardConfig } from "../types.js";
 
 interface HaMenuButton extends HTMLElement {
@@ -13,7 +19,7 @@ interface HaMenuButton extends HTMLElement {
   narrow: boolean;
 }
 
-type TabName = "dashboard" | "monitoring" | "settings";
+type TabName = "dashboard" | "activity" | "area" | "monitoring";
 
 @customElement("span-panel")
 export class SpanPanelElement extends LitElement {
@@ -32,7 +38,9 @@ export class SpanPanelElement extends LitElement {
 
   private _dashboardTab = new DashboardTab();
   private _monitoringTab = new MonitoringTab();
-  private _settingsTab = new SettingsTab();
+  private _listDashCtrl = new DashboardController();
+  private _listCtrl = new ListViewController(this._listDashCtrl);
+  private _areaUnsub: (() => void) | null = null;
   private _onVisibilityChange: (() => void) | null = null;
   private _deviceRegistryUnsub: Promise<() => void> | null = null;
 
@@ -105,6 +113,27 @@ export class SpanPanelElement extends LitElement {
     .tab-content {
       min-height: 400px;
     }
+    .shared-tab-bar {
+      display: flex;
+      gap: 0;
+    }
+    .shared-tab {
+      padding: 8px 20px;
+      cursor: pointer;
+      font-size: 0.9em;
+      font-weight: 500;
+      color: var(--app-header-text-color, white);
+      opacity: 0.7;
+      border-bottom: 2px solid transparent;
+      background: none;
+      border-top: none;
+      border-left: none;
+      border-right: none;
+    }
+    .shared-tab.active {
+      opacity: 1;
+      border-bottom-color: var(--app-header-text-color, white);
+    }
   `;
 
   connectedCallback(): void {
@@ -122,7 +151,12 @@ export class SpanPanelElement extends LitElement {
   disconnectedCallback(): void {
     this._dashboardTab.stop();
     this._monitoringTab.stop();
-    this._settingsTab.stop();
+    this._listCtrl.stop();
+    this._listDashCtrl.stopIntervals();
+    if (this._areaUnsub) {
+      this._areaUnsub();
+      this._areaUnsub = null;
+    }
     if (this._onVisibilityChange) {
       document.removeEventListener("visibilitychange", this._onVisibilityChange);
       this._onVisibilityChange = null;
@@ -141,6 +175,7 @@ export class SpanPanelElement extends LitElement {
     if (changedProps.has("hass")) {
       const oldHass = changedProps.get("hass") as HomeAssistant | undefined;
       this._dashboardTab.hass = this.hass;
+      this._listDashCtrl.hass = this.hass;
 
       // Wire up ha-menu-button with current hass/narrow
       const menuBtn = this.renderRoot.querySelector<HaMenuButton>("ha-menu-button");
@@ -172,6 +207,17 @@ export class SpanPanelElement extends LitElement {
       (changedProps.has("_discovered") || changedProps.has("_activeTab") || changedProps.has("_selectedPanelId") || changedProps.has("_chartMetric"))
     ) {
       this._scheduleTabRender();
+    }
+
+    // Live-update collapsed rows when hass changes on list view tabs
+    if (changedProps.has("hass") && this._discovered && (this._activeTab === "activity" || this._activeTab === "area")) {
+      const tabContent = this.shadowRoot!.getElementById("tab-content");
+      const topo = this._listDashCtrl.topology;
+      if (tabContent && topo) {
+        this._listCtrl.updateCollapsedRows(tabContent, this.hass, topo, this._buildDashboardConfig());
+        const sidePanel = tabContent.querySelector("span-side-panel") as { hass: HomeAssistant } | null;
+        if (sidePanel) sidePanel.hass = this.hass;
+      }
     }
   }
 
@@ -209,16 +255,19 @@ export class SpanPanelElement extends LitElement {
           </div>
         </div>
 
-        <div class="panel-tabs">
-          <button class="panel-tab ${this._activeTab === "dashboard" ? "active" : ""}" data-tab="dashboard" @click=${this._onTabClick}>
-            ${t("tab.panel")}
-          </button>
-          <button class="panel-tab ${this._activeTab === "monitoring" ? "active" : ""}" data-tab="monitoring" @click=${this._onTabClick}>
-            ${t("tab.monitoring")}
-          </button>
-          <button class="panel-tab ${this._activeTab === "settings" ? "active" : ""}" data-tab="settings" @click=${this._onTabClick}>
-            ${t("tab.settings")}
-          </button>
+        <div class="panel-tabs" @click=${this._onTabClick}>
+          ${unsafeHTML(
+            buildTabBarHTML(
+              [
+                { id: "dashboard", label: t("tab.by_panel"), icon: "mdi:view-dashboard" },
+                { id: "activity", label: t("tab.by_activity"), icon: "mdi:sort-descending" },
+                { id: "area", label: t("tab.by_area"), icon: "mdi:home-group" },
+                { id: "monitoring", label: t("tab.monitoring"), icon: "mdi:monitor-eye" },
+              ],
+              this._activeTab,
+              "text"
+            )
+          )}
         </div>
       </div>
 
@@ -228,6 +277,7 @@ export class SpanPanelElement extends LitElement {
             class="tab-content"
             id="tab-content"
             @click=${this._onTabContentClick}
+            @unit-changed=${this._onUnitChanged}
             @side-panel-closed=${this._onSidePanelClosed}
             @graph-settings-changed=${this._onGraphSettingsChanged}
             @navigate-tab=${this._onNavigateTab}
@@ -243,11 +293,17 @@ export class SpanPanelElement extends LitElement {
     const select = e.target as HTMLSelectElement;
     this._selectedPanelId = select.value;
     localStorage.setItem("span_panel_selected", select.value);
+    if (this._areaUnsub) {
+      this._areaUnsub();
+      this._areaUnsub = null;
+    }
     this._scheduleTabRender();
   }
 
   private _onTabClick(e: Event): void {
-    const btn = e.currentTarget as HTMLElement;
+    const target = e.target as HTMLElement;
+    const btn = target.closest<HTMLElement>(".shared-tab");
+    if (!btn) return;
     const tab = btn.dataset.tab as TabName | undefined;
     if (!tab || tab === this._activeTab) return;
     this._activeTab = tab;
@@ -282,6 +338,14 @@ export class SpanPanelElement extends LitElement {
     }
   }
 
+  private _onUnitChanged(e: Event): void {
+    const unit = (e as CustomEvent<string>).detail;
+    if (!unit || unit === this._chartMetric) return;
+    this._chartMetric = unit;
+    localStorage.setItem("span_panel_metric", unit);
+    this._scheduleTabRender();
+  }
+
   private _onGraphSettingsChanged(): void {
     if (this._activeTab === "dashboard") {
       const container = this.shadowRoot!.getElementById("tab-content");
@@ -289,8 +353,6 @@ export class SpanPanelElement extends LitElement {
         const ctrl = this._dashboardTab["_ctrl"];
         ctrl.onGraphSettingsChanged(container);
       }
-    } else if (this._activeTab === "settings") {
-      this._scheduleTabRender();
     }
   }
 
@@ -379,7 +441,8 @@ export class SpanPanelElement extends LitElement {
   private async _renderTab(): Promise<void> {
     this._dashboardTab.stop();
     this._monitoringTab.stop();
-    this._settingsTab.stop();
+    this._listCtrl.stop();
+    this._listDashCtrl.stopIntervals();
 
     const container = this.shadowRoot!.getElementById("tab-content");
     if (!container) return;
@@ -393,18 +456,63 @@ export class SpanPanelElement extends LitElement {
         await this._dashboardTab.render(container, this.hass, this._selectedPanelId ?? "", config, dashEntryId);
         break;
       }
+      case "activity": {
+        container.innerHTML = "";
+        const device = this._panels.find(p => p.id === this._selectedPanelId);
+        const entryId = device?.config_entries?.[0] ?? null;
+        try {
+          const result = await discoverTopology(this.hass, this._selectedPanelId ?? undefined);
+          const config = this._buildDashboardConfig();
+          this._listDashCtrl.init(result.topology, config, this.hass, entryId);
+          await this._listDashCtrl.monitoringCache.fetch(this.hass, entryId);
+          await this._listDashCtrl.fetchAndBuildHorizonMaps();
+          this._listCtrl.renderActivityView(container, this.hass, result.topology!, config, this._listDashCtrl.monitoringCache.status);
+          container.insertAdjacentHTML("afterbegin", `<style>${CARD_STYLES}</style>`);
+          await this._listDashCtrl.loadHistory();
+          this._listDashCtrl.updateDOM(container);
+          this._listDashCtrl.startIntervals(container);
+        } catch (err) {
+          container.innerHTML += `<p style="color:var(--error-color);">${(err as Error).message}</p>`;
+        }
+        break;
+      }
+      case "area": {
+        container.innerHTML = "";
+        const areaDevice = this._panels.find(p => p.id === this._selectedPanelId);
+        const areaEntryId = areaDevice?.config_entries?.[0] ?? null;
+        try {
+          const result = await discoverTopology(this.hass, this._selectedPanelId ?? undefined);
+          const config = this._buildDashboardConfig();
+          this._listDashCtrl.init(result.topology, config, this.hass, areaEntryId);
+          await this._listDashCtrl.monitoringCache.fetch(this.hass, areaEntryId);
+          await this._listDashCtrl.fetchAndBuildHorizonMaps();
+          this._listCtrl.renderAreaView(container, this.hass, result.topology!, config, this._listDashCtrl.monitoringCache.status);
+          container.insertAdjacentHTML("afterbegin", `<style>${CARD_STYLES}</style>`);
+          await this._listDashCtrl.loadHistory();
+          this._listDashCtrl.updateDOM(container);
+          this._listDashCtrl.startIntervals(container);
+
+          if (!this._areaUnsub) {
+            subscribeAreaUpdates(this.hass, result.topology!, () => {
+              if (this._activeTab === "area") {
+                this._scheduleTabRender();
+              }
+            })
+              .then(unsub => {
+                this._areaUnsub = unsub;
+              })
+              .catch(() => {});
+          }
+        } catch (err) {
+          container.innerHTML += `<p style="color:var(--error-color);">${(err as Error).message}</p>`;
+        }
+        break;
+      }
       case "monitoring": {
         container.innerHTML = "";
         const monDevice = this._panels.find(p => p.id === this._selectedPanelId);
         const monEntryId = monDevice?.config_entries?.[0] ?? null;
         await this._monitoringTab.render(container, this.hass, monEntryId ?? undefined);
-        break;
-      }
-      case "settings": {
-        container.innerHTML = "";
-        const selectedDevice = this._panels.find(p => p.id === this._selectedPanelId);
-        const configEntryId = selectedDevice?.config_entries?.[0] ?? null;
-        await this._settingsTab.render(container, this.hass, configEntryId ?? undefined, this._selectedPanelId ?? undefined);
         break;
       }
     }

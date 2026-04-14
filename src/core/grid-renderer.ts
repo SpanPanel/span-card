@@ -118,7 +118,8 @@ export function renderCircuitSlot(
   hass: HomeAssistant,
   config: CardConfig,
   monitoringInfo: MonitoringPointInfo | null,
-  sheddingPriority: string
+  sheddingPriority: string,
+  inline = false
 ): string {
   const entityId = circuit.entities?.power;
   const state = entityId ? hass.states[entityId] : null;
@@ -148,24 +149,27 @@ export function renderCircuitSlot(
   }
 
   // Shedding icon (supports composite: dual-icon or icon+text)
+  // Hidden for "unknown" priority (e.g. PV systems with no shedding select entity)
   const priority = sheddingPriority || "unknown";
-  const shedInfo: SheddingPriorityDef = SHEDDING_PRIORITIES[priority] ??
-    SHEDDING_PRIORITIES.unknown ?? { icon: "mdi:help", color: "#999", label: () => "Unknown" };
-  let sheddingHTML: string;
-  if (shedInfo.icon2) {
-    sheddingHTML = `<span class="shedding-composite" title="${shedInfo.label()}">
-      <ha-icon class="shedding-icon" icon="${shedInfo.icon}" style="color:${shedInfo.color};--mdc-icon-size:16px;"></ha-icon>
-      <ha-icon class="shedding-icon-secondary" icon="${shedInfo.icon2}" style="color:${shedInfo.color};--mdc-icon-size:14px;"></ha-icon>
-    </span>`;
-  } else if (shedInfo.textLabel) {
-    sheddingHTML = `<span class="shedding-composite" title="${shedInfo.label()}">
-      <ha-icon class="shedding-icon" icon="${shedInfo.icon}" style="color:${shedInfo.color};--mdc-icon-size:16px;"></ha-icon>
-      <span class="shedding-label" style="color:${shedInfo.color}">${shedInfo.textLabel}</span>
-    </span>`;
-  } else {
-    sheddingHTML = `<ha-icon class="shedding-icon" icon="${shedInfo.icon}"
-      style="color:${shedInfo.color};--mdc-icon-size:16px;"
-      title="${shedInfo.label()}"></ha-icon>`;
+  let sheddingHTML = "";
+  if (priority !== "unknown") {
+    const shedInfo: SheddingPriorityDef = SHEDDING_PRIORITIES[priority] ??
+      SHEDDING_PRIORITIES.unknown ?? { icon: "mdi:help", color: "#999", label: () => "Unknown" };
+    if (shedInfo.icon2) {
+      sheddingHTML = `<span class="shedding-composite" title="${shedInfo.label()}">
+        <ha-icon class="shedding-icon" icon="${shedInfo.icon}" style="color:${shedInfo.color};--mdc-icon-size:16px;"></ha-icon>
+        <ha-icon class="shedding-icon-secondary" icon="${shedInfo.icon2}" style="color:${shedInfo.color};--mdc-icon-size:14px;"></ha-icon>
+      </span>`;
+    } else if (shedInfo.textLabel) {
+      sheddingHTML = `<span class="shedding-composite" title="${shedInfo.label()}">
+        <ha-icon class="shedding-icon" icon="${shedInfo.icon}" style="color:${shedInfo.color};--mdc-icon-size:16px;"></ha-icon>
+        <span class="shedding-label" style="color:${shedInfo.color}">${shedInfo.textLabel}</span>
+      </span>`;
+    } else {
+      sheddingHTML = `<ha-icon class="shedding-icon" icon="${shedInfo.icon}"
+        style="color:${shedInfo.color};--mdc-icon-size:16px;"
+        title="${shedInfo.label()}"></ha-icon>`;
+    }
   }
 
   // Gear icon
@@ -191,11 +195,12 @@ export function renderCircuitSlot(
   const customClass = hasOverridesFlag ? "circuit-custom-monitoring" : "";
 
   const rowSpan = layout === "col-span" ? `${row} / span 2` : `${row}`;
-  const layoutClass = layout === "row-span" ? "circuit-row-span" : layout === "col-span" ? "circuit-col-span" : "";
+  const layoutClass = inline ? "" : layout === "row-span" ? "circuit-row-span" : layout === "col-span" ? "circuit-col-span" : "";
+  const gridStyle = inline ? "" : `style="grid-row: ${rowSpan}; grid-column: ${col};"`;
 
   return `
     <div class="circuit-slot ${isOn ? "" : "circuit-off"} ${isProducer ? "circuit-producer" : ""} ${layoutClass} ${alertClass} ${customClass}"
-         style="grid-row: ${rowSpan}; grid-column: ${col};"
+         ${gridStyle}
          data-uuid="${escapeHtml(uuid)}">
       <div class="circuit-header">
         <div class="circuit-info">

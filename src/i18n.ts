@@ -13,8 +13,16 @@ const translations: Record<string, Record<string, string>> = {
   en: {
     // Tab labels
     "tab.panel": "Panel",
+    "tab.by_panel": "By Panel",
+    "tab.by_activity": "By Activity",
+    "tab.by_area": "By Area",
     "tab.monitoring": "Monitoring",
     "tab.settings": "Settings",
+
+    // List views
+    "list.search_placeholder": "Search circuits...",
+    "list.unassigned_area": "Unassigned",
+    "list.no_results": "No circuits found",
 
     // Monitoring tab
     "monitoring.heading": "Monitoring",
@@ -170,6 +178,9 @@ const translations: Record<string, Record<string, string>> = {
     "editor.panel_circuits": "Panel circuits",
     "editor.battery_bess": "Battery (BESS)",
     "editor.ev_charger_evse": "EV Charger (EVSE)",
+    "editor.tab_style": "Tab Style",
+    "editor.tab_style_text": "Text",
+    "editor.tab_style_icon": "Icon",
 
     // Metrics and shedding (used in constants)
     "metric.power": "Power",
@@ -188,8 +199,14 @@ const translations: Record<string, Record<string, string>> = {
 
   es: {
     "tab.panel": "Panel",
+    "tab.by_panel": "Por Panel",
+    "tab.by_activity": "Por Actividad",
+    "tab.by_area": "Por \u00c1rea",
     "tab.monitoring": "Monitoreo",
     "tab.settings": "Configuraci\u00f3n",
+    "list.search_placeholder": "Buscar circuitos...",
+    "list.unassigned_area": "Sin asignar",
+    "list.no_results": "No se encontraron circuitos",
     "monitoring.heading": "Monitoreo",
     "monitoring.global_settings": "Configuraci\u00f3n Global",
     "monitoring.enabled": "Activado",
@@ -322,6 +339,9 @@ const translations: Record<string, Record<string, string>> = {
     "editor.panel_circuits": "Circuitos del panel",
     "editor.battery_bess": "Bater\u00eda (BESS)",
     "editor.ev_charger_evse": "Cargador EV (EVSE)",
+    "editor.tab_style": "Estilo de pesta\u00f1as",
+    "editor.tab_style_text": "Texto",
+    "editor.tab_style_icon": "\u00cdcono",
     "metric.power": "Potencia",
     "metric.current": "Corriente",
     "metric.soc": "Estado de Carga",
@@ -338,8 +358,14 @@ const translations: Record<string, Record<string, string>> = {
 
   fr: {
     "tab.panel": "Panneau",
+    "tab.by_panel": "Par Panneau",
+    "tab.by_activity": "Par Activit\u00e9",
+    "tab.by_area": "Par Zone",
     "tab.monitoring": "Surveillance",
     "tab.settings": "Param\u00e8tres",
+    "list.search_placeholder": "Rechercher des circuits...",
+    "list.unassigned_area": "Non attribu\u00e9",
+    "list.no_results": "Aucun circuit trouv\u00e9",
     "monitoring.heading": "Surveillance",
     "monitoring.global_settings": "Param\u00e8tres Globaux",
     "monitoring.enabled": "Activ\u00e9",
@@ -474,6 +500,9 @@ const translations: Record<string, Record<string, string>> = {
     "editor.panel_circuits": "Circuits du panneau",
     "editor.battery_bess": "Batterie (BESS)",
     "editor.ev_charger_evse": "Chargeur VE (EVSE)",
+    "editor.tab_style": "Style des onglets",
+    "editor.tab_style_text": "Texte",
+    "editor.tab_style_icon": "Ic\u00f4ne",
     "metric.power": "Puissance",
     "metric.current": "Courant",
     "metric.soc": "\u00c9tat de Charge",
@@ -490,8 +519,14 @@ const translations: Record<string, Record<string, string>> = {
 
   ja: {
     "tab.panel": "\u30d1\u30cd\u30eb",
+    "tab.by_panel": "\u30d1\u30cd\u30eb\u5225",
+    "tab.by_activity": "\u6d3b\u52d5\u5225",
+    "tab.by_area": "\u30a8\u30ea\u30a2\u5225",
     "tab.monitoring": "\u30e2\u30cb\u30bf\u30ea\u30f3\u30b0",
     "tab.settings": "\u8a2d\u5b9a",
+    "list.search_placeholder": "\u56de\u8def\u3092\u691c\u7d22...",
+    "list.unassigned_area": "\u672a\u5272\u308a\u5f53\u3066",
+    "list.no_results": "\u56de\u8def\u304c\u898b\u3064\u304b\u308a\u307e\u305b\u3093",
     "monitoring.heading": "\u30e2\u30cb\u30bf\u30ea\u30f3\u30b0",
     "monitoring.global_settings": "\u30b0\u30ed\u30fc\u30d0\u30eb\u8a2d\u5b9a",
     "monitoring.enabled": "\u6709\u52b9",
@@ -628,6 +663,9 @@ const translations: Record<string, Record<string, string>> = {
     "editor.panel_circuits": "\u30d1\u30cd\u30eb\u56de\u8def",
     "editor.battery_bess": "\u30d0\u30c3\u30c6\u30ea\u30fc (BESS)",
     "editor.ev_charger_evse": "EV\u5145\u96fb\u5668 (EVSE)",
+    "editor.tab_style": "\u30bf\u30d6\u30b9\u30bf\u30a4\u30eb",
+    "editor.tab_style_text": "\u30c6\u30ad\u30b9\u30c8",
+    "editor.tab_style_icon": "\u30a2\u30a4\u30b3\u30f3",
     "metric.power": "\u96fb\u529b",
     "metric.current": "\u96fb\u6d41",
     "metric.soc": "\u5145\u96fb\u72b6\u614b",
@@ -644,8 +682,14 @@ const translations: Record<string, Record<string, string>> = {
 
   pt: {
     "tab.panel": "Painel",
+    "tab.by_panel": "Por Painel",
+    "tab.by_activity": "Por Atividade",
+    "tab.by_area": "Por \u00c1rea",
     "tab.monitoring": "Monitoramento",
     "tab.settings": "Configura\u00e7\u00f5es",
+    "list.search_placeholder": "Pesquisar circuitos...",
+    "list.unassigned_area": "N\u00e3o atribu\u00eddo",
+    "list.no_results": "Nenhum circuito encontrado",
     "monitoring.heading": "Monitoramento",
     "monitoring.global_settings": "Configura\u00e7\u00f5es Globais",
     "monitoring.enabled": "Ativado",
@@ -779,6 +823,9 @@ const translations: Record<string, Record<string, string>> = {
     "editor.panel_circuits": "Circuitos do painel",
     "editor.battery_bess": "Bateria (BESS)",
     "editor.ev_charger_evse": "Carregador VE (EVSE)",
+    "editor.tab_style": "Estilo das abas",
+    "editor.tab_style_text": "Texto",
+    "editor.tab_style_icon": "\u00cdcone",
     "metric.power": "Pot\u00eancia",
     "metric.current": "Corrente",
     "metric.soc": "Estado de Carga",
