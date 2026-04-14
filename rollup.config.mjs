@@ -3,7 +3,7 @@ import terser from "@rollup/plugin-terser";
 import typescript from "@rollup/plugin-typescript";
 
 const dev = process.env.ROLLUP_WATCH === "true";
-const plugins = [resolve({ browser: true }), typescript(), ...(dev ? [] : [terser({ output: { comments: false } })])];
+const plugins = [resolve({ browser: true }), typescript(), ...(dev ? [] : [terser()])];
 
 export default [
   {
