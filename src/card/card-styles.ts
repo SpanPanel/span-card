@@ -538,6 +538,14 @@ export const CARD_STYLES: string = `
     flex-shrink: 0;
   }
 
+  .list-status-badge.list-status-toggle {
+    cursor: pointer;
+    user-select: none;
+  }
+  .list-status-badge.list-status-toggle:hover {
+    filter: brightness(1.15);
+  }
+
   .list-status-on {
     color: #4dd9af;
   }
@@ -570,10 +578,23 @@ export const CARD_STYLES: string = `
     transform: rotate(180deg);
   }
 
+  .list-row .gear-icon {
+    background: transparent;
+    border: none;
+    padding: 2px;
+    cursor: pointer;
+    color: #555;
+    display: inline-flex;
+    align-items: center;
+  }
+  .list-row .gear-icon:hover {
+    color: var(--primary-text-color);
+  }
+
   /* ── Expanded circuit content ──────────────────────────── */
 
   .list-expanded-content {
-    padding: 12px;
+    padding: 0;
     background: var(--card-background-color, #1c1c1c);
     border: 1px solid var(--divider-color, #333);
     border-top: none;
@@ -582,10 +603,12 @@ export const CARD_STYLES: string = `
     margin-bottom: 2px;
   }
 
-  .list-expanded-content .circuit-slot {
+  .circuit-slot.circuit-chart-only {
     border: none;
     margin: 0;
     background: none;
+    padding: 8px 12px;
+    min-height: 0;
   }
 
   /* ── Area headers ──────────────────────────────────────── */
