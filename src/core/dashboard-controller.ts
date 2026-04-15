@@ -327,7 +327,7 @@ export class DashboardController {
 
   onToggleClick(ev: Event, root: DOMRoot): void {
     const target = ev.target as HTMLElement | null;
-    const pill = target?.closest(".toggle-pill");
+    const pill = target?.closest(".toggle-pill, .list-status-toggle");
     if (!pill) return;
     const cb = root.querySelector(".slide-confirm");
     if (!cb || !cb.classList.contains("confirmed")) return;
