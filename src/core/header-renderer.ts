@@ -5,9 +5,11 @@ import type { PanelTopology, CardConfig, SheddingPriorityDef } from "../types.js
 
 export interface HeaderRenderOptions {
   /**
-   * Include the slide-to-enable switches control. Only the By Panel
-   * tab renders the breaker grid with circuit toggles, so the other
-   * tabs should omit this control to avoid a non-functional button.
+   * Include the slide-to-enable switches control. All tabs that expose
+   * toggleable circuit controls (the By Panel breaker grid and the By
+   * Activity / By Area list views with their tappable ON/OFF badges)
+   * should render this control so taps require explicit user arming.
+   * Set false only if the view has no toggleable circuit controls.
    */
   showSwitches?: boolean;
 }

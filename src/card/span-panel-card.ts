@@ -338,12 +338,12 @@ export class SpanPanelCard extends LitElement {
       this._ctrl.setupResizeObserver(this.shadowRoot!, this.shadowRoot!.querySelector("ha-card"));
     } else if (this._activeTab === "activity") {
       container.innerHTML = "";
-      const listHeaderHTML = buildHeaderHTML(this._topology, this._config, { showSwitches: false });
+      const listHeaderHTML = buildHeaderHTML(this._topology, this._config);
       this._listCtrl.renderActivityView(container as HTMLElement, this.hass, this._topology, this._config, this._ctrl.monitoringCache.status, listHeaderHTML);
       this._ctrl.updateDOM(this.shadowRoot!);
     } else if (this._activeTab === "area") {
       container.innerHTML = "";
-      const listHeaderHTML = buildHeaderHTML(this._topology, this._config, { showSwitches: false });
+      const listHeaderHTML = buildHeaderHTML(this._topology, this._config);
       this._listCtrl.renderAreaView(container as HTMLElement, this.hass, this._topology, this._config, this._ctrl.monitoringCache.status, listHeaderHTML);
       this._ctrl.updateDOM(this.shadowRoot!);
     }

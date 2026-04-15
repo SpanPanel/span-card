@@ -647,11 +647,11 @@ export class SpanPanelElement extends LitElement {
 
   /**
    * Build the persistent panel-stats header HTML for the current real
-   * panel. Omits the "Enable Switches" slide-to-confirm in list/monitoring
-   * views where breaker toggles aren't rendered anyway.
+   * panel, including the slide-to-confirm switches control so tappable
+   * ON/OFF badges in list views require explicit user arming.
    */
   private _buildCurrentPanelHeaderHTML(topology: PanelTopology, config: CardConfig): string {
-    return buildHeaderHTML(topology, config, { showSwitches: false });
+    return buildHeaderHTML(topology, config);
   }
 
   /**
