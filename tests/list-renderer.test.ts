@@ -87,7 +87,7 @@ const nonControllableCircuit = {
   entities: { power: "sensor.circuit_b_power" },
 } as unknown as Circuit;
 
-describe("buildListRowHTML gear and tappable badge", () => {
+describe("buildListRowHTML gear and status control", () => {
   it("adds a gear button with data-uuid", () => {
     const html = buildListRowHTML("uuid-42", controllableCircuit, mockHass, mockConfig, null, "unknown", false);
     expect(html).toContain("gear-icon");
@@ -105,17 +105,21 @@ describe("buildListRowHTML gear and tappable badge", () => {
     expect(toggleIdx).toBeGreaterThan(gearIdx);
   });
 
-  it("adds list-status-toggle class when circuit is user-controllable and has a switch entity", () => {
+  it("renders a real toggle-pill when circuit is user-controllable and has a switch entity", () => {
     const html = buildListRowHTML("uuid-42", controllableCircuit, mockHass, mockConfig, null, "unknown", false);
-    expect(html).toContain("list-status-toggle");
+    expect(html).toContain("toggle-pill");
+    expect(html).toContain("toggle-knob");
+    expect(html).toContain("toggle-label");
+    expect(html).not.toContain("list-status-badge");
   });
 
-  it("omits list-status-toggle for non-controllable circuits", () => {
+  it("falls back to a static list-status-badge for non-controllable circuits", () => {
     const html = buildListRowHTML("uuid-42", nonControllableCircuit, mockHass, mockConfig, null, "unknown", false);
-    expect(html).not.toContain("list-status-toggle");
+    expect(html).toContain("list-status-badge");
+    expect(html).not.toContain("toggle-pill");
   });
 
-  it("omits list-status-toggle when circuit has no switch entity", () => {
+  it("falls back to a static list-status-badge when circuit has no switch entity", () => {
     const noSwitch = {
       name: "Kitchen",
       tabs: [1],
@@ -124,7 +128,8 @@ describe("buildListRowHTML gear and tappable badge", () => {
       entities: { power: "sensor.circuit_a_power" },
     } as unknown as Circuit;
     const html = buildListRowHTML("uuid-42", noSwitch, mockHass, mockConfig, null, "unknown", false);
-    expect(html).not.toContain("list-status-toggle");
+    expect(html).toContain("list-status-badge");
+    expect(html).not.toContain("toggle-pill");
   });
 
   it("adds data-uuid on the list-row (needed by onToggleClick ancestor lookup)", () => {

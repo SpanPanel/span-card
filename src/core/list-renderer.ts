@@ -118,15 +118,15 @@ export function buildListRowHTML(
   <ha-icon icon="mdi:cog" style="--mdc-icon-size:16px;"></ha-icon>
 </button>`;
 
-  // Make the status badge tappable only when the circuit can actually be
-  // toggled. Uses the same gate as the breaker-grid toggle-pill.
+  // Controllable circuits get a real toggle-pill arm-protected by the
+  // header's slide-confirm; non-controllable circuits keep a static badge.
   const isToggleable = circuit.is_user_controllable !== false && !!circuit.entities?.switch;
-  const toggleClass = isToggleable ? " list-status-toggle" : "";
-
-  // ON/OFF badge
-  const statusBadge = isOn
-    ? `<span class="list-status-badge list-status-on${toggleClass}">ON</span>`
-    : `<span class="list-status-badge list-status-off${toggleClass}">OFF</span>`;
+  const statusControl = isToggleable
+    ? `<div class="toggle-pill ${isOn ? "toggle-on" : "toggle-off"}">
+        <span class="toggle-label">${isOn ? t("grid.on") : t("grid.off")}</span>
+        <span class="toggle-knob"></span>
+      </div>`
+    : `<span class="list-status-badge ${isOn ? "list-status-on" : "list-status-off"}">${isOn ? "ON" : "OFF"}</span>`;
 
   return `
     <div class="list-row ${isOn ? "" : "circuit-off"} ${isExpanded ? "list-row-expanded" : ""}"
@@ -135,7 +135,7 @@ export function buildListRowHTML(
       ${utilizationHTML}
       <span class="list-circuit-name">${name}</span>
       ${sheddingHTML}
-      ${statusBadge}
+      ${statusControl}
       <span class="list-power-value">
         ${valueHTML}
       </span>

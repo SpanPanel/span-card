@@ -324,14 +324,21 @@ export class ListViewController {
         }
       }
 
-      // Update status badge
+      // Update the status control — real toggle-pill for controllable
+      // circuits, static text badge for the rest. Only one will be
+      // present in any given row.
+      const togglePill = row.querySelector(".toggle-pill") as HTMLElement | null;
+      if (togglePill) {
+        togglePill.classList.toggle("toggle-on", isOn);
+        togglePill.classList.toggle("toggle-off", !isOn);
+        const label = togglePill.querySelector(".toggle-label");
+        if (label) label.textContent = isOn ? t("grid.on") : t("grid.off");
+      }
       const statusBadge = row.querySelector(".list-status-badge") as HTMLElement | null;
       if (statusBadge) {
         statusBadge.textContent = isOn ? "ON" : "OFF";
         statusBadge.classList.toggle("list-status-on", isOn);
         statusBadge.classList.toggle("list-status-off", !isOn);
-        const isToggleable = circuit.is_user_controllable !== false && !!circuit.entities?.switch;
-        statusBadge.classList.toggle("list-status-toggle", isToggleable);
       }
 
       // Toggle circuit-off class
@@ -397,7 +404,7 @@ export class ListViewController {
       }
 
       // Handle toggle pill clicks (delegate to DashboardController for switch control)
-      const togglePill = target.closest(".toggle-pill, .list-status-toggle");
+      const togglePill = target.closest(".toggle-pill");
       if (togglePill) {
         this._ctrl.onToggleClick(ev, container);
         return;
@@ -451,6 +458,16 @@ export class ListViewController {
     container.addEventListener("click", this._clickHandler);
     container.addEventListener("input", this._inputHandler);
     container.addEventListener("graph-settings-changed", this._graphSettingsHandler);
+
+    // Wire the slide-to-arm control rendered in the header so tappable
+    // toggle-pills on the list rows actually fire. Without this the
+    // slide-confirm element renders but never gets the `.confirmed`
+    // class, and onToggleClick silently no-ops.
+    const slideEl = container.querySelector(".slide-confirm");
+    if (slideEl) {
+      this._ctrl.bindSlideConfirm(slideEl, container);
+      container.classList.add("switches-disabled");
+    }
   }
 
   private _unbindEvents(): void {

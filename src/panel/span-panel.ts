@@ -669,8 +669,14 @@ export class SpanPanelElement extends LitElement {
   private _buildFavoritesSummaryHTML(): string {
     const isAmpsMode = (this._chartMetric || "power") === "current";
     return `
-      <div class="favorites-summary" style="padding:8px 24px;border-bottom:1px solid var(--divider-color,#e0e0e0);display:flex;align-items:center;justify-content:flex-end;">
-        <div class="unit-toggle" title="${escapeHtml(t("header.toggle_units"))}">
+      <div class="favorites-summary" style="padding:8px 24px;border-bottom:1px solid var(--divider-color,#e0e0e0);display:flex;align-items:center;gap:12px;">
+        <div class="slide-confirm" data-text-off="${escapeHtml(t("header.enable_switches"))}" data-text-on="${escapeHtml(t("header.switches_enabled"))}">
+          <span class="slide-confirm-text">${escapeHtml(t("header.enable_switches"))}</span>
+          <div class="slide-confirm-knob">
+            <ha-icon icon="mdi:lock"></ha-icon>
+          </div>
+        </div>
+        <div class="unit-toggle" style="margin-left:auto;" title="${escapeHtml(t("header.toggle_units"))}">
           <button class="unit-btn ${isAmpsMode ? "" : "unit-active"}" data-unit="power">W</button>
           <button class="unit-btn ${isAmpsMode ? "unit-active" : ""}" data-unit="current">A</button>
         </div>
