@@ -153,8 +153,6 @@ const translations: Record<string, Record<string, string>> = {
 
     // Favorites pseudo-panel
     "panel.favorites": "Favorites",
-    "panel.favorites_summary_one": "1 favorite",
-    "panel.favorites_summary_many": "{circuits} favorites",
 
     // Monitoring status bar
     "status.monitoring": "Monitoring",
@@ -326,8 +324,6 @@ const translations: Record<string, Record<string, string>> = {
     "sidepanel.save_to_favorites": "Guardar en favoritos",
     "sidepanel.favorite_failed": "Error al actualizar favoritos:",
     "panel.favorites": "Favoritos",
-    "panel.favorites_summary_one": "1 favorito",
-    "panel.favorites_summary_many": "{circuits} favoritos",
     "status.monitoring": "Monitoreo",
     "status.circuits": "circuitos",
     "status.mains": "alimentaci\u00f3n",
@@ -491,8 +487,6 @@ const translations: Record<string, Record<string, string>> = {
     "sidepanel.save_to_favorites": "Enregistrer dans les favoris",
     "sidepanel.favorite_failed": "\u00c9chec de la mise \u00e0 jour du favori :",
     "panel.favorites": "Favoris",
-    "panel.favorites_summary_one": "1 favori",
-    "panel.favorites_summary_many": "{circuits} favoris",
     "status.monitoring": "Surveillance",
     "status.circuits": "circuits",
     "status.mains": "alimentation",
@@ -658,8 +652,6 @@ const translations: Record<string, Record<string, string>> = {
     "sidepanel.save_to_favorites": "\u304a\u6c17\u306b\u5165\u308a\u306b\u4fdd\u5b58",
     "sidepanel.favorite_failed": "\u304a\u6c17\u306b\u5165\u308a\u306e\u66f4\u65b0\u306b\u5931\u6557:",
     "panel.favorites": "\u304a\u6c17\u306b\u5165\u308a",
-    "panel.favorites_summary_one": "\u304a\u6c17\u306b\u5165\u308a 1 \u4ef6",
-    "panel.favorites_summary_many": "\u304a\u6c17\u306b\u5165\u308a {circuits} \u4ef6",
     "status.monitoring": "\u30e2\u30cb\u30bf\u30ea\u30f3\u30b0",
     "status.circuits": "\u56de\u8def",
     "status.mains": "\u4e3b\u96fb\u6e90",
@@ -827,8 +819,6 @@ const translations: Record<string, Record<string, string>> = {
     "sidepanel.save_to_favorites": "Salvar nos favoritos",
     "sidepanel.favorite_failed": "Falha ao atualizar favorito:",
     "panel.favorites": "Favoritos",
-    "panel.favorites_summary_one": "1 favorito",
-    "panel.favorites_summary_many": "{circuits} favoritos",
     "status.monitoring": "Monitoramento",
     "status.circuits": "circuitos",
     "status.mains": "alimenta\u00e7\u00e3o",

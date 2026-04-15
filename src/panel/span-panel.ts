@@ -15,7 +15,7 @@ import { buildHeaderHTML } from "../core/header-renderer.js";
 import { buildSubDevicesHTML } from "../core/sub-device-renderer.js";
 import { escapeHtml } from "../helpers/sanitize.js";
 import { CARD_STYLES } from "../card/card-styles.js";
-import { FAVORITES_CHANGED_EVENT, FavoritesCache, countFavorites, hasAnyFavorites } from "../core/favorites-store.js";
+import { FAVORITES_CHANGED_EVENT, FavoritesCache, hasAnyFavorites } from "../core/favorites-store.js";
 import { FavoritesController } from "../core/favorites-controller.js";
 import type { CardConfig, FavoritesMap, FavoritesTopology, HomeAssistant, PanelDevice, PanelTopology } from "../types.js";
 
@@ -667,17 +667,9 @@ export class SpanPanelElement extends LitElement {
    * no longer renders its own — the persistent header owns it).
    */
   private _buildFavoritesSummaryHTML(): string {
-    const circuitCount = countFavorites(this._favorites);
-    // Explicit conditional so the i18n validator can statically detect
-    // both keys; dynamic ``t(`panel.favorites_summary_${...}`)`` would
-    // be flagged as unused.
-    const template = circuitCount === 1 ? t("panel.favorites_summary_one") : t("panel.favorites_summary_many");
-    const summary = template.replace("{circuits}", String(circuitCount));
     const isAmpsMode = (this._chartMetric || "power") === "current";
     return `
-      <div class="favorites-summary" style="padding:16px 24px;border-bottom:1px solid var(--divider-color,#e0e0e0);display:flex;align-items:center;gap:12px;">
-        <div style="font-size:1.1em;font-weight:500;color:var(--primary-text-color);">${escapeHtml(t("panel.favorites"))}</div>
-        <div style="color:var(--secondary-text-color);font-size:0.9em;flex:1;">${escapeHtml(summary)}</div>
+      <div class="favorites-summary" style="padding:8px 24px;border-bottom:1px solid var(--divider-color,#e0e0e0);display:flex;align-items:center;justify-content:flex-end;">
         <div class="unit-toggle" title="${escapeHtml(t("header.toggle_units"))}">
           <button class="unit-btn ${isAmpsMode ? "" : "unit-active"}" data-unit="power">W</button>
           <button class="unit-btn ${isAmpsMode ? "unit-active" : ""}" data-unit="current">A</button>
