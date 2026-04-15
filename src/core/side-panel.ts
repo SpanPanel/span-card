@@ -770,7 +770,16 @@ class SpanSidePanel extends HTMLElement {
   private _renderFavoriteSection(body: HTMLDivElement, cfg: CircuitModeConfig): void {
     const entityId = this._favoriteEntityId(cfg.entities);
     if (!entityId) return;
+    this._appendFavoriteHeartSection(body, entityId, cfg.isFavorite === true);
+  }
 
+  /**
+   * Build a Favorite section with a heart icon (filled = favorited,
+   * outlined = not). Used in both the per-circuit and per-sub-device
+   * side panels. A heart deliberately avoids the visual confusion of
+   * placing an ha-switch directly under the breaker relay switch.
+   */
+  private _appendFavoriteHeartSection(body: HTMLDivElement, entityId: string, isFavorite: boolean): void {
     const section = document.createElement("div");
     section.className = "section";
     section.innerHTML = `<div class="section-label">${escapeHtml(t("sidepanel.favorite"))}</div>`;
@@ -782,46 +791,27 @@ class SpanSidePanel extends HTMLElement {
     label.className = "field-label";
     label.textContent = t("sidepanel.save_to_favorites");
 
-    const toggle = document.createElement("ha-switch") as HaSwitchElement;
-    toggle.dataset.role = "favorite-toggle";
-    if (cfg.isFavorite) toggle.setAttribute("checked", "");
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = isFavorite ? "fav-heart active" : "fav-heart";
+    btn.dataset.role = "favorite-heart";
+    btn.title = t("sidepanel.save_to_favorites");
 
-    toggle.addEventListener("change", () => {
-      // The authoritative state after a user toggle lives on ``checked``;
-      // ``hasAttribute("checked")`` still reflects the initial render.
-      const nextActive = toggle.checked;
-      this._setFavoriteFromToggle(toggle, entityId, nextActive).catch(() => {
-        // error already displayed
+    const icon = document.createElement("ha-icon");
+    icon.setAttribute("icon", isFavorite ? "mdi:heart" : "mdi:heart-outline");
+    btn.appendChild(icon);
+
+    btn.addEventListener("click", (ev: Event) => {
+      ev.stopPropagation();
+      this._toggleFavoriteEntity(btn, icon, entityId).catch(() => {
+        // error message shown inside _toggleFavoriteEntity
       });
     });
 
     row.appendChild(label);
-    row.appendChild(toggle);
+    row.appendChild(btn);
     section.appendChild(row);
     body.appendChild(section);
-  }
-
-  private async _setFavoriteFromToggle(toggle: HaSwitchElement, entityId: string, nextActive: boolean): Promise<void> {
-    if (!this._hass) return;
-    try {
-      if (nextActive) {
-        await addFavorite(this._hass, entityId);
-      } else {
-        await removeFavorite(this._hass, entityId);
-      }
-    } catch (err) {
-      // Roll back the switch to its prior state.
-      if (nextActive) {
-        toggle.removeAttribute("checked");
-        toggle.checked = false;
-      } else {
-        toggle.setAttribute("checked", "");
-        toggle.checked = true;
-      }
-      const message = _extractErrorMessage(err);
-      this._showError(`${t("sidepanel.favorite_failed")} ${message}`);
-      throw err;
-    }
   }
 
   private _renderSubDeviceMode(panel: HTMLDivElement, cfg: SubDeviceModeConfig): void {
@@ -847,33 +837,7 @@ class SpanSidePanel extends HTMLElement {
   private _renderSubDeviceFavoriteSection(body: HTMLDivElement, cfg: SubDeviceModeConfig): void {
     const entityId = this._subDeviceFavoriteEntityId(cfg.entities);
     if (!entityId) return;
-
-    const section = document.createElement("div");
-    section.className = "section";
-    section.innerHTML = `<div class="section-label">${escapeHtml(t("sidepanel.favorite"))}</div>`;
-
-    const row = document.createElement("div");
-    row.className = "field-row";
-
-    const label = document.createElement("span");
-    label.className = "field-label";
-    label.textContent = t("sidepanel.save_to_favorites");
-
-    const toggle = document.createElement("ha-switch") as HaSwitchElement;
-    toggle.dataset.role = "favorite-toggle";
-    if (cfg.isFavorite) toggle.setAttribute("checked", "");
-
-    toggle.addEventListener("change", () => {
-      const nextActive = toggle.checked;
-      this._setFavoriteFromToggle(toggle, entityId, nextActive).catch(() => {
-        // error already displayed
-      });
-    });
-
-    row.appendChild(label);
-    row.appendChild(toggle);
-    section.appendChild(row);
-    body.appendChild(section);
+    this._appendFavoriteHeartSection(body, entityId, cfg.isFavorite === true);
   }
 
   private _renderSubDeviceHorizonSection(body: HTMLDivElement, cfg: SubDeviceModeConfig): void {
