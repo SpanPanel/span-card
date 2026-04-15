@@ -134,6 +134,10 @@ export class SpanPanelElement extends LitElement {
       margin: 0 0 0 24px;
       line-height: 20px;
       flex-grow: 1;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      min-width: 0;
     }
     .panel-selector select {
       color: inherit;
@@ -150,10 +154,13 @@ export class SpanPanelElement extends LitElement {
       color: var(--primary-text-color);
     }
     .panel-tabs {
-      margin-left: max(env(safe-area-inset-left), 24px);
-      margin-right: max(env(safe-area-inset-right), 24px);
       display: flex;
       gap: 0;
+      overflow-x: auto;
+      scrollbar-width: none;
+    }
+    .panel-tabs::-webkit-scrollbar {
+      display: none;
     }
     .panel-tab {
       padding: 8px 20px;
@@ -348,10 +355,9 @@ export class SpanPanelElement extends LitElement {
                 ${this._panels.map(p => html` <option value=${p.id} ?selected=${p.id === this._selectedPanelId}>${p.name_by_user || p.name || p.id}</option> `)}
               </select>
             </span>
+            <div class="panel-tabs" @click=${this._onTabClick}>${unsafeHTML(buildTabBarHTML(this._buildTabList(), this._activeTab, "text"))}</div>
           </div>
         </div>
-
-        <div class="panel-tabs" @click=${this._onTabClick}>${unsafeHTML(buildTabBarHTML(this._buildTabList(), this._activeTab, "text"))}</div>
       </div>
 
       <div class="view">
