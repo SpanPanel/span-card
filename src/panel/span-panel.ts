@@ -400,7 +400,8 @@ export class SpanPanelElement extends LitElement {
       this._areaUnsub();
       this._areaUnsub = null;
     }
-    this._scheduleTabRender();
+    // Reactive updated() handles the re-render via _selectedPanelId
+    // (and possibly _activeTab) changes.
   }
 
   private get _isFavoritesView(): boolean {
@@ -418,7 +419,9 @@ export class SpanPanelElement extends LitElement {
       this._favoritesViewState.activeTab = tab;
       _saveFavoritesViewState(this._favoritesViewState);
     }
-    this._scheduleTabRender();
+    // No explicit _scheduleTabRender — Lit's updated() sees
+    // _activeTab change and schedules the render. Calling here too
+    // would kick off two concurrent renders and produce flashing.
   }
 
   private _onTabContentClick(e: Event): void {
@@ -431,9 +434,7 @@ export class SpanPanelElement extends LitElement {
       if (!metric || metric === this._chartMetric) return;
       this._chartMetric = metric;
       localStorage.setItem("span_panel_metric", metric);
-      if (this._activeTab === "dashboard") {
-        this._scheduleTabRender();
-      }
+      // Reactive updated() handles the re-render; see _onTabClick.
       return;
     }
 
@@ -454,7 +455,7 @@ export class SpanPanelElement extends LitElement {
     if (!unit || unit === this._chartMetric) return;
     this._chartMetric = unit;
     localStorage.setItem("span_panel_metric", unit);
-    this._scheduleTabRender();
+    // Reactive updated() handles the re-render.
   }
 
   private _onGraphSettingsChanged(): void {
@@ -471,7 +472,7 @@ export class SpanPanelElement extends LitElement {
     const tab = (e as CustomEvent<string>).detail;
     if (!tab) return;
     this._activeTab = tab as TabName;
-    this._scheduleTabRender();
+    // Reactive updated() handles the re-render.
   }
 
   private _onFavoritesViewStateChangedEvent(ev: Event): void {
@@ -737,9 +738,35 @@ export class SpanPanelElement extends LitElement {
     };
   }
 
+  private _pendingTabRender: Promise<void> | null = null;
+  private _pendingFollowupRender = false;
+
+  /**
+   * Coalesce tab-render requests. If a render is in-flight, remember
+   * that another was requested and run exactly one follow-up once the
+   * current render completes. Running two ``_renderTab`` calls
+   * concurrently causes the tab container to be cleared and rewritten
+   * twice in rapid succession, which is visible as flashing.
+   */
   private async _scheduleTabRender(): Promise<void> {
     await this.updateComplete;
-    await this._renderTab();
+    if (this._pendingTabRender) {
+      this._pendingFollowupRender = true;
+      return;
+    }
+    const run = (async (): Promise<void> => {
+      try {
+        await this._renderTab();
+      } finally {
+        this._pendingTabRender = null;
+      }
+      if (this._pendingFollowupRender) {
+        this._pendingFollowupRender = false;
+        await this._scheduleTabRender();
+      }
+    })();
+    this._pendingTabRender = run;
+    await run;
   }
 
   private async _renderTab(): Promise<void> {
@@ -779,6 +806,11 @@ export class SpanPanelElement extends LitElement {
           const result = await discoverTopology(this.hass, this._selectedPanelId ?? undefined);
           const config = this._buildDashboardConfig();
           this._listDashCtrl.init(result.topology, config, this.hass, entryId);
+          // A full re-render (including on W/A switch) needs fresh
+          // history: ``loadHistory`` merges into ``powerHistory``, so
+          // leftover points from the previous metric would contaminate
+          // the new chart.
+          this._listDashCtrl.powerHistory.clear();
           await this._listDashCtrl.monitoringCache.fetch(this.hass, entryId);
           await this._listDashCtrl.fetchAndBuildHorizonMaps();
           const headerHTML = result.topology ? this._buildCurrentPanelHeaderHTML(result.topology, config) : "";
@@ -803,6 +835,7 @@ export class SpanPanelElement extends LitElement {
           const result = await discoverTopology(this.hass, this._selectedPanelId ?? undefined);
           const config = this._buildDashboardConfig();
           this._listDashCtrl.init(result.topology, config, this.hass, areaEntryId);
+          this._listDashCtrl.powerHistory.clear();
           await this._listDashCtrl.monitoringCache.fetch(this.hass, areaEntryId);
           await this._listDashCtrl.fetchAndBuildHorizonMaps();
           const headerHTML = result.topology ? this._buildCurrentPanelHeaderHTML(result.topology, config) : "";
@@ -888,6 +921,7 @@ export class SpanPanelElement extends LitElement {
 
     const config = this._buildDashboardConfig();
     this._listDashCtrl.init(merged, config, this.hass, primaryEntryId);
+    this._listDashCtrl.powerHistory.clear();
     await this._listDashCtrl.fetchAndBuildHorizonMaps();
     const monitoringStatus = await this._listDashCtrl.fetchMergedMonitoringStatus(build.entryIds);
 
