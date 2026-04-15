@@ -569,11 +569,17 @@ export class SpanPanelElement extends LitElement {
   }
 
   /**
-   * React to a ``favorites-changed`` event dispatched by the side panel.
-   * Re-fetches the favorites map and updates the dropdown entry + the
-   * per-panel favorites passed into controllers. Does NOT tear down the
-   * tab content — that would close any open side panel. The next panel
-   * or tab switch naturally picks up the new list for the Favorites view.
+   * React to a ``favorites-changed`` event dispatched by a heart toggle
+   * in the side panel. Re-fetches the favorites map and updates the
+   * dropdown entry. Re-renders the tab only when needed:
+   *
+   * - Favorites view: always re-render so removed targets disappear
+   *   immediately. The open side panel is destroyed as a side effect,
+   *   which is acceptable UX since the user just un-favorited the
+   *   target they were inspecting.
+   * - Real panel view: skip the re-render so the open Graph Settings
+   *   side panel stays interactive while the user toggles hearts on
+   *   multiple targets in a row.
    */
   private async _refreshFavorites(): Promise<void> {
     this._favCache.invalidate();
@@ -598,7 +604,11 @@ export class SpanPanelElement extends LitElement {
       } else {
         this._selectedPanelId = null;
       }
-    } else if (!this._isFavoritesView) {
+    } else if (this._isFavoritesView) {
+      // Re-render the favorites view so newly un-favorited rows /
+      // sub-device tiles are removed from the list.
+      this._scheduleTabRender();
+    } else {
       // Keep per-panel favorites fresh so the next gear click (or a
       // re-opened side panel) reflects the current heart state.
       this._applyPanelFavorites();
