@@ -132,9 +132,9 @@ export function buildListRowHTML(
     <div class="list-row ${isOn ? "" : "circuit-off"} ${isExpanded ? "list-row-expanded" : ""}"
          data-row-uuid="${escapeHtml(uuid)}" data-uuid="${escapeHtml(uuid)}">
       ${breakerLabel ? `<span class="breaker-badge">${breakerLabel}</span>` : ""}
+      ${utilizationHTML}
       <span class="list-circuit-name">${name}</span>
       ${sheddingHTML}
-      ${utilizationHTML}
       ${statusBadge}
       <span class="list-power-value">
         ${valueHTML}
@@ -149,7 +149,7 @@ export function buildListRowHTML(
 
 /**
  * Build the chart-only expanded content for a list row. The collapsed
- * list row already shows breaker / name / shedding / utilization / status /
+ * list row already shows breaker / utilization / name / shedding / status /
  * power, so the expanded area only needs to surface the chart. State-
  * visualization classes (off, producer, alert, custom monitoring) still
  * apply to the wrapping slot so border/background signaling is preserved.
