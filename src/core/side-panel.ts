@@ -27,9 +27,15 @@ interface PanelModeConfig {
   showFavorites?: boolean;
   /** HA device id of the panel whose side panel is open (source of favorites). */
   favoritePanelDeviceId?: string;
-  /** Circuit uuids already favorited for that panel — drives heart fill. */
+  /**
+   * Circuit uuids favorited for this panel at the moment the side panel
+   * was opened. Snapshot — not live. Subsequent toggles update only the
+   * clicked heart's optimistic class via ``_toggleFavoriteEntity``; if
+   * the user closes and reopens the side panel, ``DashboardController.onGearClick``
+   * rebuilds the config from the latest ``_panelFavorites``.
+   */
   favoriteCircuitUuids?: Set<string>;
-  /** Sub-device HA device ids already favorited — drives heart fill. */
+  /** Sub-device HA device ids favorited for this panel — same snapshot semantics. */
   favoriteSubDeviceIds?: Set<string>;
   /** Override config entry id used for cross-panel service routing (favorites). */
   configEntryId?: string | null;
@@ -695,25 +701,7 @@ class SpanSidePanel extends HTMLElement {
   private _buildSubDeviceFavoriteHeart(entities: Record<string, { domain: string }> | undefined, isFavorite: boolean): HTMLButtonElement | null {
     const entityId = this._subDeviceFavoriteEntityId(entities);
     if (!entityId) return null;
-
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = isFavorite ? "fav-heart active" : "fav-heart";
-    btn.dataset.role = "fav-heart";
-    btn.title = t("sidepanel.save_to_favorites");
-
-    const icon = document.createElement("ha-icon");
-    icon.setAttribute("icon", isFavorite ? "mdi:heart" : "mdi:heart-outline");
-    btn.appendChild(icon);
-
-    btn.addEventListener("click", (ev: Event) => {
-      ev.stopPropagation();
-      this._toggleFavoriteEntity(btn, icon, entityId).catch(() => {
-        // error message shown inside _toggleFavoriteEntity
-      });
-    });
-
-    return btn;
+    return this._buildHeartButton(entityId, isFavorite);
   }
 
   /**
@@ -723,13 +711,29 @@ class SpanSidePanel extends HTMLElement {
    */
   private _buildFavoriteHeart(entities: CircuitEntities | undefined, isFavorite: boolean): HTMLButtonElement | null {
     const entityId = this._favoriteEntityId(entities);
-    if (!entityId) return null;
+    if (!entityId) {
+      console.warn("SPAN Panel: circuit has no current/power sensor; favorite heart suppressed");
+      return null;
+    }
+    return this._buildHeartButton(entityId, isFavorite);
+  }
 
+  /**
+   * Shared heart-button builder used by both circuit and sub-device
+   * panel-mode rows and by the per-target side-panel Favorite section.
+   * Renders an accessible toggle (``role=switch``, ``aria-pressed``,
+   * ``aria-label``) so screen readers announce both the action and the
+   * current state — ``title`` alone isn't surfaced.
+   */
+  private _buildHeartButton(entityId: string, isFavorite: boolean): HTMLButtonElement {
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = isFavorite ? "fav-heart active" : "fav-heart";
     btn.dataset.role = "fav-heart";
     btn.title = t("sidepanel.save_to_favorites");
+    btn.setAttribute("role", "switch");
+    btn.setAttribute("aria-pressed", String(isFavorite));
+    btn.setAttribute("aria-label", t("sidepanel.save_to_favorites"));
 
     const icon = document.createElement("ha-icon");
     icon.setAttribute("icon", isFavorite ? "mdi:heart" : "mdi:heart-outline");
@@ -749,9 +753,10 @@ class SpanSidePanel extends HTMLElement {
     if (!this._hass) return;
     const wasActive = btn.classList.contains("active");
     const nextActive = !wasActive;
-    // Optimistically flip; roll back on error.
+    // Optimistically flip class, icon, and aria-pressed; roll back on error.
     btn.classList.toggle("active", nextActive);
     icon.setAttribute("icon", nextActive ? "mdi:heart" : "mdi:heart-outline");
+    btn.setAttribute("aria-pressed", String(nextActive));
     try {
       if (nextActive) {
         await addFavorite(this._hass, entityId);
@@ -761,6 +766,7 @@ class SpanSidePanel extends HTMLElement {
     } catch (err) {
       btn.classList.toggle("active", wasActive);
       icon.setAttribute("icon", wasActive ? "mdi:heart" : "mdi:heart-outline");
+      btn.setAttribute("aria-pressed", String(wasActive));
       const message = _extractErrorMessage(err);
       this._showError(`${t("sidepanel.favorite_failed")} ${message}`);
       throw err;
@@ -791,25 +797,8 @@ class SpanSidePanel extends HTMLElement {
     label.className = "field-label";
     label.textContent = t("sidepanel.save_to_favorites");
 
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = isFavorite ? "fav-heart active" : "fav-heart";
-    btn.dataset.role = "favorite-heart";
-    btn.title = t("sidepanel.save_to_favorites");
-
-    const icon = document.createElement("ha-icon");
-    icon.setAttribute("icon", isFavorite ? "mdi:heart" : "mdi:heart-outline");
-    btn.appendChild(icon);
-
-    btn.addEventListener("click", (ev: Event) => {
-      ev.stopPropagation();
-      this._toggleFavoriteEntity(btn, icon, entityId).catch(() => {
-        // error message shown inside _toggleFavoriteEntity
-      });
-    });
-
     row.appendChild(label);
-    row.appendChild(btn);
+    row.appendChild(this._buildHeartButton(entityId, isFavorite));
     section.appendChild(row);
     body.appendChild(section);
   }

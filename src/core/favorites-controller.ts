@@ -9,30 +9,10 @@ export function buildCompositeId(panelDeviceId: string, circuitUuid: string): st
   return `${panelDeviceId}${COMPOSITE_SEPARATOR}${circuitUuid}`;
 }
 
-/**
- * Parse a composite id back into its ``(panelDeviceId, circuitUuid)``
- * parts. Returns ``null`` when the input is not a composite id — callers
- * should treat a plain uuid as "use the current panel" in that case.
- */
-export function parseCompositeId(id: string): { panelDeviceId: string; circuitUuid: string } | null {
-  const idx = id.indexOf(COMPOSITE_SEPARATOR);
-  if (idx <= 0 || idx === id.length - 1) return null;
-  return {
-    panelDeviceId: id.slice(0, idx),
-    circuitUuid: id.slice(idx + 1),
-  };
-}
-
 export interface FavoritesBuildResult {
   topology: FavoritesTopology;
   /** Unique contributing config entry ids (for monitoring tab stacking). */
   entryIds: string[];
-  /**
-   * Per-panel raw topologies, keyed by panel device id. Callers that
-   * need to resolve a composite id to a real circuit (e.g. the side
-   * panel's gear routing) can look up the originating topology here.
-   */
-  panelTopologies: Record<string, PanelTopology>;
 }
 
 /**
@@ -76,12 +56,10 @@ export class FavoritesController {
     const mergedCircuits: FavoritesTopology["circuits"] = {};
     const mergedSubDevices: NonNullable<FavoritesTopology["sub_devices"]> = {};
     const refs: Record<string, FavoriteRef> = {};
-    const panelTopologies: Record<string, PanelTopology> = {};
     const entryIds = new Set<string>();
 
     for (const { panelDeviceId, panel, topology } of contributing) {
       if (!topology) continue;
-      panelTopologies[panelDeviceId] = topology;
       const configEntryId = panel.config_entries?.[0] ?? null;
       if (configEntryId) entryIds.add(configEntryId);
 
@@ -130,7 +108,6 @@ export class FavoritesController {
     return {
       topology,
       entryIds: Array.from(entryIds),
-      panelTopologies,
     };
   }
 }

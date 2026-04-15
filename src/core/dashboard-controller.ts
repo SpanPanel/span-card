@@ -146,10 +146,52 @@ export class DashboardController {
 
   async fetchAndBuildHorizonMaps(): Promise<void> {
     try {
-      await this.graphSettingsCache.fetch(this._hass!, this._configEntryId);
-      this.buildHorizonMaps(this.graphSettingsCache.settings);
+      if (this._favRefs) {
+        await this._buildFavoritesHorizonMaps();
+      } else {
+        await this.graphSettingsCache.fetch(this._hass!, this._configEntryId);
+        this.buildHorizonMaps(this.graphSettingsCache.settings);
+      }
     } catch {
       // Graph settings unavailable -- use defaults
+    }
+  }
+
+  /**
+   * Build horizon maps for the Favorites pseudo-panel by fetching graph
+   * settings per contributing config entry in parallel, then routing
+   * each composite circuit/sub-device id through its ``FavoriteRef`` to
+   * the originating entry's settings. Without this, every favorited
+   * target would incorrectly resolve against the primary entry's
+   * settings, masking per-target overrides on non-primary panels.
+   */
+  private async _buildFavoritesHorizonMaps(): Promise<void> {
+    if (!this._hass || !this._favRefs || !this._topology) return;
+    const entryIds = new Set<string>();
+    for (const ref of Object.values(this._favRefs)) {
+      if (ref.configEntryId) entryIds.add(ref.configEntryId);
+    }
+    const settingsByEntry = new Map<string, GraphSettings | null>();
+    await Promise.all(
+      Array.from(entryIds).map(async eid => {
+        settingsByEntry.set(eid, await this._fetchGraphSettingsFresh(eid));
+      })
+    );
+    this.horizonMap.clear();
+    this.subDeviceHorizonMap.clear();
+    for (const compositeId of Object.keys(this._topology.circuits)) {
+      const ref = this._favRefs[compositeId];
+      const settings = ref?.configEntryId ? (settingsByEntry.get(ref.configEntryId) ?? null) : null;
+      const realId = ref?.targetId ?? compositeId;
+      this.horizonMap.set(compositeId, getEffectiveHorizon(settings, realId));
+    }
+    if (this._topology.sub_devices) {
+      for (const compositeId of Object.keys(this._topology.sub_devices)) {
+        const ref = this._favRefs[compositeId];
+        const settings = ref?.configEntryId ? (settingsByEntry.get(ref.configEntryId) ?? null) : null;
+        const realId = ref?.targetId ?? compositeId;
+        this.subDeviceHorizonMap.set(compositeId, getEffectiveSubDeviceHorizon(settings, realId));
+      }
     }
   }
 
@@ -265,9 +307,14 @@ export class DashboardController {
 
   async onGraphSettingsChanged(root: DOMRoot): Promise<void> {
     if (!this._hass) return;
-    this.graphSettingsCache.invalidate();
-    await this.graphSettingsCache.fetch(this._hass, this._configEntryId);
-    this.buildHorizonMaps(this.graphSettingsCache.settings);
+    if (this._favRefs) {
+      // Favorites view: per-entry fresh fetches, routed through refs.
+      await this._buildFavoritesHorizonMaps();
+    } else {
+      this.graphSettingsCache.invalidate();
+      await this.graphSettingsCache.fetch(this._hass, this._configEntryId);
+      this.buildHorizonMaps(this.graphSettingsCache.settings);
+    }
 
     this.powerHistory.clear();
     try {

@@ -99,6 +99,14 @@ export class SpanPanelElement extends LitElement {
    * Monitoring tab — one block per contributing panel's config entry.
    */
   private _favoritesMonitoringTabs: Map<string, MonitoringTab> = new Map();
+  /**
+   * Monotonic token incremented on each ``_refreshFavorites`` call.
+   * Concurrent invocations (rapid heart toggles → multiple
+   * ``favorites-changed`` events) compare their token against the latest
+   * after each await; superseded callbacks bail out without touching
+   * state or scheduling another tab render.
+   */
+  private _refreshSeq = 0;
   private _areaUnsub: (() => void) | null = null;
   private _onVisibilityChange: (() => void) | null = null;
   private _onFavoritesChanged: (() => void) | null = null;
@@ -582,8 +590,12 @@ export class SpanPanelElement extends LitElement {
    *   multiple targets in a row.
    */
   private async _refreshFavorites(): Promise<void> {
+    const myToken = ++this._refreshSeq;
     this._favCache.invalidate();
     const favorites = await this._loadFavorites();
+    // Bail out if a newer refresh has superseded us — its reload + render
+    // will land with the latest data; don't double-render or fight it.
+    if (myToken !== this._refreshSeq) return;
     const wasOnFavorites = this._selectedPanelId === FAVORITES_PANEL_ID;
     this._favorites = favorites;
 
@@ -649,11 +661,12 @@ export class SpanPanelElement extends LitElement {
    * no longer renders its own — the persistent header owns it).
    */
   private _buildFavoritesSummaryHTML(): string {
-    const panelCount = Object.values(this._favorites).filter(e => (e.circuits?.length ?? 0) > 0 || (e.sub_devices?.length ?? 0) > 0).length;
     const circuitCount = countFavorites(this._favorites);
-    const key = circuitCount === 1 ? "panel.favorites_summary_one" : "panel.favorites_summary_many";
-    const template = t(key);
-    const summary = template.replace("{circuits}", String(circuitCount)).replace("{panels}", String(panelCount));
+    // Explicit conditional so the i18n validator can statically detect
+    // both keys; dynamic ``t(`panel.favorites_summary_${...}`)`` would
+    // be flagged as unused.
+    const template = circuitCount === 1 ? t("panel.favorites_summary_one") : t("panel.favorites_summary_many");
+    const summary = template.replace("{circuits}", String(circuitCount));
     const isAmpsMode = (this._chartMetric || "power") === "current";
     return `
       <div class="favorites-summary" style="padding:16px 24px;border-bottom:1px solid var(--divider-color,#e0e0e0);display:flex;align-items:center;gap:12px;">
@@ -870,13 +883,17 @@ export class SpanPanelElement extends LitElement {
       if (eid) panelsByEntry.set(eid, panel);
     }
 
+    // Build into a local map and only assign to the instance field after
+    // every render attempts so a single failure can't orphan tabs that
+    // _renderTab's cleanup loop never sees.
+    const tabs = new Map<string, MonitoringTab>();
     for (const entryId of entryIds) {
       const panel = panelsByEntry.get(entryId);
       const block = document.createElement("div");
       block.className = "favorites-monitoring-block";
       block.style.marginBottom = "24px";
 
-      const heading = document.createElement("h3");
+      const heading = document.createElement("h2");
       heading.style.margin = "8px 0 12px";
       heading.style.fontSize = "1em";
       heading.textContent = panel?.name_by_user ?? panel?.name ?? entryId;
@@ -887,9 +904,18 @@ export class SpanPanelElement extends LitElement {
       wrapper.appendChild(block);
 
       const tab = new MonitoringTab();
-      this._favoritesMonitoringTabs.set(entryId, tab);
-      await tab.render(body, this.hass, entryId);
+      tabs.set(entryId, tab);
+      try {
+        await tab.render(body, this.hass, entryId);
+      } catch (err) {
+        console.warn("SPAN Panel: favorites monitoring render failed", entryId, err);
+        const errEl = document.createElement("p");
+        errEl.style.color = "var(--error-color)";
+        errEl.textContent = (err as Error).message ?? String(err);
+        body.appendChild(errEl);
+      }
     }
+    this._favoritesMonitoringTabs = tabs;
   }
 
   /**
