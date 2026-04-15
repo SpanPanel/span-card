@@ -1,5 +1,6 @@
 // src/core/side-panel.ts
 import { escapeHtml } from "../helpers/sanitize.js";
+import { loadListColumns, saveListColumns } from "../helpers/list-columns.js";
 import { INTEGRATION_DOMAIN, SHEDDING_PRIORITIES, GRAPH_HORIZONS, DEFAULT_GRAPH_HORIZON, ERROR_DISPLAY_MS, INPUT_DEBOUNCE_MS } from "../constants.js";
 import { t } from "../i18n.js";
 import { addFavorite, removeFavorite } from "./favorites-store.js";
@@ -462,6 +463,14 @@ class SpanSidePanel extends HTMLElement {
     globalSection.appendChild(globalRow);
     body.appendChild(globalSection);
 
+    // ── List view columns ──
+    // This is a display preference persisted to localStorage by
+    // span-panel.ts. It applies to every list view (Activity / Area,
+    // including the Favorites pseudo-panel). We surface it here in the
+    // Graph Settings side panel because it's the closest thing to a
+    // global display-preferences surface the UI exposes today.
+    body.appendChild(this._buildListColumnsSection());
+
     // ── Per-circuit horizon scales ──
     if (topology?.circuits) {
       const circuitSection = document.createElement("div");
@@ -709,6 +718,59 @@ class SpanSidePanel extends HTMLElement {
    * Returns ``null`` when the circuit has no routable sensor entity
    * (favorites services need an entity_id to resolve the target).
    */
+  /**
+   * Build the "List view columns" section for the Graph Settings
+   * panel — a segmented 1/2/3 control backed by localStorage. Clicking
+   * a button persists the choice and dispatches ``list-columns-changed``
+   * up the DOM so ``span-panel.ts`` re-renders the active list view.
+   */
+  private _buildListColumnsSection(): HTMLDivElement {
+    const section = document.createElement("div");
+    section.className = "section";
+
+    const label = document.createElement("div");
+    label.className = "section-label";
+    label.textContent = t("sidepanel.list_view_columns");
+    section.appendChild(label);
+
+    const row = document.createElement("div");
+    row.className = "field-row";
+
+    const fieldLabel = document.createElement("span");
+    fieldLabel.className = "field-label";
+    fieldLabel.textContent = t("sidepanel.columns");
+    row.appendChild(fieldLabel);
+
+    const current = loadListColumns();
+
+    const group = document.createElement("div");
+    group.className = "unit-toggle";
+    for (const n of [1, 2, 3]) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = `unit-btn${n === current ? " unit-active" : ""}`;
+      btn.dataset.columns = String(n);
+      btn.textContent = String(n);
+      btn.addEventListener("click", () => {
+        saveListColumns(n);
+        for (const other of group.querySelectorAll<HTMLElement>(".unit-btn")) {
+          other.classList.toggle("unit-active", other === btn);
+        }
+        this.dispatchEvent(
+          new CustomEvent<number>("list-columns-changed", {
+            detail: n,
+            bubbles: true,
+            composed: true,
+          })
+        );
+      });
+      group.appendChild(btn);
+    }
+    row.appendChild(group);
+    section.appendChild(row);
+    return section;
+  }
+
   private _buildFavoriteHeart(entities: CircuitEntities | undefined, isFavorite: boolean): HTMLButtonElement | null {
     const entityId = this._favoriteEntityId(entities);
     if (!entityId) {

@@ -163,8 +163,21 @@ export class ListViewController {
    */
   private _viewName: "activity" | "area" | null = null;
 
+  /**
+   * Number of columns for the circuit list. 1 = flex/stack (default),
+   * 2-3 = CSS grid. Configurable via the Graph Settings side panel and
+   * persisted to localStorage by ``span-panel.ts``.
+   */
+  private _columns = 1;
+
   constructor(ctrl: DashboardController) {
     this._ctrl = ctrl;
+  }
+
+  /** Set the column count (1-3) for the next render. */
+  setColumns(n: number): void {
+    const clamped = Math.max(1, Math.min(3, Math.floor(n)));
+    this._columns = clamped;
   }
 
   /**
@@ -207,7 +220,7 @@ export class ListViewController {
     const sorted = sortCircuitEntries(entries, hass, config);
 
     let html = headerHTML + buildSearchBarHTML(this._searchQuery);
-    html += '<div class="list-view">';
+    html += `<div class="list-view" data-columns="${this._columns}" style="--list-cols:${this._columns};">`;
 
     for (const [uuid, circuit] of sorted) {
       const monitoringInfo = getCircuitMonitoringInfo(monitoringStatus, getCircuitEntityId(circuit));
@@ -265,7 +278,7 @@ export class ListViewController {
     });
 
     let html = headerHTML + buildSearchBarHTML(this._searchQuery);
-    html += '<div class="list-view">';
+    html += `<div class="list-view" data-columns="${this._columns}" style="--list-cols:${this._columns};">`;
 
     for (const areaName of areaNames) {
       const group = areaGroups.get(areaName);

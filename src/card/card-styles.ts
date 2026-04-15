@@ -524,6 +524,26 @@ export const CARD_STYLES: string = `
     flex-direction: column;
     gap: 6px;
   }
+  /* Multi-column grid mode: rows flow left-to-right then down. The
+     existing value-desc / alphabetical sort order becomes top-left
+     to bottom-right. Expanded rows and area headers span the full
+     row via inline "grid-column: 1 / -1" from the renderers. */
+  .list-view[data-columns="2"],
+  .list-view[data-columns="3"] {
+    display: grid;
+    grid-template-columns: repeat(var(--list-cols), minmax(0, 1fr));
+    gap: 6px 8px;
+    flex-direction: initial;
+  }
+  /* On narrow viewports a 2/3-column list would squeeze rows into an
+     unreadable shape, so force stacking regardless of user preference. */
+  @media (max-width: 599px) {
+    .list-view[data-columns="2"],
+    .list-view[data-columns="3"] {
+      display: flex;
+      flex-direction: column;
+    }
+  }
 
   .list-row {
     display: flex;

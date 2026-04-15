@@ -176,7 +176,7 @@ export function buildExpandedChartHTML(
   const safeUuid = escapeHtml(uuid);
 
   return `
-    <div class="list-expanded-content" data-expanded-uuid="${safeUuid}">
+    <div class="list-expanded-content" data-expanded-uuid="${safeUuid}" style="grid-column:1 / -1;">
       <div class="circuit-slot circuit-chart-only ${stateClasses}" data-uuid="${safeUuid}">
         <div class="chart-container"></div>
       </div>
@@ -185,8 +185,11 @@ export function buildExpandedChartHTML(
 }
 
 /**
- * Build an area group header for the "By Area" list view.
+ * Build an area group header for the "By Area" list view. The inline
+ * ``grid-column: 1 / -1`` is harmless when the list view is in
+ * single-column (flex) mode and causes the header to span all columns
+ * when grid mode is active.
  */
 export function buildAreaHeaderHTML(areaName: string): string {
-  return `<div class="area-header" data-area="${escapeHtml(areaName)}">${escapeHtml(areaName)}</div>`;
+  return `<div class="area-header" data-area="${escapeHtml(areaName)}" style="grid-column:1 / -1;">${escapeHtml(areaName)}</div>`;
 }

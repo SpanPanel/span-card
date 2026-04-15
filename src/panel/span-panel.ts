@@ -15,6 +15,7 @@ import { buildHeaderHTML, buildPanelStatsHTML } from "../core/header-renderer.js
 import { updatePanelStatsBlock } from "../core/dom-updater.js";
 import { buildSubDevicesHTML } from "../core/sub-device-renderer.js";
 import { escapeHtml } from "../helpers/sanitize.js";
+import { loadListColumns, saveListColumns } from "../helpers/list-columns.js";
 import { CARD_STYLES } from "../card/card-styles.js";
 import { FAVORITES_CHANGED_EVENT, FavoritesCache, hasAnyFavorites } from "../core/favorites-store.js";
 import { FavoritesController, type FavoritesPanelStatsInfo } from "../core/favorites-controller.js";
@@ -85,6 +86,7 @@ export class SpanPanelElement extends LitElement {
   @state() private _discovered = false;
   @state() private _discoveryError: string | null = null;
   @state() private _chartMetric: string | undefined;
+  @state() private _listColumns: number = loadListColumns();
   @state() private _favorites: FavoritesMap = {};
 
   private _favoritesViewState: FavoritesViewState = _defaultFavoritesViewState();
@@ -286,7 +288,11 @@ export class SpanPanelElement extends LitElement {
     // Render tab content when discovery completes or active tab/panel/metric changes
     if (
       this._discovered &&
-      (changedProps.has("_discovered") || changedProps.has("_activeTab") || changedProps.has("_selectedPanelId") || changedProps.has("_chartMetric"))
+      (changedProps.has("_discovered") ||
+        changedProps.has("_activeTab") ||
+        changedProps.has("_selectedPanelId") ||
+        changedProps.has("_chartMetric") ||
+        changedProps.has("_listColumns"))
     ) {
       this._scheduleTabRender();
     }
@@ -377,6 +383,7 @@ export class SpanPanelElement extends LitElement {
             @unit-changed=${this._onUnitChanged}
             @side-panel-closed=${this._onSidePanelClosed}
             @graph-settings-changed=${this._onGraphSettingsChanged}
+            @list-columns-changed=${this._onListColumnsChanged}
             @navigate-tab=${this._onNavigateTab}
             @favorites-view-state-changed=${this._onFavoritesViewStateChangedEvent}
           ></div>
@@ -455,6 +462,14 @@ export class SpanPanelElement extends LitElement {
     if (!unit || unit === this._chartMetric) return;
     this._chartMetric = unit;
     localStorage.setItem("span_panel_metric", unit);
+    // Reactive updated() handles the re-render.
+  }
+
+  private _onListColumnsChanged(e: Event): void {
+    const n = (e as CustomEvent<number>).detail;
+    if (typeof n !== "number" || (n !== 1 && n !== 2 && n !== 3) || n === this._listColumns) return;
+    this._listColumns = n;
+    saveListColumns(n);
     // Reactive updated() handles the re-render.
   }
 
@@ -814,6 +829,7 @@ export class SpanPanelElement extends LitElement {
           await this._listDashCtrl.monitoringCache.fetch(this.hass, entryId);
           await this._listDashCtrl.fetchAndBuildHorizonMaps();
           const headerHTML = result.topology ? this._buildCurrentPanelHeaderHTML(result.topology, config) : "";
+          this._listCtrl.setColumns(this._listColumns);
           this._listCtrl.renderActivityView(container, this.hass, result.topology!, config, this._listDashCtrl.monitoringCache.status, headerHTML);
           container.insertAdjacentHTML("afterbegin", `<style>${CARD_STYLES}</style>`);
           await this._listDashCtrl.loadHistory();
@@ -839,6 +855,7 @@ export class SpanPanelElement extends LitElement {
           await this._listDashCtrl.monitoringCache.fetch(this.hass, areaEntryId);
           await this._listDashCtrl.fetchAndBuildHorizonMaps();
           const headerHTML = result.topology ? this._buildCurrentPanelHeaderHTML(result.topology, config) : "";
+          this._listCtrl.setColumns(this._listColumns);
           this._listCtrl.renderAreaView(container, this.hass, result.topology!, config, this._listDashCtrl.monitoringCache.status, headerHTML);
           container.insertAdjacentHTML("afterbegin", `<style>${CARD_STYLES}</style>`);
           await this._listDashCtrl.loadHistory();
@@ -918,6 +935,7 @@ export class SpanPanelElement extends LitElement {
     this._listCtrl.setViewName(viewName);
     this._listCtrl.setInitialExpansion(storedExpanded);
     this._listCtrl.setInitialSearchQuery(this._favoritesViewState.searchQuery ?? "");
+    this._listCtrl.setColumns(this._listColumns);
 
     const config = this._buildDashboardConfig();
     this._listDashCtrl.init(merged, config, this.hass, primaryEntryId);

@@ -3,6 +3,7 @@ import { customElement, property, state } from "lit/decorators.js";
 import { DEFAULT_CHART_METRIC } from "../constants.js";
 import { setLanguage, t } from "../i18n.js";
 import { escapeHtml } from "../helpers/sanitize.js";
+import { loadListColumns } from "../helpers/list-columns.js";
 import { buildHeaderHTML } from "../core/header-renderer.js";
 import { buildGridHTML } from "../core/grid-renderer.js";
 import { buildSubDevicesHTML } from "../core/sub-device-renderer.js";
@@ -339,11 +340,13 @@ export class SpanPanelCard extends LitElement {
     } else if (this._activeTab === "activity") {
       container.innerHTML = "";
       const listHeaderHTML = buildHeaderHTML(this._topology, this._config);
+      this._listCtrl.setColumns(loadListColumns());
       this._listCtrl.renderActivityView(container as HTMLElement, this.hass, this._topology, this._config, this._ctrl.monitoringCache.status, listHeaderHTML);
       this._ctrl.updateDOM(this.shadowRoot!);
     } else if (this._activeTab === "area") {
       container.innerHTML = "";
       const listHeaderHTML = buildHeaderHTML(this._topology, this._config);
+      this._listCtrl.setColumns(loadListColumns());
       this._listCtrl.renderAreaView(container as HTMLElement, this.hass, this._topology, this._config, this._ctrl.monitoringCache.status, listHeaderHTML);
       this._ctrl.updateDOM(this.shadowRoot!);
     }
