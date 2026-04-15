@@ -203,6 +203,7 @@ export function renderCircuitSlot(
       <div class="circuit-header">
         <div class="circuit-info">
           ${breakerLabel ? `<span class="breaker-badge">${breakerLabel}</span>` : ""}
+          ${utilizationHTML}
           <span class="circuit-name">${name}</span>
         </div>
         <div class="circuit-controls">
@@ -223,7 +224,6 @@ export function renderCircuitSlot(
       </div>
       <div class="circuit-status">
         ${sheddingHTML}
-        ${utilizationHTML}
         ${gearHTML}
       </div>
       <div class="chart-container"></div>
