@@ -4,7 +4,8 @@ import { t } from "../i18n.js";
 import { tabToRow, tabToCol, classifyDualTab } from "../helpers/layout.js";
 import { getChartMetric } from "../helpers/chart.js";
 import { DEVICE_TYPE_PV, RELAY_STATE_CLOSED, SHEDDING_PRIORITIES, MONITORING_COLORS } from "../constants.js";
-import { getCircuitMonitoringInfo, hasCustomOverrides, getUtilizationClass, isAlertActive } from "./monitoring-status.js";
+import { getCircuitMonitoringInfo, hasCustomOverrides, getUtilizationClass } from "./monitoring-status.js";
+import { getCircuitStateClasses } from "./circuit-state.js";
 import type { PanelTopology, Circuit, HomeAssistant, CardConfig, MonitoringStatus, MonitoringPointInfo, SheddingPriorityDef } from "../types.js";
 
 type SlotLayout = "single" | "row-span" | "col-span";
@@ -189,17 +190,14 @@ export function renderCircuitSlot(
     utilizationHTML = `<span class="utilization ${utilClass}">${Math.round(pct)}%</span>`;
   }
 
-  // Alert and custom monitoring classes
-  const alertActive = isAlertActive(monitoringInfo);
-  const alertClass = alertActive ? "circuit-alert" : "";
-  const customClass = hasOverridesFlag ? "circuit-custom-monitoring" : "";
+  const stateClasses = getCircuitStateClasses(circuit, monitoringInfo, isOn, isProducer);
 
   const rowSpan = layout === "col-span" ? `${row} / span 2` : `${row}`;
   const layoutClass = inline ? "" : layout === "row-span" ? "circuit-row-span" : layout === "col-span" ? "circuit-col-span" : "";
   const gridStyle = inline ? "" : `style="grid-row: ${rowSpan}; grid-column: ${col};"`;
 
   return `
-    <div class="circuit-slot ${isOn ? "" : "circuit-off"} ${isProducer ? "circuit-producer" : ""} ${layoutClass} ${alertClass} ${customClass}"
+    <div class="circuit-slot ${stateClasses} ${layoutClass}"
          ${gridStyle}
          data-uuid="${escapeHtml(uuid)}">
       <div class="circuit-header">
