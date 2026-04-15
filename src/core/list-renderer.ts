@@ -2,9 +2,9 @@ import { escapeHtml } from "../helpers/sanitize.js";
 import { formatPowerSigned, formatPowerUnit } from "../helpers/format.js";
 import { t } from "../i18n.js";
 import { getChartMetric } from "../helpers/chart.js";
-import { RELAY_STATE_CLOSED, SHEDDING_PRIORITIES } from "../constants.js";
-import { getUtilizationClass } from "./monitoring-status.js";
-import { renderCircuitSlot } from "./grid-renderer.js";
+import { RELAY_STATE_CLOSED, SHEDDING_PRIORITIES, MONITORING_COLORS, DEVICE_TYPE_PV } from "../constants.js";
+import { getUtilizationClass, hasCustomOverrides } from "./monitoring-status.js";
+import { getCircuitStateClasses } from "./circuit-state.js";
 import type { Circuit, HomeAssistant, CardConfig, MonitoringPointInfo, SheddingPriorityDef } from "../types.js";
 
 /**
@@ -109,11 +109,28 @@ export function buildListRowHTML(
     utilizationHTML = `<span class="utilization ${utilClass}">${Math.round(pct)}%</span>`;
   }
 
+  // Gear — matches the breaker-grid's gear so onGearClick handles it unchanged.
+  const hasOverridesFlag = monitoringInfo ? hasCustomOverrides(monitoringInfo) : false;
+  const gearColor = hasOverridesFlag ? MONITORING_COLORS.custom : "#555";
+  const gearHTML = `<button class="gear-icon circuit-gear"
+  data-uuid="${escapeHtml(uuid)}" style="color:${gearColor};"
+  title="${t("grid.configure")}">
+  <ha-icon icon="mdi:cog" style="--mdc-icon-size:16px;"></ha-icon>
+</button>`;
+
+  // Make the status badge tappable only when the circuit can actually be
+  // toggled. Uses the same gate as the breaker-grid toggle-pill.
+  const isToggleable = circuit.is_user_controllable !== false && !!circuit.entities?.switch;
+  const toggleClass = isToggleable ? " list-status-toggle" : "";
+
   // ON/OFF badge
-  const statusBadge = isOn ? `<span class="list-status-badge list-status-on">ON</span>` : `<span class="list-status-badge list-status-off">OFF</span>`;
+  const statusBadge = isOn
+    ? `<span class="list-status-badge list-status-on${toggleClass}">ON</span>`
+    : `<span class="list-status-badge list-status-off${toggleClass}">OFF</span>`;
 
   return `
-    <div class="list-row ${isOn ? "" : "circuit-off"} ${isExpanded ? "list-row-expanded" : ""}" data-row-uuid="${escapeHtml(uuid)}">
+    <div class="list-row ${isOn ? "" : "circuit-off"} ${isExpanded ? "list-row-expanded" : ""}"
+         data-row-uuid="${escapeHtml(uuid)}" data-uuid="${escapeHtml(uuid)}">
       ${breakerLabel ? `<span class="breaker-badge">${breakerLabel}</span>` : ""}
       <span class="list-circuit-name">${name}</span>
       ${sheddingHTML}
@@ -122,6 +139,7 @@ export function buildListRowHTML(
       <span class="list-power-value">
         ${valueHTML}
       </span>
+      ${gearHTML}
       <button class="list-expand-toggle ${isExpanded ? "expanded" : ""}" data-expand-uuid="${escapeHtml(uuid)}">
         <ha-icon icon="mdi:chevron-down" style="--mdc-icon-size:18px;"></ha-icon>
       </button>
@@ -130,18 +148,41 @@ export function buildListRowHTML(
 }
 
 /**
- * Build the expanded detail view for a circuit (wraps renderCircuitSlot).
+ * Build the chart-only expanded content for a list row. The collapsed
+ * list row already shows breaker / name / shedding / utilization / status /
+ * power, so the expanded area only needs to surface the chart. State-
+ * visualization classes (off, producer, alert, custom monitoring) still
+ * apply to the wrapping slot so border/background signaling is preserved.
  */
-export function buildExpandedCircuitHTML(
+export function buildExpandedChartHTML(
   uuid: string,
   circuit: Circuit,
   hass: HomeAssistant,
   config: CardConfig,
-  monitoringInfo: MonitoringPointInfo | null,
-  sheddingPriority: string
+  monitoringInfo: MonitoringPointInfo | null
 ): string {
-  const slotHTML = renderCircuitSlot(uuid, circuit, 0, "1", "single", hass, config, monitoringInfo, sheddingPriority, true);
-  return `<div class="list-expanded-content" data-expanded-uuid="${escapeHtml(uuid)}">${slotHTML}</div>`;
+  void config;
+  const powerEid = circuit.entities?.power;
+  const powerState = powerEid ? hass.states[powerEid] : null;
+  const powerW = powerState ? parseFloat(powerState.state) || 0 : 0;
+  const isProducer = circuit.device_type === DEVICE_TYPE_PV || powerW < 0;
+
+  const switchEid = circuit.entities?.switch;
+  const switchState = switchEid ? hass.states[switchEid] : null;
+  const isOn = switchState
+    ? switchState.state === "on"
+    : ((powerState?.attributes?.relay_state as string | undefined) || circuit.relay_state) === RELAY_STATE_CLOSED;
+
+  const stateClasses = getCircuitStateClasses(circuit, monitoringInfo, isOn, isProducer);
+  const safeUuid = escapeHtml(uuid);
+
+  return `
+    <div class="list-expanded-content" data-expanded-uuid="${safeUuid}">
+      <div class="circuit-slot circuit-chart-only ${stateClasses}" data-uuid="${safeUuid}">
+        <div class="chart-container"></div>
+      </div>
+    </div>
+  `;
 }
 
 /**

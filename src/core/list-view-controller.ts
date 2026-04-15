@@ -3,7 +3,7 @@ import { formatPowerSigned, formatPowerUnit } from "../helpers/format.js";
 import { getChartMetric } from "../helpers/chart.js";
 import { t } from "../i18n.js";
 import { getCircuitMonitoringInfo } from "./monitoring-status.js";
-import { buildSearchBarHTML, buildListRowHTML, buildExpandedCircuitHTML, buildAreaHeaderHTML } from "./list-renderer.js";
+import { buildSearchBarHTML, buildListRowHTML, buildExpandedChartHTML, buildAreaHeaderHTML } from "./list-renderer.js";
 import type { DashboardController } from "./dashboard-controller.js";
 import type { HomeAssistant, PanelTopology, CardConfig, Circuit, MonitoringStatus } from "../types.js";
 
@@ -215,7 +215,7 @@ export class ListViewController {
       const isExpanded = this._expandedUuids.has(uuid);
       html += buildListRowHTML(uuid, circuit, hass, config, monitoringInfo, sheddingPriority, isExpanded);
       if (isExpanded) {
-        html += buildExpandedCircuitHTML(uuid, circuit, hass, config, monitoringInfo, sheddingPriority);
+        html += buildExpandedChartHTML(uuid, circuit, hass, config, monitoringInfo);
       }
     }
 
@@ -280,7 +280,7 @@ export class ListViewController {
         const isExpanded = this._expandedUuids.has(uuid);
         html += buildListRowHTML(uuid, circuit, hass, config, monitoringInfo, sheddingPriority, isExpanded);
         if (isExpanded) {
-          html += buildExpandedCircuitHTML(uuid, circuit, hass, config, monitoringInfo, sheddingPriority);
+          html += buildExpandedChartHTML(uuid, circuit, hass, config, monitoringInfo);
         }
       }
     }
@@ -330,6 +330,8 @@ export class ListViewController {
         statusBadge.textContent = isOn ? "ON" : "OFF";
         statusBadge.classList.toggle("list-status-on", isOn);
         statusBadge.classList.toggle("list-status-off", !isOn);
+        const isToggleable = circuit.is_user_controllable !== false && !!circuit.entities?.switch;
+        statusBadge.classList.toggle("list-status-toggle", isToggleable);
       }
 
       // Toggle circuit-off class
@@ -395,7 +397,7 @@ export class ListViewController {
       }
 
       // Handle toggle pill clicks (delegate to DashboardController for switch control)
-      const togglePill = target.closest(".toggle-pill");
+      const togglePill = target.closest(".toggle-pill, .list-status-toggle");
       if (togglePill) {
         this._ctrl.onToggleClick(ev, container);
         return;
@@ -529,8 +531,7 @@ export class ListViewController {
       if (!circuit) return;
 
       const monitoringInfo = getCircuitMonitoringInfo(this._monitoringStatus, getCircuitEntityId(circuit));
-      const sheddingPriority = getSheddingPriority(circuit, this._hass);
-      const html = buildExpandedCircuitHTML(uuid, circuit, this._hass, this._config, monitoringInfo, sheddingPriority);
+      const html = buildExpandedChartHTML(uuid, circuit, this._hass, this._config, monitoringInfo);
 
       row.insertAdjacentHTML("afterend", html);
       if (chevron) chevron.classList.add("expanded");
