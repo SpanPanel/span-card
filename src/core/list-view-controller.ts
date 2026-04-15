@@ -44,14 +44,88 @@ function getSheddingPriority(circuit: Circuit, hass: HomeAssistant): string {
   return selectState ? selectState.state : "unknown";
 }
 
+function compareCircuits(a: Circuit, b: Circuit, hass: HomeAssistant, config: CardConfig): number {
+  const infoA = getCircuitSortInfo(a, hass, config);
+  const infoB = getCircuitSortInfo(b, hass, config);
+  if (infoA.isOn && !infoB.isOn) return -1;
+  if (!infoA.isOn && infoB.isOn) return 1;
+  return infoB.value - infoA.value;
+}
+
 function sortCircuitEntries(entries: [string, Circuit][], hass: HomeAssistant, config: CardConfig): [string, Circuit][] {
-  return entries.sort((a, b) => {
-    const infoA = getCircuitSortInfo(a[1], hass, config);
-    const infoB = getCircuitSortInfo(b[1], hass, config);
-    if (infoA.isOn && !infoB.isOn) return -1;
-    if (!infoA.isOn && infoB.isOn) return 1;
-    return infoB.value - infoA.value;
-  });
+  return entries.sort((a, b) => compareCircuits(a[1], b[1], hass, config));
+}
+
+interface RowUnit {
+  row: HTMLElement;
+  expanded: HTMLElement | null;
+  uuid: string;
+  circuit: Circuit;
+}
+
+interface RowGroup {
+  anchor: HTMLElement | null;
+  units: RowUnit[];
+}
+
+// Partition .list-view's direct children into groups. Activity view produces a
+// single anchor-less group; area view produces one group per .area-header.
+function partitionRowGroups(listView: HTMLElement, topology: PanelTopology): RowGroup[] {
+  let current: RowGroup = { anchor: null, units: [] };
+  const groups: RowGroup[] = [current];
+  const children = [...listView.children] as HTMLElement[];
+
+  for (let i = 0; i < children.length; ) {
+    const el = children[i]!;
+    if (el.classList.contains("area-header")) {
+      current = { anchor: el, units: [] };
+      groups.push(current);
+      i++;
+      continue;
+    }
+    if (el.classList.contains("list-row")) {
+      const uuid = el.dataset.rowUuid;
+      const circuit = uuid ? topology.circuits[uuid] : undefined;
+      if (uuid && circuit) {
+        const next = children[i + 1];
+        const expanded = next && next.classList.contains("list-expanded-content") && next.dataset.expandedUuid === uuid ? next : null;
+        current.units.push({ row: el, expanded, uuid, circuit });
+        i += expanded ? 2 : 1;
+        continue;
+      }
+    }
+    i++;
+  }
+
+  return groups;
+}
+
+function reorderListRows(root: Element | ShadowRoot, hass: HomeAssistant, topology: PanelTopology, config: CardConfig): void {
+  const listView = root.querySelector<HTMLElement>(".list-view");
+  if (!listView) return;
+
+  for (const group of partitionRowGroups(listView, topology)) {
+    if (group.units.length < 2) continue;
+
+    const sorted = [...group.units].sort((a, b) => compareCircuits(a.circuit, b.circuit, hass, config));
+
+    const changed = sorted.some((unit, j) => unit.uuid !== group.units[j]!.uuid);
+    if (!changed) continue;
+
+    let after: Element | null = group.anchor;
+    for (const unit of sorted) {
+      if (after) {
+        after.after(unit.row);
+      } else {
+        listView.prepend(unit.row);
+      }
+      after = unit.row;
+      if (unit.expanded) {
+        after.after(unit.expanded);
+        after = unit.expanded;
+      }
+    }
+  }
 }
 
 function getCircuitEntityId(circuit: Circuit): string {
@@ -261,6 +335,8 @@ export class ListViewController {
       // Toggle circuit-off class
       row.classList.toggle("circuit-off", !isOn);
     }
+
+    reorderListRows(root, hass, topology, config);
   }
 
   stop(): void {
