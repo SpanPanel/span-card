@@ -921,19 +921,22 @@ class SpanSidePanel extends HTMLElement {
         if (btn.classList.contains("active")) return;
 
         const subDeviceId = cfg.subDeviceId;
+        // Without ``config_entry_id`` the backend's _get_horizon_manager
+        // falls back to the FIRST loaded SPAN entry's manager — wrong
+        // panel when more than one is configured. The panel-mode list
+        // and circuit-mode side panel both pass it; thread it here too.
+        const baseData: Record<string, unknown> = { subdevice_id: subDeviceId };
+        if (cfg.configEntryId) baseData.config_entry_id = cfg.configEntryId;
         if (key === "global") {
           updateSegmentStates("global");
-          this._callDomainService("clear_subdevice_graph_horizon", { subdevice_id: subDeviceId })
+          this._callDomainService("clear_subdevice_graph_horizon", baseData)
             .then(() => {
               this.dispatchEvent(new CustomEvent("graph-settings-changed", { bubbles: true, composed: true }));
             })
             .catch((err: Error) => this._showError(`${t("sidepanel.clear_graph_horizon_failed")} ${err.message ?? err}`));
         } else {
           updateSegmentStates(key);
-          this._callDomainService("set_subdevice_graph_horizon", {
-            subdevice_id: subDeviceId,
-            horizon: key,
-          })
+          this._callDomainService("set_subdevice_graph_horizon", { ...baseData, horizon: key })
             .then(() => {
               this.dispatchEvent(new CustomEvent("graph-settings-changed", { bubbles: true, composed: true }));
             })
