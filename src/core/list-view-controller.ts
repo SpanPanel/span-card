@@ -3,7 +3,7 @@ import { formatPowerSigned, formatPowerUnit } from "../helpers/format.js";
 import { getChartMetric } from "../helpers/chart.js";
 import { t } from "../i18n.js";
 import { getCircuitMonitoringInfo } from "./monitoring-status.js";
-import { buildSearchBarHTML, buildUnitToggleHTML, buildListRowHTML, buildExpandedCircuitHTML, buildAreaHeaderHTML } from "./list-renderer.js";
+import { buildSearchBarHTML, buildListRowHTML, buildExpandedCircuitHTML, buildAreaHeaderHTML } from "./list-renderer.js";
 import type { DashboardController } from "./dashboard-controller.js";
 import type { HomeAssistant, PanelTopology, CardConfig, Circuit, MonitoringStatus } from "../types.js";
 
@@ -58,6 +58,14 @@ function getCircuitEntityId(circuit: Circuit): string {
   return circuit.entities?.current ?? circuit.entities?.power ?? "";
 }
 
+export const FAVORITES_VIEW_STATE_CHANGED_EVENT = "favorites-view-state-changed";
+
+export interface FavoritesViewStateDetail {
+  view: "activity" | "area";
+  expanded: string[];
+  searchQuery: string;
+}
+
 export class ListViewController {
   private _ctrl: DashboardController;
   private _expandedUuids = new Set<string>();
@@ -73,8 +81,38 @@ export class ListViewController {
   private _config: CardConfig | null = null;
   private _monitoringStatus: MonitoringStatus | null = null;
 
+  /**
+   * When set to ``"activity"`` or ``"area"``, expansion and search-box
+   * mutations dispatch ``favorites-view-state-changed`` so span-panel.ts
+   * can persist the Favorites pseudo-panel's view state to localStorage.
+   * ``null`` (the default) disables persistence for real-panel renders.
+   */
+  private _viewName: "activity" | "area" | null = null;
+
   constructor(ctrl: DashboardController) {
     this._ctrl = ctrl;
+  }
+
+  /**
+   * Seed the expansion set before the next render. Called by
+   * ``span-panel.ts`` when re-entering the Favorites view so the user's
+   * previously expanded rows come back.
+   */
+  setInitialExpansion(ids: Iterable<string>): void {
+    this._expandedUuids = new Set(ids);
+  }
+
+  /** Seed the search query before the next render. */
+  setInitialSearchQuery(query: string): void {
+    this._searchQuery = query;
+  }
+
+  /**
+   * Mark the upcoming render as belonging to a Favorites-view tab so
+   * that expansion/search state persists across dropdown switches.
+   */
+  setViewName(viewName: "activity" | "area" | null): void {
+    this._viewName = viewName;
   }
 
   renderActivityView(
@@ -82,7 +120,8 @@ export class ListViewController {
     hass: HomeAssistant,
     topology: PanelTopology,
     config: CardConfig,
-    monitoringStatus: MonitoringStatus | null
+    monitoringStatus: MonitoringStatus | null,
+    headerHTML: string
   ): void {
     this._unbindEvents();
     this._hass = hass;
@@ -93,7 +132,7 @@ export class ListViewController {
     const entries: [string, Circuit][] = Object.entries(topology.circuits);
     const sorted = sortCircuitEntries(entries, hass, config);
 
-    let html = buildSearchBarHTML(this._searchQuery) + buildUnitToggleHTML(config);
+    let html = headerHTML + buildSearchBarHTML(this._searchQuery);
     html += '<div class="list-view">';
 
     for (const [uuid, circuit] of sorted) {
@@ -116,7 +155,14 @@ export class ListViewController {
     this._ctrl.updateDOM(container);
   }
 
-  renderAreaView(container: HTMLElement, hass: HomeAssistant, topology: PanelTopology, config: CardConfig, monitoringStatus: MonitoringStatus | null): void {
+  renderAreaView(
+    container: HTMLElement,
+    hass: HomeAssistant,
+    topology: PanelTopology,
+    config: CardConfig,
+    monitoringStatus: MonitoringStatus | null,
+    headerHTML: string
+  ): void {
     this._unbindEvents();
     this._hass = hass;
     this._topology = topology;
@@ -144,7 +190,7 @@ export class ListViewController {
       return a.localeCompare(b);
     });
 
-    let html = buildSearchBarHTML(this._searchQuery) + buildUnitToggleHTML(config);
+    let html = headerHTML + buildSearchBarHTML(this._searchQuery);
     html += '<div class="list-view">';
 
     for (const areaName of areaNames) {
@@ -219,12 +265,33 @@ export class ListViewController {
 
   stop(): void {
     this._unbindEvents();
-    this._expandedUuids.clear();
-    this._searchQuery = "";
+    // Only reset user-visible view state for real-panel renders. In the
+    // Favorites view we preserve expansion/search across re-renders so
+    // switching tabs or reloading the page restores the user's layout.
+    if (this._viewName === null) {
+      this._expandedUuids.clear();
+      this._searchQuery = "";
+    }
     this._hass = null;
     this._topology = null;
     this._config = null;
     this._monitoringStatus = null;
+  }
+
+  private _dispatchFavoritesViewState(): void {
+    if (!this._viewName || !this._container) return;
+    const detail: FavoritesViewStateDetail = {
+      view: this._viewName,
+      expanded: [...this._expandedUuids],
+      searchQuery: this._searchQuery,
+    };
+    this._container.dispatchEvent(
+      new CustomEvent<FavoritesViewStateDetail>(FAVORITES_VIEW_STATE_CHANGED_EVENT, {
+        detail,
+        bubbles: true,
+        composed: true,
+      })
+    );
   }
 
   private _bindEvents(container: HTMLElement): void {
@@ -291,6 +358,7 @@ export class ListViewController {
 
       this._searchQuery = input.value.toLowerCase();
       this._applyFilter(container);
+      this._dispatchFavoritesViewState();
     };
 
     this._graphSettingsHandler = (): void => {
@@ -393,5 +461,7 @@ export class ListViewController {
       row.classList.add("list-row-expanded");
       this._ctrl.updateDOM(this._container);
     }
+
+    this._dispatchFavoritesViewState();
   }
 }

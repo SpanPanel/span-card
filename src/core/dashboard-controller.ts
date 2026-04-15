@@ -1,4 +1,4 @@
-import { DEFAULT_GRAPH_HORIZON, GRAPH_HORIZONS, LIVE_SAMPLE_INTERVAL_MS } from "../constants.js";
+import { DEFAULT_GRAPH_HORIZON, GRAPH_HORIZONS, INTEGRATION_DOMAIN, LIVE_SAMPLE_INTERVAL_MS } from "../constants.js";
 import { getCircuitChartEntity } from "../helpers/chart.js";
 import { getHorizonDurationMs, getMaxHistoryPoints, getMinGapMs, recordSample } from "../helpers/history.js";
 import { loadHistory, collectSubDeviceEntityIds } from "./history-loader.js";
@@ -6,7 +6,7 @@ import { updateCircuitDOM, updateSubDeviceDOM } from "./dom-updater.js";
 import { getEffectiveHorizon, getEffectiveSubDeviceHorizon } from "./graph-settings.js";
 import { MonitoringStatusCache } from "./monitoring-status.js";
 import { GraphSettingsCache } from "./graph-settings.js";
-import type { HomeAssistant, PanelTopology, CardConfig, HistoryMap, GraphSettings } from "../types.js";
+import type { CardConfig, FavoriteRef, GraphSettings, HistoryMap, HomeAssistant, MonitoringStatus, MonitoringStatusResponse, PanelTopology } from "../types.js";
 
 const RECORDER_REFRESH_MS = 30_000;
 const RESIZE_THRESHOLD_PX = 5;
@@ -35,6 +35,26 @@ export class DashboardController {
   private _topology: PanelTopology | null = null;
   private _config: CardConfig | null = null;
   private _configEntryId: string | null = null;
+
+  /**
+   * Set when rendering the Favorites pseudo-panel. Composite circuit
+   * ids (``"{panelDeviceId}|{circuitUuid}"``) resolve through this map
+   * to the originating panel so side-panel edits target the correct
+   * config entry. ``null`` means normal single-panel mode.
+   */
+  private _favRefs: Record<string, FavoriteRef> | null = null;
+
+  /**
+   * Context used when opening the panel-mode side panel (Graph Settings)
+   * on a single real panel: the panel's HA device id plus the subsets
+   * of circuit uuids and sub-device HA device ids the user has favorited.
+   * Populated by the dashboard wrapper before tab renders.
+   */
+  private _panelFavorites: {
+    panelDeviceId: string;
+    circuitUuids: Set<string>;
+    subDeviceIds: Set<string>;
+  } | null = null;
 
   private _showMonitoring = false;
   private _updateInterval: ReturnType<typeof setInterval> | null = null;
@@ -68,6 +88,41 @@ export class DashboardController {
     this._config = config;
     this._hass = hass;
     this._configEntryId = configEntryId;
+  }
+
+  /**
+   * Enter Favorites-view mode. ``refs`` maps the composite circuit ids
+   * present in the merged topology to their originating panel + circuit
+   * uuid + config entry. ``favoriteIds`` is the subset currently marked
+   * (effectively the keys of ``refs`` for this view, kept as a Set for
+   * fast heart-state lookups in panel-mode).
+   */
+  setFavoriteRefs(refs: Record<string, FavoriteRef>): void {
+    this._favRefs = refs;
+  }
+
+  clearFavoriteRefs(): void {
+    this._favRefs = null;
+  }
+
+  /**
+   * Provide the current panel's favorited circuit uuids and sub-device
+   * ids. Used only when opening the panel-mode (Graph Settings) side
+   * panel so its per-target list can render filled/outlined heart
+   * toggles. Pass ``null`` to disable hearts (e.g. standalone card).
+   */
+  setPanelFavorites(
+    info: {
+      panelDeviceId: string;
+      circuitUuids: Set<string>;
+      subDeviceIds: Set<string>;
+    } | null
+  ): void {
+    this._panelFavorites = info;
+  }
+
+  private get _inFavoritesView(): boolean {
+    return this._favRefs !== null;
   }
 
   setConfig(config: CardConfig): void {
@@ -260,11 +315,19 @@ export class DashboardController {
     sidePanel.hass = this._hass;
 
     if (gearBtn.classList.contains("panel-gear")) {
+      // Favorites view has no single panel to configure — the aggregate
+      // doesn't own global horizon or other panel-level settings.
+      if (this._inFavoritesView) return;
       await this.graphSettingsCache.fetch(this._hass, this._configEntryId);
       sidePanel.open({
         panelMode: true,
         topology: this._topology,
         graphSettings: this.graphSettingsCache.settings,
+        showFavorites: this._panelFavorites !== null,
+        favoritePanelDeviceId: this._panelFavorites?.panelDeviceId,
+        favoriteCircuitUuids: this._panelFavorites?.circuitUuids,
+        favoriteSubDeviceIds: this._panelFavorites?.subDeviceIds,
+        configEntryId: this._configEntryId,
       });
       return;
     }
@@ -273,22 +336,47 @@ export class DashboardController {
     if (uuid && this._topology) {
       const circuit = this._topology.circuits[uuid];
       if (circuit) {
-        await this.monitoringCache.fetch(this._hass, this._configEntryId);
-        const monitoringEntity = circuit.entities?.current ?? circuit.entities?.power;
-        const monitoringInfo = monitoringEntity ? (this.monitoringCache.status?.circuits?.[monitoringEntity] ?? null) : null;
+        const ref = this._favRefs?.[uuid] ?? null;
+        const realUuid = ref && ref.kind === "circuit" ? ref.targetId : uuid;
+        const entryId = ref?.configEntryId ?? this._configEntryId;
 
-        await this.graphSettingsCache.fetch(this._hass, this._configEntryId);
-        const graphSettings = this.graphSettingsCache.settings;
+        // In favorites view, bypass the single-entry caches so we pick
+        // up the right panel's current graph/monitoring state.
+        let graphSettings: GraphSettings | null;
+        let monitoringStatus: MonitoringStatus | null;
+        if (ref) {
+          [graphSettings, monitoringStatus] = await Promise.all([this._fetchGraphSettingsFresh(entryId), this._fetchMonitoringStatusFresh(entryId)]);
+        } else {
+          await Promise.all([this.graphSettingsCache.fetch(this._hass, entryId), this.monitoringCache.fetch(this._hass, entryId)]);
+          graphSettings = this.graphSettingsCache.settings;
+          monitoringStatus = this.monitoringCache.status;
+        }
+
+        const monitoringEntity = circuit.entities?.current ?? circuit.entities?.power;
+        const monitoringInfo = monitoringEntity ? (monitoringStatus?.circuits?.[monitoringEntity] ?? null) : null;
+
         const globalHorizon = graphSettings?.global_horizon ?? DEFAULT_GRAPH_HORIZON;
-        const circuitOverride = graphSettings?.circuits?.[uuid];
+        const circuitOverride = graphSettings?.circuits?.[realUuid];
         const graphHorizonInfo = circuitOverride ? { ...circuitOverride, globalHorizon } : { horizon: globalHorizon, has_override: false, globalHorizon };
+
+        // Heart section shows whenever we're in a dashboard context — either
+        // the Favorites pseudo-panel (always favorited) or a real panel with
+        // the per-panel favorites set supplied by span-panel.ts. Standalone
+        // <span-panel-card> omits both and hearts don't render.
+        const favoritePanelDeviceId = ref?.panelDeviceId ?? this._panelFavorites?.panelDeviceId;
+        const isFavorite = ref !== null || (this._panelFavorites?.circuitUuids.has(realUuid) ?? false);
+        const showFavorites = this._inFavoritesView || this._panelFavorites !== null;
 
         sidePanel.open({
           ...circuit,
-          uuid,
+          uuid: realUuid,
           monitoringInfo,
           showMonitoring: this._showMonitoring,
           graphHorizonInfo,
+          showFavorites,
+          favoritePanelDeviceId,
+          isFavorite,
+          configEntryId: entryId,
         } as Record<string, unknown>);
         return;
       }
@@ -297,20 +385,81 @@ export class DashboardController {
     const subDevId = gearBtn.dataset.subdevId;
     if (subDevId && this._topology?.sub_devices?.[subDevId]) {
       const sub = this._topology.sub_devices[subDevId]!;
+      const ref = this._favRefs?.[subDevId] ?? null;
+      const realSubDevId = ref && ref.kind === "sub_device" ? ref.targetId : subDevId;
+      const entryId = ref?.configEntryId ?? this._configEntryId;
 
-      await this.graphSettingsCache.fetch(this._hass, this._configEntryId);
-      const graphSettings = this.graphSettingsCache.settings;
+      let graphSettings: GraphSettings | null;
+      if (ref) {
+        graphSettings = await this._fetchGraphSettingsFresh(entryId);
+      } else {
+        await this.graphSettingsCache.fetch(this._hass, entryId);
+        graphSettings = this.graphSettingsCache.settings;
+      }
+
       const globalHorizon = graphSettings?.global_horizon ?? DEFAULT_GRAPH_HORIZON;
-      const subOverride = graphSettings?.sub_devices?.[subDevId];
+      const subOverride = graphSettings?.sub_devices?.[realSubDevId];
       const graphHorizonInfo = subOverride ? { ...subOverride, globalHorizon } : { horizon: globalHorizon, has_override: false, globalHorizon };
+
+      const favoritePanelDeviceId = ref?.panelDeviceId ?? this._panelFavorites?.panelDeviceId;
+      const isFavorite = ref !== null || (this._panelFavorites?.subDeviceIds.has(realSubDevId) ?? false);
+      const showFavorites = this._inFavoritesView || this._panelFavorites !== null;
 
       sidePanel.open({
         subDeviceMode: true,
-        subDeviceId: subDevId,
-        name: sub.name ?? subDevId,
+        subDeviceId: realSubDevId,
+        name: sub.name ?? realSubDevId,
         deviceType: sub.type ?? "",
+        entities: sub.entities,
         graphHorizonInfo,
+        showFavorites,
+        favoritePanelDeviceId,
+        isFavorite,
+        configEntryId: entryId,
       });
+    }
+  }
+
+  /**
+   * Uncached fetch of graph settings for a specific config entry.
+   * Used in Favorites view where the shared ``graphSettingsCache`` is
+   * keyed to a different (primary) entry.
+   */
+  private async _fetchGraphSettingsFresh(entryId: string | null): Promise<GraphSettings | null> {
+    if (!this._hass) return null;
+    try {
+      const serviceData: Record<string, string> = {};
+      if (entryId) serviceData.config_entry_id = entryId;
+      const resp = await this._hass.callWS<{ response?: GraphSettings }>({
+        type: "call_service",
+        domain: INTEGRATION_DOMAIN,
+        service: "get_graph_settings",
+        service_data: serviceData,
+        return_response: true,
+      });
+      return resp?.response ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  private async _fetchMonitoringStatusFresh(entryId: string | null): Promise<MonitoringStatus | null> {
+    if (!this._hass) return null;
+    try {
+      const serviceData: Record<string, string> = {};
+      if (entryId) serviceData.config_entry_id = entryId;
+      const resp = await this._hass.callWS<{ response?: MonitoringStatusResponse }>({
+        type: "call_service",
+        domain: INTEGRATION_DOMAIN,
+        service: "get_monitoring_status",
+        service_data: serviceData,
+        return_response: true,
+      });
+      const response = resp?.response;
+      if (!response) return null;
+      return { circuits: response.circuits, mains: response.mains };
+    } catch {
+      return null;
     }
   }
 

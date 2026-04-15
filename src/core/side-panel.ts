@@ -2,6 +2,7 @@
 import { escapeHtml } from "../helpers/sanitize.js";
 import { INTEGRATION_DOMAIN, SHEDDING_PRIORITIES, GRAPH_HORIZONS, DEFAULT_GRAPH_HORIZON, ERROR_DISPLAY_MS, INPUT_DEBOUNCE_MS } from "../constants.js";
 import { t } from "../i18n.js";
+import { addFavorite, removeFavorite } from "./favorites-store.js";
 import type { HomeAssistant, PanelTopology, GraphSettings, CircuitEntities, CircuitGraphOverride, MonitoringPointInfo } from "../types.js";
 
 const PRIORITY_OPTIONS: string[] = Object.keys(SHEDDING_PRIORITIES).filter(k => k !== "unknown" && k !== "always_on");
@@ -17,6 +18,21 @@ interface PanelModeConfig {
   subDeviceMode?: undefined;
   topology: PanelTopology;
   graphSettings: GraphSettings | null;
+  /**
+   * When set, the per-target lists in panel mode render a heart button
+   * beside each horizon selector for toggling favorites. Only the
+   * dashboard (``<span-panel>``) sets this — the standalone card leaves
+   * it undefined so hearts never appear there.
+   */
+  showFavorites?: boolean;
+  /** HA device id of the panel whose side panel is open (source of favorites). */
+  favoritePanelDeviceId?: string;
+  /** Circuit uuids already favorited for that panel — drives heart fill. */
+  favoriteCircuitUuids?: Set<string>;
+  /** Sub-device HA device ids already favorited — drives heart fill. */
+  favoriteSubDeviceIds?: Set<string>;
+  /** Override config entry id used for cross-panel service routing (favorites). */
+  configEntryId?: string | null;
 }
 
 interface CircuitModeConfig {
@@ -33,6 +49,14 @@ interface CircuitModeConfig {
   monitoringInfo: MonitoringPointInfo | null;
   showMonitoring?: boolean;
   graphHorizonInfo: GraphHorizonInfo;
+  /** Dashboard-only: render the Favorite section on this side panel. */
+  showFavorites?: boolean;
+  /** HA device id of the panel that owns this circuit. */
+  favoritePanelDeviceId?: string;
+  /** Initial favorite state; ``addFavorite``/``removeFavorite`` update live. */
+  isFavorite?: boolean;
+  /** Route domain service calls to this config entry (favorites view). */
+  configEntryId?: string | null;
 }
 
 interface SubDeviceModeConfig {
@@ -41,7 +65,17 @@ interface SubDeviceModeConfig {
   subDeviceId: string;
   name: string;
   deviceType: string;
+  /** Sub-device entity registry map from topology, used to pick a routable entity_id for favoriting. */
+  entities?: Record<string, { domain: string }>;
   graphHorizonInfo: GraphHorizonInfo;
+  /** Dashboard-only: render the Favorite section on this side panel. */
+  showFavorites?: boolean;
+  /** HA device id of the panel that owns this sub-device. */
+  favoritePanelDeviceId?: string;
+  /** Initial favorite state. */
+  isFavorite?: boolean;
+  /** Route domain service calls to this config entry (favorites view). */
+  configEntryId?: string | null;
 }
 
 type SidePanelConfig = PanelModeConfig | CircuitModeConfig | SubDeviceModeConfig;
@@ -232,6 +266,30 @@ const STYLES = `
     justify-content: space-between;
   }
 
+  .fav-heart {
+    background: none;
+    border: 1px solid var(--divider-color, #e0e0e0);
+    color: var(--secondary-text-color, #727272);
+    border-radius: 4px;
+    padding: 2px 6px;
+    cursor: pointer;
+    font-size: 0.9em;
+    margin-right: 6px;
+    line-height: 1;
+    display: inline-flex;
+    align-items: center;
+  }
+  .fav-heart.active {
+    color: var(--primary-color, #03a9f4);
+    border-color: var(--primary-color, #03a9f4);
+  }
+  .fav-heart:hover:not(.active) {
+    background: var(--secondary-background-color, #f5f5f5);
+  }
+  .fav-heart ha-icon {
+    --mdc-icon-size: 16px;
+  }
+
   .panel-mode-info {
     font-size: 14px;
     color: var(--primary-text-color, #212121);
@@ -250,6 +308,22 @@ const STYLES = `
     border-radius: 4px;
   }
 `;
+
+/**
+ * Extract a readable message from a thrown value. Home Assistant WS
+ * errors are plain ``{code, message}`` objects (not ``Error``
+ * instances), so a naive ``String(err)`` would render ``"[object Object]"``.
+ */
+function _extractErrorMessage(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  if (err && typeof err === "object") {
+    const obj = err as { message?: unknown; error?: unknown; code?: unknown };
+    if (typeof obj.message === "string" && obj.message) return obj.message;
+    if (typeof obj.error === "string" && obj.error) return obj.error;
+    if (typeof obj.code === "string" && obj.code) return obj.code;
+  }
+  return String(err);
+}
 
 // ── Component ─────────────────────────────────────────────────────────────
 
@@ -370,7 +444,9 @@ class SpanSidePanel extends HTMLElement {
       globalSelect.appendChild(opt);
     }
     globalSelect.addEventListener("change", () => {
-      this._callDomainService("set_graph_time_horizon", { horizon: globalSelect.value })
+      const data: Record<string, unknown> = { horizon: globalSelect.value };
+      if (cfg.configEntryId) data.config_entry_id = cfg.configEntryId;
+      this._callDomainService("set_graph_time_horizon", data)
         .then(() => {
           this.dispatchEvent(new CustomEvent("graph-settings-changed", { bubbles: true, composed: true }));
         })
@@ -402,6 +478,11 @@ class SpanSidePanel extends HTMLElement {
         nameLabel.style.cssText = "overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1;";
         row.appendChild(nameLabel);
 
+        if (cfg.showFavorites && cfg.favoritePanelDeviceId) {
+          const heart = this._buildFavoriteHeart(circuit.entities, cfg.favoriteCircuitUuids?.has(uuid) ?? false);
+          if (heart) row.appendChild(heart);
+        }
+
         const circuitData = circuitSettings[uuid] || { horizon: globalHorizon, has_override: false };
         const effectiveHorizon = circuitData.has_override ? circuitData.horizon : globalHorizon;
 
@@ -418,10 +499,12 @@ class SpanSidePanel extends HTMLElement {
         }
         select.addEventListener("change", () => {
           this._debounce(`circuit-${uuid}`, INPUT_DEBOUNCE_MS, () => {
-            this._callDomainService("set_circuit_graph_horizon", {
+            const data: Record<string, unknown> = {
               circuit_id: uuid,
               horizon: select.value,
-            })
+            };
+            if (cfg.configEntryId) data.config_entry_id = cfg.configEntryId;
+            this._callDomainService("set_circuit_graph_horizon", data)
               .then(() => {
                 this.dispatchEvent(new CustomEvent("graph-settings-changed", { bubbles: true, composed: true }));
               })
@@ -445,7 +528,9 @@ class SpanSidePanel extends HTMLElement {
             fontSize: "0.85em",
           });
           resetBtn.addEventListener("click", () => {
-            this._callDomainService("clear_circuit_graph_horizon", { circuit_id: uuid })
+            const data: Record<string, unknown> = { circuit_id: uuid };
+            if (cfg.configEntryId) data.config_entry_id = cfg.configEntryId;
+            this._callDomainService("clear_circuit_graph_horizon", data)
               .then(() => {
                 select.value = globalHorizon;
                 resetBtn.remove();
@@ -485,6 +570,11 @@ class SpanSidePanel extends HTMLElement {
         nameLabel.style.cssText = "overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1;";
         row.appendChild(nameLabel);
 
+        if (cfg.showFavorites && cfg.favoritePanelDeviceId) {
+          const heart = this._buildSubDeviceFavoriteHeart(sub.entities, cfg.favoriteSubDeviceIds?.has(devId) ?? false);
+          if (heart) row.appendChild(heart);
+        }
+
         const subDevData = subDeviceSettings[devId] || { horizon: globalHorizon, has_override: false };
         const effectiveHorizon = subDevData.has_override ? subDevData.horizon : globalHorizon;
 
@@ -501,10 +591,12 @@ class SpanSidePanel extends HTMLElement {
         }
         select.addEventListener("change", () => {
           this._debounce(`subdev-${devId}`, INPUT_DEBOUNCE_MS, () => {
-            this._callDomainService("set_subdevice_graph_horizon", {
+            const data: Record<string, unknown> = {
               subdevice_id: devId,
               horizon: select.value,
-            })
+            };
+            if (cfg.configEntryId) data.config_entry_id = cfg.configEntryId;
+            this._callDomainService("set_subdevice_graph_horizon", data)
               .then(() => {
                 this.dispatchEvent(new CustomEvent("graph-settings-changed", { bubbles: true, composed: true }));
               })
@@ -528,7 +620,9 @@ class SpanSidePanel extends HTMLElement {
             fontSize: "0.85em",
           });
           resetBtn.addEventListener("click", () => {
-            this._callDomainService("clear_subdevice_graph_horizon", { subdevice_id: devId })
+            const data: Record<string, unknown> = { subdevice_id: devId };
+            if (cfg.configEntryId) data.config_entry_id = cfg.configEntryId;
+            this._callDomainService("clear_subdevice_graph_horizon", data)
               .then(() => {
                 select.value = globalHorizon;
                 resetBtn.remove();
@@ -564,10 +658,169 @@ class SpanSidePanel extends HTMLElement {
     body.appendChild(errorEl);
 
     this._renderRelaySection(body, cfg);
+    if (cfg.showFavorites) {
+      this._renderFavoriteSection(body, cfg);
+    }
     this._renderSheddingSection(body, cfg);
     this._renderGraphHorizonSection(body, cfg);
     if (cfg.showMonitoring) {
       this._renderMonitoringSection(body, cfg);
+    }
+  }
+
+  private _favoriteEntityId(entities: CircuitEntities | undefined): string | null {
+    return entities?.current ?? entities?.power ?? null;
+  }
+
+  /**
+   * Pick any entity_id from a sub-device's entity map. The favorites
+   * service resolves the entity to its parent SPAN panel + sub-device
+   * id, so any sensor on the sub-device works. Prefers a sensor.
+   */
+  private _subDeviceFavoriteEntityId(entities: Record<string, { domain: string }> | undefined): string | null {
+    if (!entities) return null;
+    let fallback: string | null = null;
+    for (const [entityId, info] of Object.entries(entities)) {
+      if (info.domain === "sensor") return entityId;
+      if (!fallback) fallback = entityId;
+    }
+    return fallback;
+  }
+
+  /**
+   * Build a heart toggle for a sub-device row in panel-mode Graph
+   * Settings. Returns ``null`` when the sub-device has no entities to
+   * resolve (favorites services need an entity_id).
+   */
+  private _buildSubDeviceFavoriteHeart(entities: Record<string, { domain: string }> | undefined, isFavorite: boolean): HTMLButtonElement | null {
+    const entityId = this._subDeviceFavoriteEntityId(entities);
+    if (!entityId) return null;
+
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = isFavorite ? "fav-heart active" : "fav-heart";
+    btn.dataset.role = "fav-heart";
+    btn.title = t("sidepanel.save_to_favorites");
+
+    const icon = document.createElement("ha-icon");
+    icon.setAttribute("icon", isFavorite ? "mdi:heart" : "mdi:heart-outline");
+    btn.appendChild(icon);
+
+    btn.addEventListener("click", (ev: Event) => {
+      ev.stopPropagation();
+      this._toggleFavoriteEntity(btn, icon, entityId).catch(() => {
+        // error message shown inside _toggleFavoriteEntity
+      });
+    });
+
+    return btn;
+  }
+
+  /**
+   * Build a heart toggle for a circuit row in panel-mode Graph Settings.
+   * Returns ``null`` when the circuit has no routable sensor entity
+   * (favorites services need an entity_id to resolve the target).
+   */
+  private _buildFavoriteHeart(entities: CircuitEntities | undefined, isFavorite: boolean): HTMLButtonElement | null {
+    const entityId = this._favoriteEntityId(entities);
+    if (!entityId) return null;
+
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = isFavorite ? "fav-heart active" : "fav-heart";
+    btn.dataset.role = "fav-heart";
+    btn.title = t("sidepanel.save_to_favorites");
+
+    const icon = document.createElement("ha-icon");
+    icon.setAttribute("icon", isFavorite ? "mdi:heart" : "mdi:heart-outline");
+    btn.appendChild(icon);
+
+    btn.addEventListener("click", (ev: Event) => {
+      ev.stopPropagation();
+      this._toggleFavoriteEntity(btn, icon, entityId).catch(() => {
+        // error message shown inside _toggleFavoriteEntity
+      });
+    });
+
+    return btn;
+  }
+
+  private async _toggleFavoriteEntity(btn: HTMLButtonElement, icon: HTMLElement, entityId: string): Promise<void> {
+    if (!this._hass) return;
+    const wasActive = btn.classList.contains("active");
+    const nextActive = !wasActive;
+    // Optimistically flip; roll back on error.
+    btn.classList.toggle("active", nextActive);
+    icon.setAttribute("icon", nextActive ? "mdi:heart" : "mdi:heart-outline");
+    try {
+      if (nextActive) {
+        await addFavorite(this._hass, entityId);
+      } else {
+        await removeFavorite(this._hass, entityId);
+      }
+    } catch (err) {
+      btn.classList.toggle("active", wasActive);
+      icon.setAttribute("icon", wasActive ? "mdi:heart" : "mdi:heart-outline");
+      const message = _extractErrorMessage(err);
+      this._showError(`${t("sidepanel.favorite_failed")} ${message}`);
+      throw err;
+    }
+  }
+
+  private _renderFavoriteSection(body: HTMLDivElement, cfg: CircuitModeConfig): void {
+    const entityId = this._favoriteEntityId(cfg.entities);
+    if (!entityId) return;
+
+    const section = document.createElement("div");
+    section.className = "section";
+    section.innerHTML = `<div class="section-label">${escapeHtml(t("sidepanel.favorite"))}</div>`;
+
+    const row = document.createElement("div");
+    row.className = "field-row";
+
+    const label = document.createElement("span");
+    label.className = "field-label";
+    label.textContent = t("sidepanel.save_to_favorites");
+
+    const toggle = document.createElement("ha-switch") as HaSwitchElement;
+    toggle.dataset.role = "favorite-toggle";
+    if (cfg.isFavorite) toggle.setAttribute("checked", "");
+
+    toggle.addEventListener("change", () => {
+      // The authoritative state after a user toggle lives on ``checked``;
+      // ``hasAttribute("checked")`` still reflects the initial render.
+      const nextActive = toggle.checked;
+      this._setFavoriteFromToggle(toggle, entityId, nextActive).catch(() => {
+        // error already displayed
+      });
+    });
+
+    row.appendChild(label);
+    row.appendChild(toggle);
+    section.appendChild(row);
+    body.appendChild(section);
+  }
+
+  private async _setFavoriteFromToggle(toggle: HaSwitchElement, entityId: string, nextActive: boolean): Promise<void> {
+    if (!this._hass) return;
+    try {
+      if (nextActive) {
+        await addFavorite(this._hass, entityId);
+      } else {
+        await removeFavorite(this._hass, entityId);
+      }
+    } catch (err) {
+      // Roll back the switch to its prior state.
+      if (nextActive) {
+        toggle.removeAttribute("checked");
+        toggle.checked = false;
+      } else {
+        toggle.setAttribute("checked", "");
+        toggle.checked = true;
+      }
+      const message = _extractErrorMessage(err);
+      this._showError(`${t("sidepanel.favorite_failed")} ${message}`);
+      throw err;
     }
   }
 
@@ -585,7 +838,42 @@ class SpanSidePanel extends HTMLElement {
     errorEl.style.display = "none";
     body.appendChild(errorEl);
 
+    if (cfg.showFavorites) {
+      this._renderSubDeviceFavoriteSection(body, cfg);
+    }
     this._renderSubDeviceHorizonSection(body, cfg);
+  }
+
+  private _renderSubDeviceFavoriteSection(body: HTMLDivElement, cfg: SubDeviceModeConfig): void {
+    const entityId = this._subDeviceFavoriteEntityId(cfg.entities);
+    if (!entityId) return;
+
+    const section = document.createElement("div");
+    section.className = "section";
+    section.innerHTML = `<div class="section-label">${escapeHtml(t("sidepanel.favorite"))}</div>`;
+
+    const row = document.createElement("div");
+    row.className = "field-row";
+
+    const label = document.createElement("span");
+    label.className = "field-label";
+    label.textContent = t("sidepanel.save_to_favorites");
+
+    const toggle = document.createElement("ha-switch") as HaSwitchElement;
+    toggle.dataset.role = "favorite-toggle";
+    if (cfg.isFavorite) toggle.setAttribute("checked", "");
+
+    toggle.addEventListener("change", () => {
+      const nextActive = toggle.checked;
+      this._setFavoriteFromToggle(toggle, entityId, nextActive).catch(() => {
+        // error already displayed
+      });
+    });
+
+    row.appendChild(label);
+    row.appendChild(toggle);
+    section.appendChild(row);
+    body.appendChild(section);
   }
 
   private _renderSubDeviceHorizonSection(body: HTMLDivElement, cfg: SubDeviceModeConfig): void {
@@ -808,9 +1096,11 @@ class SpanSidePanel extends HTMLElement {
         if (btn.classList.contains("active")) return;
 
         const circuitId = cfg.uuid;
+        const baseData: Record<string, unknown> = { circuit_id: circuitId };
+        if (cfg.configEntryId) baseData.config_entry_id = cfg.configEntryId;
         if (key === "global") {
           updateSegmentStates("global");
-          this._callDomainService("clear_circuit_graph_horizon", { circuit_id: circuitId })
+          this._callDomainService("clear_circuit_graph_horizon", baseData)
             .then(() => {
               this.dispatchEvent(new CustomEvent("graph-settings-changed", { bubbles: true, composed: true }));
             })
@@ -818,7 +1108,7 @@ class SpanSidePanel extends HTMLElement {
         } else {
           updateSegmentStates(key);
           this._callDomainService("set_circuit_graph_horizon", {
-            circuit_id: circuitId,
+            ...baseData,
             horizon: key,
           })
             .then(() => {
@@ -899,10 +1189,14 @@ class SpanSidePanel extends HTMLElement {
       const checked = enableToggle.checked;
       detailsWrap.style.display = checked ? "block" : "none";
       const entityId = cfg.entities?.power || cfg.uuid;
-      this._callDomainService("set_circuit_threshold", {
+      const data: Record<string, unknown> = {
         circuit_id: entityId,
         monitoring_enabled: checked,
-      }).catch((err: Error) => this._showError(`${t("sidepanel.monitoring_toggle_failed")} ${err.message ?? err}`));
+      };
+      if (cfg.configEntryId) data.config_entry_id = cfg.configEntryId;
+      this._callDomainService("set_circuit_threshold", data).catch((err: Error) =>
+        this._showError(`${t("sidepanel.monitoring_toggle_failed")} ${err.message ?? err}`)
+      );
     });
 
     // Event: radio change
@@ -913,7 +1207,9 @@ class SpanSidePanel extends HTMLElement {
         thresholdsWrap.style.display = isCustom ? "block" : "none";
         if (!isCustom && radio.checked) {
           const entityId = cfg.entities?.power || cfg.uuid;
-          this._callDomainService("clear_circuit_threshold", { circuit_id: entityId }).catch((err: Error) =>
+          const data: Record<string, unknown> = { circuit_id: entityId };
+          if (cfg.configEntryId) data.config_entry_id = cfg.configEntryId;
+          this._callDomainService("clear_circuit_threshold", data).catch((err: Error) =>
             this._showError(`${t("sidepanel.clear_monitoring_failed")} ${err.message ?? err}`)
           );
         }
@@ -947,13 +1243,17 @@ class SpanSidePanel extends HTMLElement {
         const windowM = shadow.querySelector<HTMLInputElement>('[data-role="threshold-window-m"]');
         const cooldownM = shadow.querySelector<HTMLInputElement>('[data-role="threshold-cooldown-m"]');
         const entityId = cfg.entities?.power || cfg.uuid;
-        this._callDomainService("set_circuit_threshold", {
+        const data: Record<string, unknown> = {
           circuit_id: entityId,
           continuous_threshold_pct: continuous ? Number(continuous.value) : undefined,
           spike_threshold_pct: spike ? Number(spike.value) : undefined,
           window_duration_m: windowM ? Number(windowM.value) : undefined,
           cooldown_duration_m: cooldownM ? Number(cooldownM.value) : undefined,
-        }).catch((err: Error) => this._showError(`${t("sidepanel.save_threshold_failed")} ${err.message ?? err}`));
+        };
+        if (cfg.configEntryId) data.config_entry_id = cfg.configEntryId;
+        this._callDomainService("set_circuit_threshold", data).catch((err: Error) =>
+          this._showError(`${t("sidepanel.save_threshold_failed")} ${err.message ?? err}`)
+        );
       });
     });
 
@@ -1005,12 +1305,16 @@ class SpanSidePanel extends HTMLElement {
           const continuous = shadow.querySelector<HTMLInputElement>('[data-role="threshold-continuous"]');
           const spike = shadow.querySelector<HTMLInputElement>('[data-role="threshold-spike"]');
           const windowM = shadow.querySelector<HTMLInputElement>('[data-role="threshold-window-m"]');
-          this._callDomainService("set_circuit_threshold", {
+          const data: Record<string, unknown> = {
             circuit_id: cfg.uuid,
             continuous_threshold_pct: continuous ? Number(continuous.value) : undefined,
             spike_threshold_pct: spike ? Number(spike.value) : undefined,
             window_duration_m: windowM ? Number(windowM.value) : undefined,
-          }).catch((err: Error) => this._showError(`${t("sidepanel.save_threshold_failed")} ${err.message ?? err}`));
+          };
+          if (cfg.configEntryId) data.config_entry_id = cfg.configEntryId;
+          this._callDomainService("set_circuit_threshold", data).catch((err: Error) =>
+            this._showError(`${t("sidepanel.save_threshold_failed")} ${err.message ?? err}`)
+          );
         });
       });
     }

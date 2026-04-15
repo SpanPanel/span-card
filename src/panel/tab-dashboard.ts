@@ -9,6 +9,12 @@ import { CARD_STYLES } from "../card/card-styles.js";
 import "../core/side-panel.js";
 import type { HomeAssistant, CardConfig } from "../types.js";
 
+export interface PanelFavoriteInfo {
+  panelDeviceId: string;
+  circuitUuids: Set<string>;
+  subDeviceIds: Set<string>;
+}
+
 export class DashboardTab {
   private readonly _ctrl = new DashboardController();
   private _container: HTMLElement | null = null;
@@ -23,6 +29,15 @@ export class DashboardTab {
 
   set hass(val: HomeAssistant | null) {
     this._ctrl.hass = val;
+  }
+
+  /**
+   * Provide the current panel's favorites (for heart toggles in the
+   * Graph Settings / circuit side panels). Pass ``null`` to hide hearts
+   * when the dashboard is not the active rendering context.
+   */
+  setPanelFavorites(info: PanelFavoriteInfo | null): void {
+    this._ctrl.setPanelFavorites(info);
   }
 
   async render(container: HTMLElement, hass: HomeAssistant, deviceId: string, config: CardConfig, configEntryId?: string | null): Promise<void> {

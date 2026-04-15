@@ -3,14 +3,24 @@ import { t } from "../i18n.js";
 import { SHEDDING_PRIORITIES } from "../constants.js";
 import type { PanelTopology, CardConfig, SheddingPriorityDef } from "../types.js";
 
+export interface HeaderRenderOptions {
+  /**
+   * Include the slide-to-enable switches control. Only the By Panel
+   * tab renders the breaker grid with circuit toggles, so the other
+   * tabs should omit this control to avoid a non-functional button.
+   */
+  showSwitches?: boolean;
+}
+
 /**
  * Build the panel header HTML with stats, gear icon, and A/W toggle.
  */
-export function buildHeaderHTML(topology: PanelTopology, config: CardConfig): string {
+export function buildHeaderHTML(topology: PanelTopology, config: CardConfig, options: HeaderRenderOptions = {}): string {
   const panelName: string = escapeHtml(topology.device_name || t("header.default_name"));
   const serial: string = escapeHtml(topology.serial || "");
   const firmware: string = escapeHtml(topology.firmware || "");
   const isAmpsMode: boolean = (config.chart_metric || "power") === "current";
+  const showSwitches = options.showSwitches !== false;
 
   const hasSite: boolean = !!topology.panel_entities?.site_power;
   const hasGrid: boolean = !!topology.panel_entities?.dsm_state;
@@ -28,12 +38,16 @@ export function buildHeaderHTML(topology: PanelTopology, config: CardConfig): st
           <button class="gear-icon panel-gear" title="${t("header.graph_settings")}">
             <ha-icon icon="mdi:cog"></ha-icon>
           </button>
-          <div class="slide-confirm" data-text-off="${t("header.enable_switches")}" data-text-on="${t("header.switches_enabled")}">
+          ${
+            showSwitches
+              ? `<div class="slide-confirm" data-text-off="${t("header.enable_switches")}" data-text-on="${t("header.switches_enabled")}">
             <span class="slide-confirm-text">${t("header.enable_switches")}</span>
             <div class="slide-confirm-knob">
               <ha-icon icon="mdi:lock"></ha-icon>
             </div>
-          </div>
+          </div>`
+              : ""
+          }
         </div>
         <div class="panel-stats">
           ${

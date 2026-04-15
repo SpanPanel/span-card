@@ -45,11 +45,13 @@ export class MonitoringTab {
   private _debounceTimer: ReturnType<typeof setTimeout> | null;
   private _configEntryId: string | null;
   private _notifyCloseHandler: ((e: MouseEvent) => void) | null;
+  private _headerHTML: string;
 
   constructor() {
     this._debounceTimer = null;
     this._configEntryId = null;
     this._notifyCloseHandler = null;
+    this._headerHTML = "";
   }
 
   stop(): void {
@@ -63,8 +65,9 @@ export class MonitoringTab {
     }
   }
 
-  async render(container: HTMLElement, hass: HomeAssistant, configEntryId?: string): Promise<void> {
+  async render(container: HTMLElement, hass: HomeAssistant, configEntryId?: string, headerHTML: string = ""): Promise<void> {
     if (configEntryId !== undefined) this._configEntryId = configEntryId;
+    this._headerHTML = headerHTML;
     if (this._notifyCloseHandler) {
       document.removeEventListener("click", this._notifyCloseHandler as EventListener);
       this._notifyCloseHandler = null;
@@ -191,6 +194,7 @@ export class MonitoringTab {
       .join("");
 
     container.innerHTML = `
+      ${this._headerHTML}
       <div style="padding:16px;">
         <h2 style="margin-top:0;">${t("monitoring.heading")}</h2>
 
