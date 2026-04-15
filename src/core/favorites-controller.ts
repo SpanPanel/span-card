@@ -9,10 +9,23 @@ export function buildCompositeId(panelDeviceId: string, circuitUuid: string): st
   return `${panelDeviceId}${COMPOSITE_SEPARATOR}${circuitUuid}`;
 }
 
+export interface FavoritesPanelStatsInfo {
+  panelDeviceId: string;
+  panelName: string;
+  topology: PanelTopology;
+}
+
 export interface FavoritesBuildResult {
   topology: FavoritesTopology;
   /** Unique contributing config entry ids (for monitoring tab stacking). */
   entryIds: string[];
+  /**
+   * Per-contributing-panel info used to render the Favorites view's
+   * panel-status grid. Each entry carries the originating topology so
+   * ``updatePanelStatsBlock`` can pull values from the correct panel's
+   * entities without re-fetching.
+   */
+  perPanelStats: FavoritesPanelStatsInfo[];
 }
 
 /**
@@ -57,6 +70,7 @@ export class FavoritesController {
     const mergedSubDevices: NonNullable<FavoritesTopology["sub_devices"]> = {};
     const refs: Record<string, FavoriteRef> = {};
     const entryIds = new Set<string>();
+    const perPanelStats: FavoritesPanelStatsInfo[] = [];
 
     for (const { panelDeviceId, panel, topology } of contributing) {
       if (!topology) continue;
@@ -64,6 +78,7 @@ export class FavoritesController {
       if (configEntryId) entryIds.add(configEntryId);
 
       const panelLabel = panel.name_by_user ?? panel.name ?? topology.device_name ?? "";
+      perPanelStats.push({ panelDeviceId, panelName: panelLabel, topology });
       const entry = favorites[panelDeviceId];
       const favoriteCircuitUuids = entry?.circuits ?? [];
       const favoriteSubDeviceIds = entry?.sub_devices ?? [];
@@ -108,6 +123,7 @@ export class FavoritesController {
     return {
       topology,
       entryIds: Array.from(entryIds),
+      perPanelStats,
     };
   }
 }

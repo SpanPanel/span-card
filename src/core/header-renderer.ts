@@ -15,6 +15,101 @@ export interface HeaderRenderOptions {
 }
 
 /**
+ * Build just the panel-stats block (Site / Grid / Upstream / Downstream /
+ * Solar / Battery) for one panel. Extracted so the Favorites view can
+ * render a per-panel grid of stats. The returned block is a standalone
+ * ``.panel-stats`` container with a ``data-stats-panel-id`` attribute so
+ * per-panel updates can address it individually.
+ */
+export function buildPanelStatsHTML(topology: PanelTopology, config: CardConfig, panelDeviceId?: string): string {
+  const isAmpsMode: boolean = (config.chart_metric || "power") === "current";
+  const hasSite: boolean = !!topology.panel_entities?.site_power;
+  const hasGrid: boolean = !!topology.panel_entities?.dsm_state;
+  const hasUpstream: boolean = !!topology.panel_entities?.current_power;
+  const hasDownstream: boolean = !!topology.panel_entities?.feedthrough_power;
+  const hasSolar: boolean = !!topology.panel_entities?.pv_power;
+  const hasBattery: boolean = !!topology.panel_entities?.battery_level;
+
+  const idAttr = panelDeviceId ? ` data-stats-panel-id="${escapeHtml(panelDeviceId)}"` : "";
+
+  return `
+    <div class="panel-stats"${idAttr}>
+      ${
+        hasSite
+          ? `
+      <div class="stat stat-consumption">
+        <span class="stat-label">${t("header.site")}</span>
+        <div class="stat-row">
+          <span class="stat-value">0</span>
+          <span class="stat-unit">${isAmpsMode ? "A" : "kW"}</span>
+        </div>
+      </div>`
+          : ""
+      }
+      ${
+        hasGrid
+          ? `
+      <div class="stat stat-grid-state">
+        <span class="stat-label">${t("header.grid")}</span>
+        <div class="stat-row">
+          <span class="stat-value">--</span>
+        </div>
+      </div>`
+          : ""
+      }
+      ${
+        hasUpstream
+          ? `
+      <div class="stat stat-upstream">
+        <span class="stat-label">${t("header.upstream")}</span>
+        <div class="stat-row">
+          <span class="stat-value">--</span>
+          <span class="stat-unit">${isAmpsMode ? "A" : "kW"}</span>
+        </div>
+      </div>`
+          : ""
+      }
+      ${
+        hasDownstream
+          ? `
+      <div class="stat stat-downstream">
+        <span class="stat-label">${t("header.downstream")}</span>
+        <div class="stat-row">
+          <span class="stat-value">--</span>
+          <span class="stat-unit">${isAmpsMode ? "A" : "kW"}</span>
+        </div>
+      </div>`
+          : ""
+      }
+      ${
+        hasSolar
+          ? `
+      <div class="stat stat-solar">
+        <span class="stat-label">${t("header.solar")}</span>
+        <div class="stat-row">
+          <span class="stat-value">--</span>
+          <span class="stat-unit">${isAmpsMode ? "A" : "kW"}</span>
+        </div>
+      </div>`
+          : ""
+      }
+      ${
+        hasBattery
+          ? `
+      <div class="stat stat-battery">
+        <span class="stat-label">${t("header.battery")}</span>
+        <div class="stat-row">
+          <span class="stat-value">&mdash;</span>
+          <span class="stat-unit">%</span>
+        </div>
+      </div>`
+          : ""
+      }
+    </div>
+  `;
+}
+
+/**
  * Build the panel header HTML with stats, gear icon, and A/W toggle.
  */
 export function buildHeaderHTML(topology: PanelTopology, config: CardConfig, options: HeaderRenderOptions = {}): string {
@@ -23,13 +118,6 @@ export function buildHeaderHTML(topology: PanelTopology, config: CardConfig, opt
   const firmware: string = escapeHtml(topology.firmware || "");
   const isAmpsMode: boolean = (config.chart_metric || "power") === "current";
   const showSwitches = options.showSwitches !== false;
-
-  const hasSite: boolean = !!topology.panel_entities?.site_power;
-  const hasGrid: boolean = !!topology.panel_entities?.dsm_state;
-  const hasUpstream: boolean = !!topology.panel_entities?.current_power;
-  const hasDownstream: boolean = !!topology.panel_entities?.feedthrough_power;
-  const hasSolar: boolean = !!topology.panel_entities?.pv_power;
-  const hasBattery: boolean = !!topology.panel_entities?.battery_level;
 
   return `
     <div class="panel-header">
@@ -51,79 +139,7 @@ export function buildHeaderHTML(topology: PanelTopology, config: CardConfig, opt
               : ""
           }
         </div>
-        <div class="panel-stats">
-          ${
-            hasSite
-              ? `
-          <div class="stat stat-consumption">
-            <span class="stat-label">${t("header.site")}</span>
-            <div class="stat-row">
-              <span class="stat-value">0</span>
-              <span class="stat-unit">${isAmpsMode ? "A" : "kW"}</span>
-            </div>
-          </div>`
-              : ""
-          }
-          ${
-            hasGrid
-              ? `
-          <div class="stat stat-grid-state">
-            <span class="stat-label">${t("header.grid")}</span>
-            <div class="stat-row">
-              <span class="stat-value">--</span>
-            </div>
-          </div>`
-              : ""
-          }
-          ${
-            hasUpstream
-              ? `
-          <div class="stat stat-upstream">
-            <span class="stat-label">${t("header.upstream")}</span>
-            <div class="stat-row">
-              <span class="stat-value">--</span>
-              <span class="stat-unit">${isAmpsMode ? "A" : "kW"}</span>
-            </div>
-          </div>`
-              : ""
-          }
-          ${
-            hasDownstream
-              ? `
-          <div class="stat stat-downstream">
-            <span class="stat-label">${t("header.downstream")}</span>
-            <div class="stat-row">
-              <span class="stat-value">--</span>
-              <span class="stat-unit">${isAmpsMode ? "A" : "kW"}</span>
-            </div>
-          </div>`
-              : ""
-          }
-          ${
-            hasSolar
-              ? `
-          <div class="stat stat-solar">
-            <span class="stat-label">${t("header.solar")}</span>
-            <div class="stat-row">
-              <span class="stat-value">--</span>
-              <span class="stat-unit">${isAmpsMode ? "A" : "kW"}</span>
-            </div>
-          </div>`
-              : ""
-          }
-          ${
-            hasBattery
-              ? `
-          <div class="stat stat-battery">
-            <span class="stat-label">${t("header.battery")}</span>
-            <div class="stat-row">
-              <span class="stat-value">&mdash;</span>
-              <span class="stat-unit">%</span>
-            </div>
-          </div>`
-              : ""
-          }
-        </div>
+        ${buildPanelStatsHTML(topology, config)}
       </div>
       <div class="header-right">
         <div class="header-right-top">

@@ -53,6 +53,36 @@ export const CARD_STYLES: string = `
     gap: 16px 32px;
   }
 
+  /* Favorites view: responsive grid of per-contributing-panel status cards. */
+  .favorites-panel-stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 12px;
+    padding: 12px 24px;
+    border-bottom: 1px solid var(--divider-color, #333);
+  }
+  .favorites-panel-card {
+    background: var(--secondary-background-color, rgba(255, 255, 255, 0.04));
+    border: 1px solid var(--divider-color, #333);
+    border-radius: 8px;
+    padding: 10px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .favorites-panel-card-title {
+    font-size: 0.85em;
+    font-weight: 600;
+    color: var(--primary-text-color);
+    opacity: 0.85;
+  }
+  .favorites-panel-card .panel-stats {
+    gap: 10px 20px;
+  }
+  .favorites-panel-card .stat-value {
+    font-size: 1.15em;
+  }
+
   .stat { display: flex; flex-direction: column; }
   .stat-label { font-size: 0.8em; color: var(--secondary-text-color, #999); margin-bottom: 2px; }
   .stat-row { display: flex; align-items: baseline; gap: 2px; }

@@ -11,12 +11,13 @@ import { DashboardController } from "../core/dashboard-controller.js";
 import { buildTabBarHTML } from "../core/tab-bar-renderer.js";
 import { subscribeAreaUpdates } from "../core/area-resolver.js";
 import { discoverTopology } from "../card/card-discovery.js";
-import { buildHeaderHTML } from "../core/header-renderer.js";
+import { buildHeaderHTML, buildPanelStatsHTML } from "../core/header-renderer.js";
+import { updatePanelStatsBlock } from "../core/dom-updater.js";
 import { buildSubDevicesHTML } from "../core/sub-device-renderer.js";
 import { escapeHtml } from "../helpers/sanitize.js";
 import { CARD_STYLES } from "../card/card-styles.js";
 import { FAVORITES_CHANGED_EVENT, FavoritesCache, hasAnyFavorites } from "../core/favorites-store.js";
-import { FavoritesController } from "../core/favorites-controller.js";
+import { FavoritesController, type FavoritesPanelStatsInfo } from "../core/favorites-controller.js";
 import type { CardConfig, FavoritesMap, FavoritesTopology, HomeAssistant, PanelDevice, PanelTopology } from "../types.js";
 
 const FAVORITES_PANEL_ID = "favorites";
@@ -87,6 +88,13 @@ export class SpanPanelElement extends LitElement {
   @state() private _favorites: FavoritesMap = {};
 
   private _favoritesViewState: FavoritesViewState = _defaultFavoritesViewState();
+  /**
+   * Per-contributing-panel stats snapshot for the active Favorites
+   * render. Populated from ``FavoritesController.build`` and consumed
+   * by ``_updateFavoritesPanelStats`` on each interval tick so every
+   * per-panel stats block can read from the correct panel's entities.
+   */
+  private _favoritesPanelStats: FavoritesPanelStatsInfo[] = [];
 
   private _dashboardTab = new DashboardTab();
   private _monitoringTab = new MonitoringTab();
@@ -684,6 +692,41 @@ export class SpanPanelElement extends LitElement {
     `;
   }
 
+  /**
+   * Render a responsive grid of per-contributing-panel status cards
+   * (Site/Grid/Upstream/Downstream/Solar/Battery). Auto-fits 1-3
+   * columns based on viewport width. Live values are filled in by
+   * ``_updateFavoritesPanelStats`` on each interval tick.
+   */
+  private _buildFavoritesPanelStatsGridHTML(perPanelStats: FavoritesPanelStatsInfo[], config: CardConfig): string {
+    if (perPanelStats.length === 0) return "";
+    const cards = perPanelStats
+      .map(
+        info => `
+      <div class="favorites-panel-card">
+        <div class="favorites-panel-card-title">${escapeHtml(info.panelName || info.topology.device_name || "")}</div>
+        ${buildPanelStatsHTML(info.topology, config, info.panelDeviceId)}
+      </div>
+    `
+      )
+      .join("");
+    return `<div class="favorites-panel-stats-grid">${cards}</div>`;
+  }
+
+  /**
+   * Update each per-panel stats block in the Favorites view from its
+   * originating panel's entities. Runs on startIntervals ticks so the
+   * Site/Grid/Upstream/... values stay live.
+   */
+  private _updateFavoritesPanelStats(container: HTMLElement, config: CardConfig): void {
+    if (!this.hass || this._favoritesPanelStats.length === 0) return;
+    for (const info of this._favoritesPanelStats) {
+      const block = container.querySelector(`.panel-stats[data-stats-panel-id="${info.panelDeviceId}"]`);
+      if (!block) continue;
+      updatePanelStatsBlock(block, this.hass, info.topology, config, 0);
+    }
+  }
+
   private _buildDashboardConfig(): CardConfig {
     return {
       chart_metric: this._chartMetric,
@@ -848,13 +891,15 @@ export class SpanPanelElement extends LitElement {
     await this._listDashCtrl.fetchAndBuildHorizonMaps();
     const monitoringStatus = await this._listDashCtrl.fetchMergedMonitoringStatus(build.entryIds);
 
+    this._favoritesPanelStats = build.perPanelStats;
     const summaryHTML = this._buildFavoritesSummaryHTML();
+    const panelStatsHTML = this._buildFavoritesPanelStatsGridHTML(build.perPanelStats, config);
     const subDevicesHTML = hasSubDevices
       ? `<div class="favorites-subdevices-section" style="padding:8px 16px 0;">
            <div class="sub-devices">${buildSubDevicesHTML(merged, this.hass, config)}</div>
          </div>`
       : "";
-    const headerHTML = summaryHTML + subDevicesHTML;
+    const headerHTML = summaryHTML + panelStatsHTML + subDevicesHTML;
     try {
       if (viewName === "activity") {
         this._listCtrl.renderActivityView(container, this.hass, merged as FavoritesTopology, config, monitoringStatus, headerHTML);
@@ -864,7 +909,10 @@ export class SpanPanelElement extends LitElement {
       container.insertAdjacentHTML("afterbegin", `<style>${CARD_STYLES}</style>`);
       await this._listDashCtrl.loadHistory();
       this._listDashCtrl.updateDOM(container);
-      this._listDashCtrl.startIntervals(container);
+      this._updateFavoritesPanelStats(container, config);
+      this._listDashCtrl.startIntervals(container, () => {
+        this._updateFavoritesPanelStats(container, config);
+      });
     } catch (err) {
       const errEl = document.createElement("p");
       errEl.style.color = "var(--error-color)";
