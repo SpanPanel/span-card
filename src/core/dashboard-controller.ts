@@ -4,7 +4,7 @@ import { getHorizonDurationMs, getMaxHistoryPoints, getMinGapMs, recordSample } 
 import { loadHistory, collectSubDeviceEntityIds } from "./history-loader.js";
 import { updateCircuitDOM, updateSubDeviceDOM } from "./dom-updater.js";
 import { getEffectiveHorizon, getEffectiveSubDeviceHorizon } from "./graph-settings.js";
-import { MonitoringStatusCache } from "./monitoring-status.js";
+import { MonitoringStatusCache, mergeMonitoringStatuses } from "./monitoring-status.js";
 import { GraphSettingsCache } from "./graph-settings.js";
 import type { CardConfig, FavoriteRef, GraphSettings, HistoryMap, HomeAssistant, MonitoringStatus, MonitoringStatusResponse, PanelTopology } from "../types.js";
 
@@ -155,6 +155,17 @@ export class DashboardController {
     } catch {
       // Graph settings unavailable -- use defaults
     }
+  }
+
+  /**
+   * Fetch monitoring status for each of the given config entries in parallel
+   * and merge the results. Used by the Favorites view, which can span
+   * multiple panels. Returns null if every per-entry fetch fails.
+   */
+  async fetchMergedMonitoringStatus(entryIds: readonly string[]): Promise<MonitoringStatus | null> {
+    if (!this._hass || entryIds.length === 0) return null;
+    const statuses = await Promise.all(entryIds.map(eid => this._fetchMonitoringStatusFresh(eid)));
+    return mergeMonitoringStatuses(statuses);
   }
 
   /**

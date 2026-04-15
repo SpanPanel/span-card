@@ -842,6 +842,7 @@ export class SpanPanelElement extends LitElement {
     const config = this._buildDashboardConfig();
     this._listDashCtrl.init(merged, config, this.hass, primaryEntryId);
     await this._listDashCtrl.fetchAndBuildHorizonMaps();
+    const monitoringStatus = await this._listDashCtrl.fetchMergedMonitoringStatus(build.entryIds);
 
     const summaryHTML = this._buildFavoritesSummaryHTML();
     const subDevicesHTML = hasSubDevices
@@ -852,9 +853,9 @@ export class SpanPanelElement extends LitElement {
     const headerHTML = summaryHTML + subDevicesHTML;
     try {
       if (viewName === "activity") {
-        this._listCtrl.renderActivityView(container, this.hass, merged as FavoritesTopology, config, null, headerHTML);
+        this._listCtrl.renderActivityView(container, this.hass, merged as FavoritesTopology, config, monitoringStatus, headerHTML);
       } else {
-        this._listCtrl.renderAreaView(container, this.hass, merged as FavoritesTopology, config, null, headerHTML);
+        this._listCtrl.renderAreaView(container, this.hass, merged as FavoritesTopology, config, monitoringStatus, headerHTML);
       }
       container.insertAdjacentHTML("afterbegin", `<style>${CARD_STYLES}</style>`);
       await this._listDashCtrl.loadHistory();

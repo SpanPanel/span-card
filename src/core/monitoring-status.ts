@@ -66,6 +66,26 @@ export class MonitoringStatusCache {
 }
 
 /**
+ * Merge multiple MonitoringStatus results into one. Null entries are
+ * skipped. Returns null only if every input is null. Later entries
+ * overwrite earlier ones on key collision, which is fine because circuit
+ * and mains keys are globally-unique entity IDs across config entries.
+ */
+export function mergeMonitoringStatuses(statuses: readonly (MonitoringStatus | null | undefined)[]): MonitoringStatus | null {
+  let hasAny = false;
+  const circuits: Record<string, MonitoringPointInfo> = {};
+  const mains: Record<string, MonitoringPointInfo> = {};
+  for (const status of statuses) {
+    if (!status) continue;
+    hasAny = true;
+    if (status.circuits) Object.assign(circuits, status.circuits);
+    if (status.mains) Object.assign(mains, status.mains);
+  }
+  if (!hasAny) return null;
+  return { circuits, mains };
+}
+
+/**
  * Get monitoring info for a specific circuit entity.
  */
 export function getCircuitMonitoringInfo(status: MonitoringStatus | null, entityId: string): MonitoringPointInfo | null {
