@@ -1,3 +1,4 @@
+import { escapeHtml } from "../helpers/sanitize.js";
 import { RELAY_STATE_CLOSED } from "../constants.js";
 import { formatPowerSigned, formatPowerUnit } from "../helpers/format.js";
 import { getChartMetric } from "../helpers/chart.js";
@@ -56,45 +57,39 @@ function sortCircuitEntries(entries: [string, Circuit][], hass: HomeAssistant, c
   return entries.sort((a, b) => compareCircuits(a[1], b[1], hass, config));
 }
 
-interface RowUnit {
-  row: HTMLElement;
-  expanded: HTMLElement | null;
+interface CellUnit {
+  cell: HTMLElement;
   uuid: string;
   circuit: Circuit;
 }
 
-interface RowGroup {
+interface CellGroup {
   anchor: HTMLElement | null;
-  units: RowUnit[];
+  units: CellUnit[];
 }
 
-// Partition .list-view's direct children into groups. Activity view produces a
-// single anchor-less group; area view produces one group per .area-header.
-function partitionRowGroups(listView: HTMLElement, topology: PanelTopology): RowGroup[] {
-  let current: RowGroup = { anchor: null, units: [] };
-  const groups: RowGroup[] = [current];
-  const children = [...listView.children] as HTMLElement[];
+// Partition .list-view's direct children into groups. Activity view
+// produces a single anchor-less group; area view produces one group per
+// .area-header. Each circuit (row + optional expansion) lives inside a
+// single ``.list-cell`` wrapper so multi-column grid mode keeps the
+// expansion in the same column as its row.
+function partitionCellGroups(listView: HTMLElement, topology: PanelTopology): CellGroup[] {
+  let current: CellGroup = { anchor: null, units: [] };
+  const groups: CellGroup[] = [current];
 
-  for (let i = 0; i < children.length; ) {
-    const el = children[i]!;
+  for (const el of [...listView.children] as HTMLElement[]) {
     if (el.classList.contains("area-header")) {
       current = { anchor: el, units: [] };
       groups.push(current);
-      i++;
       continue;
     }
-    if (el.classList.contains("list-row")) {
-      const uuid = el.dataset.rowUuid;
+    if (el.classList.contains("list-cell")) {
+      const uuid = el.dataset.cellUuid;
       const circuit = uuid ? topology.circuits[uuid] : undefined;
       if (uuid && circuit) {
-        const next = children[i + 1];
-        const expanded = next && next.classList.contains("list-expanded-content") && next.dataset.expandedUuid === uuid ? next : null;
-        current.units.push({ row: el, expanded, uuid, circuit });
-        i += expanded ? 2 : 1;
-        continue;
+        current.units.push({ cell: el, uuid, circuit });
       }
     }
-    i++;
   }
 
   return groups;
@@ -104,7 +99,7 @@ function reorderListRows(root: Element | ShadowRoot, hass: HomeAssistant, topolo
   const listView = root.querySelector<HTMLElement>(".list-view");
   if (!listView) return;
 
-  for (const group of partitionRowGroups(listView, topology)) {
+  for (const group of partitionCellGroups(listView, topology)) {
     if (group.units.length < 2) continue;
 
     const sorted = [...group.units].sort((a, b) => compareCircuits(a.circuit, b.circuit, hass, config));
@@ -115,15 +110,11 @@ function reorderListRows(root: Element | ShadowRoot, hass: HomeAssistant, topolo
     let after: Element | null = group.anchor;
     for (const unit of sorted) {
       if (after) {
-        after.after(unit.row);
+        after.after(unit.cell);
       } else {
-        listView.prepend(unit.row);
+        listView.prepend(unit.cell);
       }
-      after = unit.row;
-      if (unit.expanded) {
-        after.after(unit.expanded);
-        after = unit.expanded;
-      }
+      after = unit.cell;
     }
   }
 }
@@ -226,10 +217,12 @@ export class ListViewController {
       const monitoringInfo = getCircuitMonitoringInfo(monitoringStatus, getCircuitEntityId(circuit));
       const sheddingPriority = getSheddingPriority(circuit, hass);
       const isExpanded = this._expandedUuids.has(uuid);
+      html += `<div class="list-cell" data-cell-uuid="${escapeHtml(uuid)}">`;
       html += buildListRowHTML(uuid, circuit, hass, config, monitoringInfo, sheddingPriority, isExpanded);
       if (isExpanded) {
         html += buildExpandedChartHTML(uuid, circuit, hass, config, monitoringInfo);
       }
+      html += "</div>";
     }
 
     html += "</div>";
@@ -291,10 +284,12 @@ export class ListViewController {
         const monitoringInfo = getCircuitMonitoringInfo(monitoringStatus, getCircuitEntityId(circuit));
         const sheddingPriority = getSheddingPriority(circuit, hass);
         const isExpanded = this._expandedUuids.has(uuid);
+        html += `<div class="list-cell" data-cell-uuid="${escapeHtml(uuid)}">`;
         html += buildListRowHTML(uuid, circuit, hass, config, monitoringInfo, sheddingPriority, isExpanded);
         if (isExpanded) {
           html += buildExpandedChartHTML(uuid, circuit, hass, config, monitoringInfo);
         }
+        html += "</div>";
       }
     }
 
@@ -505,21 +500,12 @@ export class ListViewController {
     const clearBtn = container.querySelector<HTMLElement>(".list-search-clear");
     if (clearBtn) clearBtn.style.display = this._searchQuery ? "" : "none";
 
-    const rows = container.querySelectorAll<HTMLElement>(".list-row[data-row-uuid]");
-    for (const row of rows) {
-      const nameEl = row.querySelector(".list-circuit-name");
+    const cells = container.querySelectorAll<HTMLElement>(".list-cell[data-cell-uuid]");
+    for (const cell of cells) {
+      const nameEl = cell.querySelector(".list-circuit-name");
       const name = nameEl?.textContent?.toLowerCase() ?? "";
       const matches = name.includes(this._searchQuery);
-
-      row.style.display = matches ? "" : "none";
-
-      const uuid = row.dataset.rowUuid;
-      if (uuid) {
-        const expandedContent = container.querySelector<HTMLElement>(`.list-expanded-content[data-expanded-uuid="${uuid}"]`);
-        if (expandedContent) {
-          expandedContent.style.display = matches ? "" : "none";
-        }
-      }
+      cell.style.display = matches ? "" : "none";
     }
 
     const areaHeaders = container.querySelectorAll<HTMLElement>(".area-header");
@@ -527,7 +513,7 @@ export class ListViewController {
       let hasVisibleRow = false;
       let sibling = header.nextElementSibling;
       while (sibling && !sibling.classList.contains("area-header")) {
-        if (sibling.classList.contains("list-row") && (sibling as HTMLElement).style.display !== "none") {
+        if (sibling.classList.contains("list-cell") && (sibling as HTMLElement).style.display !== "none") {
           hasVisibleRow = true;
           break;
         }

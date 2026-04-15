@@ -176,7 +176,7 @@ export function buildExpandedChartHTML(
   const safeUuid = escapeHtml(uuid);
 
   return `
-    <div class="list-expanded-content" data-expanded-uuid="${safeUuid}" style="grid-column:1 / -1;">
+    <div class="list-expanded-content" data-expanded-uuid="${safeUuid}">
       <div class="circuit-slot circuit-chart-only ${stateClasses}" data-uuid="${safeUuid}">
         <div class="chart-container"></div>
       </div>

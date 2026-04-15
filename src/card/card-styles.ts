@@ -524,10 +524,17 @@ export const CARD_STYLES: string = `
     flex-direction: column;
     gap: 6px;
   }
-  /* Multi-column grid mode: rows flow left-to-right then down. The
-     existing value-desc / alphabetical sort order becomes top-left
-     to bottom-right. Expanded rows and area headers span the full
-     row via inline "grid-column: 1 / -1" from the renderers. */
+  /* Each circuit is wrapped in a .list-cell so the row + its optional
+     expanded chart stay together. In single-column flex mode the cell
+     just stacks naturally. In multi-column grid mode the cell becomes
+     one grid item, so the chart is always in the same column as its
+     row. Area headers (rendered as siblings, not inside a cell) span
+     all columns via their inline "grid-column: 1 / -1". */
+  .list-cell {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
   .list-view[data-columns="2"],
   .list-view[data-columns="3"] {
     display: grid;
