@@ -158,10 +158,9 @@ export function buildExpandedChartHTML(
   uuid: string,
   circuit: Circuit,
   hass: HomeAssistant,
-  config: CardConfig,
+  _config: CardConfig,
   monitoringInfo: MonitoringPointInfo | null
 ): string {
-  void config;
   const powerEid = circuit.entities?.power;
   const powerState = powerEid ? hass.states[powerEid] : null;
   const powerW = powerState ? parseFloat(powerState.state) || 0 : 0;

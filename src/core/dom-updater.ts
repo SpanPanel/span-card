@@ -143,7 +143,7 @@ export function updateCircuitDOM(
   const showCurrent = chartMetric.entityRole === "current";
 
   for (const [uuid, circuit] of Object.entries(topology.circuits)) {
-    const slot = root.querySelector(`[data-uuid="${uuid}"]`);
+    const slot = root.querySelector(`.circuit-slot[data-uuid="${uuid}"]`);
     if (!slot) continue;
 
     const entityId = circuit.entities?.power;
