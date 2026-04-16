@@ -1,4 +1,4 @@
-import { LitElement, html, css, unsafeCSS } from "lit";
+import { LitElement, html, css, nothing, unsafeCSS } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import { unsafeHTML } from "lit/directives/unsafe-html.js";
 import { INTEGRATION_DOMAIN } from "../constants.js";
@@ -74,6 +74,7 @@ export class SpanPanelElement extends LitElement {
   private _favoritesMonitoringTabs: Map<string, MonitoringTab> = new Map();
   private readonly _errorStore = new ErrorStore();
   private _watchedPanelId: string | null = null;
+  private _discovering = false;
   /**
    * Monotonic token incremented on each ``_refreshFavorites`` call.
    * Concurrent invocations (rapid heart toggles → multiple
@@ -282,8 +283,14 @@ export class SpanPanelElement extends LitElement {
       this._scheduleTabRender();
     }
 
-    if (changedProps.has("_selectedPanelId") && this._selectedPanelId && this._selectedPanelId !== FAVORITES_PANEL_ID) {
-      this._updatePanelStatusWatch();
+    if (changedProps.has("_selectedPanelId")) {
+      if (this._selectedPanelId === FAVORITES_PANEL_ID || !this._selectedPanelId) {
+        // Favorites pseudo-panel has no panel_status — clear the watch
+        this._errorStore.clearPanelStatusWatch();
+        this._watchedPanelId = null;
+      } else {
+        this._updatePanelStatusWatch();
+      }
     }
 
     // Keep the <select> visually synced with ``_selectedPanelId``.
@@ -329,12 +336,13 @@ export class SpanPanelElement extends LitElement {
           </div>
         </div>
         <div class="view">
-          <div class="view-content" style="padding: 24px; color: var(--secondary-text-color);">${"Loading\u2026"}</div>
+          <div class="view-content" style="padding: 24px; color: var(--secondary-text-color);">${t("card.connecting")}</div>
         </div>
       `;
     }
 
     if (!this._discovered) {
+      const hasError = this._errorStore.hasPersistent("discovery-failed");
       return html`
         <div class="header">
           <div class="toolbar">
@@ -344,7 +352,7 @@ export class SpanPanelElement extends LitElement {
         </div>
         <div class="view">
           <span-error-banner .store=${this._errorStore}></span-error-banner>
-          <div class="view-content" style="padding: 24px; color: var(--secondary-text-color);">${"Loading\u2026"}</div>
+          ${hasError ? nothing : html`<div class="view-content" style="padding: 24px; color: var(--secondary-text-color);">${t("card.connecting")}</div>`}
         </div>
       `;
     }
@@ -577,53 +585,58 @@ export class SpanPanelElement extends LitElement {
   }
 
   private async _discoverPanels(): Promise<void> {
+    if (this._discovering) return;
     if (!this.hass) return;
-
-    let realPanels: PanelDevice[];
+    this._discovering = true;
     try {
-      const devices = await this.hass.callWS<PanelDevice[]>({
-        type: "config/device_registry/list",
-      });
-      realPanels = devices.filter((d: PanelDevice) => d.identifiers?.some(id => id[0] === INTEGRATION_DOMAIN) && !d.via_device_id);
-    } catch (err) {
-      console.error("SPAN Panel: device discovery failed", err);
-      this._errorStore.add({
-        key: "discovery-failed",
-        level: "error",
-        message: t("error.discovery_failed"),
-        persistent: true,
-        retryFn: () => {
-          this._errorStore.remove("discovery-failed");
-          this._discoverPanels();
-        },
-      });
-      return;
-    }
-
-    this._favorites = await this._loadFavorites();
-    this._panels = this._buildPanelList(realPanels, this._favorites);
-    this._favoritesViewState = loadFavoritesViewState();
-
-    this._discovered = true;
-
-    const stored = localStorage.getItem("span_panel_selected");
-    if (stored && this._panels.some(p => p.id === stored)) {
-      this._selectedPanelId = stored;
-    } else if (realPanels.length > 0) {
-      this._selectedPanelId = realPanels[0]!.id;
-    }
-
-    // Restore the user's favorites tab when re-entering the pseudo-panel.
-    if (this._selectedPanelId === FAVORITES_PANEL_ID) {
-      const restoredTab = this._favoritesViewState.activeTab;
-      if (restoredTab === "activity" || restoredTab === "area" || restoredTab === "monitoring") {
-        this._activeTab = restoredTab;
-      } else if (this._activeTab === "dashboard") {
-        this._activeTab = "activity";
+      let realPanels: PanelDevice[];
+      try {
+        const devices = await this.hass.callWS<PanelDevice[]>({
+          type: "config/device_registry/list",
+        });
+        realPanels = devices.filter((d: PanelDevice) => d.identifiers?.some(id => id[0] === INTEGRATION_DOMAIN) && !d.via_device_id);
+      } catch (err) {
+        console.error("SPAN Panel: device discovery failed", err);
+        this._errorStore.add({
+          key: "discovery-failed",
+          level: "error",
+          message: t("error.discovery_failed"),
+          persistent: true,
+          retryFn: () => {
+            this._errorStore.remove("discovery-failed");
+            this._discoverPanels();
+          },
+        });
+        return;
       }
-    }
 
-    this._chartMetric = localStorage.getItem("span_panel_metric") || "power";
+      this._favorites = await this._loadFavorites();
+      this._panels = this._buildPanelList(realPanels, this._favorites);
+      this._favoritesViewState = loadFavoritesViewState();
+
+      this._discovered = true;
+
+      const stored = localStorage.getItem("span_panel_selected");
+      if (stored && this._panels.some(p => p.id === stored)) {
+        this._selectedPanelId = stored;
+      } else if (realPanels.length > 0) {
+        this._selectedPanelId = realPanels[0]!.id;
+      }
+
+      // Restore the user's favorites tab when re-entering the pseudo-panel.
+      if (this._selectedPanelId === FAVORITES_PANEL_ID) {
+        const restoredTab = this._favoritesViewState.activeTab;
+        if (restoredTab === "activity" || restoredTab === "area" || restoredTab === "monitoring") {
+          this._activeTab = restoredTab;
+        } else if (this._activeTab === "dashboard") {
+          this._activeTab = "activity";
+        }
+      }
+
+      this._chartMetric = localStorage.getItem("span_panel_metric") || "power";
+    } finally {
+      this._discovering = false;
+    }
   }
 
   /**

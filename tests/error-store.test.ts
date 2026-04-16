@@ -408,4 +408,31 @@ describe("ErrorStore — panel status watching", () => {
     const reconnected = store.active.filter(e => e.key === "panel-reconnected");
     expect(reconnected).toHaveLength(0);
   });
+
+  it("resets was-offline state when switching watched entity", () => {
+    store.watchPanelStatus("binary_sensor.panel_a");
+    store.updateHass({ states: { "binary_sensor.panel_a": { state: "off" } } } as any);
+    expect(store.hasPersistent("panel-offline")).toBe(true);
+
+    // Switch to a different panel that is online
+    store.watchPanelStatus("binary_sensor.panel_b");
+    store.updateHass({ states: { "binary_sensor.panel_b": { state: "on" } } } as any);
+
+    // No spurious "reconnected" info should appear for panel B
+    expect(store.hasPersistent("panel-offline")).toBe(false);
+    expect(store.active.filter(e => e.level === "info")).toHaveLength(0);
+  });
+
+  it("clearPanelStatusWatch resets state", () => {
+    store.watchPanelStatus("binary_sensor.panel_a");
+    store.updateHass({ states: { "binary_sensor.panel_a": { state: "off" } } } as any);
+    expect(store.hasPersistent("panel-offline")).toBe(true);
+
+    store.clearPanelStatusWatch();
+    expect(store.hasPersistent("panel-offline")).toBe(false);
+
+    // Further updateHass should be a no-op
+    store.updateHass({ states: { "binary_sensor.panel_a": { state: "off" } } } as any);
+    expect(store.hasPersistent("panel-offline")).toBe(false);
+  });
 });

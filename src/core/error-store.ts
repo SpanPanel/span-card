@@ -129,9 +129,33 @@ export class ErrorStore {
   /**
    * Register the entity ID whose `state` represents panel connectivity.
    * Call `updateHass()` on each hass update to drive error/recovery logic.
+   *
+   * When the entity ID changes (switching watched panel), resets
+   * `_wasOffline` and removes any active `panel-offline` for the previous
+   * entity so the new panel starts with a clean slate.
    */
   watchPanelStatus(entityId: string): void {
+    if (this._panelStatusEntityId !== entityId) {
+      // Switching watched panel — clear state scoped to the previous entity
+      this._wasOffline = false;
+      this._persistent.delete("panel-offline");
+      this._notify();
+    }
     this._panelStatusEntityId = entityId;
+  }
+
+  /**
+   * Clear the panel status watch entirely (e.g. when switching to the
+   * Favorites pseudo-panel, which has no panel_status entity).
+   * Removes any active `panel-offline` persistent error and resets
+   * `_wasOffline` so no spurious reconnect toast fires on the next watch.
+   */
+  clearPanelStatusWatch(): void {
+    this._panelStatusEntityId = null;
+    this._wasOffline = false;
+    if (this._persistent.delete("panel-offline")) {
+      this._notify();
+    }
   }
 
   /**
