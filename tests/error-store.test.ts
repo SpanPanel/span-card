@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { HomeAssistant } from "../src/types.js";
 import { ErrorStore } from "../src/core/error-store.js";
 import type { ErrorEntry } from "../src/core/error-store.js";
+import { tf, setLanguage } from "../src/i18n.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -459,5 +460,33 @@ describe("ErrorStore — panel status watching", () => {
     // Watch is preserved — updateHass with off state re-adds panel-offline
     store.updateHass({ states: { "binary_sensor.panel_status": { state: "off" } } } as any);
     expect(store.hasPersistent("panel-offline")).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// tf() — translation with placeholder substitution
+// ---------------------------------------------------------------------------
+
+describe("tf — translation with {placeholder} substitution", () => {
+  beforeEach(() => {
+    setLanguage("en");
+  });
+
+  it("substitutes {name} in error.panel_offline_named", () => {
+    expect(tf("error.panel_offline_named", { name: "Span Panel 2" })).toBe("Span Panel 2 unreachable");
+  });
+
+  it("renders {name} as a literal token when the variable is missing", () => {
+    expect(tf("error.panel_offline_named", {})).toBe("{name} unreachable");
+  });
+
+  it("substitutes {name} in error.panel_reconnected_named", () => {
+    expect(tf("error.panel_reconnected_named", { name: "Span Panel 2" })).toBe("Span Panel 2 reconnected");
+  });
+
+  it("falls back to English template when key is missing in active language", () => {
+    setLanguage("es");
+    // Spanish template: "{name} inaccesible"
+    expect(tf("error.panel_offline_named", { name: "X" })).toBe("X inaccesible");
   });
 });

@@ -74,6 +74,8 @@ const translations: Record<string, Record<string, string>> = {
     "error.failed": "Failed",
     "error.panel_offline": "SPAN Panel unreachable",
     "error.panel_reconnected": "SPAN Panel reconnected",
+    "error.panel_offline_named": "{name} unreachable",
+    "error.panel_reconnected_named": "{name} reconnected",
     "error.discovery_failed": "Unable to connect to SPAN Panel",
     "error.relay_failed": "Unable to toggle relay",
     "error.shedding_failed": "Unable to update shedding priority",
@@ -266,6 +268,8 @@ const translations: Record<string, Record<string, string>> = {
     "error.failed": "Fall\u00f3",
     "error.panel_offline": "SPAN Panel inaccesible",
     "error.panel_reconnected": "SPAN Panel reconectado",
+    "error.panel_offline_named": "{name} inaccesible",
+    "error.panel_reconnected_named": "{name} reconectado",
     "error.discovery_failed": "No se puede conectar al SPAN Panel",
     "error.relay_failed": "No se pudo cambiar el rel\u00e9",
     "error.shedding_failed": "No se pudo actualizar la prioridad de desconexi\u00f3n",
@@ -437,6 +441,8 @@ const translations: Record<string, Record<string, string>> = {
     "error.failed": "\u00c9chou\u00e9",
     "error.panel_offline": "SPAN Panel inaccessible",
     "error.panel_reconnected": "SPAN Panel reconnect\u00e9",
+    "error.panel_offline_named": "{name} inaccessible",
+    "error.panel_reconnected_named": "{name} reconnect\u00e9",
     "error.discovery_failed": "Impossible de se connecter au SPAN Panel",
     "error.relay_failed": "Impossible de basculer le relais",
     "error.shedding_failed": "Impossible de mettre \u00e0 jour la priorit\u00e9 de d\u00e9lestage",
@@ -610,6 +616,8 @@ const translations: Record<string, Record<string, string>> = {
     "error.failed": "\u5931\u6557",
     "error.panel_offline": "SPAN\u30d1\u30cd\u30eb\u306b\u63a5\u7d9a\u3067\u304d\u307e\u305b\u3093",
     "error.panel_reconnected": "SPAN\u30d1\u30cd\u30eb\u304c\u518d\u63a5\u7d9a\u3055\u308c\u307e\u3057\u305f",
+    "error.panel_offline_named": "{name}\u306b\u63a5\u7d9a\u3067\u304d\u307e\u305b\u3093",
+    "error.panel_reconnected_named": "{name}\u304c\u518d\u63a5\u7d9a\u3055\u308c\u307e\u3057\u305f",
     "error.discovery_failed": "SPAN\u30d1\u30cd\u30eb\u3078\u306e\u63a5\u7d9a\u306b\u5931\u6557\u3057\u307e\u3057\u305f",
     "error.relay_failed": "\u30ea\u30ec\u30fc\u306e\u5207\u308a\u66ff\u3048\u306b\u5931\u6557\u3057\u307e\u3057\u305f",
     "error.shedding_failed": "\u30b7\u30a7\u30c7\u30a3\u30f3\u30b0\u512a\u5148\u5ea6\u306e\u66f4\u65b0\u306b\u5931\u6557\u3057\u307e\u3057\u305f",
@@ -786,6 +794,8 @@ const translations: Record<string, Record<string, string>> = {
     "error.failed": "Falhou",
     "error.panel_offline": "SPAN Panel inacess\u00edvel",
     "error.panel_reconnected": "SPAN Panel reconectado",
+    "error.panel_offline_named": "{name} inacess\u00edvel",
+    "error.panel_reconnected_named": "{name} reconectado",
     "error.discovery_failed": "N\u00e3o foi poss\u00edvel conectar ao SPAN Panel",
     "error.relay_failed": "N\u00e3o foi poss\u00edvel alternar o rel\u00e9",
     "error.shedding_failed": "N\u00e3o foi poss\u00edvel atualizar a prioridade de desligamento",
@@ -918,4 +928,15 @@ export function setLanguage(lang: string | undefined): void {
  */
 export function t(key: string): string {
   return translations[_lang]?.[key] ?? translations.en?.[key] ?? key;
+}
+
+/**
+ * Look up a translation key and substitute `{name}`-style placeholders.
+ * Falls back to the English template when the key is missing in the
+ * active language. Missing variables render as their literal token
+ * (e.g. `{name}`) — loud in the UI, easy to spot in review.
+ */
+export function tf(key: string, vars: Record<string, string>): string {
+  const template = translations[_lang]?.[key] ?? translations.en?.[key] ?? key;
+  return template.replace(/\{(\w+)\}/g, (_, k) => (Object.prototype.hasOwnProperty.call(vars, k) ? vars[k]! : `{${k}}`));
 }
