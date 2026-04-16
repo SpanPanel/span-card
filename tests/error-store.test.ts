@@ -435,4 +435,29 @@ describe("ErrorStore — panel status watching", () => {
     store.updateHass({ states: { "binary_sensor.panel_a": { state: "off" } } } as any);
     expect(store.hasPersistent("panel-offline")).toBe(false);
   });
+
+  it("clear() with no filter resets panel status watching state", () => {
+    store.watchPanelStatus("binary_sensor.panel_status");
+    store.updateHass({ states: { "binary_sensor.panel_status": { state: "off" } } } as any);
+    expect(store.hasPersistent("panel-offline")).toBe(true);
+
+    store.clear();
+
+    // After full clear, updateHass should be a no-op (no watched entity)
+    store.updateHass({ states: { "binary_sensor.panel_status": { state: "off" } } } as any);
+    expect(store.hasPersistent("panel-offline")).toBe(false);
+  });
+
+  it("clear({persistent: true}) preserves panel status watching state", () => {
+    store.watchPanelStatus("binary_sensor.panel_status");
+    store.updateHass({ states: { "binary_sensor.panel_status": { state: "on" } } } as any);
+
+    // Add a persistent error of a different key
+    store.add({ key: "discovery-failed", level: "error", message: "x", persistent: true });
+    store.clear({ persistent: true });
+
+    // Watch is preserved — updateHass with off state re-adds panel-offline
+    store.updateHass({ states: { "binary_sensor.panel_status": { state: "off" } } } as any);
+    expect(store.hasPersistent("panel-offline")).toBe(true);
+  });
 });

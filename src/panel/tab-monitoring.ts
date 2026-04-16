@@ -535,8 +535,14 @@ export class MonitoringTab {
       this._debounceTimer = setTimeout(async () => {
         try {
           await this._callSetGlobal(hass, { notify_targets: targets.join(", ") });
-        } catch {
-          // will show on next render
+        } catch (err) {
+          console.warn("SPAN Panel: notification targets save failed", err);
+          this.errorStore?.add({
+            key: "service:monitoring",
+            level: "error",
+            message: t("error.threshold_failed"),
+            persistent: false,
+          });
         }
       }, INPUT_DEBOUNCE_MS);
     };
@@ -577,8 +583,14 @@ export class MonitoringTab {
       this._debounceTimer = setTimeout(async () => {
         try {
           await this._callSetGlobal(hass, { [field]: value });
-        } catch {
-          // will show on next render
+        } catch (err) {
+          console.warn("SPAN Panel: notification settings save failed", err);
+          this.errorStore?.add({
+            key: "service:monitoring",
+            level: "error",
+            message: t("error.threshold_failed"),
+            persistent: false,
+          });
         }
       }, INPUT_DEBOUNCE_MS);
     };
@@ -588,8 +600,14 @@ export class MonitoringTab {
         try {
           await this._callSetGlobal(hass, { notification_priority: prioritySelect.value });
           await this.render(container, hass);
-        } catch {
-          // will show on next render
+        } catch (err) {
+          console.warn("SPAN Panel: notification priority change failed", err);
+          this.errorStore?.add({
+            key: "service:monitoring",
+            level: "error",
+            message: t("error.threshold_failed"),
+            persistent: false,
+          });
         }
       });
     }
@@ -714,7 +732,14 @@ export class MonitoringTab {
             service: "set_mains_threshold",
             service_data: this._serviceData({ leg: entityId, monitoring_enabled: enabled }),
           });
-        } catch {
+        } catch (err) {
+          console.warn("SPAN Panel: mains threshold toggle failed", err);
+          this.errorStore?.add({
+            key: "service:monitoring",
+            level: "error",
+            message: t("error.threshold_failed"),
+            persistent: false,
+          });
           cb.checked = !enabled;
           return;
         }
@@ -735,7 +760,14 @@ export class MonitoringTab {
             service: "set_circuit_threshold",
             service_data: this._serviceData({ circuit_id: entityId, monitoring_enabled: enabled }),
           });
-        } catch {
+        } catch (err) {
+          console.warn("SPAN Panel: circuit threshold toggle failed", err);
+          this.errorStore?.add({
+            key: "service:monitoring",
+            level: "error",
+            message: t("error.threshold_failed"),
+            persistent: false,
+          });
           cb.checked = !enabled;
           return;
         }
@@ -770,7 +802,14 @@ export class MonitoringTab {
               });
               // Re-render to update Custom badge and Reset button
               await this.render(container, hass);
-            } catch {
+            } catch (err) {
+              console.warn("SPAN Panel: threshold input save failed", err);
+              this.errorStore?.add({
+                key: "service:monitoring",
+                level: "error",
+                message: t("error.threshold_failed"),
+                persistent: false,
+              });
               input.style.borderColor = "var(--error-color, #f44336)";
             }
           }, THRESHOLD_DEBOUNCE_MS)
