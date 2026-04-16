@@ -14,6 +14,7 @@ import { buildTabBarHTML, bindTabBarEvents } from "../core/tab-bar-renderer.js";
 import { subscribeAreaUpdates } from "../core/area-resolver.js";
 import { ErrorStore } from "../core/error-store.js";
 import { discoverTopology, discoverEntitiesFallback } from "./card-discovery.js";
+import { RetryManager } from "../core/retry-manager.js";
 import { CARD_STYLES } from "./card-styles.js";
 import "../core/side-panel.js";
 import "../core/error-banner.js";
@@ -261,15 +262,16 @@ export class SpanPanelCard extends LitElement {
 
   private async _discoverTopology(): Promise<void> {
     if (!this.hass) return;
+    const retry = new RetryManager(this._errorStore);
     try {
-      const result = await discoverTopology(this.hass, this._config.device_id);
+      const result = await discoverTopology(this.hass, this._config.device_id, retry);
       this._topology = result.topology;
       this._panelDevice = result.panelDevice;
       this._panelSize = result.panelSize;
     } catch (err) {
       console.error("SPAN Panel: topology fetch failed, falling back to entity discovery", err);
       try {
-        const result = await discoverEntitiesFallback(this.hass, this._config.device_id);
+        const result = await discoverEntitiesFallback(this.hass, this._config.device_id, retry);
         this._topology = result.topology;
         this._panelDevice = result.panelDevice;
         this._panelSize = result.panelSize;

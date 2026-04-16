@@ -171,12 +171,16 @@ export class DashboardController {
       }
     } catch (err) {
       console.warn("SPAN Panel: graph settings fetch failed", err);
-      this._errorStore?.add({
-        key: "fetch:graph_settings",
-        level: "warning",
-        message: t("error.graph_settings_failed"),
-        persistent: false,
-      });
+      // GraphSettingsCache dispatches to errorStore on exhaustion via RetryManager;
+      // only dispatch here when no retry was active (errorStore not set on cache).
+      if (!this.graphSettingsCache.errorStore) {
+        this._errorStore?.add({
+          key: "fetch:graph_settings",
+          level: "warning",
+          message: t("error.graph_settings_failed"),
+          persistent: false,
+        });
+      }
     }
   }
 

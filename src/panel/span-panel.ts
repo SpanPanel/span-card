@@ -13,6 +13,7 @@ import { DashboardController } from "../core/dashboard-controller.js";
 import { buildTabBarHTML } from "../core/tab-bar-renderer.js";
 import { subscribeAreaUpdates } from "../core/area-resolver.js";
 import { discoverTopology } from "../card/card-discovery.js";
+import { RetryManager } from "../core/retry-manager.js";
 import { buildHeaderHTML, buildPanelStatsHTML } from "../core/header-renderer.js";
 import { updatePanelStatsBlock } from "../core/dom-updater.js";
 import { buildSubDevicesHTML } from "../core/sub-device-renderer.js";
@@ -581,7 +582,8 @@ export class SpanPanelElement extends LitElement {
     const targetPanelId = this._selectedPanelId;
     this._watchedPanelId = targetPanelId;
     try {
-      const result = await discoverTopology(this.hass, targetPanelId);
+      const retry = new RetryManager(this._errorStore);
+      const result = await discoverTopology(this.hass, targetPanelId, retry);
       // Guard against supersession: user may have switched panels during fetch.
       if (this._selectedPanelId !== targetPanelId) return;
       const entityId = result.topology?.panel_entities?.panel_status;
@@ -601,9 +603,14 @@ export class SpanPanelElement extends LitElement {
     try {
       let realPanels: PanelDevice[];
       try {
-        const devices = await this.hass.callWS<PanelDevice[]>({
-          type: "config/device_registry/list",
-        });
+        const retry = new RetryManager(this._errorStore);
+        const devices = await retry.callWS<PanelDevice[]>(
+          this.hass,
+          { type: "config/device_registry/list" },
+          {
+            errorId: "fetch:topology",
+          }
+        );
         realPanels = devices.filter((d: PanelDevice) => d.identifiers?.some(id => id[0] === INTEGRATION_DOMAIN) && !d.via_device_id);
       } catch (err) {
         console.error("SPAN Panel: device discovery failed", err);
@@ -869,7 +876,8 @@ export class SpanPanelElement extends LitElement {
         const device = this._panels.find(p => p.id === this._selectedPanelId);
         const entryId = device?.config_entries?.[0] ?? null;
         try {
-          const result = await discoverTopology(this.hass, this._selectedPanelId ?? undefined);
+          const retry = new RetryManager(this._errorStore);
+          const result = await discoverTopology(this.hass, this._selectedPanelId ?? undefined, retry);
           if (superseded()) return;
           const config = this._buildDashboardConfig();
           this._listDashCtrl.init(result.topology, config, this.hass, entryId);
@@ -903,7 +911,8 @@ export class SpanPanelElement extends LitElement {
         const areaDevice = this._panels.find(p => p.id === this._selectedPanelId);
         const areaEntryId = areaDevice?.config_entries?.[0] ?? null;
         try {
-          const result = await discoverTopology(this.hass, this._selectedPanelId ?? undefined);
+          const retry = new RetryManager(this._errorStore);
+          const result = await discoverTopology(this.hass, this._selectedPanelId ?? undefined, retry);
           if (superseded()) return;
           const config = this._buildDashboardConfig();
           this._listDashCtrl.init(result.topology, config, this.hass, areaEntryId);

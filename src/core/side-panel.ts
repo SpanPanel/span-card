@@ -316,7 +316,6 @@ class SpanSidePanel extends HTMLElement {
   private _hass: HomeAssistant | null;
   private _config: SidePanelConfig | null;
   private _debounceTimers: Record<string, ReturnType<typeof setTimeout>>;
-
   constructor() {
     super();
     this.attachShadow({ mode: "open" });
@@ -1078,10 +1077,7 @@ class SpanSidePanel extends HTMLElement {
     }
 
     selectEl.addEventListener("change", () => {
-      this._callService("select", "select_option", {
-        entity_id: entityId,
-        option: selectEl.value,
-      }).catch((err: Error) => {
+      this._callService("select", "select_option", { entity_id: entityId, option: selectEl.value }).catch((err: Error) => {
         console.warn("SPAN Panel: shedding update failed", err);
         this.errorStore?.add({
           key: "service:shedding",

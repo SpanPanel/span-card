@@ -1,6 +1,7 @@
 // src/core/favorites-store.ts
 import { INTEGRATION_DOMAIN } from "../constants.js";
 import { t } from "../i18n.js";
+import { RetryManager } from "./retry-manager.js";
 import type { FavoritesMap, HomeAssistant } from "../types.js";
 import type { ErrorStore } from "./error-store.js";
 
@@ -77,7 +78,17 @@ export class FavoritesCache {
   private _map: FavoritesMap | null;
   private _lastFetch: number;
   private _inflight: Promise<FavoritesMap> | null;
-  errorStore: ErrorStore | null = null;
+  private _errorStore: ErrorStore | null = null;
+  private _retry: RetryManager | null = null;
+
+  get errorStore(): ErrorStore | null {
+    return this._errorStore;
+  }
+
+  set errorStore(store: ErrorStore | null) {
+    this._errorStore = store;
+    this._retry = store ? new RetryManager(store) : null;
+  }
 
   constructor() {
     this._map = null;
@@ -94,18 +105,33 @@ export class FavoritesCache {
 
     this._inflight = (async () => {
       try {
-        const map = await fetchFavorites(hass);
-        this._map = map;
+        const msg = {
+          type: "call_service",
+          domain: INTEGRATION_DOMAIN,
+          service: "get_favorites",
+          service_data: {},
+          return_response: true,
+        };
+        const resp = this._retry
+          ? await this._retry.callWS<CallServiceResponse<GetFavoritesResponse>>(hass, msg, {
+              errorId: "fetch:favorites",
+              errorMessage: t("error.favorites_fetch_failed"),
+            })
+          : await hass.callWS<CallServiceResponse<GetFavoritesResponse>>(msg);
+        this._map = resp?.response?.favorites ?? {};
         this._lastFetch = Date.now();
-        return map;
+        return this._map;
       } catch (err) {
         console.warn("SPAN Panel: favorites fetch failed", err);
-        this.errorStore?.add({
-          key: "fetch:favorites",
-          level: "warning",
-          message: t("error.favorites_fetch_failed"),
-          persistent: false,
-        });
+        // RetryManager dispatches on exhaustion; only dispatch directly when no retry path ran
+        if (!this._retry) {
+          this._errorStore?.add({
+            key: "fetch:favorites",
+            level: "warning",
+            message: t("error.favorites_fetch_failed"),
+            persistent: false,
+          });
+        }
         return this._map ?? {};
       } finally {
         this._inflight = null;

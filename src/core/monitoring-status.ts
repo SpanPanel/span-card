@@ -1,5 +1,6 @@
 import { INTEGRATION_DOMAIN } from "../constants.js";
 import { t } from "../i18n.js";
+import { RetryManager } from "./retry-manager.js";
 import type { HomeAssistant, MonitoringPointInfo, MonitoringStatus } from "../types.js";
 import type { ErrorStore } from "./error-store.js";
 
@@ -17,7 +18,17 @@ export class MonitoringStatusCache {
   private _status: MonitoringStatus | null = null;
   private _lastFetch: number = 0;
   private _fetching: boolean = false;
-  errorStore: ErrorStore | null = null;
+  private _errorStore: ErrorStore | null = null;
+  private _retry: RetryManager | null = null;
+
+  get errorStore(): ErrorStore | null {
+    return this._errorStore;
+  }
+
+  set errorStore(store: ErrorStore | null) {
+    this._errorStore = store;
+    this._retry = store ? new RetryManager(store) : null;
+  }
 
   /**
    * Fetch monitoring status, returning cached data if recent.
@@ -33,24 +44,33 @@ export class MonitoringStatusCache {
     try {
       const serviceData: Record<string, string> = {};
       if (configEntryId) serviceData.config_entry_id = configEntryId;
-      const resp = await hass.callWS<CallServiceResponse>({
+      const msg = {
         type: "call_service",
         domain: INTEGRATION_DOMAIN,
         service: "get_monitoring_status",
         service_data: serviceData,
         return_response: true,
-      });
+      };
+      const resp = this._retry
+        ? await this._retry.callWS<CallServiceResponse>(hass, msg, {
+            errorId: "fetch:monitoring",
+            errorMessage: t("error.monitoring_failed"),
+          })
+        : await hass.callWS<CallServiceResponse>(msg);
       this._status = resp?.response ?? null;
-      this._lastFetch = now;
+      this._lastFetch = Date.now();
     } catch (err) {
       console.warn("SPAN Panel: monitoring status fetch failed", err);
       this._status = null;
-      this.errorStore?.add({
-        key: "fetch:monitoring",
-        level: "warning",
-        message: t("error.monitoring_failed"),
-        persistent: false,
-      });
+      // RetryManager dispatches on exhaustion; only dispatch directly when no retry path ran
+      if (!this._retry) {
+        this._errorStore?.add({
+          key: "fetch:monitoring",
+          level: "warning",
+          message: t("error.monitoring_failed"),
+          persistent: false,
+        });
+      }
     } finally {
       this._fetching = false;
     }

@@ -177,7 +177,6 @@ const translations: Record<string, Record<string, string>> = {
     // Card
     "card.no_device": "Open the card editor and select your SPAN Panel device.",
     "card.device_not_found": "Panel device not found. Check device_id in card config.",
-    "card.loading": "Loading...",
     "card.topology_error": "Topology response missing panel_size and no circuits found. Update the SPAN Panel integration.",
     "card.panel_size_error": "Could not determine panel_size. No circuits found and no panel_size attribute. Update the SPAN Panel integration.",
 
@@ -353,7 +352,6 @@ const translations: Record<string, Record<string, string>> = {
     "status.overrides": "anulaciones",
     "card.no_device": "Abra el editor de tarjeta y seleccione su dispositivo SPAN Panel.",
     "card.device_not_found": "Dispositivo de panel no encontrado. Verifique device_id en la configuraci\u00f3n de la tarjeta.",
-    "card.loading": "Cargando...",
     "card.topology_error": "La respuesta de topolog\u00eda no contiene panel_size y no se encontraron circuitos. Actualice la integraci\u00f3n SPAN Panel.",
     "card.panel_size_error": "No se pudo determinar panel_size. No se encontraron circuitos ni atributo panel_size. Actualice la integraci\u00f3n SPAN Panel.",
     "editor.panel_label": "SPAN Panel",
@@ -525,7 +523,6 @@ const translations: Record<string, Record<string, string>> = {
     "status.overrides": "remplacements",
     "card.no_device": "Ouvrez l'\u00e9diteur de carte et s\u00e9lectionnez votre appareil SPAN Panel.",
     "card.device_not_found": "Appareil de panneau introuvable. V\u00e9rifiez device_id dans la configuration de la carte.",
-    "card.loading": "Chargement...",
     "card.topology_error":
       "La r\u00e9ponse de topologie ne contient pas panel_size et aucun circuit trouv\u00e9. Mettez \u00e0 jour l'int\u00e9gration SPAN Panel.",
     "card.panel_size_error":
@@ -702,7 +699,6 @@ const translations: Record<string, Record<string, string>> = {
       "\u30ab\u30fc\u30c9\u30a8\u30c7\u30a3\u30bf\u3092\u958b\u3044\u3066SPAN Panel\u30c7\u30d0\u30a4\u30b9\u3092\u9078\u629e\u3057\u3066\u304f\u3060\u3055\u3044\u3002",
     "card.device_not_found":
       "\u30d1\u30cd\u30eb\u30c7\u30d0\u30a4\u30b9\u304c\u898b\u3064\u304b\u308a\u307e\u305b\u3093\u3002\u30ab\u30fc\u30c9\u8a2d\u5b9a\u306edevice_id\u3092\u78ba\u8a8d\u3057\u3066\u304f\u3060\u3055\u3044\u3002",
-    "card.loading": "\u8aad\u307f\u8fbc\u307f\u4e2d...",
     "card.topology_error":
       "\u30c8\u30dd\u30ed\u30b8\u30fc\u5fdc\u7b54\u306bpanel_size\u304c\u306a\u304f\u3001\u56de\u8def\u304c\u898b\u3064\u304b\u308a\u307e\u305b\u3093\u3002SPAN Panel\u7d71\u5408\u3092\u66f4\u65b0\u3057\u3066\u304f\u3060\u3055\u3044\u3002",
     "card.panel_size_error":
@@ -876,7 +872,6 @@ const translations: Record<string, Record<string, string>> = {
     "status.overrides": "substitui\u00e7\u00f5es",
     "card.no_device": "Abra o editor do cart\u00e3o e selecione seu dispositivo SPAN Panel.",
     "card.device_not_found": "Dispositivo do painel n\u00e3o encontrado. Verifique device_id na configura\u00e7\u00e3o do cart\u00e3o.",
-    "card.loading": "Carregando...",
     "card.topology_error": "A resposta de topologia n\u00e3o cont\u00e9m panel_size e nenhum circuito encontrado. Atualize a integra\u00e7\u00e3o SPAN Panel.",
     "card.panel_size_error":
       "N\u00e3o foi poss\u00edvel determinar panel_size. Nenhum circuito encontrado e nenhum atributo panel_size. Atualize a integra\u00e7\u00e3o SPAN Panel.",
