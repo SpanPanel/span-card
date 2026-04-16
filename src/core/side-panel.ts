@@ -268,6 +268,35 @@ const STYLES = `
     box-shadow: inset 0 -3px 0 var(--primary-color, #03a9f4);
   }
 
+  .unit-toggle {
+    display: inline-flex;
+    border: 1px solid var(--divider-color, #e0e0e0);
+    border-radius: 6px;
+    overflow: hidden;
+  }
+  .unit-btn {
+    padding: 4px 10px;
+    border: none;
+    border-right: 1px solid var(--divider-color, #e0e0e0);
+    background: var(--card-background-color, #fff);
+    color: var(--primary-text-color, #212121);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease;
+  }
+  .unit-btn:last-child {
+    border-right: none;
+  }
+  .unit-btn:hover:not(.unit-active) {
+    background: var(--secondary-background-color, #f5f5f5);
+  }
+  .unit-btn.unit-active {
+    background: var(--primary-color, #03a9f4);
+    color: #fff;
+    font-weight: 600;
+  }
+
   .monitoring-header {
     display: flex;
     align-items: center;

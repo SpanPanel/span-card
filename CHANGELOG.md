@@ -32,6 +32,8 @@
 - **Favorites view now shows offline banner per contributing panel** — Previously the Favorites view silently hid the red "SPAN Panel unreachable" banner even
   when a contributing panel was offline. The view now renders one banner row per offline panel, labeled with the panel's name (e.g. "Span Panel 2 unreachable"),
   so users mixing favorites from multiple panels can see which one is down.
+- **Graph Settings → List View Columns selector now shows the current setting** — the 1/2/3 segmented control rendered without any styling in the side-panel's
+  shadow DOM, so the active option was invisible. The side-panel now ships its own `.unit-toggle` styles and highlights the current column count.
 
 ### Changed
 
