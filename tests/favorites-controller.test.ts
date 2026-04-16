@@ -123,7 +123,7 @@ describe("FavoritesController.build", () => {
     expect(Object.keys(result.topology.circuits)).toHaveLength(1);
     expect(result.topology.circuits[buildCompositeId("panel-1", "uuid-a")]).toBeDefined();
     expect(mockDiscover).toHaveBeenCalledTimes(1);
-    expect(mockDiscover).toHaveBeenCalledWith(hass, "panel-1");
+    expect(mockDiscover).toHaveBeenCalledWith(hass, "panel-1", null);
   });
 
   it("discoverTopology rejection for one panel → that panel dropped, others still merge", async () => {

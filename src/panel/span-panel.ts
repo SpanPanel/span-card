@@ -238,6 +238,10 @@ export class SpanPanelElement extends LitElement {
       this._onFavoritesChanged = null;
     }
     this._unsubscribeDeviceRegistry();
+    if (this._persistFavoritesViewStateTimer) {
+      clearTimeout(this._persistFavoritesViewStateTimer);
+      this._persistFavoritesViewStateTimer = null;
+    }
     this._errorStore.dispose();
     super.disconnectedCallback();
   }
@@ -593,6 +597,10 @@ export class SpanPanelElement extends LitElement {
       }
     } catch (err) {
       console.warn("SPAN Panel: unable to fetch topology for panel status watching", err);
+      // Reset so a retry (e.g., user re-selects same panel) can attempt the fetch again.
+      if (this._watchedPanelId === targetPanelId) {
+        this._watchedPanelId = null;
+      }
     }
   }
 
@@ -975,7 +983,7 @@ export class SpanPanelElement extends LitElement {
     if (!this.hass) return;
 
     const realPanels = this._panels.filter(p => p.id !== FAVORITES_PANEL_ID);
-    const build = await this._favCtrl.build(this.hass, this._favorites, realPanels);
+    const build = await this._favCtrl.build(this.hass, this._favorites, realPanels, this._errorStore);
     if (superseded()) return;
     const merged = build.topology;
     const primaryEntryId = build.entryIds[0] ?? null;

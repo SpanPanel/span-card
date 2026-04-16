@@ -1,5 +1,7 @@
 // src/core/favorites-controller.ts
 import { discoverTopology } from "../card/card-discovery.js";
+import { RetryManager } from "./retry-manager.js";
+import type { ErrorStore } from "./error-store.js";
 import type { FavoriteRef, FavoritesMap, FavoritesTopology, HomeAssistant, PanelDevice, PanelTopology } from "../types.js";
 
 const COMPOSITE_SEPARATOR = "|";
@@ -35,9 +37,11 @@ export interface FavoritesBuildResult {
  * cannot collide; ``_favoriteRefs`` records the origin of each.
  */
 export class FavoritesController {
-  async build(hass: HomeAssistant, favorites: FavoritesMap, panels: PanelDevice[]): Promise<FavoritesBuildResult> {
+  async build(hass: HomeAssistant, favorites: FavoritesMap, panels: PanelDevice[], errorStore?: ErrorStore | null): Promise<FavoritesBuildResult> {
     const panelsById = new Map<string, PanelDevice>();
     for (const p of panels) panelsById.set(p.id, p);
+
+    const retry = errorStore ? new RetryManager(errorStore) : null;
 
     const fetches: Promise<{
       panelDeviceId: string;
@@ -52,7 +56,7 @@ export class FavoritesController {
       fetches.push(
         (async () => {
           try {
-            const result = await discoverTopology(hass, panelDeviceId);
+            const result = await discoverTopology(hass, panelDeviceId, retry);
             return { panelDeviceId, panel, topology: result.topology };
           } catch (err) {
             console.warn("SPAN Panel: favorites topology fetch failed", panelDeviceId, err);

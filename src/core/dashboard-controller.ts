@@ -8,6 +8,7 @@ import { MonitoringStatusCache, MonitoringStatusMultiCache, mergeMonitoringStatu
 import { GraphSettingsCache } from "./graph-settings.js";
 import type { CardConfig, FavoriteRef, GraphSettings, HistoryMap, HomeAssistant, MonitoringStatus, MonitoringStatusResponse, PanelTopology } from "../types.js";
 import type { ErrorStore } from "./error-store.js";
+import { RetryManager } from "./retry-manager.js";
 import { t } from "../i18n.js";
 
 const RECORDER_REFRESH_MS = 30_000;
@@ -533,15 +534,23 @@ export class DashboardController {
     try {
       const serviceData: Record<string, string> = {};
       if (entryId) serviceData.config_entry_id = entryId;
-      const resp = await this._hass.callWS<{ response?: GraphSettings }>({
+      const msg = {
         type: "call_service",
         domain: INTEGRATION_DOMAIN,
         service: "get_graph_settings",
         service_data: serviceData,
         return_response: true,
-      });
+      };
+      const retry = this._errorStore ? new RetryManager(this._errorStore) : null;
+      const resp = retry
+        ? await retry.callWS<{ response?: GraphSettings }>(this._hass, msg, {
+            errorId: "fetch:graph_settings",
+            errorMessage: t("error.graph_settings_failed"),
+          })
+        : await this._hass.callWS<{ response?: GraphSettings }>(msg);
       return resp?.response ?? null;
-    } catch {
+    } catch (err) {
+      console.warn("SPAN Panel: fresh graph settings fetch failed", err);
       return null;
     }
   }
@@ -551,17 +560,25 @@ export class DashboardController {
     try {
       const serviceData: Record<string, string> = {};
       if (entryId) serviceData.config_entry_id = entryId;
-      const resp = await this._hass.callWS<{ response?: MonitoringStatusResponse }>({
+      const msg = {
         type: "call_service",
         domain: INTEGRATION_DOMAIN,
         service: "get_monitoring_status",
         service_data: serviceData,
         return_response: true,
-      });
+      };
+      const retry = this._errorStore ? new RetryManager(this._errorStore) : null;
+      const resp = retry
+        ? await retry.callWS<{ response?: MonitoringStatusResponse }>(this._hass, msg, {
+            errorId: "fetch:monitoring",
+            errorMessage: t("error.monitoring_failed"),
+          })
+        : await this._hass.callWS<{ response?: MonitoringStatusResponse }>(msg);
       const response = resp?.response;
       if (!response) return null;
       return { circuits: response.circuits, mains: response.mains };
-    } catch {
+    } catch (err) {
+      console.warn("SPAN Panel: fresh monitoring status fetch failed", err);
       return null;
     }
   }
