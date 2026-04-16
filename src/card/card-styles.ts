@@ -61,6 +61,13 @@ export const CARD_STYLES: string = `
     align-items: center;
     gap: 12px;
   }
+  /* Override the generic .gear-icon { margin-left: auto } rule so the
+     favorites gear stays flush-left instead of floating to the right of
+     the flex row (same idea as .panel-identity .panel-gear does for
+     real-panel headers). */
+  .favorites-summary .favorites-gear {
+    margin-left: 0;
+  }
   /* Right-anchored cluster wrapping the shedding legend + W/A unit toggle.
      margin-left:auto moved here from .favorites-summary-unit-toggle so the
      legend and toggle cluster together, matching the real-panel header
