@@ -610,14 +610,6 @@ export const CARD_STYLES: string = `
     flex-shrink: 0;
   }
 
-  .list-status-badge.list-status-toggle {
-    cursor: pointer;
-    user-select: none;
-  }
-  .list-status-badge.list-status-toggle:hover {
-    filter: brightness(1.15);
-  }
-
   .list-status-on {
     color: #4dd9af;
   }

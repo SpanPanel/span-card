@@ -109,6 +109,44 @@ describe("coalesceRuns", () => {
     await expect(schedule()).resolves.toBeUndefined();
     expect(work).toHaveBeenCalledTimes(2);
   });
+
+  it("work throwing with a follow-up pending → follow-up still runs", async () => {
+    let resolveFirst!: () => void;
+    const firstRunGate = new Promise<void>(res => {
+      resolveFirst = res;
+    });
+    let firstStarted!: () => void;
+    const firstRunStarted = new Promise<void>(res => {
+      firstStarted = res;
+    });
+
+    let callCount = 0;
+    const work = vi.fn().mockImplementation(async () => {
+      callCount++;
+      if (callCount === 1) {
+        firstStarted();
+        await firstRunGate;
+        throw new Error("boom");
+      }
+    });
+
+    const schedule = coalesceRuns(work);
+    const p1 = schedule();
+    await firstRunStarted;
+
+    // Caller 2 arrives while caller 1 is in-flight
+    const p2 = schedule();
+
+    // Release caller 1 — it will throw
+    resolveFirst();
+
+    // p1 rejects; p2 resolves (it awaited inFlight.catch())
+    await expect(p1).rejects.toThrow("boom");
+    await expect(p2).resolves.toBeUndefined();
+
+    // Work should have run twice: the original (threw) + one follow-up (succeeded)
+    expect(work).toHaveBeenCalledTimes(2);
+  });
 });
 
 // ---------------------------------------------------------------------------

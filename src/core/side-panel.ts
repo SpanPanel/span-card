@@ -711,11 +711,6 @@ class SpanSidePanel extends HTMLElement {
   }
 
   /**
-   * Build a heart toggle for a circuit row in panel-mode Graph Settings.
-   * Returns ``null`` when the circuit has no routable sensor entity
-   * (favorites services need an entity_id to resolve the target).
-   */
-  /**
    * Build the "List view columns" section for the Graph Settings
    * panel — a segmented 1/2/3 control backed by localStorage. Clicking
    * a button persists the choice and dispatches ``list-columns-changed``
@@ -768,6 +763,11 @@ class SpanSidePanel extends HTMLElement {
     return section;
   }
 
+  /**
+   * Build a heart toggle for a circuit row in panel-mode Graph Settings.
+   * Returns ``null`` when the circuit has no routable sensor entity
+   * (favorites services need an entity_id to resolve the target).
+   */
   private _buildFavoriteHeart(entities: CircuitEntities | undefined, isFavorite: boolean): HTMLButtonElement | null {
     const entityId = this._favoriteEntityId(entities);
     if (!entityId) {
@@ -780,7 +780,7 @@ class SpanSidePanel extends HTMLElement {
   /**
    * Shared heart-button builder used by both circuit and sub-device
    * panel-mode rows and by the per-target side-panel Favorite section.
-   * Renders an accessible toggle (``role=switch``, ``aria-pressed``,
+   * Renders an accessible toggle (``role=switch``, ``aria-checked``,
    * ``aria-label``) so screen readers announce both the action and the
    * current state — ``title`` alone isn't surfaced.
    */
@@ -791,7 +791,7 @@ class SpanSidePanel extends HTMLElement {
     btn.dataset.role = "fav-heart";
     btn.title = t("sidepanel.save_to_favorites");
     btn.setAttribute("role", "switch");
-    btn.setAttribute("aria-pressed", String(isFavorite));
+    btn.setAttribute("aria-checked", String(isFavorite));
     btn.setAttribute("aria-label", t("sidepanel.save_to_favorites"));
 
     const icon = document.createElement("ha-icon");
@@ -812,10 +812,10 @@ class SpanSidePanel extends HTMLElement {
     if (!this._hass) return;
     const wasActive = btn.classList.contains("active");
     const nextActive = !wasActive;
-    // Optimistically flip class, icon, and aria-pressed; roll back on error.
+    // Optimistically flip class, icon, and aria-checked; roll back on error.
     btn.classList.toggle("active", nextActive);
     icon.setAttribute("icon", nextActive ? "mdi:heart" : "mdi:heart-outline");
-    btn.setAttribute("aria-pressed", String(nextActive));
+    btn.setAttribute("aria-checked", String(nextActive));
     try {
       if (nextActive) {
         await addFavorite(this._hass, entityId);
@@ -825,7 +825,7 @@ class SpanSidePanel extends HTMLElement {
     } catch (err) {
       btn.classList.toggle("active", wasActive);
       icon.setAttribute("icon", wasActive ? "mdi:heart" : "mdi:heart-outline");
-      btn.setAttribute("aria-pressed", String(wasActive));
+      btn.setAttribute("aria-checked", String(wasActive));
       const message = _extractErrorMessage(err);
       this._showError(`${t("sidepanel.favorite_failed")} ${message}`);
       throw err;

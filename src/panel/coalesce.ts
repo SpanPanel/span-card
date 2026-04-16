@@ -4,10 +4,11 @@
  * When the scheduler is called:
  * - If nothing is running, it starts the work immediately.
  * - If work is already in-flight, it records a single follow-up request
- *   (additional requests while in-flight are collapsed into that same
- *   follow-up, not queued individually).
- * - When the in-flight work finishes, exactly one follow-up run is
- *   started (if one was requested).
+ *   and returns the in-flight promise so the caller can ``await`` the
+ *   current run (additional requests while in-flight are collapsed into
+ *   that same follow-up, not queued individually).
+ * - When the in-flight work finishes (whether it succeeds or throws),
+ *   exactly one follow-up run is started if one was requested.
  *
  * This prevents two concurrent calls to ``work`` from racing with each
  * other, while still guaranteeing that a request arriving after the
@@ -20,6 +21,11 @@ export function coalesceRuns(work: () => Promise<void>): () => Promise<void> {
   async function schedule(): Promise<void> {
     if (inFlight) {
       followUpPending = true;
+      // Wait for the in-flight run to settle so this caller doesn't
+      // return while work is still running. Swallow errors — the
+      // in-flight caller already surfaces them; we're just waiting
+      // for the lock to clear so the follow-up can start.
+      await inFlight.catch(() => {});
       return;
     }
     const run = (async (): Promise<void> => {
@@ -27,10 +33,10 @@ export function coalesceRuns(work: () => Promise<void>): () => Promise<void> {
         await work();
       } finally {
         inFlight = null;
-      }
-      if (followUpPending) {
-        followUpPending = false;
-        await schedule();
+        if (followUpPending) {
+          followUpPending = false;
+          await schedule();
+        }
       }
     })();
     inFlight = run;
