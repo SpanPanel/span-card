@@ -53,7 +53,6 @@ export const MIN_HISTORY_DURATION_MS = 60_000;
 
 export const INPUT_DEBOUNCE_MS = 500;
 export const THRESHOLD_DEBOUNCE_MS = 800;
-export const ERROR_DISPLAY_MS = 5_000;
 
 // -- Chart metric definitions --
 
