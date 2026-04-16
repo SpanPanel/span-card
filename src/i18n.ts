@@ -72,6 +72,8 @@ const translations: Record<string, Record<string, string>> = {
     "error.prefix": "Error:",
     "error.failed_save": "Failed to save",
     "error.failed": "Failed",
+    "error.panel_offline": "Panel is offline or unreachable.",
+    "error.panel_reconnected": "Panel reconnected.",
 
     // Settings tab
     "settings.heading": "Settings",
@@ -258,6 +260,8 @@ const translations: Record<string, Record<string, string>> = {
     "error.prefix": "Error:",
     "error.failed_save": "Error al guardar",
     "error.failed": "Fall\u00f3",
+    "error.panel_offline": "El panel est\u00e1 desconectado o no es accesible.",
+    "error.panel_reconnected": "Panel reconectado.",
     "settings.heading": "Configuraci\u00f3n",
     "settings.description":
       "La configuraci\u00f3n general de la integraci\u00f3n (nombres de entidades, prefijo de dispositivo, n\u00fameros de circuito) se administra a trav\u00e9s del flujo de opciones de la integraci\u00f3n.",
@@ -423,6 +427,8 @@ const translations: Record<string, Record<string, string>> = {
     "error.prefix": "Erreur :",
     "error.failed_save": "\u00c9chec de la sauvegarde",
     "error.failed": "\u00c9chou\u00e9",
+    "error.panel_offline": "Le panneau est hors ligne ou inaccessible.",
+    "error.panel_reconnected": "Panneau reconnect\u00e9.",
     "settings.heading": "Param\u00e8tres",
     "settings.description":
       "Les param\u00e8tres g\u00e9n\u00e9raux de l'int\u00e9gration (noms d'entit\u00e9s, pr\u00e9fixe de l'appareil, num\u00e9ros de circuit) sont g\u00e9r\u00e9s via le flux d'options de l'int\u00e9gration.",
@@ -590,6 +596,8 @@ const translations: Record<string, Record<string, string>> = {
     "error.prefix": "\u30a8\u30e9\u30fc:",
     "error.failed_save": "\u4fdd\u5b58\u306b\u5931\u6557",
     "error.failed": "\u5931\u6557",
+    "error.panel_offline": "\u30d1\u30cd\u30eb\u306f\u30aa\u30d5\u30e9\u30a4\u30f3\u307e\u305f\u306f\u5230\u9054\u4e0d\u80fd\u3067\u3059\u3002",
+    "error.panel_reconnected": "\u30d1\u30cd\u30eb\u304c\u518d\u63a5\u7d9a\u3055\u308c\u307e\u3057\u305f\u3002",
     "settings.heading": "\u8a2d\u5b9a",
     "settings.description":
       "\u7d71\u5408\u306e\u4e00\u822c\u8a2d\u5b9a\uff08\u30a8\u30f3\u30c6\u30a3\u30c6\u30a3\u540d\u3001\u30c7\u30d0\u30a4\u30b9\u30d7\u30ec\u30d5\u30a3\u30c3\u30af\u30b9\u3001\u56de\u8def\u756a\u53f7\uff09\u306f\u7d71\u5408\u306e\u30aa\u30d7\u30b7\u30e7\u30f3\u30d5\u30ed\u30fc\u3067\u7ba1\u7406\u3055\u308c\u307e\u3059\u3002",
@@ -759,6 +767,8 @@ const translations: Record<string, Record<string, string>> = {
     "error.prefix": "Erro:",
     "error.failed_save": "Falha ao salvar",
     "error.failed": "Falhou",
+    "error.panel_offline": "O painel est\u00e1 offline ou inacess\u00edvel.",
+    "error.panel_reconnected": "Painel reconectado.",
     "settings.heading": "Configura\u00e7\u00f5es",
     "settings.description":
       "As configura\u00e7\u00f5es gerais da integra\u00e7\u00e3o (nomes de entidades, prefixo do dispositivo, n\u00fameros de circuito) s\u00e3o gerenciadas atrav\u00e9s do fluxo de op\u00e7\u00f5es da integra\u00e7\u00e3o.",
