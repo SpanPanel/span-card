@@ -18,6 +18,7 @@ interface GraphHorizonInfo extends CircuitGraphOverride {
 interface PanelModeConfig {
   panelMode: true;
   subDeviceMode?: undefined;
+  favoritesMode?: undefined;
   topology: PanelTopology;
   graphSettings: GraphSettings | null;
   /**
@@ -46,6 +47,7 @@ interface PanelModeConfig {
 interface CircuitModeConfig {
   panelMode?: undefined;
   subDeviceMode?: undefined;
+  favoritesMode?: undefined;
   uuid: string;
   name: string;
   tabs: number[];
@@ -70,6 +72,7 @@ interface CircuitModeConfig {
 interface SubDeviceModeConfig {
   panelMode?: undefined;
   subDeviceMode: true;
+  favoritesMode?: undefined;
   subDeviceId: string;
   name: string;
   deviceType: string;
@@ -86,7 +89,23 @@ interface SubDeviceModeConfig {
   configEntryId?: string | null;
 }
 
-type SidePanelConfig = PanelModeConfig | CircuitModeConfig | SubDeviceModeConfig;
+export interface FavoritesPanelSection {
+  panelDeviceId: string;
+  panelName: string;
+  topology: PanelTopology;
+  graphSettings: GraphSettings | null;
+  favoriteCircuitUuids: Set<string>;
+  configEntryId: string | null;
+}
+
+interface FavoritesModeConfig {
+  favoritesMode: true;
+  panelMode?: undefined;
+  subDeviceMode?: undefined;
+  perPanelSections: FavoritesPanelSection[];
+}
+
+type SidePanelConfig = PanelModeConfig | CircuitModeConfig | SubDeviceModeConfig | FavoritesModeConfig;
 
 // ── Custom element interface for ha-switch ───────────────────────────────
 
@@ -401,7 +420,9 @@ class SpanSidePanel extends HTMLElement {
     panel.className = "panel";
     shadow.appendChild(panel);
 
-    if (cfg.panelMode) {
+    if (cfg.favoritesMode) {
+      this._renderFavoritesMode(panel);
+    } else if (cfg.panelMode) {
       this._renderPanelMode(panel);
     } else if (cfg.subDeviceMode) {
       this._renderSubDeviceMode(panel, cfg);
@@ -489,94 +510,16 @@ class SpanSidePanel extends HTMLElement {
       const circuits = Object.entries(topology.circuits).sort(([, a], [, b]) => (a.name || "").localeCompare(b.name || ""));
 
       for (const [uuid, circuit] of circuits) {
-        const row = document.createElement("div");
-        row.className = "field-row";
-
-        const nameLabel = document.createElement("span");
-        nameLabel.className = "field-label";
-        nameLabel.textContent = circuit.name || uuid;
-        nameLabel.style.cssText = "overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1;";
-        row.appendChild(nameLabel);
-
-        if (cfg.showFavorites && cfg.favoritePanelDeviceId) {
-          const heart = this._buildFavoriteHeart(circuit.entities, cfg.favoriteCircuitUuids?.has(uuid) ?? false);
-          if (heart) row.appendChild(heart);
-        }
-
-        const circuitData = circuitSettings[uuid] || { horizon: globalHorizon, has_override: false };
-        const effectiveHorizon = circuitData.has_override ? circuitData.horizon : globalHorizon;
-
-        const select = document.createElement("select");
-        select.dataset.uuid = uuid;
-        for (const key of Object.keys(GRAPH_HORIZONS)) {
-          const opt = document.createElement("option");
-          opt.value = key;
-          const labelKey = `horizon.${key}`;
-          const translated = t(labelKey);
-          opt.textContent = translated !== labelKey ? translated : key;
-          if (key === effectiveHorizon) opt.selected = true;
-          select.appendChild(opt);
-        }
-        select.addEventListener("change", () => {
-          this._debounce(`circuit-${uuid}`, INPUT_DEBOUNCE_MS, () => {
-            const data: Record<string, unknown> = {
-              circuit_id: uuid,
-              horizon: select.value,
-            };
-            if (cfg.configEntryId) data.config_entry_id = cfg.configEntryId;
-            this._callDomainService("set_circuit_graph_horizon", data)
-              .then(() => {
-                this.dispatchEvent(new CustomEvent("graph-settings-changed", { bubbles: true, composed: true }));
-              })
-              .catch((err: Error) => {
-                console.warn("SPAN Panel: graph horizon service failed", err);
-                this.errorStore?.add({
-                  key: "service:graph_horizon",
-                  level: "error",
-                  message: t("error.graph_horizon_failed"),
-                  persistent: false,
-                });
-              });
-          });
-        });
-        row.appendChild(select);
-
-        if (circuitData.has_override) {
-          const resetBtn = document.createElement("button");
-          resetBtn.textContent = "\u21ba";
-          resetBtn.title = t("sidepanel.reset_to_global");
-          Object.assign(resetBtn.style, {
-            background: "none",
-            border: "1px solid var(--divider-color, #e0e0e0)",
-            color: "var(--primary-text-color)",
-            borderRadius: "4px",
-            padding: "3px 6px",
-            cursor: "pointer",
-            marginLeft: "4px",
-            fontSize: "0.85em",
-          });
-          resetBtn.addEventListener("click", () => {
-            const data: Record<string, unknown> = { circuit_id: uuid };
-            if (cfg.configEntryId) data.config_entry_id = cfg.configEntryId;
-            this._callDomainService("clear_circuit_graph_horizon", data)
-              .then(() => {
-                select.value = globalHorizon;
-                resetBtn.remove();
-                this.dispatchEvent(new CustomEvent("graph-settings-changed", { bubbles: true, composed: true }));
-              })
-              .catch((err: Error) => {
-                console.warn("SPAN Panel: graph horizon service failed", err);
-                this.errorStore?.add({
-                  key: "service:graph_horizon",
-                  level: "error",
-                  message: t("error.graph_horizon_failed"),
-                  persistent: false,
-                });
-              });
-          });
-          row.appendChild(resetBtn);
-        }
-
+        const row = this._buildPanelModeCircuitRow(
+          uuid,
+          circuit,
+          circuitSettings[uuid],
+          globalHorizon,
+          cfg.configEntryId ?? null,
+          cfg.showFavorites ?? false,
+          cfg.favoritePanelDeviceId,
+          cfg.favoriteCircuitUuids
+        );
         circuitSection.appendChild(row);
       }
 
@@ -692,6 +635,163 @@ class SpanSidePanel extends HTMLElement {
     }
 
     panel.appendChild(body);
+  }
+
+  private _buildPanelModeCircuitRow(
+    uuid: string,
+    circuit: PanelTopology["circuits"][string],
+    circuitSetting: CircuitGraphOverride | undefined,
+    globalHorizon: string,
+    configEntryId: string | null,
+    showFavorites: boolean,
+    favoritePanelDeviceId: string | undefined,
+    favoriteCircuitUuids: Set<string> | undefined
+  ): HTMLDivElement {
+    const row = document.createElement("div");
+    row.className = "field-row";
+
+    const nameLabel = document.createElement("span");
+    nameLabel.className = "field-label";
+    nameLabel.textContent = circuit.name || uuid;
+    nameLabel.style.cssText = "overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1;";
+    row.appendChild(nameLabel);
+
+    if (showFavorites && favoritePanelDeviceId) {
+      const heart = this._buildFavoriteHeart(circuit.entities, favoriteCircuitUuids?.has(uuid) ?? false);
+      if (heart) row.appendChild(heart);
+    }
+
+    const circuitData = circuitSetting || { horizon: globalHorizon, has_override: false };
+    const effectiveHorizon = circuitData.has_override ? circuitData.horizon : globalHorizon;
+
+    const select = document.createElement("select");
+    select.dataset.uuid = uuid;
+    for (const key of Object.keys(GRAPH_HORIZONS)) {
+      const opt = document.createElement("option");
+      opt.value = key;
+      const labelKey = `horizon.${key}`;
+      const translated = t(labelKey);
+      opt.textContent = translated !== labelKey ? translated : key;
+      if (key === effectiveHorizon) opt.selected = true;
+      select.appendChild(opt);
+    }
+    select.addEventListener("change", () => {
+      this._debounce(`circuit-${uuid}`, INPUT_DEBOUNCE_MS, () => {
+        const data: Record<string, unknown> = {
+          circuit_id: uuid,
+          horizon: select.value,
+        };
+        if (configEntryId) data.config_entry_id = configEntryId;
+        this._callDomainService("set_circuit_graph_horizon", data)
+          .then(() => {
+            this.dispatchEvent(new CustomEvent("graph-settings-changed", { bubbles: true, composed: true }));
+          })
+          .catch((err: Error) => {
+            console.warn("SPAN Panel: graph horizon service failed", err);
+            this.errorStore?.add({
+              key: "service:graph_horizon",
+              level: "error",
+              message: t("error.graph_horizon_failed"),
+              persistent: false,
+            });
+          });
+      });
+    });
+    row.appendChild(select);
+
+    if (circuitData.has_override) {
+      const resetBtn = document.createElement("button");
+      resetBtn.textContent = "\u21ba";
+      resetBtn.title = t("sidepanel.reset_to_global");
+      Object.assign(resetBtn.style, {
+        background: "none",
+        border: "1px solid var(--divider-color, #e0e0e0)",
+        color: "var(--primary-text-color)",
+        borderRadius: "4px",
+        padding: "3px 6px",
+        cursor: "pointer",
+        marginLeft: "4px",
+        fontSize: "0.85em",
+      });
+      resetBtn.addEventListener("click", () => {
+        const data: Record<string, unknown> = { circuit_id: uuid };
+        if (configEntryId) data.config_entry_id = configEntryId;
+        this._callDomainService("clear_circuit_graph_horizon", data)
+          .then(() => {
+            select.value = globalHorizon;
+            resetBtn.remove();
+            this.dispatchEvent(new CustomEvent("graph-settings-changed", { bubbles: true, composed: true }));
+          })
+          .catch((err: Error) => {
+            console.warn("SPAN Panel: graph horizon service failed", err);
+            this.errorStore?.add({
+              key: "service:graph_horizon",
+              level: "error",
+              message: t("error.graph_horizon_failed"),
+              persistent: false,
+            });
+          });
+      });
+      row.appendChild(resetBtn);
+    }
+
+    return row;
+  }
+
+  private _renderFavoritesMode(panel: HTMLDivElement): void {
+    const cfg = this._config as FavoritesModeConfig;
+    const header = this._createHeader(t("sidepanel.graph_settings"), t("sidepanel.favorites_subtitle"));
+    panel.appendChild(header);
+
+    const body = document.createElement("div");
+    body.className = "panel-body";
+
+    // List View Columns (frontend setting, view-agnostic)
+    body.appendChild(this._buildListColumnsSection());
+
+    // Per-contributing-panel sections: one passive-label section per panel
+    // that has any favorited circuit. No global default horizon section —
+    // per the spec, horizons are per-circuit in this mode.
+    for (const section of cfg.perPanelSections) {
+      body.appendChild(this._buildFavoritesPanelSection(section));
+    }
+
+    panel.appendChild(body);
+  }
+
+  private _buildFavoritesPanelSection(section: FavoritesPanelSection): HTMLDivElement {
+    const div = document.createElement("div");
+    div.className = "section";
+
+    const label = document.createElement("div");
+    label.className = "section-label";
+    label.textContent = section.panelName;
+    div.appendChild(label);
+
+    const globalHorizon = section.graphSettings?.global_horizon ?? DEFAULT_GRAPH_HORIZON;
+    const circuitSettings = section.graphSettings?.circuits ?? {};
+    const topologyCircuits = section.topology.circuits ?? {};
+
+    const favoritedRows = Array.from(section.favoriteCircuitUuids)
+      .map(uuid => ({ uuid, circuit: topologyCircuits[uuid] }))
+      .filter((r): r is { uuid: string; circuit: NonNullable<typeof r.circuit> } => r.circuit !== undefined)
+      .sort((a, b) => (a.circuit.name || "").localeCompare(b.circuit.name || ""));
+
+    for (const { uuid, circuit } of favoritedRows) {
+      const row = this._buildPanelModeCircuitRow(
+        uuid,
+        circuit,
+        circuitSettings[uuid],
+        globalHorizon,
+        section.configEntryId,
+        true, // showFavorites: always true inside favorites-mode rows
+        section.panelDeviceId,
+        section.favoriteCircuitUuids
+      );
+      div.appendChild(row);
+    }
+
+    return div;
   }
 
   private _renderCircuitMode(panel: HTMLDivElement, cfg: CircuitModeConfig): void {
@@ -1445,8 +1545,8 @@ class SpanSidePanel extends HTMLElement {
     if (!this._config || this._config.panelMode) return;
     const cfg = this._config;
 
-    // Sub-device mode has no live-updating fields
-    if (cfg.subDeviceMode) return;
+    // Sub-device and favorites modes have no live-updating fields
+    if (cfg.subDeviceMode || cfg.favoritesMode) return;
 
     // Update relay toggle
     if (cfg.entities?.switch) {
