@@ -8,7 +8,6 @@ import { MonitoringStatusCache, MonitoringStatusMultiCache, mergeMonitoringStatu
 import { GraphSettingsCache } from "./graph-settings.js";
 import type { CardConfig, FavoriteRef, GraphSettings, HistoryMap, HomeAssistant, MonitoringStatus, MonitoringStatusResponse, PanelTopology } from "../types.js";
 import type { ErrorStore } from "./error-store.js";
-import { RetryManager } from "./retry-manager.js";
 import { t } from "../i18n.js";
 
 const RECORDER_REFRESH_MS = 30_000;
@@ -37,7 +36,6 @@ export class DashboardController {
   readonly graphSettingsCache = new GraphSettingsCache();
 
   private _errorStore: ErrorStore | null = null;
-  private _retryManager: RetryManager | null = null;
 
   get errorStore(): ErrorStore | null {
     return this._errorStore;
@@ -45,7 +43,6 @@ export class DashboardController {
 
   set errorStore(store: ErrorStore | null) {
     this._errorStore = store;
-    this._retryManager = store ? new RetryManager(store) : null;
     this.monitoringCache.errorStore = store;
     this.graphSettingsCache.errorStore = store;
     this.monitoringMultiCache.errorStore = store;
@@ -395,27 +392,15 @@ export class DashboardController {
       return;
     }
     const service = switchState.state === "on" ? "turn_off" : "turn_on";
-    if (this._retryManager) {
-      this._retryManager
-        .callService(
-          this._hass,
-          "switch",
-          service,
-          {},
-          { entity_id: switchEntity },
-          {
-            errorId: "service:relay",
-            errorMessage: t("error.relay_failed"),
-          }
-        )
-        .catch(err => {
-          console.warn("SPAN Panel: switch service call failed", err);
-        });
-    } else {
-      this._hass.callService("switch", service, {}, { entity_id: switchEntity }).catch(err => {
-        console.error("SPAN Panel: switch service call failed:", err);
+    this._hass.callService("switch", service, {}, { entity_id: switchEntity }).catch(err => {
+      console.warn("SPAN Panel: switch service call failed", err);
+      this._errorStore?.add({
+        key: "service:relay",
+        level: "error",
+        message: t("error.relay_failed"),
+        persistent: false,
       });
-    }
+    });
   }
 
   async onGearClick(event: Event, root: DOMRoot): Promise<void> {
