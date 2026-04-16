@@ -12,9 +12,11 @@ import { DashboardController } from "../core/dashboard-controller.js";
 import { ListViewController } from "../core/list-view-controller.js";
 import { buildTabBarHTML, bindTabBarEvents } from "../core/tab-bar-renderer.js";
 import { subscribeAreaUpdates } from "../core/area-resolver.js";
+import { ErrorStore } from "../core/error-store.js";
 import { discoverTopology, discoverEntitiesFallback } from "./card-discovery.js";
 import { CARD_STYLES } from "./card-styles.js";
 import "../core/side-panel.js";
+import "../core/error-banner.js";
 import type { HomeAssistant, PanelTopology, PanelDevice, CardConfig } from "../types.js";
 
 interface SpanSidePanelElement extends HTMLElement {
@@ -52,7 +54,6 @@ export class SpanPanelCard extends LitElement {
   @state() private _config: CardConfig = {};
   @state() private _discovered = false;
   @state() private _discovering = false;
-  @state() private _discoveryError: string | null = null;
   @state() private _topology: PanelTopology | null = null;
   @state() private _activeTab: "panel" | "activity" | "area" = "panel";
 
@@ -61,6 +62,7 @@ export class SpanPanelCard extends LitElement {
   private _historyLoaded = false;
   private readonly _ctrl = new DashboardController();
   private readonly _listCtrl = new ListViewController(this._ctrl);
+  private readonly _errorStore = new ErrorStore();
   private _areaUnsub: (() => void) | null = null;
   private _tabBarCleanup: (() => void) | null = null;
   private _onVisibilityChange: (() => void) | null = null;
@@ -98,15 +100,16 @@ export class SpanPanelCard extends LitElement {
       document.removeEventListener("visibilitychange", this._onVisibilityChange);
       this._onVisibilityChange = null;
     }
+    this._errorStore.dispose();
     super.disconnectedCallback();
   }
 
   setConfig(config: CardConfig): void {
+    this._errorStore.clear();
     this._config = config;
     this._discovered = false;
     this._discovering = false;
     this._historyLoaded = false;
-    this._discoveryError = null;
     this._topology = null;
     this._panelDevice = null;
     this._panelSize = 0;
@@ -144,18 +147,12 @@ export class SpanPanelCard extends LitElement {
       return this._renderPreview();
     }
 
-    // State 2: Not yet discovered or error
+    // State 2: Not yet discovered
     if (!this._discovered) {
-      if (this._discoveryError) {
-        return html`
-          <ha-card>
-            <div style="padding: 24px; color: var(--secondary-text-color);">${escapeHtml(this._discoveryError)}</div>
-          </ha-card>
-        `;
-      }
       return html`
         <ha-card>
-          <div style="padding: 24px; color: var(--secondary-text-color);">${escapeHtml(t("card.loading"))}</div>
+          <span-error-banner .store=${this._errorStore}></span-error-banner>
+          <div style="padding: 24px; color: var(--secondary-text-color);">${escapeHtml(t("card.connecting"))}</div>
         </ha-card>
       `;
     }
@@ -169,6 +166,7 @@ export class SpanPanelCard extends LitElement {
         @list-columns-changed=${this._onListColumnsChanged}
         @side-panel-closed=${this._onSidePanelClosed}
       >
+        <span-error-banner .store=${this._errorStore}></span-error-banner>
         <div id="card-tabs"></div>
         <div id="card-content"></div>
       </ha-card>
@@ -181,6 +179,7 @@ export class SpanPanelCard extends LitElement {
 
     setLanguage(this.hass.language);
     this._ctrl.hass = this.hass;
+    this._errorStore.updateHass(this.hass);
 
     if (!this._config.device_id) return;
 
@@ -209,7 +208,7 @@ export class SpanPanelCard extends LitElement {
 
     await this._discoverTopology();
 
-    if (this._discoveryError) {
+    if (this._errorStore.hasPersistent("discovery-failed")) {
       this._discovering = false;
       return;
     }
@@ -217,6 +216,12 @@ export class SpanPanelCard extends LitElement {
     this._discovered = true;
     this._discovering = false;
     this._ctrl.init(this._topology, this._config, this.hass, this._configEntryId);
+
+    // Start watching panel_status binary sensor for online/offline state
+    if (this._topology?.panel_entities?.panel_status) {
+      this._errorStore.watchPanelStatus(this._topology.panel_entities.panel_status);
+      this._errorStore.updateHass(this.hass);
+    }
 
     // Subscribe to area changes
     if (this._topology) {
@@ -258,7 +263,16 @@ export class SpanPanelCard extends LitElement {
         this._panelSize = result.panelSize;
       } catch (fallbackErr) {
         console.error("SPAN Panel: fallback discovery also failed", fallbackErr);
-        this._discoveryError = (fallbackErr as Error).message;
+        this._errorStore.add({
+          key: "discovery-failed",
+          level: "error",
+          message: t("error.discovery_failed"),
+          persistent: true,
+          retryFn: () => {
+            this._errorStore.remove("discovery-failed");
+            this._startDiscovery();
+          },
+        });
       }
     }
   }
