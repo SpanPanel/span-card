@@ -154,7 +154,7 @@ LitElement custom element that renders active errors from the ErrorStore.
 ### WebSocket Topology Response (`websocket.py`)
 
 Add the `panel_status` binary sensor entity ID to the topology response's entity map. Currently `_PANEL_SENSOR_KEYS` only resolves `sensor.*` entities. Add a
-parallel lookup for the `binary_sensor.*_panel_status` entity.
+parallel lookup for the binary sensor.
 
 The topology response `panel_entities` map gains:
 
@@ -164,9 +164,9 @@ The topology response `panel_entities` map gains:
 }
 ```
 
-Implementation: use `build_binary_sensor_unique_id(serial, "panel_status")` from `id_builder.py` to construct the unique*id (pattern:
-`span*{serial}\_panel_status`), then resolve via `entity_registry.async_get_entity_id("binary_sensor", DOMAIN,
-unique_id)`. Add this alongside the existing `\_build_panel_entity_map`call in`handle_panel_topology`.
+Implementation: add a helper function (e.g., `_resolve_panel_status_entity`) in `websocket.py` that uses the existing `build_binary_sensor_unique_id` from
+`id_builder.py` to construct the unique_id, then resolves the entity_id via `entity_registry.async_get_entity_id("binary_sensor", DOMAIN, unique_id)`. Call this
+helper alongside the existing `_build_panel_entity_map` call in `handle_panel_topology` and merge the result into the `panel_entities` dict.
 
 ### Frontend Type Change (`types.ts`)
 
