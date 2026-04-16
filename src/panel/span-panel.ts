@@ -754,10 +754,14 @@ export class SpanPanelElement extends LitElement {
   }
 
   /**
-   * Build a minimal summary strip for the Favorites pseudo-panel —
-   * slide-to-arm control (required for the tappable list-row toggles
-   * to fire) plus the W/A unit toggle. Styles live in ``CARD_STYLES``
-   * under ``.favorites-summary``.
+   * Build the Favorites view summary strip — gear icon, slide-to-arm
+   * control, shedding legend, and W/A unit toggle. Styles live in
+   * ``CARD_STYLES`` under ``.favorites-summary`` +
+   * ``.favorites-summary-right``. The actual HTML is produced by the
+   * pure ``buildFavoritesSummaryHTML`` helper in
+   * ``src/panel/favorites-summary.ts`` so it can be unit-tested
+   * without a DOM; this wrapper just threads the current amps-mode
+   * flag through.
    */
   private _buildFavoritesSummaryHTML(): string {
     const isAmpsMode = (this._chartMetric || "power") === "current";

@@ -61,16 +61,15 @@ export const CARD_STYLES: string = `
     align-items: center;
     gap: 12px;
   }
+  /* Right-anchored cluster wrapping the shedding legend + W/A unit toggle.
+     margin-left:auto moved here from .favorites-summary-unit-toggle so the
+     legend and toggle cluster together, matching the real-panel header
+     layout. */
   .favorites-summary-right {
     margin-left: auto;
     display: flex;
     align-items: center;
     gap: 16px;
-  }
-  .favorites-summary-unit-toggle {
-    /* margin-left moved up to .favorites-summary-right so the legend and
-       toggle cluster together, right-anchored, matching the real-panel
-       header layout. */
   }
   .favorites-subdevices-section {
     padding: 8px 16px 0;
