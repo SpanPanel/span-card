@@ -20,56 +20,16 @@ import { attrSelectorValue } from "../helpers/selector.js";
 import { CARD_STYLES } from "../card/card-styles.js";
 import { FAVORITES_CHANGED_EVENT, FavoritesCache, hasAnyFavorites } from "../core/favorites-store.js";
 import { FavoritesController, type FavoritesPanelStatsInfo } from "../core/favorites-controller.js";
+import {
+  clearFavoritesViewState,
+  defaultFavoritesViewState,
+  loadFavoritesViewState,
+  saveFavoritesViewState,
+  type FavoritesViewState,
+} from "./favorites-view-state.js";
 import type { CardConfig, FavoritesMap, FavoritesTopology, HomeAssistant, PanelDevice } from "../types.js";
 
 const FAVORITES_PANEL_ID = "favorites";
-const FAVORITES_VIEW_STATE_KEY = "span_panel_favorites_view_state";
-
-interface FavoritesViewState {
-  activeTab?: "activity" | "area" | "monitoring";
-  expanded: { activity: string[]; area: string[] };
-  searchQuery?: string;
-}
-
-function _defaultFavoritesViewState(): FavoritesViewState {
-  return { expanded: { activity: [], area: [] } };
-}
-
-function _loadFavoritesViewState(): FavoritesViewState {
-  try {
-    const raw = localStorage.getItem(FAVORITES_VIEW_STATE_KEY);
-    if (!raw) return _defaultFavoritesViewState();
-    const parsed = JSON.parse(raw) as Partial<FavoritesViewState> | null;
-    if (!parsed || typeof parsed !== "object") return _defaultFavoritesViewState();
-    const expanded = parsed.expanded ?? { activity: [], area: [] };
-    return {
-      activeTab: parsed.activeTab,
-      expanded: {
-        activity: Array.isArray(expanded.activity) ? expanded.activity : [],
-        area: Array.isArray(expanded.area) ? expanded.area : [],
-      },
-      searchQuery: typeof parsed.searchQuery === "string" ? parsed.searchQuery : undefined,
-    };
-  } catch {
-    return _defaultFavoritesViewState();
-  }
-}
-
-function _saveFavoritesViewState(viewState: FavoritesViewState): void {
-  try {
-    localStorage.setItem(FAVORITES_VIEW_STATE_KEY, JSON.stringify(viewState));
-  } catch {
-    // LocalStorage quota or disabled — non-fatal; state doesn't persist.
-  }
-}
-
-function _clearFavoritesViewState(): void {
-  try {
-    localStorage.removeItem(FAVORITES_VIEW_STATE_KEY);
-  } catch {
-    // non-fatal
-  }
-}
 
 type TabName = "dashboard" | "activity" | "area" | "monitoring";
 
@@ -90,7 +50,7 @@ export class SpanPanelElement extends LitElement {
   @state() private _listColumns: number = loadListColumns();
   @state() private _favorites: FavoritesMap = {};
 
-  private _favoritesViewState: FavoritesViewState = _defaultFavoritesViewState();
+  private _favoritesViewState: FavoritesViewState = defaultFavoritesViewState();
   /**
    * Per-contributing-panel stats snapshot for the active Favorites
    * render. Populated from ``FavoritesController.build`` and consumed
@@ -443,7 +403,7 @@ export class SpanPanelElement extends LitElement {
     this._activeTab = tab;
     if (this._isFavoritesView && tab !== "dashboard") {
       this._favoritesViewState.activeTab = tab;
-      _saveFavoritesViewState(this._favoritesViewState);
+      saveFavoritesViewState(this._favoritesViewState);
     }
     // No explicit _scheduleTabRender — Lit's updated() sees
     // _activeTab change and schedules the render. Calling here too
@@ -533,7 +493,7 @@ export class SpanPanelElement extends LitElement {
     }
     this._persistFavoritesViewStateTimer = setTimeout(() => {
       this._persistFavoritesViewStateTimer = null;
-      _saveFavoritesViewState(viewState);
+      saveFavoritesViewState(viewState);
     }, 250);
   }
 
@@ -602,7 +562,7 @@ export class SpanPanelElement extends LitElement {
 
     this._favorites = await this._loadFavorites();
     this._panels = this._buildPanelList(realPanels, this._favorites);
-    this._favoritesViewState = _loadFavoritesViewState();
+    this._favoritesViewState = loadFavoritesViewState();
 
     this._discoveryError = null;
     this._discovered = true;
@@ -682,8 +642,8 @@ export class SpanPanelElement extends LitElement {
       // drop the persisted Favorites view state so a fresh return opens
       // with defaults. The selectedPanelId change reactively re-renders
       // the tab content via ``updated()``.
-      _clearFavoritesViewState();
-      this._favoritesViewState = _defaultFavoritesViewState();
+      clearFavoritesViewState();
+      this._favoritesViewState = defaultFavoritesViewState();
       const fallback = realPanels[0];
       if (fallback) {
         this._selectedPanelId = fallback.id;
