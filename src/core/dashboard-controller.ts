@@ -8,6 +8,8 @@ import { MonitoringStatusCache, MonitoringStatusMultiCache, mergeMonitoringStatu
 import { GraphSettingsCache } from "./graph-settings.js";
 import type { CardConfig, FavoriteRef, GraphSettings, HistoryMap, HomeAssistant, MonitoringStatus, MonitoringStatusResponse, PanelTopology } from "../types.js";
 import type { ErrorStore } from "./error-store.js";
+import { RetryManager } from "./retry-manager.js";
+import { t } from "../i18n.js";
 
 const RECORDER_REFRESH_MS = 30_000;
 const RESIZE_THRESHOLD_PX = 5;
@@ -34,7 +36,18 @@ export class DashboardController {
   readonly monitoringMultiCache = new MonitoringStatusMultiCache();
   readonly graphSettingsCache = new GraphSettingsCache();
 
-  errorStore: ErrorStore | null = null;
+  private _errorStore: ErrorStore | null = null;
+  private _retryManager: RetryManager | null = null;
+
+  get errorStore(): ErrorStore | null {
+    return this._errorStore;
+  }
+
+  set errorStore(store: ErrorStore | null) {
+    this._errorStore = store;
+    this._retryManager = store ? new RetryManager(store) : null;
+  }
+
   private _hass: HomeAssistant | null = null;
   private _topology: PanelTopology | null = null;
   private _config: CardConfig | null = null;
@@ -156,8 +169,14 @@ export class DashboardController {
         await this.graphSettingsCache.fetch(this._hass!, this._configEntryId);
         this.buildHorizonMaps(this.graphSettingsCache.settings);
       }
-    } catch {
-      // Graph settings unavailable -- use defaults
+    } catch (err) {
+      console.warn("SPAN Panel: graph settings fetch failed", err);
+      this._errorStore?.add({
+        key: "fetch:graph_settings",
+        level: "warning",
+        message: t("error.graph_settings_failed"),
+        persistent: false,
+      });
     }
   }
 
@@ -314,8 +333,14 @@ export class DashboardController {
         }
       }
       this.updateDOM(root);
-    } catch {
-      // Will refresh on next interval
+    } catch (err) {
+      console.warn("SPAN Panel: history refresh failed", err);
+      this._errorStore?.add({
+        key: "fetch:history",
+        level: "warning",
+        message: t("error.history_failed"),
+        persistent: false,
+      });
     }
   }
 
@@ -367,9 +392,27 @@ export class DashboardController {
       return;
     }
     const service = switchState.state === "on" ? "turn_off" : "turn_on";
-    this._hass.callService("switch", service, {}, { entity_id: switchEntity }).catch(err => {
-      console.error("SPAN Panel: switch service call failed:", err);
-    });
+    if (this._retryManager) {
+      this._retryManager
+        .callService(
+          this._hass,
+          "switch",
+          service,
+          {},
+          { entity_id: switchEntity },
+          {
+            errorId: "service:relay",
+            errorMessage: t("error.relay_failed"),
+          }
+        )
+        .catch(err => {
+          console.warn("SPAN Panel: switch service call failed", err);
+        });
+    } else {
+      this._hass.callService("switch", service, {}, { entity_id: switchEntity }).catch(err => {
+        console.error("SPAN Panel: switch service call failed:", err);
+      });
+    }
   }
 
   async onGearClick(event: Event, root: DOMRoot): Promise<void> {
