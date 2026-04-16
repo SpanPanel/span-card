@@ -172,28 +172,16 @@ export class ErrorStore {
       });
     }
 
-    // Drop persistent banners for entities that were watched before but are
-    // no longer in the new set. The naming mode may also change (e.g.
-    // single-unnamed → multi-named), so compute the previous key using
-    // `prev`'s view of the world.
+    // Drop stale persistent banners from the previous watch set. For each
+    // entity that was watched, remove its prev-mode key unless it is still
+    // watched in the same naming mode (single-unnamed vs multi-named).
+    // This one sweep covers both removals and naming-mode changes.
     const prevIsSingleUnnamed = this._isSingleUnnamed(prev);
-    for (const [entityId, entry] of prev) {
-      if (next.has(entityId)) continue;
-      const offlineKey = prevIsSingleUnnamed ? "panel-offline" : `panel-offline:${entityId}`;
-      this._persistent.delete(offlineKey);
-      void entry; // unused beyond its keying; kept for readability
-    }
-
-    // Even when the set of entity IDs is identical, the *naming mode* may
-    // have changed (e.g. wrapping `watchPanelStatus` turns a named watch
-    // into an unnamed one under the same entity ID). Drop any stale keys
-    // from the previous mode if it differs from the new one.
     const nextIsSingleUnnamed = this._isSingleUnnamed(next);
-    if (prev.size > 0 && prevIsSingleUnnamed !== nextIsSingleUnnamed) {
-      for (const entityId of prev.keys()) {
-        const prevKey = prevIsSingleUnnamed ? "panel-offline" : `panel-offline:${entityId}`;
-        this._persistent.delete(prevKey);
-      }
+    for (const entityId of prev.keys()) {
+      const stillWatchedSameMode = next.has(entityId) && prevIsSingleUnnamed === nextIsSingleUnnamed;
+      if (stillWatchedSameMode) continue;
+      this._persistent.delete(this._offlineKey(entityId, prevIsSingleUnnamed));
     }
 
     this._watchedPanels = next;
@@ -206,10 +194,9 @@ export class ErrorStore {
    */
   clearPanelStatusWatch(): void {
     if (this._watchedPanels.size === 0) return;
-    const prevIsSingleUnnamed = this._isSingleUnnamed(this._watchedPanels);
+    const isSingleUnnamed = this._isSingleUnnamed(this._watchedPanels);
     for (const entityId of this._watchedPanels.keys()) {
-      const key = prevIsSingleUnnamed ? "panel-offline" : `panel-offline:${entityId}`;
-      this._persistent.delete(key);
+      this._persistent.delete(this._offlineKey(entityId, isSingleUnnamed));
     }
     this._watchedPanels.clear();
     this._notify();
@@ -231,8 +218,8 @@ export class ErrorStore {
       const entityState = hass.states[entityId]?.state;
       const isOnline = entityState === "on";
 
-      const offlineKey = isSingleUnnamed ? "panel-offline" : `panel-offline:${entityId}`;
-      const reconnectKey = isSingleUnnamed ? "panel-reconnected" : `panel-reconnected:${entityId}`;
+      const offlineKey = this._offlineKey(entityId, isSingleUnnamed);
+      const reconnectKey = this._reconnectKey(entityId, isSingleUnnamed);
 
       if (!isOnline) {
         entry.wasOffline = true;
@@ -283,8 +270,26 @@ export class ErrorStore {
    */
   private _isSingleUnnamed(map: ReadonlyMap<string, WatchedPanelEntry>): boolean {
     if (map.size !== 1) return false;
-    const only = map.values().next().value as WatchedPanelEntry | undefined;
-    return only !== undefined && only.panelName === null;
+    for (const entry of map.values()) {
+      return entry.panelName === null;
+    }
+    return false;
+  }
+
+  /**
+   * Persistent-key name for the offline banner scoped to a single entity.
+   * Single-unnamed mode (per-panel view) uses the legacy unsuffixed key.
+   */
+  private _offlineKey(entityId: string, isSingleUnnamed: boolean): string {
+    return isSingleUnnamed ? "panel-offline" : `panel-offline:${entityId}`;
+  }
+
+  /**
+   * Transient-key name for the reconnect toast scoped to a single entity.
+   * Mirror of `_offlineKey` for the recovery path.
+   */
+  private _reconnectKey(entityId: string, isSingleUnnamed: boolean): string {
+    return isSingleUnnamed ? "panel-reconnected" : `panel-reconnected:${entityId}`;
   }
 
   private _clearTransient(): void {

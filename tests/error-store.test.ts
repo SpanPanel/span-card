@@ -595,6 +595,24 @@ describe("ErrorStore — multi-panel status watching", () => {
     expect(store.active.find(e => e.key === `panel-reconnected:${ENTITY_B}`)).toBeUndefined();
   });
 
+  it("carries wasOffline across single-unnamed → multi-named transition for same entity", () => {
+    // Start with legacy single-unnamed watch; go offline.
+    store.watchPanelStatus(ENTITY_A);
+    store.updateHass(makeMultiHass({ [ENTITY_A]: "off" }));
+    expect(store.hasPersistent("panel-offline")).toBe(true);
+
+    // Upgrade to named watch for the same entity id. The wasOffline flag
+    // must carry even across the naming-mode change.
+    store.watchPanelStatuses([{ entityId: ENTITY_A, panelName: "Panel A" }]);
+
+    // Now come online. Because wasOffline carried, the named reconnect
+    // toast must fire.
+    store.updateHass(makeMultiHass({ [ENTITY_A]: "on" }));
+    const reconnect = store.active.find(e => e.key === `panel-reconnected:${ENTITY_A}`);
+    expect(reconnect).toBeDefined();
+    expect(reconnect?.message).toBe("Panel A reconnected");
+  });
+
   it("clearPanelStatusWatch removes all watched entries (single and multi)", () => {
     store.watchPanelStatuses([
       { entityId: ENTITY_A, panelName: "Panel A" },
