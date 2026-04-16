@@ -4,7 +4,7 @@ import { t } from "../i18n.js";
 import { tabToRow, tabToCol, classifyDualTab } from "../helpers/layout.js";
 import { getChartMetric } from "../helpers/chart.js";
 import { DEVICE_TYPE_PV, RELAY_STATE_CLOSED, SHEDDING_PRIORITIES, MONITORING_COLORS } from "../constants.js";
-import { getCircuitMonitoringInfo, hasCustomOverrides, getUtilizationClass } from "./monitoring-status.js";
+import { getCircuitMonitoringInfo, hasCustomOverrides } from "./monitoring-status.js";
 import { getCircuitStateClasses } from "./circuit-state.js";
 import type { PanelTopology, Circuit, HomeAssistant, CardConfig, MonitoringStatus, MonitoringPointInfo, SheddingPriorityDef } from "../types.js";
 
@@ -182,12 +182,18 @@ export function renderCircuitSlot(
     <ha-icon icon="mdi:cog" style="--mdc-icon-size:16px;"></ha-icon>
   </button>`;
 
-  // Utilization (shown when monitoring is active)
+  // Utilization — prefer monitoring data, fall back to live current / breaker rating
   let utilizationHTML = "";
-  if (monitoringInfo?.utilization_pct != null) {
-    const pct = monitoringInfo.utilization_pct;
-    const utilClass = getUtilizationClass(monitoringInfo);
-    utilizationHTML = `<span class="utilization ${utilClass}">${Math.round(pct)}%</span>`;
+  let utilizationPct = monitoringInfo?.utilization_pct ?? null;
+  if (utilizationPct == null && circuit.breaker_rating_a) {
+    const curEid = circuit.entities?.current;
+    const curState = curEid ? hass.states[curEid] : null;
+    const amps = curState ? Math.abs(parseFloat(curState.state) || 0) : 0;
+    utilizationPct = Math.round((amps / circuit.breaker_rating_a) * 1000) / 10;
+  }
+  if (utilizationPct != null) {
+    const utilClass = utilizationPct >= 100 ? "utilization-alert" : utilizationPct >= 80 ? "utilization-warning" : "utilization-normal";
+    utilizationHTML = `<span class="utilization ${utilClass}">${Math.round(utilizationPct)}%</span>`;
   }
 
   const stateClasses = getCircuitStateClasses(circuit, monitoringInfo, isOn, isProducer);

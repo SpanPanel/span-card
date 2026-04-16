@@ -3,7 +3,7 @@ import { formatPowerSigned, formatPowerUnit } from "../helpers/format.js";
 import { t } from "../i18n.js";
 import { getChartMetric } from "../helpers/chart.js";
 import { RELAY_STATE_CLOSED, SHEDDING_PRIORITIES, MONITORING_COLORS, DEVICE_TYPE_PV } from "../constants.js";
-import { getUtilizationClass, hasCustomOverrides } from "./monitoring-status.js";
+import { hasCustomOverrides } from "./monitoring-status.js";
 import { getCircuitStateClasses } from "./circuit-state.js";
 import type { Circuit, HomeAssistant, CardConfig, MonitoringPointInfo, SheddingPriorityDef } from "../types.js";
 
@@ -101,12 +101,18 @@ export function buildListRowHTML(
     }
   }
 
-  // Utilization badge
+  // Utilization — prefer monitoring data, fall back to live current / breaker rating
   let utilizationHTML = "";
-  if (monitoringInfo?.utilization_pct != null) {
-    const pct = monitoringInfo.utilization_pct;
-    const utilClass = getUtilizationClass(monitoringInfo);
-    utilizationHTML = `<span class="utilization ${utilClass}">${Math.round(pct)}%</span>`;
+  let utilizationPct = monitoringInfo?.utilization_pct ?? null;
+  if (utilizationPct == null && circuit.breaker_rating_a) {
+    const curEid = circuit.entities?.current;
+    const curState = curEid ? hass.states[curEid] : null;
+    const amps = curState ? Math.abs(parseFloat(curState.state) || 0) : 0;
+    utilizationPct = Math.round((amps / circuit.breaker_rating_a) * 1000) / 10;
+  }
+  if (utilizationPct != null) {
+    const utilClass = utilizationPct >= 100 ? "utilization-alert" : utilizationPct >= 80 ? "utilization-warning" : "utilization-normal";
+    utilizationHTML = `<span class="utilization ${utilClass}">${Math.round(utilizationPct)}%</span>`;
   }
 
   // Gear — matches the breaker-grid's gear so onGearClick handles it unchanged.
