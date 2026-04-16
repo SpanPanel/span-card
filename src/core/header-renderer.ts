@@ -15,6 +15,32 @@ export interface HeaderRenderOptions {
 }
 
 /**
+ * Build the shedding-legend HTML block. One `.shedding-legend-item` per
+ * non-"unknown" entry in `SHEDDING_PRIORITIES`. Consumed by
+ * `buildHeaderHTML` (real-panel header) and by the Favorites summary
+ * strip in `src/panel/span-panel.ts`. Kept as a string-returning helper
+ * so both call sites consume the same DOM shape from one source.
+ */
+export function buildSheddingLegendHTML(): string {
+  return `<div class="shedding-legend">
+    ${Object.entries(SHEDDING_PRIORITIES)
+      .filter(([key]: [string, SheddingPriorityDef]) => key !== "unknown")
+      .map(([, cfg]: [string, SheddingPriorityDef]) => {
+        let icons: string;
+        if (cfg.icon2) {
+          icons = `<ha-icon icon="${cfg.icon}" style="color:${cfg.color}"></ha-icon><ha-icon class="shedding-legend-secondary" icon="${cfg.icon2}" style="color:${cfg.color}"></ha-icon>`;
+        } else if (cfg.textLabel) {
+          icons = `<ha-icon icon="${cfg.icon}" style="color:${cfg.color}"></ha-icon><span class="shedding-legend-text" style="color:${cfg.color}">${cfg.textLabel}</span>`;
+        } else {
+          icons = `<ha-icon icon="${cfg.icon}" style="color:${cfg.color}"></ha-icon>`;
+        }
+        return `<div class="shedding-legend-item">${icons}<span class="shedding-legend-label">${cfg.label()}</span></div>`;
+      })
+      .join("")}
+  </div>`;
+}
+
+/**
  * Build just the panel-stats block (Site / Grid / Upstream / Downstream /
  * Solar / Battery) for one panel. Extracted so the Favorites view can
  * render a per-panel grid of stats. The returned block is a standalone
@@ -149,22 +175,7 @@ export function buildHeaderHTML(topology: PanelTopology, config: CardConfig, opt
             <button class="unit-btn ${isAmpsMode ? "unit-active" : ""}" data-unit="current">A</button>
           </div>
         </div>
-        <div class="shedding-legend">
-          ${Object.entries(SHEDDING_PRIORITIES)
-            .filter(([key]: [string, SheddingPriorityDef]) => key !== "unknown")
-            .map(([, cfg]: [string, SheddingPriorityDef]) => {
-              let icons: string;
-              if (cfg.icon2) {
-                icons = `<ha-icon icon="${cfg.icon}" style="color:${cfg.color}"></ha-icon><ha-icon class="shedding-legend-secondary" icon="${cfg.icon2}" style="color:${cfg.color}"></ha-icon>`;
-              } else if (cfg.textLabel) {
-                icons = `<ha-icon icon="${cfg.icon}" style="color:${cfg.color}"></ha-icon><span class="shedding-legend-text" style="color:${cfg.color}">${cfg.textLabel}</span>`;
-              } else {
-                icons = `<ha-icon icon="${cfg.icon}" style="color:${cfg.color}"></ha-icon>`;
-              }
-              return `<div class="shedding-legend-item">${icons}<span class="shedding-legend-label">${cfg.label()}</span></div>`;
-            })
-            .join("")}
-        </div>
+        ${buildSheddingLegendHTML()}
       </div>
     </div>
   `;
