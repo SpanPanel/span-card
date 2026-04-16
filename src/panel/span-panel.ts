@@ -27,6 +27,7 @@ import {
   saveFavoritesViewState,
   type FavoritesViewState,
 } from "./favorites-view-state.js";
+import { coalesceRuns, makeRenderToken } from "./coalesce.js";
 import type { CardConfig, FavoritesMap, FavoritesTopology, HomeAssistant, PanelDevice } from "../types.js";
 
 const FAVORITES_PANEL_ID = "favorites";
@@ -749,17 +750,19 @@ export class SpanPanelElement extends LitElement {
     };
   }
 
-  private _pendingTabRender: Promise<void> | null = null;
-  private _pendingFollowupRender = false;
   /**
-   * Monotonic render token. Every entry to ``_renderTab`` captures the
-   * current value; after each ``await`` inside a render path the code
-   * compares against ``this._renderToken`` and bails if another render
-   * has been scheduled since. Without this, a slow render that has
-   * already been superseded still completes and writes into the
-   * container, producing a brief flash and wasted WS traffic.
+   * Coalesces concurrent tab-render requests so at most one render is
+   * in-flight at a time, with exactly one follow-up if more requests
+   * arrived while the current one was running.
    */
-  private _renderToken = 0;
+  private readonly _tabRenderScheduler = coalesceRuns(async () => this._renderTab());
+
+  /**
+   * Monotonic render-token factory. Each call to the returned function
+   * increments the counter and returns a ``superseded()`` predicate that
+   * tells a render branch whether it has been overtaken by a later render.
+   */
+  private readonly _beginRender = makeRenderToken();
 
   /**
    * Coalesce tab-render requests. If a render is in-flight, remember
@@ -770,35 +773,7 @@ export class SpanPanelElement extends LitElement {
    */
   private async _scheduleTabRender(): Promise<void> {
     await this.updateComplete;
-    if (this._pendingTabRender) {
-      this._pendingFollowupRender = true;
-      return;
-    }
-    const run = (async (): Promise<void> => {
-      try {
-        await this._renderTab();
-      } finally {
-        this._pendingTabRender = null;
-      }
-      if (this._pendingFollowupRender) {
-        this._pendingFollowupRender = false;
-        await this._scheduleTabRender();
-      }
-    })();
-    this._pendingTabRender = run;
-    await run;
-  }
-
-  /**
-   * Capture the current render token and return a predicate that tells
-   * a render branch whether it's been superseded. Each branch should
-   * call it after every ``await`` and bail out of further work when it
-   * returns true.
-   */
-  private _beginRender(): () => boolean {
-    this._renderToken += 1;
-    const token = this._renderToken;
-    return (): boolean => this._renderToken !== token;
+    await this._tabRenderScheduler();
   }
 
   private async _renderTab(): Promise<void> {
