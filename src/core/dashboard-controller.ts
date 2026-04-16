@@ -6,6 +6,9 @@ import { updateCircuitDOM, updateSubDeviceDOM } from "./dom-updater.js";
 import { getEffectiveHorizon, getEffectiveSubDeviceHorizon } from "./graph-settings.js";
 import { MonitoringStatusCache, MonitoringStatusMultiCache, mergeMonitoringStatuses } from "./monitoring-status.js";
 import { GraphSettingsCache } from "./graph-settings.js";
+import { groupFavoritesByPanel } from "./favorites-sections.js";
+import type { FavoritesPanelInfo, FavoritesPanelGroup } from "./favorites-sections.js";
+import type { FavoritesPanelSection } from "./side-panel.js";
 import type { CardConfig, FavoriteRef, GraphSettings, HistoryMap, HomeAssistant, MonitoringStatus, MonitoringStatusResponse, PanelTopology } from "../types.js";
 import type { ErrorStore } from "./error-store.js";
 import { RetryManager } from "./retry-manager.js";
@@ -61,6 +64,8 @@ export class DashboardController {
    * config entry. ``null`` means normal single-panel mode.
    */
   private _favRefs: Record<string, FavoriteRef> | null = null;
+
+  private _perPanelInfo: Map<string, FavoritesPanelInfo> = new Map();
 
   /**
    * Context used when opening the panel-mode side panel (Graph Settings)
@@ -137,6 +142,16 @@ export class DashboardController {
     } | null
   ): void {
     this._panelFavorites = info;
+  }
+
+  /**
+   * Register per-panel info for every panel that contributes to the
+   * Favorites view. Called from span-panel's `_renderFavoritesTab`
+   * after `FavoritesController.build` resolves. Cleared when the view
+   * moves off Favorites (via `setFavoritesPerPanelInfo(null)`).
+   */
+  setFavoritesPerPanelInfo(info: Map<string, FavoritesPanelInfo> | null): void {
+    this._perPanelInfo = info ?? new Map();
   }
 
   private get _inFavoritesView(): boolean {
@@ -419,9 +434,12 @@ export class DashboardController {
     sidePanel.errorStore = this.errorStore;
 
     if (gearBtn.classList.contains("panel-gear")) {
-      // Favorites view has no single panel to configure — the aggregate
-      // doesn't own global horizon or other panel-level settings.
-      if (this._inFavoritesView) return;
+      if (this._inFavoritesView) {
+        const sections = await this._buildFavoritesSections();
+        if (sections.length === 0) return;
+        sidePanel.open({ favoritesMode: true, perPanelSections: sections });
+        return;
+      }
       await this.graphSettingsCache.fetch(this._hass, this._configEntryId);
       sidePanel.open({
         panelMode: true,
@@ -522,6 +540,30 @@ export class DashboardController {
         configEntryId: entryId,
       });
     }
+  }
+
+  /**
+   * Build the per-contributing-panel section array for the Favorites
+   * sidebar. Groups favorite refs by source panel (synchronous, pure),
+   * then fetches graph settings per unique config entry in parallel.
+   * Returns an array suitable for `sidePanel.open({ favoritesMode: true,
+   * perPanelSections })`.
+   */
+  private async _buildFavoritesSections(): Promise<FavoritesPanelSection[]> {
+    if (!this._hass || !this._favRefs) return [];
+    const groups = groupFavoritesByPanel(this._favRefs, this._perPanelInfo);
+    if (groups.length === 0) return [];
+    const sections = await Promise.all(
+      groups.map(async (group: FavoritesPanelGroup) => ({
+        panelDeviceId: group.panelDeviceId,
+        panelName: group.panelName,
+        topology: group.topology,
+        graphSettings: await this._fetchGraphSettingsFresh(group.configEntryId),
+        favoriteCircuitUuids: group.favoriteCircuitUuids,
+        configEntryId: group.configEntryId,
+      }))
+    );
+    return sections;
   }
 
   /**

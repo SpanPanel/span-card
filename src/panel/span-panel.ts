@@ -32,6 +32,7 @@ import {
 } from "./favorites-view-state.js";
 import { buildFavoritesSummaryHTML } from "./favorites-summary.js";
 import { coalesceRuns, makeRenderToken } from "./coalesce.js";
+import type { FavoritesPanelInfo } from "../core/favorites-sections.js";
 import type { CardConfig, FavoritesMap, FavoritesTopology, HomeAssistant, PanelDevice } from "../types.js";
 
 const FAVORITES_PANEL_ID = "favorites";
@@ -301,6 +302,10 @@ export class SpanPanelElement extends LitElement {
         this._watchedPanelId = null;
       } else {
         this._updatePanelStatusWatch();
+        // Leaving Favorites for a real panel — clear stale per-panel metadata
+        // so an accidental gear click before the new per-panel render finishes
+        // cannot open a favorites-mode sidebar with stale data.
+        this._listDashCtrl.setFavoritesPerPanelInfo(null);
       }
     }
 
@@ -990,6 +995,20 @@ export class SpanPanelElement extends LitElement {
       .filter((e): e is { entityId: string; panelName: string } => e !== null);
     this._errorStore.watchPanelStatuses(panelStatusEntries);
     this._errorStore.updateHass(this.hass);
+
+    // Register per-panel metadata for the Favorites sidebar. The
+    // controller's `onGearClick` uses this to build one sidebar
+    // section per contributing panel.
+    const perPanelInfoMap = new Map<string, FavoritesPanelInfo>();
+    for (const p of build.perPanelStats) {
+      const realPanel = realPanels.find(r => r.id === p.panelDeviceId);
+      perPanelInfoMap.set(p.panelDeviceId, {
+        panelName: p.panelName,
+        topology: p.topology,
+        configEntryId: realPanel?.config_entries?.[0] ?? null,
+      });
+    }
+    this._listDashCtrl.setFavoritesPerPanelInfo(perPanelInfoMap);
 
     const merged = build.topology;
     const primaryEntryId = build.entryIds[0] ?? null;
