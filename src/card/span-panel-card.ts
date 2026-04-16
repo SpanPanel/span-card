@@ -1,4 +1,4 @@
-import { LitElement, html, unsafeCSS } from "lit";
+import { LitElement, html, unsafeCSS, nothing } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import { DEFAULT_CHART_METRIC } from "../constants.js";
 import { setLanguage, t } from "../i18n.js";
@@ -149,10 +149,11 @@ export class SpanPanelCard extends LitElement {
 
     // State 2: Not yet discovered
     if (!this._discovered) {
+      const hasError = this._errorStore.hasPersistent("discovery-failed");
       return html`
         <ha-card>
           <span-error-banner .store=${this._errorStore}></span-error-banner>
-          <div style="padding: 24px; color: var(--secondary-text-color);">${escapeHtml(t("card.connecting"))}</div>
+          ${hasError ? nothing : html`<div style="padding: 24px; color: var(--secondary-text-color);">${escapeHtml(t("card.connecting"))}</div>`}
         </ha-card>
       `;
     }
@@ -204,6 +205,7 @@ export class SpanPanelCard extends LitElement {
   // ── Discovery ──────────────────────────────────────────────────────────
 
   private async _startDiscovery(): Promise<void> {
+    if (this._discovering) return;
     this._discovering = true;
 
     await this._discoverTopology();

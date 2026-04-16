@@ -228,6 +228,30 @@ describe("ErrorStore — clear", () => {
     expect(store.active).toHaveLength(1);
     expect(store.active[0]?.key).toBe("p1");
   });
+
+  it("resets panel status watching state on full clear", () => {
+    store.watchPanelStatus("binary_sensor.panel_status");
+    store.updateHass({ states: { "binary_sensor.panel_status": { state: "off" } } } as any);
+    expect(store.hasPersistent("panel-offline")).toBe(true);
+
+    store.clear();
+
+    // After clear, updateHass should not re-add the panel-offline error
+    // because the watched entity ID was reset.
+    store.updateHass({ states: { "binary_sensor.panel_status": { state: "off" } } } as any);
+    expect(store.hasPersistent("panel-offline")).toBe(false);
+  });
+
+  it("does not reset panel status watching on filtered clear", () => {
+    store.watchPanelStatus("binary_sensor.panel_status");
+    store.updateHass({ states: { "binary_sensor.panel_status": { state: "off" } } } as any);
+
+    store.clear({ persistent: true });
+
+    // Watched entity is still set; re-firing updateHass re-adds panel-offline
+    store.updateHass({ states: { "binary_sensor.panel_status": { state: "off" } } } as any);
+    expect(store.hasPersistent("panel-offline")).toBe(true);
+  });
 });
 
 // ---------------------------------------------------------------------------

@@ -91,9 +91,11 @@ export class ErrorStore {
     if (filter === undefined) {
       this._persistent.clear();
       this._clearTransient();
-    } else if (filter.persistent) {
+      this._panelStatusEntityId = null;
+      this._wasOffline = false;
+    } else if (filter.persistent === true) {
       this._persistent.clear();
-    } else {
+    } else if (filter.persistent === false) {
       this._clearTransient();
     }
     this._notify();
