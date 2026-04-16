@@ -1,5 +1,6 @@
 import type { HomeAssistant, PanelTopology } from "../types.js";
 import type { ErrorStore } from "./error-store.js";
+import { t } from "../i18n.js";
 
 interface AreaRegistryEntry {
   area_id: string;
@@ -122,7 +123,7 @@ export async function subscribeAreaUpdates(
       errorStore?.add({
         key: "fetch:areas",
         level: "warning",
-        message: "Unable to update area assignments",
+        message: t("error.areas_failed"),
         persistent: false,
       });
     }

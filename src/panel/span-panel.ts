@@ -578,10 +578,12 @@ export class SpanPanelElement extends LitElement {
     if (this._selectedPanelId === FAVORITES_PANEL_ID) return;
     if (this._watchedPanelId === this._selectedPanelId) return;
 
-    this._watchedPanelId = this._selectedPanelId;
+    const targetPanelId = this._selectedPanelId;
+    this._watchedPanelId = targetPanelId;
     try {
-      const result = await discoverTopology(this.hass, this._selectedPanelId);
-      if (this._watchedPanelId !== this._selectedPanelId) return; // Superseded
+      const result = await discoverTopology(this.hass, targetPanelId);
+      // Guard against supersession: user may have switched panels during fetch.
+      if (this._selectedPanelId !== targetPanelId) return;
       const entityId = result.topology?.panel_entities?.panel_status;
       if (entityId) {
         this._errorStore.watchPanelStatus(entityId);
