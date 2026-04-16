@@ -985,6 +985,20 @@ export class SpanPanelElement extends LitElement {
     const realPanels = this._panels.filter(p => p.id !== FAVORITES_PANEL_ID);
     const build = await this._favCtrl.build(this.hass, this._favorites, realPanels, this._errorStore);
     if (superseded()) return;
+
+    // Drive the offline-banner watch for every contributing panel whose
+    // topology resolved. Each row in <span-error-banner> is scoped per
+    // panel_status entity, so the Favorites view shows one banner row per
+    // offline contributing panel, labeled with the panel's name.
+    const panelStatusEntries = build.perPanelStats
+      .map(p => {
+        const entityId = p.topology.panel_entities?.panel_status;
+        return typeof entityId === "string" ? { entityId, panelName: p.panelName } : null;
+      })
+      .filter((e): e is { entityId: string; panelName: string } => e !== null);
+    this._errorStore.watchPanelStatuses(panelStatusEntries);
+    this._errorStore.updateHass(this.hass);
+
     const merged = build.topology;
     const primaryEntryId = build.entryIds[0] ?? null;
 
