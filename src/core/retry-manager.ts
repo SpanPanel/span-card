@@ -1,5 +1,6 @@
 import type { ErrorStore } from "./error-store.js";
 import type { HomeAssistant } from "../types.js";
+import { t } from "../i18n.js";
 
 const DEFAULT_RETRIES = 3;
 const BACKOFF_BASE_MS = 1000;
@@ -37,15 +38,22 @@ export class RetryManager {
   }
 
   private async _withRetry<T>(fn: () => Promise<T>, maxRetries: number, errorId: string, errorMessage?: string): Promise<T> {
-    // Short-circuit if panel is offline
+    // Short-circuit if panel is offline — single attempt, no retries
     if (this._store.hasPersistent("panel-offline")) {
-      this._store.add({
-        key: errorId,
-        level: "error",
-        message: errorMessage ?? "Panel offline — action unavailable",
-        persistent: false,
-      });
-      return fn(); // Single attempt, no retries
+      try {
+        const result = await fn();
+        this._store.remove(errorId);
+        return result;
+      } catch (err) {
+        const error = err instanceof Error ? err : new Error(String(err));
+        this._store.add({
+          key: errorId,
+          level: "error",
+          message: errorMessage ?? t("error.panel_offline"),
+          persistent: false,
+        });
+        throw error;
+      }
     }
 
     let lastError: Error | undefined;

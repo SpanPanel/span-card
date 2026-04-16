@@ -211,6 +211,18 @@ describe("RetryManager — panel offline short-circuit", () => {
     const transient = store.active.find(e => e.key === "test-offline-ws");
     expect(transient).toBeDefined();
     expect(transient?.persistent).toBe(false);
-    expect(transient?.message).toMatch(/Panel offline/i);
+    expect(transient?.message).toMatch(/SPAN Panel unreachable/i);
+  });
+
+  it("does not leave stale error in store when short-circuit call succeeds", async () => {
+    store.add({ key: "panel-offline", level: "error", message: "offline", persistent: true });
+    const hass = makeHass();
+    vi.mocked(hass.callService).mockResolvedValue(undefined);
+
+    await manager.callService(hass, "switch", "turn_on", {}, undefined, { errorId: "svc:relay" });
+
+    expect(hass.callService).toHaveBeenCalledTimes(1);
+    // No transient error should be added since fn() succeeded
+    expect(store.active.filter(e => !e.persistent)).toHaveLength(0);
   });
 });
