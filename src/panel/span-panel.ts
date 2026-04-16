@@ -198,6 +198,9 @@ export class SpanPanelElement extends LitElement {
   connectedCallback(): void {
     super.connectedCallback();
 
+    this._dashboardTab.errorStore = this._errorStore;
+    this._listDashCtrl.errorStore = this._errorStore;
+
     this._onVisibilityChange = (): void => {
       if (document.visibilityState !== "visible" || !this._discovered || !this.hass) return;
       this._scheduleTabRender();
@@ -311,8 +314,11 @@ export class SpanPanelElement extends LitElement {
       const topo = this._listDashCtrl.topology;
       if (tabContent && topo) {
         this._listCtrl.updateCollapsedRows(tabContent, this.hass, topo, this._buildDashboardConfig());
-        const sidePanel = tabContent.querySelector("span-side-panel") as { hass: HomeAssistant } | null;
-        if (sidePanel) sidePanel.hass = this.hass;
+        const sidePanel = tabContent.querySelector("span-side-panel") as { hass: HomeAssistant; errorStore: ErrorStore | null } | null;
+        if (sidePanel) {
+          sidePanel.hass = this.hass;
+          sidePanel.errorStore = this._errorStore;
+        }
       }
     }
   }

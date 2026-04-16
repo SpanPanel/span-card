@@ -8,9 +8,11 @@ import { getCircuitMonitoringInfo } from "./monitoring-status.js";
 import { buildSearchBarHTML, buildListRowHTML, buildExpandedChartHTML, buildAreaHeaderHTML } from "./list-renderer.js";
 import type { DashboardController } from "./dashboard-controller.js";
 import type { HomeAssistant, PanelTopology, CardConfig, Circuit, MonitoringStatus } from "../types.js";
+import type { ErrorStore } from "./error-store.js";
 
 interface SpanSidePanelElement extends HTMLElement {
   hass: HomeAssistant;
+  errorStore: ErrorStore | null;
 }
 
 interface CircuitSortInfo {
@@ -230,7 +232,10 @@ export class ListViewController {
     html += "<span-side-panel></span-side-panel>";
     container.innerHTML = html;
     const sidePanel = container.querySelector("span-side-panel") as SpanSidePanelElement | null;
-    if (sidePanel) sidePanel.hass = hass;
+    if (sidePanel) {
+      sidePanel.hass = hass;
+      sidePanel.errorStore = this._ctrl.errorStore;
+    }
     this._bindEvents(container);
     if (this._searchQuery) this._applyFilter(container);
     this._ctrl.updateDOM(container);
@@ -298,7 +303,10 @@ export class ListViewController {
     html += "<span-side-panel></span-side-panel>";
     container.innerHTML = html;
     const areaSidePanel = container.querySelector("span-side-panel") as SpanSidePanelElement | null;
-    if (areaSidePanel) areaSidePanel.hass = hass;
+    if (areaSidePanel) {
+      areaSidePanel.hass = hass;
+      areaSidePanel.errorStore = this._ctrl.errorStore;
+    }
     this._bindEvents(container);
     if (this._searchQuery) this._applyFilter(container);
     this._ctrl.updateDOM(container);

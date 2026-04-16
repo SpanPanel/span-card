@@ -7,6 +7,7 @@ import { getEffectiveHorizon, getEffectiveSubDeviceHorizon } from "./graph-setti
 import { MonitoringStatusCache, MonitoringStatusMultiCache, mergeMonitoringStatuses } from "./monitoring-status.js";
 import { GraphSettingsCache } from "./graph-settings.js";
 import type { CardConfig, FavoriteRef, GraphSettings, HistoryMap, HomeAssistant, MonitoringStatus, MonitoringStatusResponse, PanelTopology } from "../types.js";
+import type { ErrorStore } from "./error-store.js";
 
 const RECORDER_REFRESH_MS = 30_000;
 const RESIZE_THRESHOLD_PX = 5;
@@ -17,6 +18,7 @@ type DOMRoot = Element | ShadowRoot;
 
 interface SpanSidePanelElement extends HTMLElement {
   hass: HomeAssistant;
+  errorStore: ErrorStore | null;
   open(config: Record<string, unknown>): void;
 }
 
@@ -32,6 +34,7 @@ export class DashboardController {
   readonly monitoringMultiCache = new MonitoringStatusMultiCache();
   readonly graphSettingsCache = new GraphSettingsCache();
 
+  errorStore: ErrorStore | null = null;
   private _hass: HomeAssistant | null = null;
   private _topology: PanelTopology | null = null;
   private _config: CardConfig | null = null;
@@ -377,6 +380,7 @@ export class DashboardController {
     const sidePanel = root.querySelector("span-side-panel") as SpanSidePanelElement | null;
     if (!sidePanel || !this._hass) return;
     sidePanel.hass = this._hass;
+    sidePanel.errorStore = this.errorStore;
 
     if (gearBtn.classList.contains("panel-gear")) {
       // Favorites view has no single panel to configure — the aggregate

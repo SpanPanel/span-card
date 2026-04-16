@@ -31,6 +31,10 @@ export class DashboardTab {
     this._ctrl.hass = val;
   }
 
+  set errorStore(store: import("../core/error-store.js").ErrorStore | null) {
+    this._ctrl.errorStore = store;
+  }
+
   /**
    * Provide the current panel's favorites (for heart toggles in the
    * Graph Settings / circuit side panels). Pass ``null`` to hide hearts

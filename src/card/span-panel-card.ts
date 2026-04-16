@@ -21,6 +21,7 @@ import type { HomeAssistant, PanelTopology, PanelDevice, CardConfig } from "../t
 
 interface SpanSidePanelElement extends HTMLElement {
   hass: HomeAssistant;
+  errorStore: ErrorStore | null;
 }
 
 const PREVIEW_CIRCUITS = [
@@ -116,6 +117,7 @@ export class SpanPanelCard extends LitElement {
     this._activeTab = "panel";
     this._ctrl.reset();
     this._ctrl.setConfig(config);
+    this._ctrl.errorStore = this._errorStore;
   }
 
   getCardSize(): number {
@@ -194,7 +196,10 @@ export class SpanPanelCard extends LitElement {
       this._ctrl.updateDOM(this.shadowRoot!);
 
       const sidePanel = this.shadowRoot!.querySelector("span-side-panel") as SpanSidePanelElement | null;
-      if (sidePanel) sidePanel.hass = this.hass;
+      if (sidePanel) {
+        sidePanel.hass = this.hass;
+        sidePanel.errorStore = this._errorStore;
+      }
     }
 
     if (this._discovered && this._activeTab !== "panel" && this._topology) {
@@ -349,7 +354,10 @@ export class SpanPanelCard extends LitElement {
       }
 
       const sidePanel = this.shadowRoot!.querySelector("span-side-panel") as SpanSidePanelElement | null;
-      if (sidePanel) sidePanel.hass = this.hass;
+      if (sidePanel) {
+        sidePanel.hass = this.hass;
+        sidePanel.errorStore = this._errorStore;
+      }
 
       this._ctrl.recordSamples();
       this._ctrl.updateDOM(this.shadowRoot!);

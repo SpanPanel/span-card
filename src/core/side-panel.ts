@@ -1,10 +1,11 @@
 // src/core/side-panel.ts
 import { escapeHtml } from "../helpers/sanitize.js";
 import { loadListColumns, saveListColumns } from "../helpers/list-columns.js";
-import { INTEGRATION_DOMAIN, SHEDDING_PRIORITIES, GRAPH_HORIZONS, DEFAULT_GRAPH_HORIZON, ERROR_DISPLAY_MS, INPUT_DEBOUNCE_MS } from "../constants.js";
+import { INTEGRATION_DOMAIN, SHEDDING_PRIORITIES, GRAPH_HORIZONS, DEFAULT_GRAPH_HORIZON, INPUT_DEBOUNCE_MS } from "../constants.js";
 import { t } from "../i18n.js";
 import { addFavorite, removeFavorite } from "./favorites-store.js";
 import type { HomeAssistant, PanelTopology, GraphSettings, CircuitEntities, CircuitGraphOverride, MonitoringPointInfo } from "../types.js";
+import type { ErrorStore } from "./error-store.js";
 
 const PRIORITY_OPTIONS: string[] = Object.keys(SHEDDING_PRIORITIES).filter(k => k !== "unknown" && k !== "always_on");
 
@@ -306,35 +307,12 @@ const STYLES = `
     margin: 0 0 12px 0;
   }
 
-  .error-msg {
-    color: var(--error-color, #f44336);
-    font-size: 0.8em;
-    padding: 8px;
-    margin: 8px 0;
-    background: rgba(244, 67, 54, 0.1);
-    border-radius: 4px;
-  }
 `;
-
-/**
- * Extract a readable message from a thrown value. Home Assistant WS
- * errors are plain ``{code, message}`` objects (not ``Error``
- * instances), so a naive ``String(err)`` would render ``"[object Object]"``.
- */
-function _extractErrorMessage(err: unknown): string {
-  if (err instanceof Error) return err.message;
-  if (err && typeof err === "object") {
-    const obj = err as { message?: unknown; error?: unknown; code?: unknown };
-    if (typeof obj.message === "string" && obj.message) return obj.message;
-    if (typeof obj.error === "string" && obj.error) return obj.error;
-    if (typeof obj.code === "string" && obj.code) return obj.code;
-  }
-  return String(err);
-}
 
 // ── Component ─────────────────────────────────────────────────────────────
 
 class SpanSidePanel extends HTMLElement {
+  errorStore: ErrorStore | null = null;
   private _hass: HomeAssistant | null;
   private _config: SidePanelConfig | null;
   private _debounceTimers: Record<string, ReturnType<typeof setTimeout>>;
@@ -412,12 +390,6 @@ class SpanSidePanel extends HTMLElement {
     const body = document.createElement("div");
     body.className = "panel-body";
 
-    const errorEl = document.createElement("div");
-    errorEl.className = "error-msg";
-    errorEl.id = "error-msg";
-    errorEl.style.display = "none";
-    body.appendChild(errorEl);
-
     const graphSettings = cfg.graphSettings;
     const topology = cfg.topology;
     const globalHorizon = graphSettings?.global_horizon ?? DEFAULT_GRAPH_HORIZON;
@@ -462,7 +434,14 @@ class SpanSidePanel extends HTMLElement {
         .then(() => {
           this.dispatchEvent(new CustomEvent("graph-settings-changed", { bubbles: true, composed: true }));
         })
-        .catch((err: Error) => this._showError(`${err.message ?? err}`));
+        .catch((_err: Error) => {
+          this.errorStore?.add({
+            key: "service:graph_horizon",
+            level: "error",
+            message: t("error.graph_horizon_failed"),
+            persistent: false,
+          });
+        });
     });
     globalRow.appendChild(globalSelect);
     globalSection.appendChild(globalRow);
@@ -520,7 +499,14 @@ class SpanSidePanel extends HTMLElement {
               .then(() => {
                 this.dispatchEvent(new CustomEvent("graph-settings-changed", { bubbles: true, composed: true }));
               })
-              .catch((err: Error) => this._showError(`${err.message ?? err}`));
+              .catch((_err: Error) => {
+                this.errorStore?.add({
+                  key: "service:graph_horizon",
+                  level: "error",
+                  message: t("error.graph_horizon_failed"),
+                  persistent: false,
+                });
+              });
           });
         });
         row.appendChild(select);
@@ -548,7 +534,14 @@ class SpanSidePanel extends HTMLElement {
                 resetBtn.remove();
                 this.dispatchEvent(new CustomEvent("graph-settings-changed", { bubbles: true, composed: true }));
               })
-              .catch((err: Error) => this._showError(`${err.message ?? err}`));
+              .catch((_err: Error) => {
+                this.errorStore?.add({
+                  key: "service:graph_horizon",
+                  level: "error",
+                  message: t("error.graph_horizon_failed"),
+                  persistent: false,
+                });
+              });
           });
           row.appendChild(resetBtn);
         }
@@ -612,7 +605,14 @@ class SpanSidePanel extends HTMLElement {
               .then(() => {
                 this.dispatchEvent(new CustomEvent("graph-settings-changed", { bubbles: true, composed: true }));
               })
-              .catch((err: Error) => this._showError(`${err.message ?? err}`));
+              .catch((_err: Error) => {
+                this.errorStore?.add({
+                  key: "service:graph_horizon",
+                  level: "error",
+                  message: t("error.graph_horizon_failed"),
+                  persistent: false,
+                });
+              });
           });
         });
         row.appendChild(select);
@@ -640,7 +640,14 @@ class SpanSidePanel extends HTMLElement {
                 resetBtn.remove();
                 this.dispatchEvent(new CustomEvent("graph-settings-changed", { bubbles: true, composed: true }));
               })
-              .catch((err: Error) => this._showError(`${err.message ?? err}`));
+              .catch((_err: Error) => {
+                this.errorStore?.add({
+                  key: "service:graph_horizon",
+                  level: "error",
+                  message: t("error.graph_horizon_failed"),
+                  persistent: false,
+                });
+              });
           });
           row.appendChild(resetBtn);
         }
@@ -662,12 +669,6 @@ class SpanSidePanel extends HTMLElement {
     const body = document.createElement("div");
     body.className = "panel-body";
     panel.appendChild(body);
-
-    const errorEl = document.createElement("div");
-    errorEl.className = "error-msg";
-    errorEl.id = "error-msg";
-    errorEl.style.display = "none";
-    body.appendChild(errorEl);
 
     this._renderRelaySection(body, cfg);
     if (cfg.showFavorites) {
@@ -826,8 +827,12 @@ class SpanSidePanel extends HTMLElement {
       btn.classList.toggle("active", wasActive);
       icon.setAttribute("icon", wasActive ? "mdi:heart" : "mdi:heart-outline");
       btn.setAttribute("aria-checked", String(wasActive));
-      const message = _extractErrorMessage(err);
-      this._showError(`${t("sidepanel.favorite_failed")} ${message}`);
+      this.errorStore?.add({
+        key: "service:favorites",
+        level: "error",
+        message: t("error.favorites_toggle_failed"),
+        persistent: false,
+      });
       throw err;
     }
   }
@@ -869,12 +874,6 @@ class SpanSidePanel extends HTMLElement {
     const body = document.createElement("div");
     body.className = "panel-body";
     panel.appendChild(body);
-
-    const errorEl = document.createElement("div");
-    errorEl.className = "error-msg";
-    errorEl.id = "error-msg";
-    errorEl.style.display = "none";
-    body.appendChild(errorEl);
 
     if (cfg.showFavorites) {
       this._renderSubDeviceFavoriteSection(body, cfg);
@@ -945,14 +944,28 @@ class SpanSidePanel extends HTMLElement {
             .then(() => {
               this.dispatchEvent(new CustomEvent("graph-settings-changed", { bubbles: true, composed: true }));
             })
-            .catch((err: Error) => this._showError(`${t("sidepanel.clear_graph_horizon_failed")} ${err.message ?? err}`));
+            .catch((_err: Error) => {
+              this.errorStore?.add({
+                key: "service:graph_horizon",
+                level: "error",
+                message: t("error.graph_horizon_failed"),
+                persistent: false,
+              });
+            });
         } else {
           updateSegmentStates(key);
           this._callDomainService("set_subdevice_graph_horizon", { ...baseData, horizon: key })
             .then(() => {
               this.dispatchEvent(new CustomEvent("graph-settings-changed", { bubbles: true, composed: true }));
             })
-            .catch((err: Error) => this._showError(`${t("sidepanel.graph_horizon_failed")} ${err.message ?? err}`));
+            .catch((_err: Error) => {
+              this.errorStore?.add({
+                key: "service:graph_horizon",
+                level: "error",
+                message: t("error.graph_horizon_failed"),
+                persistent: false,
+              });
+            });
         }
       });
 
@@ -1008,9 +1021,14 @@ class SpanSidePanel extends HTMLElement {
 
     toggle.addEventListener("change", () => {
       const isOn = toggle.hasAttribute("checked") || toggle.checked;
-      this._callService("switch", isOn ? "turn_on" : "turn_off", { entity_id: entityId }).catch((err: Error) =>
-        this._showError(`${t("sidepanel.relay_failed")} ${err.message ?? err}`)
-      );
+      this._callService("switch", isOn ? "turn_on" : "turn_off", { entity_id: entityId }).catch((_err: Error) => {
+        this.errorStore?.add({
+          key: "service:relay",
+          level: "error",
+          message: t("error.relay_failed"),
+          persistent: false,
+        });
+      });
     });
 
     row.appendChild(label);
@@ -1054,7 +1072,14 @@ class SpanSidePanel extends HTMLElement {
       this._callService("select", "select_option", {
         entity_id: entityId,
         option: selectEl.value,
-      }).catch((err: Error) => this._showError(`${t("sidepanel.shedding_failed")} ${err.message ?? err}`));
+      }).catch((_err: Error) => {
+        this.errorStore?.add({
+          key: "service:shedding",
+          level: "error",
+          message: t("error.shedding_failed"),
+          persistent: false,
+        });
+      });
     });
 
     row.appendChild(label);
@@ -1119,7 +1144,14 @@ class SpanSidePanel extends HTMLElement {
             .then(() => {
               this.dispatchEvent(new CustomEvent("graph-settings-changed", { bubbles: true, composed: true }));
             })
-            .catch((err: Error) => this._showError(`${t("sidepanel.clear_graph_horizon_failed")} ${err.message ?? err}`));
+            .catch((_err: Error) => {
+              this.errorStore?.add({
+                key: "service:graph_horizon",
+                level: "error",
+                message: t("error.graph_horizon_failed"),
+                persistent: false,
+              });
+            });
         } else {
           updateSegmentStates(key);
           this._callDomainService("set_circuit_graph_horizon", {
@@ -1129,7 +1161,14 @@ class SpanSidePanel extends HTMLElement {
             .then(() => {
               this.dispatchEvent(new CustomEvent("graph-settings-changed", { bubbles: true, composed: true }));
             })
-            .catch((err: Error) => this._showError(`${t("sidepanel.graph_horizon_failed")} ${err.message ?? err}`));
+            .catch((_err: Error) => {
+              this.errorStore?.add({
+                key: "service:graph_horizon",
+                level: "error",
+                message: t("error.graph_horizon_failed"),
+                persistent: false,
+              });
+            });
         }
       });
 
@@ -1209,9 +1248,14 @@ class SpanSidePanel extends HTMLElement {
         monitoring_enabled: checked,
       };
       if (cfg.configEntryId) data.config_entry_id = cfg.configEntryId;
-      this._callDomainService("set_circuit_threshold", data).catch((err: Error) =>
-        this._showError(`${t("sidepanel.monitoring_toggle_failed")} ${err.message ?? err}`)
-      );
+      this._callDomainService("set_circuit_threshold", data).catch((_err: Error) => {
+        this.errorStore?.add({
+          key: "service:monitoring",
+          level: "error",
+          message: t("error.threshold_failed"),
+          persistent: false,
+        });
+      });
     });
 
     // Event: radio change
@@ -1224,9 +1268,14 @@ class SpanSidePanel extends HTMLElement {
           const entityId = cfg.entities?.power || cfg.uuid;
           const data: Record<string, unknown> = { circuit_id: entityId };
           if (cfg.configEntryId) data.config_entry_id = cfg.configEntryId;
-          this._callDomainService("clear_circuit_threshold", data).catch((err: Error) =>
-            this._showError(`${t("sidepanel.clear_monitoring_failed")} ${err.message ?? err}`)
-          );
+          this._callDomainService("clear_circuit_threshold", data).catch((_err: Error) => {
+            this.errorStore?.add({
+              key: "service:monitoring",
+              level: "error",
+              message: t("error.threshold_failed"),
+              persistent: false,
+            });
+          });
         }
       });
     }
@@ -1266,9 +1315,14 @@ class SpanSidePanel extends HTMLElement {
           cooldown_duration_m: cooldownM ? Number(cooldownM.value) : undefined,
         };
         if (cfg.configEntryId) data.config_entry_id = cfg.configEntryId;
-        this._callDomainService("set_circuit_threshold", data).catch((err: Error) =>
-          this._showError(`${t("sidepanel.save_threshold_failed")} ${err.message ?? err}`)
-        );
+        this._callDomainService("set_circuit_threshold", data).catch((_err: Error) => {
+          this.errorStore?.add({
+            key: "service:monitoring",
+            level: "error",
+            message: t("error.threshold_failed"),
+            persistent: false,
+          });
+        });
       });
     });
 
@@ -1327,9 +1381,14 @@ class SpanSidePanel extends HTMLElement {
             window_duration_m: windowM ? Number(windowM.value) : undefined,
           };
           if (cfg.configEntryId) data.config_entry_id = cfg.configEntryId;
-          this._callDomainService("set_circuit_threshold", data).catch((err: Error) =>
-            this._showError(`${t("sidepanel.save_threshold_failed")} ${err.message ?? err}`)
-          );
+          this._callDomainService("set_circuit_threshold", data).catch((_err: Error) => {
+            this.errorStore?.add({
+              key: "service:monitoring",
+              level: "error",
+              message: t("error.threshold_failed"),
+              persistent: false,
+            });
+          });
         });
       });
     }
@@ -1386,19 +1445,6 @@ class SpanSidePanel extends HTMLElement {
       service,
       service_data: data,
     });
-  }
-
-  // ── Error display ───────────────────────────────────────────────────
-
-  private _showError(message: string): void {
-    const el = this.shadowRoot?.getElementById("error-msg");
-    if (el) {
-      el.textContent = message;
-      el.style.display = "block";
-      setTimeout(() => {
-        el.style.display = "none";
-      }, ERROR_DISPLAY_MS);
-    }
   }
 
   // ── Debounce ────────────────────────────────────────────────────────
