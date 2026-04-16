@@ -30,6 +30,7 @@ import {
   saveFavoritesViewState,
   type FavoritesViewState,
 } from "./favorites-view-state.js";
+import { buildFavoritesSummaryHTML } from "./favorites-summary.js";
 import { coalesceRuns, makeRenderToken } from "./coalesce.js";
 import type { CardConfig, FavoritesMap, FavoritesTopology, HomeAssistant, PanelDevice } from "../types.js";
 
@@ -760,20 +761,7 @@ export class SpanPanelElement extends LitElement {
    */
   private _buildFavoritesSummaryHTML(): string {
     const isAmpsMode = (this._chartMetric || "power") === "current";
-    return `
-      <div class="favorites-summary">
-        <div class="slide-confirm" data-text-off="${escapeHtml(t("header.enable_switches"))}" data-text-on="${escapeHtml(t("header.switches_enabled"))}">
-          <span class="slide-confirm-text">${escapeHtml(t("header.enable_switches"))}</span>
-          <div class="slide-confirm-knob">
-            <ha-icon icon="mdi:lock"></ha-icon>
-          </div>
-        </div>
-        <div class="unit-toggle favorites-summary-unit-toggle" title="${escapeHtml(t("header.toggle_units"))}">
-          <button class="unit-btn ${isAmpsMode ? "" : "unit-active"}" data-unit="power">W</button>
-          <button class="unit-btn ${isAmpsMode ? "unit-active" : ""}" data-unit="current">A</button>
-        </div>
-      </div>
-    `;
+    return buildFavoritesSummaryHTML(isAmpsMode);
   }
 
   /**

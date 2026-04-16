@@ -53,7 +53,7 @@ export const CARD_STYLES: string = `
     gap: 16px 32px;
   }
 
-  /* Favorites view header: slide-to-arm + W/A unit toggle strip. */
+  /* Favorites view header: gear + slide-to-arm + right-anchored legend/W-A cluster. */
   .favorites-summary {
     padding: 8px 24px;
     border-bottom: 1px solid var(--divider-color, #e0e0e0);
@@ -61,8 +61,16 @@ export const CARD_STYLES: string = `
     align-items: center;
     gap: 12px;
   }
-  .favorites-summary-unit-toggle {
+  .favorites-summary-right {
     margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+  .favorites-summary-unit-toggle {
+    /* margin-left moved up to .favorites-summary-right so the legend and
+       toggle cluster together, right-anchored, matching the real-panel
+       header layout. */
   }
   .favorites-subdevices-section {
     padding: 8px 16px 0;
