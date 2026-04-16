@@ -526,17 +526,17 @@ export class ListViewController {
   private _toggleExpand(uuid: string): void {
     if (!this._container || !this._hass || !this._topology || !this._config) return;
 
-    const row = this._container.querySelector<HTMLElement>(`.list-row[data-row-uuid="${uuid}"]`);
-    const chevron = this._container.querySelector<HTMLElement>(`.list-expand-toggle[data-expand-uuid="${uuid}"]`);
+    const cell = this._container.querySelector<HTMLElement>(`.list-cell[data-cell-uuid="${uuid}"]`);
+    if (!cell) return;
+    const row = cell.querySelector<HTMLElement>(`.list-row[data-row-uuid="${uuid}"]`);
+    const chevron = cell.querySelector<HTMLElement>(`.list-expand-toggle[data-expand-uuid="${uuid}"]`);
     if (!row) return;
 
     if (this._expandedUuids.has(uuid)) {
       // Collapse
       this._expandedUuids.delete(uuid);
-      const expandedContent = this._container.querySelector(`.list-expanded-content[data-expanded-uuid="${uuid}"]`);
-      if (expandedContent) {
-        expandedContent.remove();
-      }
+      const expandedContent = cell.querySelector(`.list-expanded-content[data-expanded-uuid="${uuid}"]`);
+      if (expandedContent) expandedContent.remove();
       if (chevron) chevron.classList.remove("expanded");
       row.classList.remove("list-row-expanded");
     } else {
@@ -548,7 +548,6 @@ export class ListViewController {
 
       const monitoringInfo = getCircuitMonitoringInfo(this._monitoringStatus, getCircuitEntityId(circuit));
       const html = buildExpandedChartHTML(uuid, circuit, this._hass, this._config, monitoringInfo);
-
       row.insertAdjacentHTML("afterend", html);
       if (chevron) chevron.classList.add("expanded");
       row.classList.add("list-row-expanded");
