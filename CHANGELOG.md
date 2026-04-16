@@ -1,5 +1,60 @@
 # Changelog
 
+## 0.9.4
+
+### Added
+
+- **Compact expanded list rows** — Expanding a row in By Activity / By Area now shows only the chart. The gear icon and a real toggle-pill (arm-protected by the
+  slide-to-confirm) moved onto the always-visible list row so expanding no longer duplicates information above the chart.
+- **Configurable list view columns** — 1 / 2 / 3 column grid for By Activity and By Area, set in Graph Settings → List View Columns. Persisted per device via
+  localStorage. Narrow viewports (< 600px) force single-column regardless. Expanded charts stay in their own column so row-to-chart association stays clear.
+- **Favorites per-panel status grid** — The Favorites view now renders a responsive grid of per-contributing-panel status cards (Site / Grid / Upstream /
+  Downstream / Solar / Battery) below the slider + W/A row. One card per panel that contributes to the Favorites set; live values update on each tick.
+- **Slide-to-arm in Favorites** — Favorites view header now hosts the slide-confirm control so tappable ON/OFF toggles in list rows can actually fire. The
+  non-Favorites list views (By Activity / By Area on real panels) also gain a working slide-to-arm (previously the slider rendered but drag handlers were never
+  bound).
+- **Panel tabs inline with dropdown** — The panel tab bar (By Panel / By Activity / By Area / Monitoring) now sits on the same row as the panel-selector
+  dropdown in the toolbar.
+
+### Fixed
+
+- **Favorites utilization % now renders** — The list view was passing `null` monitoring status for Favorites, leaving utilization badges blank. Added per-entry
+  fetch + merge (`mergeMonitoringStatuses`) with a keyed 30s cache so cross-panel favorites show the same utilization data the single-panel views show.
+- **List / panel view flashing on tab, W/A, and panel switches** — Event handlers were both mutating `@state` and explicitly scheduling renders, so every
+  interaction fired two concurrent re-renders. Fixed by moving to the reactive-only path and adding a render coalescer plus a supersession-token guard so
+  superseded renders bail out at each async boundary.
+- **Amps chart didn't redraw on unit switch** — `powerHistory` merged new-metric points into the existing Watts map under the same UUID key. Now cleared before
+  every full re-render.
+- **`[data-uuid]` selector shadowing** — `dom-updater` scoped to `.circuit-slot[data-uuid]` so the expanded chart-only slot is targeted instead of the list row
+  (which now also carries `data-uuid`).
+- **ON/OFF badge no longer silently non-functional** — The tappable badge now routes through the real toggle pipeline with the slide-confirm gate; list views
+  previously dropped clicks because no `.slide-confirm` element existed in their header.
+
+### Changed
+
+- **Utilization % moved next to breaker badge** — In both the list rows and the By Panel breaker-grid slots, the utilization percent now sits immediately after
+  the breaker badge rather than alongside the battery shedding icon, where it competed visually with battery SoC.
+- **Favorites header simplified** — Removed the redundant "Favorites · N favorites" text (the dropdown already says "Favorites"). The header row now holds just
+  the slide-to-arm and W/A unit toggle.
+- **`buildListRowHTML` replaced the static ON/OFF badge with a real toggle-pill** for controllable circuits. Non-controllable circuits (PV, no switch entity)
+  keep a static text badge so they can't be accidentally toggled.
+
+### Architecture
+
+- Extracted `buildPanelStatsHTML` / `updatePanelStatsBlock` so stats-block render + update are shared between the persistent panel header and the Favorites
+  per-panel grid.
+- Extracted `mergeMonitoringStatuses` pure helper plus a new `MonitoringStatusMultiCache` per-entry keyed cache;
+  `DashboardController.fetchMergedMonitoringStatus` now reuses cached results within the 30s TTL instead of fanning out WS calls on every render.
+- Extracted `FavoritesViewState` persistence (`src/panel/favorites-view-state.ts`) and the render coalescing / token helpers (`src/panel/coalesce.ts`) out of
+  the ~1000-line panel element. Both are pure and now tested.
+- `CARD_STYLES` emitted once via Lit `static styles` rather than `insertAdjacentHTML`'d per tab render.
+- `CSS.escape` wrapper applied to every identifier-interpolated `querySelector`.
+- Each circuit in a list view now wraps its row + optional expansion in a `.list-cell` container so the expansion stays in the same CSS-grid column as its row
+  in multi-column mode.
+- Debounced Favorites view-state localStorage persistence (250ms) so long search queries don't thrash storage.
+- Tests grew from 109 → 132 (new coverage: `getCircuitStateClasses`, `mergeMonitoringStatuses`, `FavoritesController.build` composite-id construction, and
+  render-coalescing / supersession-token contracts).
+
 ## 0.9.3
 
 ### Added
