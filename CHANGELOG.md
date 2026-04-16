@@ -29,6 +29,9 @@
   (which now also carries `data-uuid`).
 - **ON/OFF badge no longer silently non-functional** — The tappable badge now routes through the real toggle pipeline with the slide-confirm gate; list views
   previously dropped clicks because no `.slide-confirm` element existed in their header.
+- **Favorites view now shows offline banner per contributing panel** — Previously the Favorites view silently hid the red "SPAN Panel unreachable" banner even
+  when a contributing panel was offline. The view now renders one banner row per offline panel, labeled with the panel's name (e.g. "Span Panel 2 unreachable"),
+  so users mixing favorites from multiple panels can see which one is down.
 
 ### Changed
 
