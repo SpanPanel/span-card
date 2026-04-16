@@ -13,20 +13,34 @@ export class SpanErrorBanner extends LitElement {
   set store(store: ErrorStore) {
     if (this._store === store) return;
     this._unsub?.();
+    this._unsub = null;
     this._store = store;
     this._errors = store.active;
+    const current = store;
     this._unsub = store.subscribe(() => {
-      this._errors = this._store!.active;
+      this._errors = current.active;
     });
   }
 
-  disconnectedCallback(): void {
+  override connectedCallback(): void {
+    super.connectedCallback();
+    if (this._store && !this._unsub) {
+      const store = this._store;
+      this._errors = store.active;
+      this._unsub = store.subscribe(() => {
+        this._errors = store.active;
+      });
+    }
+  }
+
+  override disconnectedCallback(): void {
     super.disconnectedCallback();
     this._unsub?.();
     this._unsub = null;
+    // Keep _store — we may reattach
   }
 
-  static styles = css`
+  static override styles = css`
     :host {
       display: block;
     }
@@ -37,7 +51,6 @@ export class SpanErrorBanner extends LitElement {
       padding: 8px 12px;
       font-size: 13px;
       line-height: 1.4;
-      transition: opacity 200ms ease;
     }
     .banner-row + .banner-row {
       border-top: 1px solid rgba(128, 128, 128, 0.2);
@@ -79,21 +92,21 @@ export class SpanErrorBanner extends LitElement {
     }
   `;
 
-  protected render() {
+  protected override render(): unknown {
     if (this._errors.length === 0) return nothing;
 
     return html`${this._errors.map(
       entry => html`
-        <div class="banner-row level-${entry.level}">
-          <ha-icon class="icon" .icon=${this._iconForLevel(entry.level)}></ha-icon>
+        <div class="banner-row level-${entry.level}" role=${entry.level === "info" ? "status" : "alert"}>
+          <ha-icon class="icon" icon=${this._iconForLevel(entry.level)}></ha-icon>
           <span class="message">${entry.message}</span>
-          ${entry.retryFn ? html`<button class="retry-btn" @click=${() => entry.retryFn!()}>${t("error.retry")}</button>` : nothing}
+          ${entry.retryFn ? html`<button class="retry-btn" type="button" @click=${() => entry.retryFn!()}>${t("error.retry")}</button>` : nothing}
         </div>
       `
     )}`;
   }
 
-  private _iconForLevel(level: string): string {
+  private _iconForLevel(level: ErrorEntry["level"]): string {
     switch (level) {
       case "error":
         return "mdi:alert-circle";
