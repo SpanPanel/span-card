@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { groupFavoritesByPanel } from "../src/core/favorites-sections.js";
+import { groupFavoritesByPanel, sortedCircuitsForSection } from "../src/core/favorites-sections.js";
 import type { FavoriteRef, PanelTopology } from "../src/types.js";
 
 function topo(circuitNames: Record<string, string>): PanelTopology {
@@ -71,5 +71,50 @@ describe("groupFavoritesByPanel", () => {
     const result = groupFavoritesByPanel(favRefs, perPanelInfo);
     expect(result).toHaveLength(1);
     expect(result[0]?.panelDeviceId).toBe("known");
+  });
+});
+
+describe("sortedCircuitsForSection", () => {
+  it("returns an empty array when the topology has no circuits", () => {
+    const empty = {
+      circuits: {},
+      device_name: "",
+      panel_entities: {},
+    } as PanelTopology;
+    expect(sortedCircuitsForSection(empty)).toEqual([]);
+  });
+
+  it("returns every circuit in the topology (not filtered to favorites)", () => {
+    const t = topo({ u1: "Kitchen", u2: "Garage", u3: "Bedroom" });
+    const result = sortedCircuitsForSection(t);
+    expect(result).toHaveLength(3);
+    expect(new Set(result.map(r => r.uuid))).toEqual(new Set(["u1", "u2", "u3"]));
+  });
+
+  it("sorts rows alphabetically by circuit name (case-aware localeCompare)", () => {
+    const t = topo({ u1: "Zebra", u2: "apple", u3: "Mango" });
+    const result = sortedCircuitsForSection(t);
+    // localeCompare on most locales folds case, so "apple" < "Mango" < "Zebra".
+    expect(result.map(r => r.circuit.name)).toEqual(["apple", "Mango", "Zebra"]);
+  });
+
+  it("treats missing circuit names as the empty string (stable placement)", () => {
+    const t = {
+      circuits: {
+        u1: { name: "", tabs: [], entities: {} } as PanelTopology["circuits"][string],
+        u2: { name: "Kitchen", tabs: [], entities: {} } as PanelTopology["circuits"][string],
+      },
+      device_name: "",
+      panel_entities: {},
+    } as PanelTopology;
+    const result = sortedCircuitsForSection(t);
+    // Empty-string names sort before any non-empty name.
+    expect(result[0]?.uuid).toBe("u1");
+    expect(result[1]?.uuid).toBe("u2");
+  });
+
+  it("tolerates a topology with no circuits field (defensive null-safe default)", () => {
+    const malformed = { device_name: "", panel_entities: {} } as unknown as PanelTopology;
+    expect(sortedCircuitsForSection(malformed)).toEqual([]);
   });
 });

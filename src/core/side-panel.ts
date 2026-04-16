@@ -4,6 +4,7 @@ import { loadListColumns, saveListColumns } from "../helpers/list-columns.js";
 import { INTEGRATION_DOMAIN, SHEDDING_PRIORITIES, GRAPH_HORIZONS, DEFAULT_GRAPH_HORIZON, INPUT_DEBOUNCE_MS } from "../constants.js";
 import { t } from "../i18n.js";
 import { addFavorite, removeFavorite } from "./favorites-store.js";
+import { sortedCircuitsForSection } from "./favorites-sections.js";
 import type { HomeAssistant, PanelTopology, GraphSettings, CircuitEntities, CircuitGraphOverride, MonitoringPointInfo } from "../types.js";
 import type { ErrorStore } from "./error-store.js";
 
@@ -782,14 +783,15 @@ class SpanSidePanel extends HTMLElement {
 
     const globalHorizon = section.graphSettings?.global_horizon ?? DEFAULT_GRAPH_HORIZON;
     const circuitSettings = section.graphSettings?.circuits ?? {};
-    const topologyCircuits = section.topology.circuits ?? {};
 
-    const favoritedRows = Array.from(section.favoriteCircuitUuids)
-      .map(uuid => ({ uuid, circuit: topologyCircuits[uuid] }))
-      .filter((r): r is { uuid: string; circuit: NonNullable<typeof r.circuit> } => r.circuit !== undefined)
-      .sort((a, b) => (a.circuit.name || "").localeCompare(b.circuit.name || ""));
+    // Every circuit in this panel's topology — not just the favorited
+    // ones. Each row's heart discriminates active vs. inactive based on
+    // `section.favoriteCircuitUuids`, so users can un-favorite or newly
+    // favorite any circuit on this panel without leaving the Favorites
+    // view. Mirrors the real-panel gear sidebar (`_renderPanelMode`).
+    const rows = sortedCircuitsForSection(section.topology);
 
-    for (const { uuid, circuit } of favoritedRows) {
+    for (const { uuid, circuit } of rows) {
       const row = this._buildPanelModeCircuitRow(
         uuid,
         circuit,

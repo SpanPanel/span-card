@@ -1,4 +1,4 @@
-import type { FavoriteRef, PanelTopology } from "../types.js";
+import type { Circuit, FavoriteRef, PanelTopology } from "../types.js";
 
 /**
  * Per-panel info needed to build a Favorites-mode sidebar section. Held
@@ -52,4 +52,26 @@ export function groupFavoritesByPanel(favRefs: Record<string, FavoriteRef>, perP
     group.favoriteCircuitUuids.add(ref.targetId);
   }
   return Array.from(byPanel.values()).sort((a, b) => a.panelName.localeCompare(b.panelName));
+}
+
+/**
+ * Enumerate every circuit in a contributing panel's topology, sorted
+ * alphabetically by circuit name (stable, case-insensitive via
+ * `localeCompare`). Consumed by the Favorites-mode sidebar: each row
+ * shows a heart (filled or empty) so users can adjust their favorites
+ * for that panel without leaving the Favorites view — including adding
+ * new favorites for circuits that weren't previously favorited.
+ *
+ * This mirrors the per-panel circuit list rendered by the real-panel
+ * gear sidebar (`_renderPanelMode`), keeping the two modes structurally
+ * consistent: every circuit the user can address on that panel appears
+ * in the list; the heart state discriminates favorited vs. not.
+ *
+ * Returns an empty array when the topology has no circuits.
+ */
+export function sortedCircuitsForSection(topology: PanelTopology): Array<{ uuid: string; circuit: Circuit }> {
+  const circuits = topology.circuits ?? {};
+  return Object.entries(circuits)
+    .map(([uuid, circuit]) => ({ uuid, circuit }))
+    .sort((a, b) => (a.circuit.name || "").localeCompare(b.circuit.name || ""));
 }
