@@ -3,7 +3,9 @@ import { customElement, property, state } from "lit/decorators.js";
 import { unsafeHTML } from "lit/directives/unsafe-html.js";
 import { INTEGRATION_DOMAIN } from "../constants.js";
 import { setLanguage, t } from "../i18n.js";
+import { ErrorStore } from "../core/error-store.js";
 import "../core/side-panel.js";
+import "../core/error-banner.js";
 import { DashboardTab } from "./tab-dashboard.js";
 import { MonitoringTab } from "./tab-monitoring.js";
 import { ListViewController, type FavoritesViewStateDetail } from "../core/list-view-controller.js";
@@ -46,7 +48,6 @@ export class SpanPanelElement extends LitElement {
   @state() private _selectedPanelId: string | null = null;
   @state() private _activeTab: TabName = "dashboard";
   @state() private _discovered = false;
-  @state() private _discoveryError: string | null = null;
   @state() private _chartMetric: string | undefined;
   @state() private _listColumns: number = loadListColumns();
   @state() private _favorites: FavoritesMap = {};
@@ -71,6 +72,8 @@ export class SpanPanelElement extends LitElement {
    * Monitoring tab — one block per contributing panel's config entry.
    */
   private _favoritesMonitoringTabs: Map<string, MonitoringTab> = new Map();
+  private readonly _errorStore = new ErrorStore();
+  private _watchedPanelId: string | null = null;
   /**
    * Monotonic token incremented on each ``_refreshFavorites`` call.
    * Concurrent invocations (rapid heart toggles → multiple
@@ -228,6 +231,7 @@ export class SpanPanelElement extends LitElement {
       this._onFavoritesChanged = null;
     }
     this._unsubscribeDeviceRegistry();
+    this._errorStore.dispose();
     super.disconnectedCallback();
   }
 
@@ -242,6 +246,7 @@ export class SpanPanelElement extends LitElement {
       const oldHass = changedProps.get("hass") as HomeAssistant | undefined;
       this._dashboardTab.hass = this.hass;
       this._listDashCtrl.hass = this.hass;
+      this._errorStore.updateHass(this.hass);
 
       if (!this._discovered) {
         this._discoverPanels();
@@ -275,6 +280,10 @@ export class SpanPanelElement extends LitElement {
         return;
       }
       this._scheduleTabRender();
+    }
+
+    if (changedProps.has("_selectedPanelId") && this._selectedPanelId && this._selectedPanelId !== FAVORITES_PANEL_ID) {
+      this._updatePanelStatusWatch();
     }
 
     // Keep the <select> visually synced with ``_selectedPanelId``.
@@ -334,7 +343,8 @@ export class SpanPanelElement extends LitElement {
           </div>
         </div>
         <div class="view">
-          <div class="view-content" style="padding: 24px; color: var(--secondary-text-color);">${this._discoveryError ?? "Loading\u2026"}</div>
+          <span-error-banner .store=${this._errorStore}></span-error-banner>
+          <div class="view-content" style="padding: 24px; color: var(--secondary-text-color);">${"Loading\u2026"}</div>
         </div>
       `;
     }
@@ -355,6 +365,7 @@ export class SpanPanelElement extends LitElement {
       </div>
 
       <div class="view">
+        <span-error-banner .store=${this._errorStore}></span-error-banner>
         <div class="view-content">
           <div
             class="tab-content"
@@ -546,6 +557,25 @@ export class SpanPanelElement extends LitElement {
     }
   }
 
+  private async _updatePanelStatusWatch(): Promise<void> {
+    if (!this.hass || !this._selectedPanelId) return;
+    if (this._selectedPanelId === FAVORITES_PANEL_ID) return;
+    if (this._watchedPanelId === this._selectedPanelId) return;
+
+    this._watchedPanelId = this._selectedPanelId;
+    try {
+      const result = await discoverTopology(this.hass, this._selectedPanelId);
+      if (this._watchedPanelId !== this._selectedPanelId) return; // Superseded
+      const entityId = result.topology?.panel_entities?.panel_status;
+      if (entityId) {
+        this._errorStore.watchPanelStatus(entityId);
+        this._errorStore.updateHass(this.hass);
+      }
+    } catch (err) {
+      console.warn("SPAN Panel: unable to fetch topology for panel status watching", err);
+    }
+  }
+
   private async _discoverPanels(): Promise<void> {
     if (!this.hass) return;
 
@@ -557,7 +587,16 @@ export class SpanPanelElement extends LitElement {
       realPanels = devices.filter((d: PanelDevice) => d.identifiers?.some(id => id[0] === INTEGRATION_DOMAIN) && !d.via_device_id);
     } catch (err) {
       console.error("SPAN Panel: device discovery failed", err);
-      this._discoveryError = `Discovery failed: ${(err as Error).message ?? err}`;
+      this._errorStore.add({
+        key: "discovery-failed",
+        level: "error",
+        message: t("error.discovery_failed"),
+        persistent: true,
+        retryFn: () => {
+          this._errorStore.remove("discovery-failed");
+          this._discoverPanels();
+        },
+      });
       return;
     }
 
@@ -565,7 +604,6 @@ export class SpanPanelElement extends LitElement {
     this._panels = this._buildPanelList(realPanels, this._favorites);
     this._favoritesViewState = loadFavoritesViewState();
 
-    this._discoveryError = null;
     this._discovered = true;
 
     const stored = localStorage.getItem("span_panel_selected");
@@ -608,6 +646,12 @@ export class SpanPanelElement extends LitElement {
       return await this._favCache.fetch(this.hass);
     } catch (err) {
       console.warn("SPAN Panel: favorites fetch failed", err);
+      this._errorStore.add({
+        key: "fetch:favorites",
+        level: "warning",
+        message: t("error.favorites_fetch_failed"),
+        persistent: false,
+      });
       return {};
     }
   }
