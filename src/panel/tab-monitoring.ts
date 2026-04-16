@@ -1,6 +1,7 @@
 import { INTEGRATION_DOMAIN, INPUT_DEBOUNCE_MS, THRESHOLD_DEBOUNCE_MS } from "../constants.js";
 import { escapeHtml } from "../helpers/sanitize.js";
 import { t } from "../i18n.js";
+import type { ErrorStore } from "../core/error-store.js";
 import type { HomeAssistant, MonitoringPointInfo, MonitoringStatusResponse, CallServiceResponse } from "../types.js";
 
 const FIELD_STYLE = `
@@ -42,6 +43,7 @@ function thresholdCell(entityId: string, field: string, value: number | undefine
 }
 
 export class MonitoringTab {
+  errorStore: ErrorStore | null = null;
   private _debounceTimer: ReturnType<typeof setTimeout> | null;
   private _configEntryId: string | null;
   private _notifyCloseHandler: ((e: MouseEvent) => void) | null;
@@ -666,7 +668,15 @@ export class MonitoringTab {
               service: "set_circuit_threshold",
               service_data: this._serviceData({ circuit_id: entityId, monitoring_enabled: enabled }),
             })
-            .catch(() => {})
+            .catch(err => {
+              console.warn("SPAN Panel: circuit monitoring toggle failed", err);
+              this.errorStore?.add({
+                key: "service:monitoring",
+                level: "error",
+                message: t("error.threshold_failed"),
+                persistent: false,
+              });
+            })
         ),
         ...Object.keys(mains).map(entityId =>
           hass
@@ -676,7 +686,15 @@ export class MonitoringTab {
               service: "set_mains_threshold",
               service_data: this._serviceData({ leg: entityId, monitoring_enabled: enabled }),
             })
-            .catch(() => {})
+            .catch(err => {
+              console.warn("SPAN Panel: mains monitoring toggle failed", err);
+              this.errorStore?.add({
+                key: "service:monitoring",
+                level: "error",
+                message: t("error.threshold_failed"),
+                persistent: false,
+              });
+            })
         ),
       ];
       await Promise.all(calls);

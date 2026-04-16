@@ -201,6 +201,7 @@ export class SpanPanelElement extends LitElement {
     this._dashboardTab.errorStore = this._errorStore;
     this._listDashCtrl.errorStore = this._errorStore;
     this._favCache.errorStore = this._errorStore;
+    this._monitoringTab.errorStore = this._errorStore;
 
     this._onVisibilityChange = (): void => {
       if (document.visibilityState !== "visible" || !this._discovered || !this.hass) return;
@@ -1071,6 +1072,7 @@ export class SpanPanelElement extends LitElement {
       wrapper.appendChild(block);
 
       const tab = new MonitoringTab();
+      tab.errorStore = this._errorStore;
       tabs.set(entryId, tab);
       try {
         await tab.render(body, this.hass, entryId);
