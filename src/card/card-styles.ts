@@ -53,6 +53,21 @@ export const CARD_STYLES: string = `
     gap: 16px 32px;
   }
 
+  /* Favorites view header: slide-to-arm + W/A unit toggle strip. */
+  .favorites-summary {
+    padding: 8px 24px;
+    border-bottom: 1px solid var(--divider-color, #e0e0e0);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .favorites-summary-unit-toggle {
+    margin-left: auto;
+  }
+  .favorites-subdevices-section {
+    padding: 8px 16px 0;
+  }
+
   /* Favorites view: responsive grid of per-contributing-panel status cards. */
   .favorites-panel-stats-grid {
     display: grid;

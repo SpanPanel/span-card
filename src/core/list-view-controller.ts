@@ -1,4 +1,5 @@
 import { escapeHtml } from "../helpers/sanitize.js";
+import { attrSelectorValue } from "../helpers/selector.js";
 import { RELAY_STATE_CLOSED } from "../constants.js";
 import { formatPowerSigned, formatPowerUnit } from "../helpers/format.js";
 import { getChartMetric } from "../helpers/chart.js";
@@ -526,16 +527,17 @@ export class ListViewController {
   private _toggleExpand(uuid: string): void {
     if (!this._container || !this._hass || !this._topology || !this._config) return;
 
-    const cell = this._container.querySelector<HTMLElement>(`.list-cell[data-cell-uuid="${uuid}"]`);
+    const safeUuid = attrSelectorValue(uuid);
+    const cell = this._container.querySelector<HTMLElement>(`.list-cell[data-cell-uuid="${safeUuid}"]`);
     if (!cell) return;
-    const row = cell.querySelector<HTMLElement>(`.list-row[data-row-uuid="${uuid}"]`);
-    const chevron = cell.querySelector<HTMLElement>(`.list-expand-toggle[data-expand-uuid="${uuid}"]`);
+    const row = cell.querySelector<HTMLElement>(`.list-row[data-row-uuid="${safeUuid}"]`);
+    const chevron = cell.querySelector<HTMLElement>(`.list-expand-toggle[data-expand-uuid="${safeUuid}"]`);
     if (!row) return;
 
     if (this._expandedUuids.has(uuid)) {
       // Collapse
       this._expandedUuids.delete(uuid);
-      const expandedContent = cell.querySelector(`.list-expanded-content[data-expanded-uuid="${uuid}"]`);
+      const expandedContent = cell.querySelector(`.list-expanded-content[data-expanded-uuid="${safeUuid}"]`);
       if (expandedContent) expandedContent.remove();
       if (chevron) chevron.classList.remove("expanded");
       row.classList.remove("list-row-expanded");

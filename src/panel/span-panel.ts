@@ -1,4 +1,4 @@
-import { LitElement, html, css } from "lit";
+import { LitElement, html, css, unsafeCSS } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import { unsafeHTML } from "lit/directives/unsafe-html.js";
 import { INTEGRATION_DOMAIN } from "../constants.js";
@@ -16,6 +16,7 @@ import { updatePanelStatsBlock } from "../core/dom-updater.js";
 import { buildSubDevicesHTML } from "../core/sub-device-renderer.js";
 import { escapeHtml } from "../helpers/sanitize.js";
 import { loadListColumns, saveListColumns } from "../helpers/list-columns.js";
+import { attrSelectorValue } from "../helpers/selector.js";
 import { CARD_STYLES } from "../card/card-styles.js";
 import { FAVORITES_CHANGED_EVENT, FavoritesCache, hasAnyFavorites } from "../core/favorites-store.js";
 import { FavoritesController, type FavoritesPanelStatsInfo } from "../core/favorites-controller.js";
@@ -122,7 +123,7 @@ export class SpanPanelElement extends LitElement {
   private _onFavoritesChanged: (() => void) | null = null;
   private _deviceRegistryUnsub: Promise<() => void> | null = null;
 
-  static styles = css`
+  private static _shellStyles = css`
     :host {
       color: var(--primary-text-color);
     }
@@ -220,6 +221,14 @@ export class SpanPanelElement extends LitElement {
       border-bottom-color: var(--app-header-text-color, white);
     }
   `;
+
+  /**
+   * CARD_STYLES carries the ~700-line stylesheet shared with the
+   * Lovelace card (list rows, breaker-grid slots, toggle pill, side
+   * panel, etc.). Emit it once via Lit's static styles (scoped to the
+   * shadow root) instead of re-injecting it per tab render.
+   */
+  static override styles = [SpanPanelElement._shellStyles, unsafeCSS(CARD_STYLES)];
 
   connectedCallback(): void {
     super.connectedCallback();
@@ -550,10 +559,21 @@ export class SpanPanelElement extends LitElement {
     });
     const realPanels = devices.filter((d: PanelDevice) => d.identifiers?.some(id => id[0] === INTEGRATION_DOMAIN) && !d.via_device_id);
 
-    const prevRealIds = new Set(this._panels.filter(p => p.id !== FAVORITES_PANEL_ID).map(p => p.id));
-    const newRealIds = new Set(realPanels.map(p => p.id));
-    const realChanged = prevRealIds.size !== newRealIds.size || [...prevRealIds].some(id => !newRealIds.has(id));
-    if (!realChanged) return;
+    const prevPanels = this._panels.filter(p => p.id !== FAVORITES_PANEL_ID);
+    const prevById = new Map(prevPanels.map(p => [p.id, p]));
+    const newIds = new Set(realPanels.map(p => p.id));
+    const idsChanged = prevById.size !== newIds.size || [...prevById.keys()].some(id => !newIds.has(id));
+    // Also detect renames so the dropdown reflects user-facing panel
+    // renames without requiring a reload. We compare both ``name`` and
+    // ``name_by_user`` because HA surfaces either depending on setup.
+    const namesChanged =
+      !idsChanged &&
+      realPanels.some(next => {
+        const prev = prevById.get(next.id);
+        if (!prev) return false;
+        return prev.name !== next.name || prev.name_by_user !== next.name_by_user;
+      });
+    if (!idsChanged && !namesChanged) return;
 
     this._panels = this._buildPanelList(realPanels, this._favorites);
     if (!this._panels.some(p => p.id === this._selectedPanelId) && this._panels.length > 0) {
@@ -701,23 +721,22 @@ export class SpanPanelElement extends LitElement {
   }
 
   /**
-   * Build the persistent panel-stats header HTML for the current real
-   * Build a minimal summary strip for the Favorites pseudo-panel. The
-   * aggregate has no panel-level stats to render, so we surface the
-   * circuit + panel counts and the W/A unit toggle (since the list view
-   * no longer renders its own — the persistent header owns it).
+   * Build a minimal summary strip for the Favorites pseudo-panel —
+   * slide-to-arm control (required for the tappable list-row toggles
+   * to fire) plus the W/A unit toggle. Styles live in ``CARD_STYLES``
+   * under ``.favorites-summary``.
    */
   private _buildFavoritesSummaryHTML(): string {
     const isAmpsMode = (this._chartMetric || "power") === "current";
     return `
-      <div class="favorites-summary" style="padding:8px 24px;border-bottom:1px solid var(--divider-color,#e0e0e0);display:flex;align-items:center;gap:12px;">
+      <div class="favorites-summary">
         <div class="slide-confirm" data-text-off="${escapeHtml(t("header.enable_switches"))}" data-text-on="${escapeHtml(t("header.switches_enabled"))}">
           <span class="slide-confirm-text">${escapeHtml(t("header.enable_switches"))}</span>
           <div class="slide-confirm-knob">
             <ha-icon icon="mdi:lock"></ha-icon>
           </div>
         </div>
-        <div class="unit-toggle" style="margin-left:auto;" title="${escapeHtml(t("header.toggle_units"))}">
+        <div class="unit-toggle favorites-summary-unit-toggle" title="${escapeHtml(t("header.toggle_units"))}">
           <button class="unit-btn ${isAmpsMode ? "" : "unit-active"}" data-unit="power">W</button>
           <button class="unit-btn ${isAmpsMode ? "unit-active" : ""}" data-unit="current">A</button>
         </div>
@@ -754,7 +773,7 @@ export class SpanPanelElement extends LitElement {
   private _updateFavoritesPanelStats(container: HTMLElement, config: CardConfig): void {
     if (!this.hass || this._favoritesPanelStats.length === 0) return;
     for (const info of this._favoritesPanelStats) {
-      const block = container.querySelector(`.panel-stats[data-stats-panel-id="${info.panelDeviceId}"]`);
+      const block = container.querySelector(`.panel-stats[data-stats-panel-id="${attrSelectorValue(info.panelDeviceId)}"]`);
       if (!block) continue;
       updatePanelStatsBlock(block, this.hass, info.topology, config, 0);
     }
@@ -875,7 +894,6 @@ export class SpanPanelElement extends LitElement {
           const headerHTML = result.topology ? buildHeaderHTML(result.topology, config) : "";
           this._listCtrl.setColumns(this._listColumns);
           this._listCtrl.renderActivityView(container, this.hass, result.topology!, config, this._listDashCtrl.monitoringCache.status, headerHTML);
-          container.insertAdjacentHTML("afterbegin", `<style>${CARD_STYLES}</style>`);
           await this._listDashCtrl.loadHistory();
           if (superseded()) return;
           this._listDashCtrl.updateDOM(container);
@@ -906,7 +924,6 @@ export class SpanPanelElement extends LitElement {
           const headerHTML = result.topology ? buildHeaderHTML(result.topology, config) : "";
           this._listCtrl.setColumns(this._listColumns);
           this._listCtrl.renderAreaView(container, this.hass, result.topology!, config, this._listDashCtrl.monitoringCache.status, headerHTML);
-          container.insertAdjacentHTML("afterbegin", `<style>${CARD_STYLES}</style>`);
           await this._listDashCtrl.loadHistory();
           if (superseded()) return;
           this._listDashCtrl.updateDOM(container);
@@ -998,7 +1015,7 @@ export class SpanPanelElement extends LitElement {
     const summaryHTML = this._buildFavoritesSummaryHTML();
     const panelStatsHTML = this._buildFavoritesPanelStatsGridHTML(build.perPanelStats, config);
     const subDevicesHTML = hasSubDevices
-      ? `<div class="favorites-subdevices-section" style="padding:8px 16px 0;">
+      ? `<div class="favorites-subdevices-section">
            <div class="sub-devices">${buildSubDevicesHTML(merged, this.hass, config)}</div>
          </div>`
       : "";
@@ -1009,7 +1026,6 @@ export class SpanPanelElement extends LitElement {
       } else {
         this._listCtrl.renderAreaView(container, this.hass, merged as FavoritesTopology, config, monitoringStatus, headerHTML);
       }
-      container.insertAdjacentHTML("afterbegin", `<style>${CARD_STYLES}</style>`);
       await this._listDashCtrl.loadHistory();
       if (superseded()) return;
       this._listDashCtrl.updateDOM(container);

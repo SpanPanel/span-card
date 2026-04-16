@@ -14,6 +14,7 @@ import { getChartMetric } from "../helpers/chart.js";
 import { findSubDevicePowerEntity } from "../helpers/entity-finder.js";
 import { getHistoryDurationMs, getHorizonDurationMs } from "../helpers/history.js";
 import { updateChart } from "../chart/chart-update.js";
+import { attrSelectorValue } from "../helpers/selector.js";
 import type { HomeAssistant, PanelTopology, CardConfig, HistoryMap, ChartMetricDef } from "../types.js";
 
 // ── Header stats ───────────────────────────────────────────────────────────
@@ -155,7 +156,7 @@ export function updateCircuitDOM(
   const showCurrent = chartMetric.entityRole === "current";
 
   for (const [uuid, circuit] of Object.entries(topology.circuits)) {
-    const slot = root.querySelector(`.circuit-slot[data-uuid="${uuid}"]`);
+    const slot = root.querySelector(`.circuit-slot[data-uuid="${attrSelectorValue(uuid)}"]`);
     if (!slot) continue;
 
     const entityId = circuit.entities?.power;
@@ -254,7 +255,7 @@ export function updateSubDeviceDOM(
   const defaultDurationMs = getHistoryDurationMs(config);
 
   for (const [devId, sub] of Object.entries(topology.sub_devices)) {
-    const section = root.querySelector(`[data-subdev="${devId}"]`);
+    const section = root.querySelector(`[data-subdev="${attrSelectorValue(devId)}"]`);
     if (!section) continue;
 
     const powerEid = findSubDevicePowerEntity(sub);
@@ -282,7 +283,7 @@ export function updateSubDeviceDOM(
     }
 
     for (const entityId of Object.keys(sub.entities || {})) {
-      const valEl = section.querySelector(`[data-eid="${entityId}"]`);
+      const valEl = section.querySelector(`[data-eid="${attrSelectorValue(entityId)}"]`);
       if (!valEl) continue;
       const state = hass.states[entityId];
       if (state) {
