@@ -232,11 +232,16 @@ export class SpanPanelCard extends LitElement {
 
     // Subscribe to area changes
     if (this._topology) {
-      subscribeAreaUpdates(this.hass, this._topology, () => {
-        if (this._activeTab === "area" && this._discovered) {
-          this._populateCardContent();
-        }
-      })
+      subscribeAreaUpdates(
+        this.hass,
+        this._topology,
+        () => {
+          if (this._activeTab === "area" && this._discovered) {
+            this._populateCardContent();
+          }
+        },
+        this._errorStore
+      )
         .then(unsub => {
           this._areaUnsub = unsub;
         })

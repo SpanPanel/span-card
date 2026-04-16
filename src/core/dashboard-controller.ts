@@ -46,6 +46,9 @@ export class DashboardController {
   set errorStore(store: ErrorStore | null) {
     this._errorStore = store;
     this._retryManager = store ? new RetryManager(store) : null;
+    this.monitoringCache.errorStore = store;
+    this.graphSettingsCache.errorStore = store;
+    this.monitoringMultiCache.errorStore = store;
   }
 
   private _hass: HomeAssistant | null = null;

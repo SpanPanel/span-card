@@ -1,6 +1,8 @@
 // src/core/graph-settings.ts
 import { INTEGRATION_DOMAIN, DEFAULT_GRAPH_HORIZON } from "../constants.js";
+import { t } from "../i18n.js";
 import type { HomeAssistant, GraphSettings } from "../types.js";
+import type { ErrorStore } from "./error-store.js";
 
 const GRAPH_SETTINGS_POLL_INTERVAL_MS = 30_000;
 
@@ -16,6 +18,7 @@ export class GraphSettingsCache {
   private _settings: GraphSettings | null;
   private _lastFetch: number;
   private _fetching: boolean;
+  errorStore: ErrorStore | null = null;
 
   constructor() {
     this._settings = null;
@@ -46,8 +49,15 @@ export class GraphSettingsCache {
       });
       this._settings = resp?.response ?? null;
       this._lastFetch = now;
-    } catch {
+    } catch (err) {
+      console.warn("SPAN Panel: graph settings fetch failed", err);
       this._settings = null;
+      this.errorStore?.add({
+        key: "fetch:graph_settings",
+        level: "warning",
+        message: t("error.graph_settings_failed"),
+        persistent: false,
+      });
     } finally {
       this._fetching = false;
     }

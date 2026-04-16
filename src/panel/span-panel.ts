@@ -200,6 +200,7 @@ export class SpanPanelElement extends LitElement {
 
     this._dashboardTab.errorStore = this._errorStore;
     this._listDashCtrl.errorStore = this._errorStore;
+    this._favCache.errorStore = this._errorStore;
 
     this._onVisibilityChange = (): void => {
       if (document.visibilityState !== "visible" || !this._discovered || !this.hass) return;
@@ -661,18 +662,7 @@ export class SpanPanelElement extends LitElement {
 
   private async _loadFavorites(): Promise<FavoritesMap> {
     if (!this.hass) return {};
-    try {
-      return await this._favCache.fetch(this.hass);
-    } catch (err) {
-      console.warn("SPAN Panel: favorites fetch failed", err);
-      this._errorStore.add({
-        key: "fetch:favorites",
-        level: "warning",
-        message: t("error.favorites_fetch_failed"),
-        persistent: false,
-      });
-      return {};
-    }
+    return this._favCache.fetch(this.hass);
   }
 
   /**
@@ -928,11 +918,16 @@ export class SpanPanelElement extends LitElement {
           this._listDashCtrl.startIntervals(container);
 
           if (!this._areaUnsub) {
-            subscribeAreaUpdates(this.hass, result.topology!, () => {
-              if (this._activeTab === "area") {
-                this._scheduleTabRender();
-              }
-            })
+            subscribeAreaUpdates(
+              this.hass,
+              result.topology!,
+              () => {
+                if (this._activeTab === "area") {
+                  this._scheduleTabRender();
+                }
+              },
+              this._errorStore
+            )
               .then(unsub => {
                 this._areaUnsub = unsub;
               })

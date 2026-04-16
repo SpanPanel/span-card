@@ -1,6 +1,7 @@
 import { INTEGRATION_DOMAIN } from "../constants.js";
 import { t } from "../i18n.js";
 import type { HomeAssistant, MonitoringPointInfo, MonitoringStatus } from "../types.js";
+import type { ErrorStore } from "./error-store.js";
 
 const MONITORING_POLL_INTERVAL_MS = 30_000;
 
@@ -16,6 +17,7 @@ export class MonitoringStatusCache {
   private _status: MonitoringStatus | null = null;
   private _lastFetch: number = 0;
   private _fetching: boolean = false;
+  errorStore: ErrorStore | null = null;
 
   /**
    * Fetch monitoring status, returning cached data if recent.
@@ -40,8 +42,15 @@ export class MonitoringStatusCache {
       });
       this._status = resp?.response ?? null;
       this._lastFetch = now;
-    } catch {
+    } catch (err) {
+      console.warn("SPAN Panel: monitoring status fetch failed", err);
       this._status = null;
+      this.errorStore?.add({
+        key: "fetch:monitoring",
+        level: "warning",
+        message: t("error.monitoring_failed"),
+        persistent: false,
+      });
     } finally {
       this._fetching = false;
     }
@@ -72,12 +81,25 @@ export class MonitoringStatusCache {
  */
 export class MonitoringStatusMultiCache {
   private _caches = new Map<string, MonitoringStatusCache>();
+  private _errorStore: ErrorStore | null = null;
+
+  get errorStore(): ErrorStore | null {
+    return this._errorStore;
+  }
+
+  set errorStore(store: ErrorStore | null) {
+    this._errorStore = store;
+    for (const cache of this._caches.values()) {
+      cache.errorStore = store;
+    }
+  }
 
   /** Fetch monitoring status for a single entry, honoring the TTL. */
   async fetchOne(hass: HomeAssistant, entryId: string): Promise<MonitoringStatus | null> {
     let cache = this._caches.get(entryId);
     if (!cache) {
       cache = new MonitoringStatusCache();
+      cache.errorStore = this._errorStore;
       this._caches.set(entryId, cache);
     }
     return cache.fetch(hass, entryId);
