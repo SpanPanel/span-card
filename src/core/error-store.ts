@@ -1,4 +1,4 @@
-import { t } from "../i18n.js";
+import { t, tf } from "../i18n.js";
 import type { HomeAssistant } from "../types.js";
 
 const DEFAULT_ERROR_TTL = 5_000;
@@ -23,6 +23,23 @@ interface ClearFilter {
 }
 
 /**
+ * Per-entity state for a watched panel_status entity.
+ *
+ * `panelName === null` marks the legacy single-panel case (per-panel view).
+ * In that case the persistent key and message omit the panel name so the
+ * banner reads "SPAN Panel unreachable" exactly as before.
+ *
+ * `panelName !== null` marks the multi-panel case (Favorites view). The
+ * persistent key is suffixed with the entity id and the message names the
+ * panel, so the banner reads e.g. "Span Panel 2 unreachable".
+ */
+interface WatchedPanelEntry {
+  panelName: string | null;
+  /** True once this entity has been observed off at least once. */
+  wasOffline: boolean;
+}
+
+/**
  * Two-lane error store.
  *
  * - Persistent lane: `Map<key, ErrorEntry>` — never auto-dismissed.
@@ -35,9 +52,7 @@ export class ErrorStore {
   private _transient: ErrorEntry | null = null;
   private _transientTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly _subscribers = new Set<() => void>();
-  private _panelStatusEntityId: string | null = null;
-  /** True once the panel has been observed offline at least once. */
-  private _wasOffline = false;
+  private _watchedPanels = new Map<string, WatchedPanelEntry>();
 
   // -------------------------------------------------------------------------
   // Public API
@@ -91,8 +106,7 @@ export class ErrorStore {
     if (filter === undefined) {
       this._persistent.clear();
       this._clearTransient();
-      this._panelStatusEntityId = null;
-      this._wasOffline = false;
+      this._watchedPanels.clear();
     } else if (filter.persistent === true) {
       this._persistent.clear();
     } else if (filter.persistent === false) {
@@ -127,71 +141,121 @@ export class ErrorStore {
   }
 
   /**
-   * Register the entity ID whose `state` represents panel connectivity.
-   * Call `updateHass()` on each hass update to drive error/recovery logic.
+   * Register a single panel_status entity to watch. Per-panel views call
+   * this; the resulting banner is unnamed ("SPAN Panel unreachable") to
+   * match the title bar which already names the panel.
    *
-   * When the entity ID changes (switching watched panel), resets
-   * `_wasOffline` and removes any active `panel-offline` for the previous
-   * entity so the new panel starts with a clean slate.
+   * Thin wrapper around `watchPanelStatuses`.
    */
   watchPanelStatus(entityId: string): void {
-    if (this._panelStatusEntityId !== entityId) {
-      // Switching watched panel — clear state scoped to the previous entity
-      this._wasOffline = false;
-      this._persistent.delete("panel-offline");
-      this._notify();
-    }
-    this._panelStatusEntityId = entityId;
+    this.watchPanelStatuses([{ entityId, panelName: null }]);
   }
 
   /**
-   * Clear the panel status watch entirely (e.g. when switching to the
-   * Favorites pseudo-panel, which has no panel_status entity).
-   * Removes any active `panel-offline` persistent error and resets
-   * `_wasOffline` so no spurious reconnect toast fires on the next watch.
+   * Register 0+ panel_status entities to watch with optional panel names.
+   * Replaces the current watch set wholesale.
+   *
+   * Entities carried over from the previous watch set preserve their
+   * `wasOffline` flag so no spurious reconnect toast fires on re-registration.
+   *
+   * Any persistent `panel-offline*` keys for entities dropped from the
+   * watch set are removed.
+   */
+  watchPanelStatuses(entries: ReadonlyArray<{ entityId: string; panelName?: string | null }>): void {
+    const prev = this._watchedPanels;
+    const next = new Map<string, WatchedPanelEntry>();
+    for (const entry of entries) {
+      const carry = prev.get(entry.entityId);
+      next.set(entry.entityId, {
+        panelName: entry.panelName ?? null,
+        wasOffline: carry?.wasOffline ?? false,
+      });
+    }
+
+    // Drop persistent banners for entities that were watched before but are
+    // no longer in the new set. The naming mode may also change (e.g.
+    // single-unnamed → multi-named), so compute the previous key using
+    // `prev`'s view of the world.
+    const prevIsSingleUnnamed = this._isSingleUnnamed(prev);
+    for (const [entityId, entry] of prev) {
+      if (next.has(entityId)) continue;
+      const offlineKey = prevIsSingleUnnamed ? "panel-offline" : `panel-offline:${entityId}`;
+      this._persistent.delete(offlineKey);
+      void entry; // unused beyond its keying; kept for readability
+    }
+
+    // Even when the set of entity IDs is identical, the *naming mode* may
+    // have changed (e.g. wrapping `watchPanelStatus` turns a named watch
+    // into an unnamed one under the same entity ID). Drop any stale keys
+    // from the previous mode if it differs from the new one.
+    const nextIsSingleUnnamed = this._isSingleUnnamed(next);
+    if (prev.size > 0 && prevIsSingleUnnamed !== nextIsSingleUnnamed) {
+      for (const entityId of prev.keys()) {
+        const prevKey = prevIsSingleUnnamed ? "panel-offline" : `panel-offline:${entityId}`;
+        this._persistent.delete(prevKey);
+      }
+    }
+
+    this._watchedPanels = next;
+    this._notify();
+  }
+
+  /**
+   * Clear the panel status watch entirely (e.g. when switching panels and
+   * we want no banner until the new watch is set up).
    */
   clearPanelStatusWatch(): void {
-    this._panelStatusEntityId = null;
-    this._wasOffline = false;
-    if (this._persistent.delete("panel-offline")) {
-      this._notify();
+    if (this._watchedPanels.size === 0) return;
+    const prevIsSingleUnnamed = this._isSingleUnnamed(this._watchedPanels);
+    for (const entityId of this._watchedPanels.keys()) {
+      const key = prevIsSingleUnnamed ? "panel-offline" : `panel-offline:${entityId}`;
+      this._persistent.delete(key);
     }
+    this._watchedPanels.clear();
+    this._notify();
   }
 
   /**
-   * Examine the panel status entity in the current hass snapshot and
-   * add/remove the `panel-offline` persistent error accordingly.
+   * Examine each watched panel_status entity in the current hass snapshot
+   * and add/remove `panel-offline*` persistent errors accordingly.
    *
-   * Reconnection info is posted as a transient once — only after the panel
-   * was previously observed to be offline.
+   * Reconnection info is posted as a transient (per-entity key) — only
+   * after that entity was previously observed to be offline.
    */
   updateHass(hass: HomeAssistant): void {
-    if (this._panelStatusEntityId === null) return;
+    if (this._watchedPanels.size === 0) return;
 
-    const entityState = hass.states[this._panelStatusEntityId]?.state;
-    const isOnline = entityState === "on";
+    const isSingleUnnamed = this._isSingleUnnamed(this._watchedPanels);
 
-    if (!isOnline) {
-      this._wasOffline = true;
-      if (!this.hasPersistent("panel-offline")) {
-        this.add({
-          key: "panel-offline",
-          level: "error",
-          message: t("error.panel_offline"),
-          persistent: true,
-        });
-      }
-    } else {
-      const wasOffline = this._wasOffline;
-      this._wasOffline = false;
-      this.remove("panel-offline");
-      if (wasOffline) {
-        this.add({
-          key: "panel-reconnected",
-          level: "info",
-          message: t("error.panel_reconnected"),
-          persistent: false,
-        });
+    for (const [entityId, entry] of this._watchedPanels) {
+      const entityState = hass.states[entityId]?.state;
+      const isOnline = entityState === "on";
+
+      const offlineKey = isSingleUnnamed ? "panel-offline" : `panel-offline:${entityId}`;
+      const reconnectKey = isSingleUnnamed ? "panel-reconnected" : `panel-reconnected:${entityId}`;
+
+      if (!isOnline) {
+        entry.wasOffline = true;
+        if (!this.hasPersistent(offlineKey)) {
+          this.add({
+            key: offlineKey,
+            level: "error",
+            message: entry.panelName === null ? t("error.panel_offline") : tf("error.panel_offline_named", { name: entry.panelName }),
+            persistent: true,
+          });
+        }
+      } else {
+        const wasOffline = entry.wasOffline;
+        entry.wasOffline = false;
+        this.remove(offlineKey);
+        if (wasOffline) {
+          this.add({
+            key: reconnectKey,
+            level: "info",
+            message: entry.panelName === null ? t("error.panel_reconnected") : tf("error.panel_reconnected_named", { name: entry.panelName }),
+            persistent: false,
+          });
+        }
       }
     }
   }
@@ -204,13 +268,24 @@ export class ErrorStore {
     this._clearTransient();
     this._persistent.clear();
     this._subscribers.clear();
-    this._panelStatusEntityId = null;
-    this._wasOffline = false;
+    this._watchedPanels.clear();
   }
 
   // -------------------------------------------------------------------------
   // Private helpers
   // -------------------------------------------------------------------------
+
+  /**
+   * True when the map represents the legacy single-unnamed case: exactly
+   * one entry, with `panelName === null`. Used by `updateHass`,
+   * `watchPanelStatuses`, and `clearPanelStatusWatch` to pick the correct
+   * persistent-key and message form.
+   */
+  private _isSingleUnnamed(map: ReadonlyMap<string, WatchedPanelEntry>): boolean {
+    if (map.size !== 1) return false;
+    const only = map.values().next().value as WatchedPanelEntry | undefined;
+    return only !== undefined && only.panelName === null;
+  }
 
   private _clearTransient(): void {
     if (this._transientTimer !== null) {

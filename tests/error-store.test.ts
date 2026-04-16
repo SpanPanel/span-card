@@ -464,6 +464,158 @@ describe("ErrorStore — panel status watching", () => {
 });
 
 // ---------------------------------------------------------------------------
+// watchPanelStatuses — multi-panel status watching
+// ---------------------------------------------------------------------------
+
+describe("ErrorStore — multi-panel status watching", () => {
+  const ENTITY_A = "binary_sensor.span_panel_1_panel_status";
+  const ENTITY_B = "binary_sensor.span_panel_2_panel_status";
+  let store: ErrorStore;
+
+  function makeMultiHass(states: Record<string, string>): HomeAssistant {
+    const built: Record<string, { entity_id: string; state: string; attributes: object; last_changed: string; last_updated: string }> = {};
+    for (const [entityId, state] of Object.entries(states)) {
+      built[entityId] = {
+        entity_id: entityId,
+        state,
+        attributes: {},
+        last_changed: "",
+        last_updated: "",
+      };
+    }
+    return {
+      states: built,
+      services: {},
+      language: "en",
+      callService: vi.fn(),
+      callWS: vi.fn(),
+    } as unknown as HomeAssistant;
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    store = new ErrorStore();
+  });
+
+  afterEach(() => {
+    store.dispose();
+    vi.useRealTimers();
+  });
+
+  it("adds one named persistent row per offline entity", () => {
+    store.watchPanelStatuses([
+      { entityId: ENTITY_A, panelName: "Panel A" },
+      { entityId: ENTITY_B, panelName: "Panel B" },
+    ]);
+    store.updateHass(makeMultiHass({ [ENTITY_A]: "off", [ENTITY_B]: "off" }));
+
+    const rows = store.active.filter(e => e.key.startsWith("panel-offline"));
+    expect(rows).toHaveLength(2);
+    const messages = rows.map(r => r.message).sort();
+    expect(messages).toEqual(["Panel A unreachable", "Panel B unreachable"]);
+
+    // Legacy unnamed key must NOT be present when named entries are used.
+    expect(store.hasPersistent("panel-offline")).toBe(false);
+    expect(store.hasPersistent(`panel-offline:${ENTITY_A}`)).toBe(true);
+    expect(store.hasPersistent(`panel-offline:${ENTITY_B}`)).toBe(true);
+  });
+
+  it("transitioning single-unnamed → multi-named clears the legacy key", () => {
+    store.watchPanelStatus(ENTITY_A);
+    store.updateHass(makeMultiHass({ [ENTITY_A]: "off" }));
+    expect(store.hasPersistent("panel-offline")).toBe(true);
+
+    store.watchPanelStatuses([{ entityId: ENTITY_A, panelName: "Panel A" }]);
+    store.updateHass(makeMultiHass({ [ENTITY_A]: "off" }));
+
+    expect(store.hasPersistent("panel-offline")).toBe(false);
+    expect(store.hasPersistent(`panel-offline:${ENTITY_A}`)).toBe(true);
+    const row = store.active.find(e => e.key === `panel-offline:${ENTITY_A}`);
+    expect(row?.message).toBe("Panel A unreachable");
+  });
+
+  it("transitioning multi-named → single-unnamed clears named keys", () => {
+    store.watchPanelStatuses([
+      { entityId: ENTITY_A, panelName: "Panel A" },
+      { entityId: ENTITY_B, panelName: "Panel B" },
+    ]);
+    store.updateHass(makeMultiHass({ [ENTITY_A]: "off", [ENTITY_B]: "off" }));
+    expect(store.hasPersistent(`panel-offline:${ENTITY_A}`)).toBe(true);
+    expect(store.hasPersistent(`panel-offline:${ENTITY_B}`)).toBe(true);
+
+    store.watchPanelStatus(ENTITY_A);
+    store.updateHass(makeMultiHass({ [ENTITY_A]: "off" }));
+
+    expect(store.hasPersistent(`panel-offline:${ENTITY_A}`)).toBe(false);
+    expect(store.hasPersistent(`panel-offline:${ENTITY_B}`)).toBe(false);
+    expect(store.hasPersistent("panel-offline")).toBe(true);
+    const row = store.active.find(e => e.key === "panel-offline");
+    expect(row?.message).toBe("SPAN Panel unreachable");
+  });
+
+  it("named reconnect emits a scoped transient toast", () => {
+    store.watchPanelStatuses([
+      { entityId: ENTITY_A, panelName: "Panel A" },
+      { entityId: ENTITY_B, panelName: "Panel B" },
+    ]);
+    store.updateHass(makeMultiHass({ [ENTITY_A]: "off", [ENTITY_B]: "off" }));
+
+    // Panel A reconnects; Panel B still offline.
+    store.updateHass(makeMultiHass({ [ENTITY_A]: "on", [ENTITY_B]: "off" }));
+
+    expect(store.hasPersistent(`panel-offline:${ENTITY_A}`)).toBe(false);
+    expect(store.hasPersistent(`panel-offline:${ENTITY_B}`)).toBe(true);
+
+    const reconnect = store.active.find(e => e.key === `panel-reconnected:${ENTITY_A}`);
+    expect(reconnect).toBeDefined();
+    expect(reconnect?.level).toBe("info");
+    expect(reconnect?.persistent).toBe(false);
+    expect(reconnect?.message).toBe("Panel A reconnected");
+  });
+
+  it("re-calling watchPanelStatuses with a carry-over entity preserves wasOffline", () => {
+    // First call: A is offline.
+    store.watchPanelStatuses([{ entityId: ENTITY_A, panelName: "Panel A" }]);
+    store.updateHass(makeMultiHass({ [ENTITY_A]: "off" }));
+
+    // Second call: add B. A is still being watched; its wasOffline should carry.
+    store.watchPanelStatuses([
+      { entityId: ENTITY_A, panelName: "Panel A" },
+      { entityId: ENTITY_B, panelName: "Panel B" },
+    ]);
+
+    // Now A comes online. Because wasOffline carried, we expect a reconnect toast.
+    store.updateHass(makeMultiHass({ [ENTITY_A]: "on", [ENTITY_B]: "on" }));
+
+    const reconnect = store.active.find(e => e.key === `panel-reconnected:${ENTITY_A}`);
+    expect(reconnect).toBeDefined();
+    expect(reconnect?.message).toBe("Panel A reconnected");
+
+    // B was never offline, so no reconnect toast for B.
+    expect(store.active.find(e => e.key === `panel-reconnected:${ENTITY_B}`)).toBeUndefined();
+  });
+
+  it("clearPanelStatusWatch removes all watched entries (single and multi)", () => {
+    store.watchPanelStatuses([
+      { entityId: ENTITY_A, panelName: "Panel A" },
+      { entityId: ENTITY_B, panelName: "Panel B" },
+    ]);
+    store.updateHass(makeMultiHass({ [ENTITY_A]: "off", [ENTITY_B]: "off" }));
+    expect(store.hasPersistent(`panel-offline:${ENTITY_A}`)).toBe(true);
+    expect(store.hasPersistent(`panel-offline:${ENTITY_B}`)).toBe(true);
+
+    store.clearPanelStatusWatch();
+
+    expect(store.hasPersistent(`panel-offline:${ENTITY_A}`)).toBe(false);
+    expect(store.hasPersistent(`panel-offline:${ENTITY_B}`)).toBe(false);
+    // After clear, updateHass is a no-op
+    store.updateHass(makeMultiHass({ [ENTITY_A]: "off", [ENTITY_B]: "off" }));
+    expect(store.hasPersistent(`panel-offline:${ENTITY_A}`)).toBe(false);
+    expect(store.hasPersistent(`panel-offline:${ENTITY_B}`)).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // tf() — translation with placeholder substitution
 // ---------------------------------------------------------------------------
 
