@@ -15,7 +15,7 @@ export interface ErrorEntry {
 }
 
 /** Input shape for `add()` — everything except the auto-set timestamp. */
-type AddInput = Omit<ErrorEntry, "timestamp">;
+export type AddInput = Omit<ErrorEntry, "timestamp">;
 
 /** Optional filter for `clear()`. When omitted, everything is cleared. */
 interface ClearFilter {
