@@ -91,11 +91,11 @@ export class SpanPanelElement extends LitElement {
   private _onFavoritesChanged: (() => void) | null = null;
   private _deviceRegistryUnsub: Promise<() => void> | null = null;
   /**
-   * True when a tab re-render was requested while a favorites-mode
-   * sidebar was open. `_onSidePanelClosed` consumes the flag and fires
-   * the deferred render so the main view catches up to the changes
-   * (un-favorited rows, new column count) the user made inside the
-   * sidebar.
+   * True when a tab re-render was requested while any sidebar (favorites
+   * mode, real-panel gear mode, per-circuit, or sub-device) was open.
+   * `_onSidePanelClosed` consumes the flag and fires the deferred render
+   * so the main view catches up to the changes (un-favorited rows, new
+   * column count, horizon edits) the user made inside the sidebar.
    */
   private _pendingTabRender = false;
 
@@ -855,22 +855,23 @@ export class SpanPanelElement extends LitElement {
    */
   private async _scheduleTabRender(): Promise<void> {
     await this.updateComplete;
-    // While a favorites-mode sidebar is open over the Favorites view, any
-    // tab re-render would wipe `#tab-content` and destroy the open sidebar.
-    // Defer the render until the sidebar closes (handled by
-    // `_onSidePanelClosed`). A modal backdrop prevents tab/panel clicks
-    // while the sidebar is open, so only sidebar-originated state changes
-    // (heart toggle, list-columns change, horizon edit) take this path.
-    if (this._isFavoritesView && this._favoritesSidePanelOpen()) {
+    // While any sidebar is open, a tab re-render would wipe
+    // `#tab-content` and destroy the live sidebar. Defer the render until
+    // the sidebar closes (handled by `_onSidePanelClosed`). A modal
+    // backdrop prevents tab/panel clicks while the sidebar is open, so
+    // only sidebar-originated state changes (heart toggle, list-columns
+    // change, horizon edit) take this path. Covers both favorites-mode
+    // and real-panel-mode sidebars — any open sidebar qualifies.
+    if (this._sidePanelOpen()) {
       this._pendingTabRender = true;
       return;
     }
     await this._tabRenderScheduler();
   }
 
-  private _favoritesSidePanelOpen(): boolean {
+  private _sidePanelOpen(): boolean {
     const container = this.shadowRoot?.getElementById("tab-content");
-    return !!container?.querySelector('span-side-panel[open][data-mode="favorites"]');
+    return !!container?.querySelector("span-side-panel[open]");
   }
 
   private async _renderTab(): Promise<void> {
