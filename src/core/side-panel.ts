@@ -389,12 +389,24 @@ class SpanSidePanel extends HTMLElement {
     // Force reflow before adding attribute so the transition animates
     void this.offsetHeight;
     this.setAttribute("open", "");
+    // Expose the active mode as a host attribute so parents can detect
+    // which sidebar variant is open (e.g. to defer tab re-renders while
+    // a favorites-mode sidebar is live).
+    this.setAttribute("data-mode", this._modeFor(config));
   }
 
   close(): void {
     this.removeAttribute("open");
+    this.removeAttribute("data-mode");
     this._config = null;
     this.dispatchEvent(new CustomEvent("side-panel-closed", { bubbles: true, composed: true }));
+  }
+
+  private _modeFor(cfg: SidePanelConfig): "favorites" | "panel" | "subDevice" | "circuit" {
+    if (cfg.favoritesMode) return "favorites";
+    if (cfg.panelMode) return "panel";
+    if (cfg.subDeviceMode) return "subDevice";
+    return "circuit";
   }
 
   // ── Rendering ─────────────────────────────────────────────────────────

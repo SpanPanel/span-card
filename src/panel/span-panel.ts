@@ -90,6 +90,14 @@ export class SpanPanelElement extends LitElement {
   private _onVisibilityChange: (() => void) | null = null;
   private _onFavoritesChanged: (() => void) | null = null;
   private _deviceRegistryUnsub: Promise<() => void> | null = null;
+  /**
+   * True when a tab re-render was requested while a favorites-mode
+   * sidebar was open. `_onSidePanelClosed` consumes the flag and fires
+   * the deferred render so the main view catches up to the changes
+   * (un-favorited rows, new column count) the user made inside the
+   * sidebar.
+   */
+  private _pendingTabRender = false;
 
   private static _shellStyles = css`
     :host {
@@ -476,6 +484,12 @@ export class SpanPanelElement extends LitElement {
     // The Favorites view uses the multi-entry cache for monitoring; if
     // the side panel adjusted any settings, freshen those too.
     this._listDashCtrl.monitoringMultiCache.invalidate();
+    // Replay any tab render that was deferred while the sidebar was open
+    // (heart toggle or list-columns change inside a favorites-mode sidebar).
+    if (this._pendingTabRender) {
+      this._pendingTabRender = false;
+      this._scheduleTabRender();
+    }
   }
 
   private _onUnitChanged(e: Event): void {
@@ -841,7 +855,22 @@ export class SpanPanelElement extends LitElement {
    */
   private async _scheduleTabRender(): Promise<void> {
     await this.updateComplete;
+    // While a favorites-mode sidebar is open over the Favorites view, any
+    // tab re-render would wipe `#tab-content` and destroy the open sidebar.
+    // Defer the render until the sidebar closes (handled by
+    // `_onSidePanelClosed`). A modal backdrop prevents tab/panel clicks
+    // while the sidebar is open, so only sidebar-originated state changes
+    // (heart toggle, list-columns change, horizon edit) take this path.
+    if (this._isFavoritesView && this._favoritesSidePanelOpen()) {
+      this._pendingTabRender = true;
+      return;
+    }
     await this._tabRenderScheduler();
+  }
+
+  private _favoritesSidePanelOpen(): boolean {
+    const container = this.shadowRoot?.getElementById("tab-content");
+    return !!container?.querySelector('span-side-panel[open][data-mode="favorites"]');
   }
 
   private async _renderTab(): Promise<void> {
