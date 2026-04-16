@@ -62,6 +62,7 @@ export interface PanelEntities {
   pv_power?: string;
   battery_level?: string;
   dsm_state?: string;
+  panel_status?: string; // binary_sensor entity for online/offline state
 }
 
 export interface PanelTopology {
