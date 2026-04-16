@@ -434,7 +434,8 @@ class SpanSidePanel extends HTMLElement {
         .then(() => {
           this.dispatchEvent(new CustomEvent("graph-settings-changed", { bubbles: true, composed: true }));
         })
-        .catch((_err: Error) => {
+        .catch((err: Error) => {
+          console.warn("SPAN Panel: graph horizon service failed", err);
           this.errorStore?.add({
             key: "service:graph_horizon",
             level: "error",
@@ -499,7 +500,8 @@ class SpanSidePanel extends HTMLElement {
               .then(() => {
                 this.dispatchEvent(new CustomEvent("graph-settings-changed", { bubbles: true, composed: true }));
               })
-              .catch((_err: Error) => {
+              .catch((err: Error) => {
+                console.warn("SPAN Panel: graph horizon service failed", err);
                 this.errorStore?.add({
                   key: "service:graph_horizon",
                   level: "error",
@@ -534,7 +536,8 @@ class SpanSidePanel extends HTMLElement {
                 resetBtn.remove();
                 this.dispatchEvent(new CustomEvent("graph-settings-changed", { bubbles: true, composed: true }));
               })
-              .catch((_err: Error) => {
+              .catch((err: Error) => {
+                console.warn("SPAN Panel: graph horizon service failed", err);
                 this.errorStore?.add({
                   key: "service:graph_horizon",
                   level: "error",
@@ -605,7 +608,8 @@ class SpanSidePanel extends HTMLElement {
               .then(() => {
                 this.dispatchEvent(new CustomEvent("graph-settings-changed", { bubbles: true, composed: true }));
               })
-              .catch((_err: Error) => {
+              .catch((err: Error) => {
+                console.warn("SPAN Panel: graph horizon service failed", err);
                 this.errorStore?.add({
                   key: "service:graph_horizon",
                   level: "error",
@@ -640,7 +644,8 @@ class SpanSidePanel extends HTMLElement {
                 resetBtn.remove();
                 this.dispatchEvent(new CustomEvent("graph-settings-changed", { bubbles: true, composed: true }));
               })
-              .catch((_err: Error) => {
+              .catch((err: Error) => {
+                console.warn("SPAN Panel: graph horizon service failed", err);
                 this.errorStore?.add({
                   key: "service:graph_horizon",
                   level: "error",
@@ -827,6 +832,7 @@ class SpanSidePanel extends HTMLElement {
       btn.classList.toggle("active", wasActive);
       icon.setAttribute("icon", wasActive ? "mdi:heart" : "mdi:heart-outline");
       btn.setAttribute("aria-checked", String(wasActive));
+      console.warn("SPAN Panel: favorite toggle failed", err);
       this.errorStore?.add({
         key: "service:favorites",
         level: "error",
@@ -944,7 +950,8 @@ class SpanSidePanel extends HTMLElement {
             .then(() => {
               this.dispatchEvent(new CustomEvent("graph-settings-changed", { bubbles: true, composed: true }));
             })
-            .catch((_err: Error) => {
+            .catch((err: Error) => {
+              console.warn("SPAN Panel: graph horizon service failed", err);
               this.errorStore?.add({
                 key: "service:graph_horizon",
                 level: "error",
@@ -958,7 +965,8 @@ class SpanSidePanel extends HTMLElement {
             .then(() => {
               this.dispatchEvent(new CustomEvent("graph-settings-changed", { bubbles: true, composed: true }));
             })
-            .catch((_err: Error) => {
+            .catch((err: Error) => {
+              console.warn("SPAN Panel: graph horizon service failed", err);
               this.errorStore?.add({
                 key: "service:graph_horizon",
                 level: "error",
@@ -1021,7 +1029,8 @@ class SpanSidePanel extends HTMLElement {
 
     toggle.addEventListener("change", () => {
       const isOn = toggle.hasAttribute("checked") || toggle.checked;
-      this._callService("switch", isOn ? "turn_on" : "turn_off", { entity_id: entityId }).catch((_err: Error) => {
+      this._callService("switch", isOn ? "turn_on" : "turn_off", { entity_id: entityId }).catch((err: Error) => {
+        console.warn("SPAN Panel: relay toggle failed", err);
         this.errorStore?.add({
           key: "service:relay",
           level: "error",
@@ -1072,7 +1081,8 @@ class SpanSidePanel extends HTMLElement {
       this._callService("select", "select_option", {
         entity_id: entityId,
         option: selectEl.value,
-      }).catch((_err: Error) => {
+      }).catch((err: Error) => {
+        console.warn("SPAN Panel: shedding update failed", err);
         this.errorStore?.add({
           key: "service:shedding",
           level: "error",
@@ -1144,7 +1154,8 @@ class SpanSidePanel extends HTMLElement {
             .then(() => {
               this.dispatchEvent(new CustomEvent("graph-settings-changed", { bubbles: true, composed: true }));
             })
-            .catch((_err: Error) => {
+            .catch((err: Error) => {
+              console.warn("SPAN Panel: graph horizon service failed", err);
               this.errorStore?.add({
                 key: "service:graph_horizon",
                 level: "error",
@@ -1161,7 +1172,8 @@ class SpanSidePanel extends HTMLElement {
             .then(() => {
               this.dispatchEvent(new CustomEvent("graph-settings-changed", { bubbles: true, composed: true }));
             })
-            .catch((_err: Error) => {
+            .catch((err: Error) => {
+              console.warn("SPAN Panel: graph horizon service failed", err);
               this.errorStore?.add({
                 key: "service:graph_horizon",
                 level: "error",
@@ -1248,7 +1260,8 @@ class SpanSidePanel extends HTMLElement {
         monitoring_enabled: checked,
       };
       if (cfg.configEntryId) data.config_entry_id = cfg.configEntryId;
-      this._callDomainService("set_circuit_threshold", data).catch((_err: Error) => {
+      this._callDomainService("set_circuit_threshold", data).catch((err: Error) => {
+        console.warn("SPAN Panel: monitoring update failed", err);
         this.errorStore?.add({
           key: "service:monitoring",
           level: "error",
@@ -1268,7 +1281,8 @@ class SpanSidePanel extends HTMLElement {
           const entityId = cfg.entities?.power || cfg.uuid;
           const data: Record<string, unknown> = { circuit_id: entityId };
           if (cfg.configEntryId) data.config_entry_id = cfg.configEntryId;
-          this._callDomainService("clear_circuit_threshold", data).catch((_err: Error) => {
+          this._callDomainService("clear_circuit_threshold", data).catch((err: Error) => {
+            console.warn("SPAN Panel: monitoring update failed", err);
             this.errorStore?.add({
               key: "service:monitoring",
               level: "error",
@@ -1315,7 +1329,8 @@ class SpanSidePanel extends HTMLElement {
           cooldown_duration_m: cooldownM ? Number(cooldownM.value) : undefined,
         };
         if (cfg.configEntryId) data.config_entry_id = cfg.configEntryId;
-        this._callDomainService("set_circuit_threshold", data).catch((_err: Error) => {
+        this._callDomainService("set_circuit_threshold", data).catch((err: Error) => {
+          console.warn("SPAN Panel: monitoring update failed", err);
           this.errorStore?.add({
             key: "service:monitoring",
             level: "error",
@@ -1381,7 +1396,8 @@ class SpanSidePanel extends HTMLElement {
             window_duration_m: windowM ? Number(windowM.value) : undefined,
           };
           if (cfg.configEntryId) data.config_entry_id = cfg.configEntryId;
-          this._callDomainService("set_circuit_threshold", data).catch((_err: Error) => {
+          this._callDomainService("set_circuit_threshold", data).catch((err: Error) => {
+            console.warn("SPAN Panel: monitoring update failed", err);
             this.errorStore?.add({
               key: "service:monitoring",
               level: "error",
