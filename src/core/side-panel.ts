@@ -423,6 +423,11 @@ class SpanSidePanel extends HTMLElement {
     const globalHorizon = graphSettings?.global_horizon ?? DEFAULT_GRAPH_HORIZON;
     const circuitSettings = graphSettings?.circuits ?? {};
 
+    // ── List view columns ──
+    // Placed above the horizon sections so the horizon-related sections
+    // (global default + per-circuit scales) sit together below.
+    body.appendChild(this._buildListColumnsSection());
+
     // ── Global default horizon ──
     const globalSection = document.createElement("div");
     globalSection.className = "section";
@@ -462,14 +467,6 @@ class SpanSidePanel extends HTMLElement {
     globalRow.appendChild(globalSelect);
     globalSection.appendChild(globalRow);
     body.appendChild(globalSection);
-
-    // ── List view columns ──
-    // This is a display preference persisted to localStorage by
-    // span-panel.ts. It applies to every list view (Activity / Area,
-    // including the Favorites pseudo-panel). We surface it here in the
-    // Graph Settings side panel because it's the closest thing to a
-    // global display-preferences surface the UI exposes today.
-    body.appendChild(this._buildListColumnsSection());
 
     // ── Per-circuit horizon scales ──
     if (topology?.circuits) {

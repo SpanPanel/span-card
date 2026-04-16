@@ -166,6 +166,7 @@ export class SpanPanelCard extends LitElement {
         @click=${this._onCardClick}
         @graph-settings-changed=${this._onGraphSettingsChanged}
         @unit-changed=${this._onListUnitChanged}
+        @list-columns-changed=${this._onListColumnsChanged}
         @side-panel-closed=${this._onSidePanelClosed}
       >
         <div id="card-tabs"></div>
@@ -425,6 +426,17 @@ export class SpanPanelCard extends LitElement {
 
   private _onGraphSettingsChanged(): void {
     this._ctrl.onGraphSettingsChanged(this.shadowRoot!);
+  }
+
+  private _onListColumnsChanged(e: Event): void {
+    const n = (e as CustomEvent<number>).detail;
+    if (typeof n !== "number" || (n !== 1 && n !== 2 && n !== 3)) return;
+    // Re-render the active list view so the grid reflows. The setting
+    // is already persisted by the side panel; loadListColumns() reads
+    // the new value during _populateCardContent.
+    if (this._activeTab === "activity" || this._activeTab === "area") {
+      this._populateCardContent();
+    }
   }
 
   private _onSidePanelClosed(): void {

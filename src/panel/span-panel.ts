@@ -19,7 +19,7 @@ import { loadListColumns, saveListColumns } from "../helpers/list-columns.js";
 import { CARD_STYLES } from "../card/card-styles.js";
 import { FAVORITES_CHANGED_EVENT, FavoritesCache, hasAnyFavorites } from "../core/favorites-store.js";
 import { FavoritesController, type FavoritesPanelStatsInfo } from "../core/favorites-controller.js";
-import type { CardConfig, FavoritesMap, FavoritesTopology, HomeAssistant, PanelDevice, PanelTopology } from "../types.js";
+import type { CardConfig, FavoritesMap, FavoritesTopology, HomeAssistant, PanelDevice } from "../types.js";
 
 const FAVORITES_PANEL_ID = "favorites";
 const FAVORITES_VIEW_STATE_KEY = "span_panel_favorites_view_state";
@@ -294,6 +294,16 @@ export class SpanPanelElement extends LitElement {
         changedProps.has("_chartMetric") ||
         changedProps.has("_listColumns"))
     ) {
+      // Defensive normalization: the Favorites pseudo-panel has no
+      // "By Panel" tab. ``_onPanelChange`` and ``_discoverPanels``
+      // redirect when they switch into Favorites, but an external
+      // navigate-tab event or a stale state could still land here —
+      // coerce to the Activity tab and let the resulting state change
+      // schedule the single render.
+      if (this._isFavoritesView && this._activeTab === "dashboard") {
+        this._activeTab = "activity";
+        return;
+      }
       this._scheduleTabRender();
     }
 
@@ -455,6 +465,9 @@ export class SpanPanelElement extends LitElement {
       ctrl.monitoringCache.invalidate();
       ctrl.graphSettingsCache.invalidate();
     }
+    // The Favorites view uses the multi-entry cache for monitoring; if
+    // the side panel adjusted any settings, freshen those too.
+    this._listDashCtrl.monitoringMultiCache.invalidate();
   }
 
   private _onUnitChanged(e: Event): void {
@@ -490,6 +503,8 @@ export class SpanPanelElement extends LitElement {
     // Reactive updated() handles the re-render.
   }
 
+  private _persistFavoritesViewStateTimer: ReturnType<typeof setTimeout> | null = null;
+
   private _onFavoritesViewStateChangedEvent(ev: Event): void {
     if (!this._isFavoritesView) return;
     const detail = (ev as CustomEvent<FavoritesViewStateDetail>).detail;
@@ -500,7 +515,17 @@ export class SpanPanelElement extends LitElement {
     const valid = this._listDashCtrl.topology?.circuits ?? {};
     viewState.expanded[detail.view] = detail.expanded.filter(id => id in valid);
     viewState.searchQuery = detail.searchQuery;
-    _saveFavoritesViewState(viewState);
+
+    // Search-box updates fire on every keystroke; expansion and tab
+    // switches are discrete. Debounce localStorage writes so typing a
+    // long query doesn't thrash storage.
+    if (this._persistFavoritesViewStateTimer) {
+      clearTimeout(this._persistFavoritesViewStateTimer);
+    }
+    this._persistFavoritesViewStateTimer = setTimeout(() => {
+      this._persistFavoritesViewStateTimer = null;
+      _saveFavoritesViewState(viewState);
+    }, 250);
   }
 
   // ── Internal helpers ────────────────────────────────────────────────
@@ -677,14 +702,6 @@ export class SpanPanelElement extends LitElement {
 
   /**
    * Build the persistent panel-stats header HTML for the current real
-   * panel, including the slide-to-confirm switches control so tappable
-   * ON/OFF badges in list views require explicit user arming.
-   */
-  private _buildCurrentPanelHeaderHTML(topology: PanelTopology, config: CardConfig): string {
-    return buildHeaderHTML(topology, config);
-  }
-
-  /**
    * Build a minimal summary strip for the Favorites pseudo-panel. The
    * aggregate has no panel-level stats to render, so we surface the
    * circuit + panel counts and the W/A unit toggle (since the list view
@@ -755,6 +772,15 @@ export class SpanPanelElement extends LitElement {
 
   private _pendingTabRender: Promise<void> | null = null;
   private _pendingFollowupRender = false;
+  /**
+   * Monotonic render token. Every entry to ``_renderTab`` captures the
+   * current value; after each ``await`` inside a render path the code
+   * compares against ``this._renderToken`` and bails if another render
+   * has been scheduled since. Without this, a slow render that has
+   * already been superseded still completes and writes into the
+   * container, producing a brief flash and wasted WS traffic.
+   */
+  private _renderToken = 0;
 
   /**
    * Coalesce tab-render requests. If a render is in-flight, remember
@@ -784,19 +810,34 @@ export class SpanPanelElement extends LitElement {
     await run;
   }
 
+  /**
+   * Capture the current render token and return a predicate that tells
+   * a render branch whether it's been superseded. Each branch should
+   * call it after every ``await`` and bail out of further work when it
+   * returns true.
+   */
+  private _beginRender(): () => boolean {
+    this._renderToken += 1;
+    const token = this._renderToken;
+    return (): boolean => this._renderToken !== token;
+  }
+
   private async _renderTab(): Promise<void> {
+    const superseded = this._beginRender();
+
     this._dashboardTab.stop();
     this._monitoringTab.stop();
     this._listCtrl.stop();
     this._listDashCtrl.stopIntervals();
     for (const tab of this._favoritesMonitoringTabs.values()) tab.stop();
     this._favoritesMonitoringTabs.clear();
+    this._favoritesPanelStats = [];
 
     const container = this.shadowRoot!.getElementById("tab-content");
     if (!container) return;
 
     if (this._isFavoritesView) {
-      await this._renderFavoritesTab(container);
+      await this._renderFavoritesTab(container, superseded);
       return;
     }
 
@@ -819,6 +860,7 @@ export class SpanPanelElement extends LitElement {
         const entryId = device?.config_entries?.[0] ?? null;
         try {
           const result = await discoverTopology(this.hass, this._selectedPanelId ?? undefined);
+          if (superseded()) return;
           const config = this._buildDashboardConfig();
           this._listDashCtrl.init(result.topology, config, this.hass, entryId);
           // A full re-render (including on W/A switch) needs fresh
@@ -827,15 +869,19 @@ export class SpanPanelElement extends LitElement {
           // the new chart.
           this._listDashCtrl.powerHistory.clear();
           await this._listDashCtrl.monitoringCache.fetch(this.hass, entryId);
+          if (superseded()) return;
           await this._listDashCtrl.fetchAndBuildHorizonMaps();
-          const headerHTML = result.topology ? this._buildCurrentPanelHeaderHTML(result.topology, config) : "";
+          if (superseded()) return;
+          const headerHTML = result.topology ? buildHeaderHTML(result.topology, config) : "";
           this._listCtrl.setColumns(this._listColumns);
           this._listCtrl.renderActivityView(container, this.hass, result.topology!, config, this._listDashCtrl.monitoringCache.status, headerHTML);
           container.insertAdjacentHTML("afterbegin", `<style>${CARD_STYLES}</style>`);
           await this._listDashCtrl.loadHistory();
+          if (superseded()) return;
           this._listDashCtrl.updateDOM(container);
           this._listDashCtrl.startIntervals(container);
         } catch (err) {
+          if (superseded()) return;
           const errEl = document.createElement("p");
           errEl.style.color = "var(--error-color)";
           errEl.textContent = (err as Error).message;
@@ -849,16 +895,20 @@ export class SpanPanelElement extends LitElement {
         const areaEntryId = areaDevice?.config_entries?.[0] ?? null;
         try {
           const result = await discoverTopology(this.hass, this._selectedPanelId ?? undefined);
+          if (superseded()) return;
           const config = this._buildDashboardConfig();
           this._listDashCtrl.init(result.topology, config, this.hass, areaEntryId);
           this._listDashCtrl.powerHistory.clear();
           await this._listDashCtrl.monitoringCache.fetch(this.hass, areaEntryId);
+          if (superseded()) return;
           await this._listDashCtrl.fetchAndBuildHorizonMaps();
-          const headerHTML = result.topology ? this._buildCurrentPanelHeaderHTML(result.topology, config) : "";
+          if (superseded()) return;
+          const headerHTML = result.topology ? buildHeaderHTML(result.topology, config) : "";
           this._listCtrl.setColumns(this._listColumns);
           this._listCtrl.renderAreaView(container, this.hass, result.topology!, config, this._listDashCtrl.monitoringCache.status, headerHTML);
           container.insertAdjacentHTML("afterbegin", `<style>${CARD_STYLES}</style>`);
           await this._listDashCtrl.loadHistory();
+          if (superseded()) return;
           this._listDashCtrl.updateDOM(container);
           this._listDashCtrl.startIntervals(container);
 
@@ -898,14 +948,13 @@ export class SpanPanelElement extends LitElement {
    * tab bar and ``_onPanelChange`` auto-reroutes to Activity when the
    * user switches panels while it was active.
    */
-  private async _renderFavoritesTab(container: HTMLElement): Promise<void> {
-    if (this._activeTab === "dashboard") this._activeTab = "activity";
-
+  private async _renderFavoritesTab(container: HTMLElement, superseded: () => boolean): Promise<void> {
     container.innerHTML = "";
     if (!this.hass) return;
 
     const realPanels = this._panels.filter(p => p.id !== FAVORITES_PANEL_ID);
     const build = await this._favCtrl.build(this.hass, this._favorites, realPanels);
+    if (superseded()) return;
     const merged = build.topology;
     const primaryEntryId = build.entryIds[0] ?? null;
 
@@ -941,7 +990,9 @@ export class SpanPanelElement extends LitElement {
     this._listDashCtrl.init(merged, config, this.hass, primaryEntryId);
     this._listDashCtrl.powerHistory.clear();
     await this._listDashCtrl.fetchAndBuildHorizonMaps();
+    if (superseded()) return;
     const monitoringStatus = await this._listDashCtrl.fetchMergedMonitoringStatus(build.entryIds);
+    if (superseded()) return;
 
     this._favoritesPanelStats = build.perPanelStats;
     const summaryHTML = this._buildFavoritesSummaryHTML();
@@ -960,12 +1011,14 @@ export class SpanPanelElement extends LitElement {
       }
       container.insertAdjacentHTML("afterbegin", `<style>${CARD_STYLES}</style>`);
       await this._listDashCtrl.loadHistory();
+      if (superseded()) return;
       this._listDashCtrl.updateDOM(container);
       this._updateFavoritesPanelStats(container, config);
       this._listDashCtrl.startIntervals(container, () => {
         this._updateFavoritesPanelStats(container, config);
       });
     } catch (err) {
+      if (superseded()) return;
       const errEl = document.createElement("p");
       errEl.style.color = "var(--error-color)";
       errEl.textContent = (err as Error).message;

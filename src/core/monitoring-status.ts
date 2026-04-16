@@ -66,6 +66,35 @@ export class MonitoringStatusCache {
 }
 
 /**
+ * Caches monitoring status per config entry. Used by the Favorites
+ * view which must fetch for multiple entries in parallel and would
+ * otherwise issue fresh WS calls on every render tick.
+ */
+export class MonitoringStatusMultiCache {
+  private _caches = new Map<string, MonitoringStatusCache>();
+
+  /** Fetch monitoring status for a single entry, honoring the TTL. */
+  async fetchOne(hass: HomeAssistant, entryId: string): Promise<MonitoringStatus | null> {
+    let cache = this._caches.get(entryId);
+    if (!cache) {
+      cache = new MonitoringStatusCache();
+      this._caches.set(entryId, cache);
+    }
+    return cache.fetch(hass, entryId);
+  }
+
+  /** Invalidate every cached entry. */
+  invalidate(): void {
+    for (const cache of this._caches.values()) cache.invalidate();
+  }
+
+  /** Clear entries — used on panel membership changes. */
+  clear(): void {
+    this._caches.clear();
+  }
+}
+
+/**
  * Merge multiple MonitoringStatus results into one. Null entries are
  * skipped. Returns null only if every input is null. Later entries
  * overwrite earlier ones on key collision, which is fine because circuit

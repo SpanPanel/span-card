@@ -4,7 +4,7 @@ import { getHorizonDurationMs, getMaxHistoryPoints, getMinGapMs, recordSample } 
 import { loadHistory, collectSubDeviceEntityIds } from "./history-loader.js";
 import { updateCircuitDOM, updateSubDeviceDOM } from "./dom-updater.js";
 import { getEffectiveHorizon, getEffectiveSubDeviceHorizon } from "./graph-settings.js";
-import { MonitoringStatusCache, mergeMonitoringStatuses } from "./monitoring-status.js";
+import { MonitoringStatusCache, MonitoringStatusMultiCache, mergeMonitoringStatuses } from "./monitoring-status.js";
 import { GraphSettingsCache } from "./graph-settings.js";
 import type { CardConfig, FavoriteRef, GraphSettings, HistoryMap, HomeAssistant, MonitoringStatus, MonitoringStatusResponse, PanelTopology } from "../types.js";
 
@@ -29,6 +29,7 @@ export class DashboardController {
   readonly horizonMap: Map<string, string> = new Map();
   readonly subDeviceHorizonMap: Map<string, string> = new Map();
   readonly monitoringCache = new MonitoringStatusCache();
+  readonly monitoringMultiCache = new MonitoringStatusMultiCache();
   readonly graphSettingsCache = new GraphSettingsCache();
 
   private _hass: HomeAssistant | null = null;
@@ -164,7 +165,12 @@ export class DashboardController {
    */
   async fetchMergedMonitoringStatus(entryIds: readonly string[]): Promise<MonitoringStatus | null> {
     if (!this._hass || entryIds.length === 0) return null;
-    const statuses = await Promise.all(entryIds.map(eid => this._fetchMonitoringStatusFresh(eid)));
+    const hass = this._hass;
+    // Route through the keyed multi-cache so successive renders within
+    // the 30s TTL reuse the response instead of issuing N WS calls per
+    // render. When settings change, ``monitoringMultiCache.invalidate``
+    // is called alongside the existing ``monitoringCache.invalidate``.
+    const statuses = await Promise.all(entryIds.map(eid => this.monitoringMultiCache.fetchOne(hass, eid)));
     return mergeMonitoringStatuses(statuses);
   }
 
@@ -649,6 +655,7 @@ export class DashboardController {
     this.horizonMap.clear();
     this.subDeviceHorizonMap.clear();
     this.monitoringCache.clear();
+    this.monitoringMultiCache.clear();
     this.graphSettingsCache.clear();
   }
 }
