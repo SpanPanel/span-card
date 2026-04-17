@@ -1155,8 +1155,10 @@ export class SpanPanelElement extends LitElement {
   private async _renderFavoritesMonitoring(container: HTMLElement, entryIds: string[], realPanels: PanelDevice[]): Promise<void> {
     if (!this.hass) return;
 
-    container.insertAdjacentHTML("beforeend", this._buildFavoritesSummaryHTML());
-
+    // Monitoring is a pure configuration view — no panel-stats header,
+    // matching the real-panel Monitoring tab (see ``_renderTab`` case
+    // "monitoring"). The gear/slide-to-enable/legend/W-A summary belongs
+    // on the dashboard views (Activity, Area), not here.
     const wrapper = document.createElement("div");
     wrapper.className = "favorites-monitoring-stack";
     container.appendChild(wrapper);
