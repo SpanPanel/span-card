@@ -104,8 +104,8 @@ export function buildChartOptions(
           x2: 0,
           y2: 1,
           colorStops: [
-            { offset: 0, color: `rgba(${accentRgb}, 0.35)` },
-            { offset: 1, color: `rgba(${accentRgb}, 0.02)` },
+            { offset: 0, color: `rgba(${accentRgb}, 0.18)` },
+            { offset: 1, color: `rgba(${accentRgb}, 0.18)` },
           ],
         },
       },

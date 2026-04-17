@@ -1122,24 +1122,24 @@ export class SpanPanelElement extends LitElement {
     if (superseded()) return;
 
     this._favoritesPanelStats = build.perPanelStats;
-    const summaryHTML = this._buildFavoritesSummaryHTML();
-    const panelStatsHTML = this._buildFavoritesPanelStatsGridHTML(build.perPanelStats, config);
-    const subDevicesHTML = hasSubDevices
-      ? `<div class="favorites-subdevices-section">
-           <div class="sub-devices">${buildSubDevicesHTML(merged, this.hass, config)}</div>
-         </div>`
-      : "";
-    const headerHTML = summaryHTML + panelStatsHTML + subDevicesHTML;
     try {
+      await this._listDashCtrl.loadHistory();
+      if (superseded()) return;
+      const summaryHTML = this._buildFavoritesSummaryHTML();
+      const panelStatsHTML = this._buildFavoritesPanelStatsGridHTML(build.perPanelStats, config);
+      const subDevicesHTML = hasSubDevices
+        ? `<div class="favorites-subdevices-section">
+             <div class="sub-devices">${buildSubDevicesHTML(merged, this.hass, config)}</div>
+           </div>`
+        : "";
+      const headerHTML = summaryHTML + panelStatsHTML + subDevicesHTML;
       if (viewName === "activity") {
         this._listCtrl.renderActivityView(container, this.hass, merged as FavoritesTopology, config, monitoringStatus, headerHTML);
       } else {
         this._listCtrl.renderAreaView(container, this.hass, merged as FavoritesTopology, config, monitoringStatus, headerHTML);
       }
-      await this._listDashCtrl.loadHistory();
-      if (superseded()) return;
-      this._listDashCtrl.updateDOM(container);
       this._updateFavoritesPanelStats(container, config);
+      this._listDashCtrl.setupResizeObserver(container, container);
       this._listDashCtrl.startIntervals(container, () => {
         this._updateFavoritesPanelStats(container, config);
       });
