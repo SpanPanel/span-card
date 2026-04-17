@@ -1,6 +1,7 @@
 import { INTEGRATION_DOMAIN, INPUT_DEBOUNCE_MS, THRESHOLD_DEBOUNCE_MS } from "../constants.js";
 import { escapeHtml } from "../helpers/sanitize.js";
 import { t } from "../i18n.js";
+import type { ErrorStore } from "../core/error-store.js";
 import type { HomeAssistant, MonitoringPointInfo, MonitoringStatusResponse, CallServiceResponse } from "../types.js";
 
 const FIELD_STYLE = `
@@ -33,6 +34,29 @@ const CELL_INPUT_STYLE = `
   text-align:center;
 `;
 
+/**
+ * Lightweight runtime-coerce for the ``get_monitoring_status`` response.
+ * The backend returns JSON whose shape is nominally ``MonitoringStatusResponse``
+ * but we can't trust the WebSocket payload, so we narrow what we can and
+ * return ``null`` if the shape is unusable. Unknown fields are dropped.
+ */
+function coerceMonitoringStatusResponse(resp: unknown): MonitoringStatusResponse | null {
+  if (!resp || typeof resp !== "object") return null;
+  const r = resp as Record<string, unknown>;
+  const out: MonitoringStatusResponse = {};
+  if (typeof r.enabled === "boolean") out.enabled = r.enabled;
+  if (r.global_settings && typeof r.global_settings === "object") {
+    out.global_settings = r.global_settings as MonitoringStatusResponse["global_settings"];
+  }
+  if (r.circuits && typeof r.circuits === "object") {
+    out.circuits = r.circuits as Record<string, MonitoringPointInfo>;
+  }
+  if (r.mains && typeof r.mains === "object") {
+    out.mains = r.mains as Record<string, MonitoringPointInfo>;
+  }
+  return out;
+}
+
 function thresholdCell(entityId: string, field: string, value: number | undefined, unit: string, type: string): string {
   return `<td style="padding:6px 4px;">
     <input type="number" class="threshold-input" data-entity="${entityId}" data-field="${field}" data-type="${type}"
@@ -42,14 +66,17 @@ function thresholdCell(entityId: string, field: string, value: number | undefine
 }
 
 export class MonitoringTab {
+  errorStore: ErrorStore | null = null;
   private _debounceTimer: ReturnType<typeof setTimeout> | null;
   private _configEntryId: string | null;
   private _notifyCloseHandler: ((e: MouseEvent) => void) | null;
+  private _headerHTML: string;
 
   constructor() {
     this._debounceTimer = null;
     this._configEntryId = null;
     this._notifyCloseHandler = null;
+    this._headerHTML = "";
   }
 
   stop(): void {
@@ -63,8 +90,9 @@ export class MonitoringTab {
     }
   }
 
-  async render(container: HTMLElement, hass: HomeAssistant, configEntryId?: string): Promise<void> {
+  async render(container: HTMLElement, hass: HomeAssistant, configEntryId?: string, headerHTML: string = ""): Promise<void> {
     if (configEntryId !== undefined) this._configEntryId = configEntryId;
+    this._headerHTML = headerHTML;
     if (this._notifyCloseHandler) {
       document.removeEventListener("click", this._notifyCloseHandler as EventListener);
       this._notifyCloseHandler = null;
@@ -80,8 +108,9 @@ export class MonitoringTab {
         service_data: serviceData,
         return_response: true,
       });
-      status = (resp?.response as MonitoringStatusResponse) || null;
-    } catch {
+      status = coerceMonitoringStatusResponse(resp?.response);
+    } catch (err) {
+      console.warn("SPAN Panel: monitoring status fetch failed", err);
       status = null;
     }
 
@@ -191,6 +220,7 @@ export class MonitoringTab {
       .join("");
 
     container.innerHTML = `
+      ${this._headerHTML}
       <div style="padding:16px;">
         <h2 style="margin-top:0;">${t("monitoring.heading")}</h2>
 
@@ -429,24 +459,44 @@ export class MonitoringTab {
     const fieldsDiv = container.querySelector<HTMLElement>("#global-fields");
     const statusEl = container.querySelector<HTMLElement>("#global-status");
 
+    const readGlobalFields = (): Record<string, number> | null => {
+      const fields: Array<[string, string]> = [
+        ["continuous_threshold_pct", "#g-continuous"],
+        ["spike_threshold_pct", "#g-spike"],
+        ["window_duration_m", "#g-window"],
+        ["cooldown_duration_m", "#g-cooldown"],
+      ];
+      const out: Record<string, number> = {};
+      for (const [key, sel] of fields) {
+        const input = container.querySelector<HTMLInputElement>(sel);
+        if (!input) return null;
+        const n = parseInt(input.value, 10);
+        if (Number.isNaN(n)) return null;
+        out[key] = n;
+      }
+      return out;
+    };
+
+    const reportFailure = (target: HTMLElement | null, err: unknown, fallback: string): void => {
+      if (!target) return;
+      const message = err instanceof Error ? err.message : fallback;
+      target.textContent = `${t("error.prefix")} ${message}`;
+      target.style.color = "var(--error-color, #f44336)";
+    };
+
     const saveGlobal = (): void => {
       if (this._debounceTimer) clearTimeout(this._debounceTimer);
       this._debounceTimer = setTimeout(async () => {
-        const data: Record<string, number> = {
-          continuous_threshold_pct: parseInt(container.querySelector<HTMLInputElement>("#g-continuous")!.value, 10),
-          spike_threshold_pct: parseInt(container.querySelector<HTMLInputElement>("#g-spike")!.value, 10),
-          window_duration_m: parseInt(container.querySelector<HTMLInputElement>("#g-window")!.value, 10),
-          cooldown_duration_m: parseInt(container.querySelector<HTMLInputElement>("#g-cooldown")!.value, 10),
-        };
+        const data = readGlobalFields();
+        if (!data) {
+          reportFailure(statusEl, null, t("error.failed_save"));
+          return;
+        }
         try {
           await this._callSetGlobal(hass, data);
           await this.render(container, hass);
         } catch (err: unknown) {
-          if (statusEl) {
-            const message = err instanceof Error ? err.message : t("error.failed_save");
-            statusEl.textContent = `${t("error.prefix")} ${message}`;
-            statusEl.style.color = "var(--error-color, #f44336)";
-          }
+          reportFailure(statusEl, err, t("error.failed_save"));
         }
       }, INPUT_DEBOUNCE_MS);
     };
@@ -461,22 +511,17 @@ export class MonitoringTab {
         const statusEl2 = container.querySelector<HTMLElement>("#global-status");
         try {
           if (enabled) {
-            const data: Record<string, number> = {
-              continuous_threshold_pct: parseInt(container.querySelector<HTMLInputElement>("#g-continuous")!.value, 10),
-              spike_threshold_pct: parseInt(container.querySelector<HTMLInputElement>("#g-spike")!.value, 10),
-              window_duration_m: parseInt(container.querySelector<HTMLInputElement>("#g-window")!.value, 10),
-              cooldown_duration_m: parseInt(container.querySelector<HTMLInputElement>("#g-cooldown")!.value, 10),
-            };
+            const data = readGlobalFields();
+            if (!data) {
+              reportFailure(statusEl2, null, t("error.failed"));
+              return;
+            }
             await this._callSetGlobal(hass, data);
           } else {
             await this._callSetGlobal(hass, { enabled: false });
           }
         } catch (err: unknown) {
-          if (statusEl2) {
-            const message = err instanceof Error ? err.message : t("error.failed");
-            statusEl2.textContent = `${t("error.prefix")} ${message}`;
-            statusEl2.style.color = "var(--error-color, #f44336)";
-          }
+          reportFailure(statusEl2, err, t("error.failed"));
           return;
         }
         await this.render(container, hass);
@@ -529,8 +574,14 @@ export class MonitoringTab {
       this._debounceTimer = setTimeout(async () => {
         try {
           await this._callSetGlobal(hass, { notify_targets: targets.join(", ") });
-        } catch {
-          // will show on next render
+        } catch (err) {
+          console.warn("SPAN Panel: notification targets save failed", err);
+          this.errorStore?.add({
+            key: "service:monitoring",
+            level: "error",
+            message: t("error.threshold_failed"),
+            persistent: false,
+          });
         }
       }, INPUT_DEBOUNCE_MS);
     };
@@ -571,8 +622,14 @@ export class MonitoringTab {
       this._debounceTimer = setTimeout(async () => {
         try {
           await this._callSetGlobal(hass, { [field]: value });
-        } catch {
-          // will show on next render
+        } catch (err) {
+          console.warn("SPAN Panel: notification settings save failed", err);
+          this.errorStore?.add({
+            key: "service:monitoring",
+            level: "error",
+            message: t("error.threshold_failed"),
+            persistent: false,
+          });
         }
       }, INPUT_DEBOUNCE_MS);
     };
@@ -582,8 +639,14 @@ export class MonitoringTab {
         try {
           await this._callSetGlobal(hass, { notification_priority: prioritySelect.value });
           await this.render(container, hass);
-        } catch {
-          // will show on next render
+        } catch (err) {
+          console.warn("SPAN Panel: notification priority change failed", err);
+          this.errorStore?.add({
+            key: "service:monitoring",
+            level: "error",
+            message: t("error.threshold_failed"),
+            persistent: false,
+          });
         }
       });
     }
@@ -662,7 +725,15 @@ export class MonitoringTab {
               service: "set_circuit_threshold",
               service_data: this._serviceData({ circuit_id: entityId, monitoring_enabled: enabled }),
             })
-            .catch(() => {})
+            .catch(err => {
+              console.warn("SPAN Panel: circuit monitoring toggle failed", err);
+              this.errorStore?.add({
+                key: "service:monitoring",
+                level: "error",
+                message: t("error.threshold_failed"),
+                persistent: false,
+              });
+            })
         ),
         ...Object.keys(mains).map(entityId =>
           hass
@@ -672,7 +743,15 @@ export class MonitoringTab {
               service: "set_mains_threshold",
               service_data: this._serviceData({ leg: entityId, monitoring_enabled: enabled }),
             })
-            .catch(() => {})
+            .catch(err => {
+              console.warn("SPAN Panel: mains monitoring toggle failed", err);
+              this.errorStore?.add({
+                key: "service:monitoring",
+                level: "error",
+                message: t("error.threshold_failed"),
+                persistent: false,
+              });
+            })
         ),
       ];
       await Promise.all(calls);
@@ -692,7 +771,14 @@ export class MonitoringTab {
             service: "set_mains_threshold",
             service_data: this._serviceData({ leg: entityId, monitoring_enabled: enabled }),
           });
-        } catch {
+        } catch (err) {
+          console.warn("SPAN Panel: mains threshold toggle failed", err);
+          this.errorStore?.add({
+            key: "service:monitoring",
+            level: "error",
+            message: t("error.threshold_failed"),
+            persistent: false,
+          });
           cb.checked = !enabled;
           return;
         }
@@ -713,7 +799,14 @@ export class MonitoringTab {
             service: "set_circuit_threshold",
             service_data: this._serviceData({ circuit_id: entityId, monitoring_enabled: enabled }),
           });
-        } catch {
+        } catch (err) {
+          console.warn("SPAN Panel: circuit threshold toggle failed", err);
+          this.errorStore?.add({
+            key: "service:monitoring",
+            level: "error",
+            message: t("error.threshold_failed"),
+            persistent: false,
+          });
           cb.checked = !enabled;
           return;
         }
@@ -748,7 +841,14 @@ export class MonitoringTab {
               });
               // Re-render to update Custom badge and Reset button
               await this.render(container, hass);
-            } catch {
+            } catch (err) {
+              console.warn("SPAN Panel: threshold input save failed", err);
+              this.errorStore?.add({
+                key: "service:monitoring",
+                level: "error",
+                message: t("error.threshold_failed"),
+                persistent: false,
+              });
               input.style.borderColor = "var(--error-color, #f44336)";
             }
           }, THRESHOLD_DEBOUNCE_MS)

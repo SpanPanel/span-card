@@ -1,4 +1,6 @@
 import type { HomeAssistant, PanelTopology } from "../types.js";
+import type { ErrorStore } from "./error-store.js";
+import { t } from "../i18n.js";
 
 interface AreaRegistryEntry {
   area_id: string;
@@ -89,7 +91,12 @@ export async function resolveAndAssignAreas(hass: HomeAssistant, topology: Panel
  *
  * Returns an unsubscribe function that tears down both listeners.
  */
-export async function subscribeAreaUpdates(hass: HomeAssistant, topology: PanelTopology, callback: () => void): Promise<() => void> {
+export async function subscribeAreaUpdates(
+  hass: HomeAssistant,
+  topology: PanelTopology,
+  callback: () => void,
+  errorStore?: ErrorStore | null
+): Promise<() => void> {
   if (!hass.connection) {
     return () => {};
   }
@@ -113,6 +120,12 @@ export async function subscribeAreaUpdates(hass: HomeAssistant, topology: PanelT
       }
     } catch (err) {
       console.warn("[span-panel] area registry update failed:", err);
+      errorStore?.add({
+        key: "fetch:areas",
+        level: "warning",
+        message: t("error.areas_failed"),
+        persistent: false,
+      });
     }
   };
 

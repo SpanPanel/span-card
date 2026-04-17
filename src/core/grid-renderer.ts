@@ -4,7 +4,8 @@ import { t } from "../i18n.js";
 import { tabToRow, tabToCol, classifyDualTab } from "../helpers/layout.js";
 import { getChartMetric } from "../helpers/chart.js";
 import { DEVICE_TYPE_PV, RELAY_STATE_CLOSED, SHEDDING_PRIORITIES, MONITORING_COLORS } from "../constants.js";
-import { getCircuitMonitoringInfo, hasCustomOverrides, getUtilizationClass, isAlertActive } from "./monitoring-status.js";
+import { getCircuitMonitoringInfo, hasCustomOverrides } from "./monitoring-status.js";
+import { getCircuitStateClasses } from "./circuit-state.js";
 import type { PanelTopology, Circuit, HomeAssistant, CardConfig, MonitoringStatus, MonitoringPointInfo, SheddingPriorityDef } from "../types.js";
 
 type SlotLayout = "single" | "row-span" | "col-span";
@@ -155,20 +156,28 @@ export function renderCircuitSlot(
   if (priority !== "unknown") {
     const shedInfo: SheddingPriorityDef = SHEDDING_PRIORITIES[priority] ??
       SHEDDING_PRIORITIES.unknown ?? { icon: "mdi:help", color: "#999", label: () => "Unknown" };
+    // Escape every value that ends up inside an attribute. ``label()``
+    // resolves through i18n so future translations may contain quotes,
+    // and inline-style injection breaks on a stray ``"`` or ``;``.
+    const safeLabel = escapeHtml(shedInfo.label());
+    const safeIcon = escapeHtml(shedInfo.icon);
+    const safeColor = escapeHtml(shedInfo.color);
     if (shedInfo.icon2) {
-      sheddingHTML = `<span class="shedding-composite" title="${shedInfo.label()}">
-        <ha-icon class="shedding-icon" icon="${shedInfo.icon}" style="color:${shedInfo.color};--mdc-icon-size:16px;"></ha-icon>
-        <ha-icon class="shedding-icon-secondary" icon="${shedInfo.icon2}" style="color:${shedInfo.color};--mdc-icon-size:14px;"></ha-icon>
+      const safeIcon2 = escapeHtml(shedInfo.icon2);
+      sheddingHTML = `<span class="shedding-composite" title="${safeLabel}">
+        <ha-icon class="shedding-icon" icon="${safeIcon}" style="color:${safeColor};--mdc-icon-size:16px;"></ha-icon>
+        <ha-icon class="shedding-icon-secondary" icon="${safeIcon2}" style="color:${safeColor};--mdc-icon-size:14px;"></ha-icon>
       </span>`;
     } else if (shedInfo.textLabel) {
-      sheddingHTML = `<span class="shedding-composite" title="${shedInfo.label()}">
-        <ha-icon class="shedding-icon" icon="${shedInfo.icon}" style="color:${shedInfo.color};--mdc-icon-size:16px;"></ha-icon>
-        <span class="shedding-label" style="color:${shedInfo.color}">${shedInfo.textLabel}</span>
+      const safeTextLabel = escapeHtml(shedInfo.textLabel);
+      sheddingHTML = `<span class="shedding-composite" title="${safeLabel}">
+        <ha-icon class="shedding-icon" icon="${safeIcon}" style="color:${safeColor};--mdc-icon-size:16px;"></ha-icon>
+        <span class="shedding-label" style="color:${safeColor}">${safeTextLabel}</span>
       </span>`;
     } else {
-      sheddingHTML = `<ha-icon class="shedding-icon" icon="${shedInfo.icon}"
-        style="color:${shedInfo.color};--mdc-icon-size:16px;"
-        title="${shedInfo.label()}"></ha-icon>`;
+      sheddingHTML = `<ha-icon class="shedding-icon" icon="${safeIcon}"
+        style="color:${safeColor};--mdc-icon-size:16px;"
+        title="${safeLabel}"></ha-icon>`;
     }
   }
 
@@ -177,34 +186,38 @@ export function renderCircuitSlot(
   const gearColor = hasOverridesFlag ? MONITORING_COLORS.custom : "#555";
   const gearHTML = `<button class="gear-icon circuit-gear"
     data-uuid="${escapeHtml(uuid)}" style="color:${gearColor};"
-    title="${t("grid.configure")}">
+    title="${escapeHtml(t("grid.configure"))}">
     <ha-icon icon="mdi:cog" style="--mdc-icon-size:16px;"></ha-icon>
   </button>`;
 
-  // Utilization (shown when monitoring is active)
+  // Utilization — prefer monitoring data, fall back to live current / breaker rating
   let utilizationHTML = "";
-  if (monitoringInfo?.utilization_pct != null) {
-    const pct = monitoringInfo.utilization_pct;
-    const utilClass = getUtilizationClass(monitoringInfo);
-    utilizationHTML = `<span class="utilization ${utilClass}">${Math.round(pct)}%</span>`;
+  let utilizationPct = monitoringInfo?.utilization_pct ?? null;
+  if (utilizationPct == null && circuit.breaker_rating_a) {
+    const curEid = circuit.entities?.current;
+    const curState = curEid ? hass.states[curEid] : null;
+    const amps = curState ? Math.abs(parseFloat(curState.state) || 0) : 0;
+    utilizationPct = Math.round((amps / circuit.breaker_rating_a) * 1000) / 10;
+  }
+  if (utilizationPct != null) {
+    const utilClass = utilizationPct >= 100 ? "utilization-alert" : utilizationPct >= 80 ? "utilization-warning" : "utilization-normal";
+    utilizationHTML = `<span class="utilization ${utilClass}">${Math.round(utilizationPct)}%</span>`;
   }
 
-  // Alert and custom monitoring classes
-  const alertActive = isAlertActive(monitoringInfo);
-  const alertClass = alertActive ? "circuit-alert" : "";
-  const customClass = hasOverridesFlag ? "circuit-custom-monitoring" : "";
+  const stateClasses = getCircuitStateClasses(circuit, monitoringInfo, isOn, isProducer);
 
   const rowSpan = layout === "col-span" ? `${row} / span 2` : `${row}`;
   const layoutClass = inline ? "" : layout === "row-span" ? "circuit-row-span" : layout === "col-span" ? "circuit-col-span" : "";
   const gridStyle = inline ? "" : `style="grid-row: ${rowSpan}; grid-column: ${col};"`;
 
   return `
-    <div class="circuit-slot ${isOn ? "" : "circuit-off"} ${isProducer ? "circuit-producer" : ""} ${layoutClass} ${alertClass} ${customClass}"
+    <div class="circuit-slot ${stateClasses} ${layoutClass}"
          ${gridStyle}
          data-uuid="${escapeHtml(uuid)}">
       <div class="circuit-header">
         <div class="circuit-info">
           ${breakerLabel ? `<span class="breaker-badge">${breakerLabel}</span>` : ""}
+          ${utilizationHTML}
           <span class="circuit-name">${name}</span>
         </div>
         <div class="circuit-controls">
@@ -225,7 +238,6 @@ export function renderCircuitSlot(
       </div>
       <div class="circuit-status">
         ${sheddingHTML}
-        ${utilizationHTML}
         ${gearHTML}
       </div>
       <div class="chart-container"></div>

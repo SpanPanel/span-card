@@ -62,6 +62,7 @@ export interface PanelEntities {
   pv_power?: string;
   battery_level?: string;
   dsm_state?: string;
+  panel_status?: string; // binary_sensor entity for online/offline state
 }
 
 export interface PanelTopology {
@@ -123,6 +124,48 @@ export interface ChartMetricDef {
   format: (v: number) => string;
   fixedMin?: number;
   fixedMax?: number;
+}
+
+// -- Favorites --
+
+export interface PanelFavoritesEntry {
+  circuits: string[];
+  sub_devices: string[];
+}
+
+/**
+ * Cross-panel favorites, keyed by the main SPAN panel device id
+ * (HA device registry id) and grouping the panel-local circuit uuids
+ * and sub-device HA device ids the user has marked.
+ */
+export interface FavoritesMap {
+  [panelDeviceId: string]: PanelFavoritesEntry;
+}
+
+export type FavoriteKind = "circuit" | "sub_device";
+
+/**
+ * Origin metadata for a favorited circuit or sub-device, used by the
+ * Favorites pseudo-panel to route per-target service calls back to the
+ * correct SPAN panel/config entry after aggregating across panels.
+ */
+export interface FavoriteRef {
+  panelDeviceId: string;
+  kind: FavoriteKind;
+  /** Real circuit uuid (kind ``circuit``) or HA device id (kind ``sub_device``). */
+  targetId: string;
+  configEntryId: string | null;
+}
+
+/**
+ * Merged topology for the Favorites pseudo-panel. Circuits and
+ * sub-devices are keyed by composite ids ``"{panelDeviceId}|{targetId}"``
+ * so identifiers from different panels can't collide.
+ * ``_favoriteRefs`` maps composite ids back to their origin for
+ * downstream service calls.
+ */
+export interface FavoritesTopology extends PanelTopology {
+  _favoriteRefs: Record<string, FavoriteRef>;
 }
 
 // -- Graph settings --

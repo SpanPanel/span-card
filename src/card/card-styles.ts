@@ -53,6 +53,65 @@ export const CARD_STYLES: string = `
     gap: 16px 32px;
   }
 
+  /* Favorites view header: gear + slide-to-arm + right-anchored legend/W-A cluster. */
+  .favorites-summary {
+    padding: 8px 24px;
+    border-bottom: 1px solid var(--divider-color, #e0e0e0);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  /* Override the generic .gear-icon { margin-left: auto } rule so the
+     favorites gear stays flush-left instead of floating to the right of
+     the flex row (same idea as .panel-identity .panel-gear does for
+     real-panel headers). */
+  .favorites-summary .favorites-gear {
+    margin-left: 0;
+  }
+  /* Right-anchored cluster wrapping the shedding legend + W/A unit toggle.
+     margin-left:auto moved here from .favorites-summary-unit-toggle so the
+     legend and toggle cluster together, matching the real-panel header
+     layout. */
+  .favorites-summary-right {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+  .favorites-subdevices-section {
+    padding: 8px 16px 0;
+  }
+
+  /* Favorites view: responsive grid of per-contributing-panel status cards. */
+  .favorites-panel-stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 12px;
+    padding: 12px 24px;
+    border-bottom: 1px solid var(--divider-color, #333);
+  }
+  .favorites-panel-card {
+    background: var(--secondary-background-color, rgba(255, 255, 255, 0.04));
+    border: 1px solid var(--divider-color, #333);
+    border-radius: 8px;
+    padding: 10px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .favorites-panel-card-title {
+    font-size: 0.85em;
+    font-weight: 600;
+    color: var(--primary-text-color);
+    opacity: 0.85;
+  }
+  .favorites-panel-card .panel-stats {
+    gap: 10px 20px;
+  }
+  .favorites-panel-card .stat-value {
+    font-size: 1.15em;
+  }
+
   .stat { display: flex; flex-direction: column; }
   .stat-label { font-size: 0.8em; color: var(--secondary-text-color, #999); margin-bottom: 2px; }
   .stat-row { display: flex; align-items: baseline; gap: 2px; }
@@ -494,6 +553,33 @@ export const CARD_STYLES: string = `
     flex-direction: column;
     gap: 6px;
   }
+  /* Each circuit is wrapped in a .list-cell so the row + its optional
+     expanded chart stay together. In single-column flex mode the cell
+     just stacks naturally. In multi-column grid mode the cell becomes
+     one grid item, so the chart is always in the same column as its
+     row. Area headers (rendered as siblings, not inside a cell) span
+     all columns via their inline "grid-column: 1 / -1". */
+  .list-cell {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+  .list-view[data-columns="2"],
+  .list-view[data-columns="3"] {
+    display: grid;
+    grid-template-columns: repeat(var(--list-cols), minmax(0, 1fr));
+    gap: 6px 8px;
+    flex-direction: initial;
+  }
+  /* On narrow viewports a 2/3-column list would squeeze rows into an
+     unreadable shape, so force stacking regardless of user preference. */
+  @media (max-width: 599px) {
+    .list-view[data-columns="2"],
+    .list-view[data-columns="3"] {
+      display: flex;
+      flex-direction: column;
+    }
+  }
 
   .list-row {
     display: flex;
@@ -570,10 +656,23 @@ export const CARD_STYLES: string = `
     transform: rotate(180deg);
   }
 
+  .list-row .gear-icon {
+    background: transparent;
+    border: none;
+    padding: 2px;
+    cursor: pointer;
+    color: #555;
+    display: inline-flex;
+    align-items: center;
+  }
+  .list-row .gear-icon:hover {
+    color: var(--primary-text-color);
+  }
+
   /* ── Expanded circuit content ──────────────────────────── */
 
   .list-expanded-content {
-    padding: 12px;
+    padding: 0;
     background: var(--card-background-color, #1c1c1c);
     border: 1px solid var(--divider-color, #333);
     border-top: none;
@@ -582,10 +681,12 @@ export const CARD_STYLES: string = `
     margin-bottom: 2px;
   }
 
-  .list-expanded-content .circuit-slot {
+  .circuit-slot.circuit-chart-only {
     border: none;
     margin: 0;
     background: none;
+    padding: 8px 12px;
+    min-height: 0;
   }
 
   /* ── Area headers ──────────────────────────────────────── */

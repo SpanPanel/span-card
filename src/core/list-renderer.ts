@@ -2,9 +2,9 @@ import { escapeHtml } from "../helpers/sanitize.js";
 import { formatPowerSigned, formatPowerUnit } from "../helpers/format.js";
 import { t } from "../i18n.js";
 import { getChartMetric } from "../helpers/chart.js";
-import { RELAY_STATE_CLOSED, SHEDDING_PRIORITIES } from "../constants.js";
-import { getUtilizationClass } from "./monitoring-status.js";
-import { renderCircuitSlot } from "./grid-renderer.js";
+import { RELAY_STATE_CLOSED, SHEDDING_PRIORITIES, MONITORING_COLORS, DEVICE_TYPE_PV } from "../constants.js";
+import { hasCustomOverrides } from "./monitoring-status.js";
+import { getCircuitStateClasses } from "./circuit-state.js";
 import type { Circuit, HomeAssistant, CardConfig, MonitoringPointInfo, SheddingPriorityDef } from "../types.js";
 
 /**
@@ -101,27 +101,51 @@ export function buildListRowHTML(
     }
   }
 
-  // Utilization badge
+  // Utilization — prefer monitoring data, fall back to live current / breaker rating
   let utilizationHTML = "";
-  if (monitoringInfo?.utilization_pct != null) {
-    const pct = monitoringInfo.utilization_pct;
-    const utilClass = getUtilizationClass(monitoringInfo);
-    utilizationHTML = `<span class="utilization ${utilClass}">${Math.round(pct)}%</span>`;
+  let utilizationPct = monitoringInfo?.utilization_pct ?? null;
+  if (utilizationPct == null && circuit.breaker_rating_a) {
+    const curEid = circuit.entities?.current;
+    const curState = curEid ? hass.states[curEid] : null;
+    const amps = curState ? Math.abs(parseFloat(curState.state) || 0) : 0;
+    utilizationPct = Math.round((amps / circuit.breaker_rating_a) * 1000) / 10;
+  }
+  if (utilizationPct != null) {
+    const utilClass = utilizationPct >= 100 ? "utilization-alert" : utilizationPct >= 80 ? "utilization-warning" : "utilization-normal";
+    utilizationHTML = `<span class="utilization ${utilClass}">${Math.round(utilizationPct)}%</span>`;
   }
 
-  // ON/OFF badge
-  const statusBadge = isOn ? `<span class="list-status-badge list-status-on">ON</span>` : `<span class="list-status-badge list-status-off">OFF</span>`;
+  // Gear — matches the breaker-grid's gear so onGearClick handles it unchanged.
+  const hasOverridesFlag = monitoringInfo ? hasCustomOverrides(monitoringInfo) : false;
+  const gearColor = hasOverridesFlag ? MONITORING_COLORS.custom : "#555";
+  const gearHTML = `<button class="gear-icon circuit-gear"
+  data-uuid="${escapeHtml(uuid)}" style="color:${gearColor};"
+  title="${escapeHtml(t("grid.configure"))}">
+  <ha-icon icon="mdi:cog" style="--mdc-icon-size:16px;"></ha-icon>
+</button>`;
+
+  // Controllable circuits get a real toggle-pill arm-protected by the
+  // header's slide-confirm; non-controllable circuits keep a static badge.
+  const isToggleable = circuit.is_user_controllable !== false && !!circuit.entities?.switch;
+  const statusControl = isToggleable
+    ? `<div class="toggle-pill ${isOn ? "toggle-on" : "toggle-off"}">
+        <span class="toggle-label">${isOn ? t("grid.on") : t("grid.off")}</span>
+        <span class="toggle-knob"></span>
+      </div>`
+    : `<span class="list-status-badge ${isOn ? "list-status-on" : "list-status-off"}">${isOn ? "ON" : "OFF"}</span>`;
 
   return `
-    <div class="list-row ${isOn ? "" : "circuit-off"} ${isExpanded ? "list-row-expanded" : ""}" data-row-uuid="${escapeHtml(uuid)}">
+    <div class="list-row ${isOn ? "" : "circuit-off"} ${isExpanded ? "list-row-expanded" : ""}"
+         data-row-uuid="${escapeHtml(uuid)}" data-uuid="${escapeHtml(uuid)}">
       ${breakerLabel ? `<span class="breaker-badge">${breakerLabel}</span>` : ""}
+      ${utilizationHTML}
       <span class="list-circuit-name">${name}</span>
       ${sheddingHTML}
-      ${utilizationHTML}
-      ${statusBadge}
+      ${statusControl}
       <span class="list-power-value">
         ${valueHTML}
       </span>
+      ${gearHTML}
       <button class="list-expand-toggle ${isExpanded ? "expanded" : ""}" data-expand-uuid="${escapeHtml(uuid)}">
         <ha-icon icon="mdi:chevron-down" style="--mdc-icon-size:18px;"></ha-icon>
       </button>
@@ -130,23 +154,48 @@ export function buildListRowHTML(
 }
 
 /**
- * Build the expanded detail view for a circuit (wraps renderCircuitSlot).
+ * Build the chart-only expanded content for a list row. The collapsed
+ * list row already shows breaker / utilization / name / shedding / status /
+ * power, so the expanded area only needs to surface the chart. State-
+ * visualization classes (off, producer, alert, custom monitoring) still
+ * apply to the wrapping slot so border/background signaling is preserved.
  */
-export function buildExpandedCircuitHTML(
+export function buildExpandedChartHTML(
   uuid: string,
   circuit: Circuit,
   hass: HomeAssistant,
-  config: CardConfig,
-  monitoringInfo: MonitoringPointInfo | null,
-  sheddingPriority: string
+  _config: CardConfig,
+  monitoringInfo: MonitoringPointInfo | null
 ): string {
-  const slotHTML = renderCircuitSlot(uuid, circuit, 0, "1", "single", hass, config, monitoringInfo, sheddingPriority, true);
-  return `<div class="list-expanded-content" data-expanded-uuid="${escapeHtml(uuid)}">${slotHTML}</div>`;
+  const powerEid = circuit.entities?.power;
+  const powerState = powerEid ? hass.states[powerEid] : null;
+  const powerW = powerState ? parseFloat(powerState.state) || 0 : 0;
+  const isProducer = circuit.device_type === DEVICE_TYPE_PV || powerW < 0;
+
+  const switchEid = circuit.entities?.switch;
+  const switchState = switchEid ? hass.states[switchEid] : null;
+  const isOn = switchState
+    ? switchState.state === "on"
+    : ((powerState?.attributes?.relay_state as string | undefined) || circuit.relay_state) === RELAY_STATE_CLOSED;
+
+  const stateClasses = getCircuitStateClasses(circuit, monitoringInfo, isOn, isProducer);
+  const safeUuid = escapeHtml(uuid);
+
+  return `
+    <div class="list-expanded-content" data-expanded-uuid="${safeUuid}">
+      <div class="circuit-slot circuit-chart-only ${stateClasses}" data-uuid="${safeUuid}">
+        <div class="chart-container"></div>
+      </div>
+    </div>
+  `;
 }
 
 /**
- * Build an area group header for the "By Area" list view.
+ * Build an area group header for the "By Area" list view. The inline
+ * ``grid-column: 1 / -1`` is harmless when the list view is in
+ * single-column (flex) mode and causes the header to span all columns
+ * when grid mode is active.
  */
 export function buildAreaHeaderHTML(areaName: string): string {
-  return `<div class="area-header" data-area="${escapeHtml(areaName)}">${escapeHtml(areaName)}</div>`;
+  return `<div class="area-header" data-area="${escapeHtml(areaName)}" style="grid-column:1 / -1;">${escapeHtml(areaName)}</div>`;
 }

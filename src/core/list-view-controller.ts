@@ -1,14 +1,18 @@
+import { escapeHtml } from "../helpers/sanitize.js";
+import { attrSelectorValue } from "../helpers/selector.js";
 import { RELAY_STATE_CLOSED } from "../constants.js";
 import { formatPowerSigned, formatPowerUnit } from "../helpers/format.js";
 import { getChartMetric } from "../helpers/chart.js";
 import { t } from "../i18n.js";
 import { getCircuitMonitoringInfo } from "./monitoring-status.js";
-import { buildSearchBarHTML, buildUnitToggleHTML, buildListRowHTML, buildExpandedCircuitHTML, buildAreaHeaderHTML } from "./list-renderer.js";
+import { buildSearchBarHTML, buildListRowHTML, buildExpandedChartHTML, buildAreaHeaderHTML } from "./list-renderer.js";
 import type { DashboardController } from "./dashboard-controller.js";
 import type { HomeAssistant, PanelTopology, CardConfig, Circuit, MonitoringStatus } from "../types.js";
+import type { ErrorStore } from "./error-store.js";
 
 interface SpanSidePanelElement extends HTMLElement {
   hass: HomeAssistant;
+  errorStore: ErrorStore | null;
 }
 
 interface CircuitSortInfo {
@@ -44,18 +48,90 @@ function getSheddingPriority(circuit: Circuit, hass: HomeAssistant): string {
   return selectState ? selectState.state : "unknown";
 }
 
+function compareCircuits(a: Circuit, b: Circuit, hass: HomeAssistant, config: CardConfig): number {
+  const infoA = getCircuitSortInfo(a, hass, config);
+  const infoB = getCircuitSortInfo(b, hass, config);
+  if (infoA.isOn && !infoB.isOn) return -1;
+  if (!infoA.isOn && infoB.isOn) return 1;
+  return infoB.value - infoA.value;
+}
+
 function sortCircuitEntries(entries: [string, Circuit][], hass: HomeAssistant, config: CardConfig): [string, Circuit][] {
-  return entries.sort((a, b) => {
-    const infoA = getCircuitSortInfo(a[1], hass, config);
-    const infoB = getCircuitSortInfo(b[1], hass, config);
-    if (infoA.isOn && !infoB.isOn) return -1;
-    if (!infoA.isOn && infoB.isOn) return 1;
-    return infoB.value - infoA.value;
-  });
+  return entries.sort((a, b) => compareCircuits(a[1], b[1], hass, config));
+}
+
+interface CellUnit {
+  cell: HTMLElement;
+  uuid: string;
+  circuit: Circuit;
+}
+
+interface CellGroup {
+  anchor: HTMLElement | null;
+  units: CellUnit[];
+}
+
+// Partition .list-view's direct children into groups. Activity view
+// produces a single anchor-less group; area view produces one group per
+// .area-header. Each circuit (row + optional expansion) lives inside a
+// single ``.list-cell`` wrapper so multi-column grid mode keeps the
+// expansion in the same column as its row.
+function partitionCellGroups(listView: HTMLElement, topology: PanelTopology): CellGroup[] {
+  let current: CellGroup = { anchor: null, units: [] };
+  const groups: CellGroup[] = [current];
+
+  for (const el of [...listView.children] as HTMLElement[]) {
+    if (el.classList.contains("area-header")) {
+      current = { anchor: el, units: [] };
+      groups.push(current);
+      continue;
+    }
+    if (el.classList.contains("list-cell")) {
+      const uuid = el.dataset.cellUuid;
+      const circuit = uuid ? topology.circuits[uuid] : undefined;
+      if (uuid && circuit) {
+        current.units.push({ cell: el, uuid, circuit });
+      }
+    }
+  }
+
+  return groups;
+}
+
+function reorderListRows(root: Element | ShadowRoot, hass: HomeAssistant, topology: PanelTopology, config: CardConfig): void {
+  const listView = root.querySelector<HTMLElement>(".list-view");
+  if (!listView) return;
+
+  for (const group of partitionCellGroups(listView, topology)) {
+    if (group.units.length < 2) continue;
+
+    const sorted = [...group.units].sort((a, b) => compareCircuits(a.circuit, b.circuit, hass, config));
+
+    const changed = sorted.some((unit, j) => unit.uuid !== group.units[j]!.uuid);
+    if (!changed) continue;
+
+    let after: Element | null = group.anchor;
+    for (const unit of sorted) {
+      if (after) {
+        after.after(unit.cell);
+      } else {
+        listView.prepend(unit.cell);
+      }
+      after = unit.cell;
+    }
+  }
 }
 
 function getCircuitEntityId(circuit: Circuit): string {
   return circuit.entities?.current ?? circuit.entities?.power ?? "";
+}
+
+export const FAVORITES_VIEW_STATE_CHANGED_EVENT = "favorites-view-state-changed";
+
+export interface FavoritesViewStateDetail {
+  view: "activity" | "area";
+  expanded: string[];
+  searchQuery: string;
 }
 
 export class ListViewController {
@@ -73,8 +149,51 @@ export class ListViewController {
   private _config: CardConfig | null = null;
   private _monitoringStatus: MonitoringStatus | null = null;
 
+  /**
+   * When set to ``"activity"`` or ``"area"``, expansion and search-box
+   * mutations dispatch ``favorites-view-state-changed`` so span-panel.ts
+   * can persist the Favorites pseudo-panel's view state to localStorage.
+   * ``null`` (the default) disables persistence for real-panel renders.
+   */
+  private _viewName: "activity" | "area" | null = null;
+
+  /**
+   * Number of columns for the circuit list. 1 = flex/stack (default),
+   * 2-3 = CSS grid. Configurable via the Graph Settings side panel and
+   * persisted to localStorage by ``span-panel.ts``.
+   */
+  private _columns = 1;
+
   constructor(ctrl: DashboardController) {
     this._ctrl = ctrl;
+  }
+
+  /** Set the column count (1-3) for the next render. */
+  setColumns(n: number): void {
+    const clamped = Math.max(1, Math.min(3, Math.floor(n)));
+    this._columns = clamped;
+  }
+
+  /**
+   * Seed the expansion set before the next render. Called by
+   * ``span-panel.ts`` when re-entering the Favorites view so the user's
+   * previously expanded rows come back.
+   */
+  setInitialExpansion(ids: Iterable<string>): void {
+    this._expandedUuids = new Set(ids);
+  }
+
+  /** Seed the search query before the next render. */
+  setInitialSearchQuery(query: string): void {
+    this._searchQuery = query;
+  }
+
+  /**
+   * Mark the upcoming render as belonging to a Favorites-view tab so
+   * that expansion/search state persists across dropdown switches.
+   */
+  setViewName(viewName: "activity" | "area" | null): void {
+    this._viewName = viewName;
   }
 
   renderActivityView(
@@ -82,7 +201,8 @@ export class ListViewController {
     hass: HomeAssistant,
     topology: PanelTopology,
     config: CardConfig,
-    monitoringStatus: MonitoringStatus | null
+    monitoringStatus: MonitoringStatus | null,
+    headerHTML: string
   ): void {
     this._unbindEvents();
     this._hass = hass;
@@ -93,30 +213,42 @@ export class ListViewController {
     const entries: [string, Circuit][] = Object.entries(topology.circuits);
     const sorted = sortCircuitEntries(entries, hass, config);
 
-    let html = buildSearchBarHTML(this._searchQuery) + buildUnitToggleHTML(config);
-    html += '<div class="list-view">';
+    let html = headerHTML + buildSearchBarHTML(this._searchQuery);
+    html += `<div class="list-view" data-columns="${this._columns}" style="--list-cols:${this._columns};">`;
 
     for (const [uuid, circuit] of sorted) {
       const monitoringInfo = getCircuitMonitoringInfo(monitoringStatus, getCircuitEntityId(circuit));
       const sheddingPriority = getSheddingPriority(circuit, hass);
       const isExpanded = this._expandedUuids.has(uuid);
+      html += `<div class="list-cell" data-cell-uuid="${escapeHtml(uuid)}">`;
       html += buildListRowHTML(uuid, circuit, hass, config, monitoringInfo, sheddingPriority, isExpanded);
       if (isExpanded) {
-        html += buildExpandedCircuitHTML(uuid, circuit, hass, config, monitoringInfo, sheddingPriority);
+        html += buildExpandedChartHTML(uuid, circuit, hass, config, monitoringInfo);
       }
+      html += "</div>";
     }
 
     html += "</div>";
     html += "<span-side-panel></span-side-panel>";
     container.innerHTML = html;
     const sidePanel = container.querySelector("span-side-panel") as SpanSidePanelElement | null;
-    if (sidePanel) sidePanel.hass = hass;
+    if (sidePanel) {
+      sidePanel.hass = hass;
+      sidePanel.errorStore = this._ctrl.errorStore;
+    }
     this._bindEvents(container);
     if (this._searchQuery) this._applyFilter(container);
     this._ctrl.updateDOM(container);
   }
 
-  renderAreaView(container: HTMLElement, hass: HomeAssistant, topology: PanelTopology, config: CardConfig, monitoringStatus: MonitoringStatus | null): void {
+  renderAreaView(
+    container: HTMLElement,
+    hass: HomeAssistant,
+    topology: PanelTopology,
+    config: CardConfig,
+    monitoringStatus: MonitoringStatus | null,
+    headerHTML: string
+  ): void {
     this._unbindEvents();
     this._hass = hass;
     this._topology = topology;
@@ -144,8 +276,8 @@ export class ListViewController {
       return a.localeCompare(b);
     });
 
-    let html = buildSearchBarHTML(this._searchQuery) + buildUnitToggleHTML(config);
-    html += '<div class="list-view">';
+    let html = headerHTML + buildSearchBarHTML(this._searchQuery);
+    html += `<div class="list-view" data-columns="${this._columns}" style="--list-cols:${this._columns};">`;
 
     for (const areaName of areaNames) {
       const group = areaGroups.get(areaName);
@@ -158,10 +290,12 @@ export class ListViewController {
         const monitoringInfo = getCircuitMonitoringInfo(monitoringStatus, getCircuitEntityId(circuit));
         const sheddingPriority = getSheddingPriority(circuit, hass);
         const isExpanded = this._expandedUuids.has(uuid);
+        html += `<div class="list-cell" data-cell-uuid="${escapeHtml(uuid)}">`;
         html += buildListRowHTML(uuid, circuit, hass, config, monitoringInfo, sheddingPriority, isExpanded);
         if (isExpanded) {
-          html += buildExpandedCircuitHTML(uuid, circuit, hass, config, monitoringInfo, sheddingPriority);
+          html += buildExpandedChartHTML(uuid, circuit, hass, config, monitoringInfo);
         }
+        html += "</div>";
       }
     }
 
@@ -169,7 +303,10 @@ export class ListViewController {
     html += "<span-side-panel></span-side-panel>";
     container.innerHTML = html;
     const areaSidePanel = container.querySelector("span-side-panel") as SpanSidePanelElement | null;
-    if (areaSidePanel) areaSidePanel.hass = hass;
+    if (areaSidePanel) {
+      areaSidePanel.hass = hass;
+      areaSidePanel.errorStore = this._ctrl.errorStore;
+    }
     this._bindEvents(container);
     if (this._searchQuery) this._applyFilter(container);
     this._ctrl.updateDOM(container);
@@ -204,7 +341,16 @@ export class ListViewController {
         }
       }
 
-      // Update status badge
+      // Update the status control — real toggle-pill for controllable
+      // circuits, static text badge for the rest. Only one will be
+      // present in any given row.
+      const togglePill = row.querySelector(".toggle-pill") as HTMLElement | null;
+      if (togglePill) {
+        togglePill.classList.toggle("toggle-on", isOn);
+        togglePill.classList.toggle("toggle-off", !isOn);
+        const label = togglePill.querySelector(".toggle-label");
+        if (label) label.textContent = isOn ? t("grid.on") : t("grid.off");
+      }
       const statusBadge = row.querySelector(".list-status-badge") as HTMLElement | null;
       if (statusBadge) {
         statusBadge.textContent = isOn ? "ON" : "OFF";
@@ -215,16 +361,39 @@ export class ListViewController {
       // Toggle circuit-off class
       row.classList.toggle("circuit-off", !isOn);
     }
+
+    reorderListRows(root, hass, topology, config);
   }
 
   stop(): void {
     this._unbindEvents();
-    this._expandedUuids.clear();
-    this._searchQuery = "";
+    // Only reset user-visible view state for real-panel renders. In the
+    // Favorites view we preserve expansion/search across re-renders so
+    // switching tabs or reloading the page restores the user's layout.
+    if (this._viewName === null) {
+      this._expandedUuids.clear();
+      this._searchQuery = "";
+    }
     this._hass = null;
     this._topology = null;
     this._config = null;
     this._monitoringStatus = null;
+  }
+
+  private _dispatchFavoritesViewState(): void {
+    if (!this._viewName || !this._container) return;
+    const detail: FavoritesViewStateDetail = {
+      view: this._viewName,
+      expanded: [...this._expandedUuids],
+      searchQuery: this._searchQuery,
+    };
+    this._container.dispatchEvent(
+      new CustomEvent<FavoritesViewStateDetail>(FAVORITES_VIEW_STATE_CHANGED_EVENT, {
+        detail,
+        bubbles: true,
+        composed: true,
+      })
+    );
   }
 
   private _bindEvents(container: HTMLElement): void {
@@ -291,6 +460,7 @@ export class ListViewController {
 
       this._searchQuery = input.value.toLowerCase();
       this._applyFilter(container);
+      this._dispatchFavoritesViewState();
     };
 
     this._graphSettingsHandler = (): void => {
@@ -305,6 +475,16 @@ export class ListViewController {
     container.addEventListener("click", this._clickHandler);
     container.addEventListener("input", this._inputHandler);
     container.addEventListener("graph-settings-changed", this._graphSettingsHandler);
+
+    // Wire the slide-to-arm control rendered in the header so tappable
+    // toggle-pills on the list rows actually fire. Without this the
+    // slide-confirm element renders but never gets the `.confirmed`
+    // class, and onToggleClick silently no-ops.
+    const slideEl = container.querySelector(".slide-confirm");
+    if (slideEl) {
+      this._ctrl.bindSlideConfirm(slideEl, container);
+      container.classList.add("switches-disabled");
+    }
   }
 
   private _unbindEvents(): void {
@@ -329,21 +509,12 @@ export class ListViewController {
     const clearBtn = container.querySelector<HTMLElement>(".list-search-clear");
     if (clearBtn) clearBtn.style.display = this._searchQuery ? "" : "none";
 
-    const rows = container.querySelectorAll<HTMLElement>(".list-row[data-row-uuid]");
-    for (const row of rows) {
-      const nameEl = row.querySelector(".list-circuit-name");
+    const cells = container.querySelectorAll<HTMLElement>(".list-cell[data-cell-uuid]");
+    for (const cell of cells) {
+      const nameEl = cell.querySelector(".list-circuit-name");
       const name = nameEl?.textContent?.toLowerCase() ?? "";
       const matches = name.includes(this._searchQuery);
-
-      row.style.display = matches ? "" : "none";
-
-      const uuid = row.dataset.rowUuid;
-      if (uuid) {
-        const expandedContent = container.querySelector<HTMLElement>(`.list-expanded-content[data-expanded-uuid="${uuid}"]`);
-        if (expandedContent) {
-          expandedContent.style.display = matches ? "" : "none";
-        }
-      }
+      cell.style.display = matches ? "" : "none";
     }
 
     const areaHeaders = container.querySelectorAll<HTMLElement>(".area-header");
@@ -351,7 +522,7 @@ export class ListViewController {
       let hasVisibleRow = false;
       let sibling = header.nextElementSibling;
       while (sibling && !sibling.classList.contains("area-header")) {
-        if (sibling.classList.contains("list-row") && (sibling as HTMLElement).style.display !== "none") {
+        if (sibling.classList.contains("list-cell") && (sibling as HTMLElement).style.display !== "none") {
           hasVisibleRow = true;
           break;
         }
@@ -364,17 +535,18 @@ export class ListViewController {
   private _toggleExpand(uuid: string): void {
     if (!this._container || !this._hass || !this._topology || !this._config) return;
 
-    const row = this._container.querySelector<HTMLElement>(`.list-row[data-row-uuid="${uuid}"]`);
-    const chevron = this._container.querySelector<HTMLElement>(`.list-expand-toggle[data-expand-uuid="${uuid}"]`);
+    const safeUuid = attrSelectorValue(uuid);
+    const cell = this._container.querySelector<HTMLElement>(`.list-cell[data-cell-uuid="${safeUuid}"]`);
+    if (!cell) return;
+    const row = cell.querySelector<HTMLElement>(`.list-row[data-row-uuid="${safeUuid}"]`);
+    const chevron = cell.querySelector<HTMLElement>(`.list-expand-toggle[data-expand-uuid="${safeUuid}"]`);
     if (!row) return;
 
     if (this._expandedUuids.has(uuid)) {
       // Collapse
       this._expandedUuids.delete(uuid);
-      const expandedContent = this._container.querySelector(`.list-expanded-content[data-expanded-uuid="${uuid}"]`);
-      if (expandedContent) {
-        expandedContent.remove();
-      }
+      const expandedContent = cell.querySelector(`.list-expanded-content[data-expanded-uuid="${safeUuid}"]`);
+      if (expandedContent) expandedContent.remove();
       if (chevron) chevron.classList.remove("expanded");
       row.classList.remove("list-row-expanded");
     } else {
@@ -385,13 +557,13 @@ export class ListViewController {
       if (!circuit) return;
 
       const monitoringInfo = getCircuitMonitoringInfo(this._monitoringStatus, getCircuitEntityId(circuit));
-      const sheddingPriority = getSheddingPriority(circuit, this._hass);
-      const html = buildExpandedCircuitHTML(uuid, circuit, this._hass, this._config, monitoringInfo, sheddingPriority);
-
+      const html = buildExpandedChartHTML(uuid, circuit, this._hass, this._config, monitoringInfo);
       row.insertAdjacentHTML("afterend", html);
       if (chevron) chevron.classList.add("expanded");
       row.classList.add("list-row-expanded");
       this._ctrl.updateDOM(this._container);
     }
+
+    this._dispatchFavoritesViewState();
   }
 }

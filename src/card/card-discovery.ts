@@ -1,5 +1,6 @@
 import { INTEGRATION_DOMAIN } from "../constants.js";
 import { resolveAndAssignAreas } from "../core/area-resolver.js";
+import { RetryManager } from "../core/retry-manager.js";
 import { t } from "../i18n.js";
 import type { HomeAssistant, PanelTopology, PanelDevice, DiscoveryResult, Circuit, CircuitEntities } from "../types.js";
 
@@ -25,23 +26,23 @@ interface EntityRegistryEntry {
 
 // ── Primary discovery via custom WebSocket API ───────────────────────────────
 
-export async function discoverTopology(hass: HomeAssistant, deviceId: string | undefined): Promise<DiscoveryResult> {
+export async function discoverTopology(hass: HomeAssistant, deviceId: string | undefined, retry?: RetryManager | null): Promise<DiscoveryResult> {
   if (!deviceId) {
     throw new Error(t("card.device_not_found"));
   }
-  const topology = await hass.callWS<PanelTopology>({
-    type: `${INTEGRATION_DOMAIN}/panel_topology`,
-    device_id: deviceId,
-  });
+
+  const topologyMsg = { type: `${INTEGRATION_DOMAIN}/panel_topology`, device_id: deviceId };
+  const topology = retry ? await retry.callWS<PanelTopology>(hass, topologyMsg, { errorId: "fetch:topology" }) : await hass.callWS<PanelTopology>(topologyMsg);
 
   const panelSize = topology.panel_size ?? panelSizeFromCircuits(topology.circuits);
   if (!panelSize) {
     throw new Error(t("card.topology_error"));
   }
 
-  const devices = await hass.callWS<DeviceRegistryEntry[]>({
-    type: "config/device_registry/list",
-  });
+  const devicesMsg = { type: "config/device_registry/list" };
+  const devices = retry
+    ? await retry.callWS<DeviceRegistryEntry[]>(hass, devicesMsg, { errorId: "fetch:topology" })
+    : await hass.callWS<DeviceRegistryEntry[]>(devicesMsg);
   const panelDevice = deviceToPanelDevice(devices.find(d => d.id === deviceId));
 
   await resolveAndAssignAreas(hass, topology);
@@ -80,14 +81,12 @@ function deviceToPanelDevice(entry: DeviceRegistryEntry | undefined): PanelDevic
 
 // ── Fallback discovery from entity registry ──────────────────────────────────
 
-export async function discoverEntitiesFallback(hass: HomeAssistant, deviceId: string | undefined): Promise<DiscoveryResult> {
+export async function discoverEntitiesFallback(hass: HomeAssistant, deviceId: string | undefined, retry?: RetryManager | null): Promise<DiscoveryResult> {
+  const devicesMsg = { type: "config/device_registry/list" };
+  const entitiesMsg = { type: "config/entity_registry/list" };
   const [devices, entities] = await Promise.all([
-    hass.callWS<DeviceRegistryEntry[]>({
-      type: "config/device_registry/list",
-    }),
-    hass.callWS<EntityRegistryEntry[]>({
-      type: "config/entity_registry/list",
-    }),
+    retry ? retry.callWS<DeviceRegistryEntry[]>(hass, devicesMsg, { errorId: "fetch:topology" }) : hass.callWS<DeviceRegistryEntry[]>(devicesMsg),
+    retry ? retry.callWS<EntityRegistryEntry[]>(hass, entitiesMsg, { errorId: "fetch:topology" }) : hass.callWS<EntityRegistryEntry[]>(entitiesMsg),
   ]);
 
   const panelDevice = deviceToPanelDevice(devices.find(d => d.id === deviceId));
@@ -164,7 +163,13 @@ export async function discoverEntitiesFallback(hass: HomeAssistant, deviceId: st
   let serial = "";
   if (panelDevice.identifiers) {
     for (const pair of panelDevice.identifiers) {
-      if (pair[0] === INTEGRATION_DOMAIN) serial = pair[1];
+      // Identifier pairs are [domain, value]. Skip malformed shapes rather
+      // than silently indexing past the end.
+      if (!Array.isArray(pair) || pair.length < 2) continue;
+      const [domain, value] = pair;
+      if (domain === INTEGRATION_DOMAIN && typeof value === "string") {
+        serial = value;
+      }
     }
   }
 

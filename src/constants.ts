@@ -1,7 +1,7 @@
 import { t } from "./i18n.js";
 import type { ChartMetricDef, GraphHorizonPreset, SheddingPriorityDef } from "./types.js";
 
-export const CARD_VERSION = "0.9.2";
+export const CARD_VERSION = "0.9.4";
 
 // -- Defaults --
 
@@ -53,7 +53,6 @@ export const MIN_HISTORY_DURATION_MS = 60_000;
 
 export const INPUT_DEBOUNCE_MS = 500;
 export const THRESHOLD_DEBOUNCE_MS = 800;
-export const ERROR_DISPLAY_MS = 5_000;
 
 // -- Chart metric definitions --
 

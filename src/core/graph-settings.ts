@@ -1,6 +1,9 @@
 // src/core/graph-settings.ts
 import { INTEGRATION_DOMAIN, DEFAULT_GRAPH_HORIZON } from "../constants.js";
+import { t } from "../i18n.js";
+import { RetryManager } from "./retry-manager.js";
 import type { HomeAssistant, GraphSettings } from "../types.js";
+import type { ErrorStore } from "./error-store.js";
 
 const GRAPH_SETTINGS_POLL_INTERVAL_MS = 30_000;
 
@@ -16,6 +19,17 @@ export class GraphSettingsCache {
   private _settings: GraphSettings | null;
   private _lastFetch: number;
   private _fetching: boolean;
+  private _errorStore: ErrorStore | null = null;
+  private _retry: RetryManager | null = null;
+
+  get errorStore(): ErrorStore | null {
+    return this._errorStore;
+  }
+
+  set errorStore(store: ErrorStore | null) {
+    this._errorStore = store;
+    this._retry = store ? new RetryManager(store) : null;
+  }
 
   constructor() {
     this._settings = null;
@@ -37,17 +51,33 @@ export class GraphSettingsCache {
     try {
       const serviceData: Record<string, string> = {};
       if (configEntryId) serviceData.config_entry_id = configEntryId;
-      const resp = await hass.callWS<GraphSettingsServiceResponse>({
+      const msg = {
         type: "call_service",
         domain: INTEGRATION_DOMAIN,
         service: "get_graph_settings",
         service_data: serviceData,
         return_response: true,
-      });
+      };
+      const resp = this._retry
+        ? await this._retry.callWS<GraphSettingsServiceResponse>(hass, msg, {
+            errorId: "fetch:graph_settings",
+            errorMessage: t("error.graph_settings_failed"),
+          })
+        : await hass.callWS<GraphSettingsServiceResponse>(msg);
       this._settings = resp?.response ?? null;
-      this._lastFetch = now;
-    } catch {
+      this._lastFetch = Date.now();
+    } catch (err) {
+      console.warn("SPAN Panel: graph settings fetch failed", err);
       this._settings = null;
+      // RetryManager dispatches on exhaustion; only dispatch directly when no retry path ran
+      if (!this._retry) {
+        this._errorStore?.add({
+          key: "fetch:graph_settings",
+          level: "warning",
+          message: t("error.graph_settings_failed"),
+          persistent: false,
+        });
+      }
     } finally {
       this._fetching = false;
     }

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { getCircuitMonitoringInfo, hasCustomOverrides, getUtilizationClass, isAlertActive } from "../src/core/monitoring-status.js";
+import { getCircuitMonitoringInfo, hasCustomOverrides, getUtilizationClass, isAlertActive, mergeMonitoringStatuses } from "../src/core/monitoring-status.js";
 import type { MonitoringPointInfo, MonitoringStatus } from "../src/types.js";
 
 describe("getCircuitMonitoringInfo", () => {
@@ -101,5 +101,79 @@ describe("isAlertActive", () => {
   it("returns true when over_threshold_since is a timestamp string", () => {
     const info: MonitoringPointInfo = { over_threshold_since: "2026-04-01T12:00:00Z" };
     expect(isAlertActive(info)).toBe(true);
+  });
+});
+
+describe("mergeMonitoringStatuses", () => {
+  it("returns null when input is empty", () => {
+    expect(mergeMonitoringStatuses([])).toBeNull();
+  });
+
+  it("returns null when every input is null", () => {
+    expect(mergeMonitoringStatuses([null, null, undefined])).toBeNull();
+  });
+
+  it("returns the single status when only one is non-null", () => {
+    const status: MonitoringStatus = {
+      circuits: { "sensor.a_power": { utilization_pct: 40 } },
+      mains: {},
+    };
+    expect(mergeMonitoringStatuses([status])).toEqual({
+      circuits: { "sensor.a_power": { utilization_pct: 40 } },
+      mains: {},
+    });
+  });
+
+  it("merges circuit maps across multiple statuses", () => {
+    const s1: MonitoringStatus = {
+      circuits: { "sensor.a_power": { utilization_pct: 40 } },
+    };
+    const s2: MonitoringStatus = {
+      circuits: { "sensor.b_power": { utilization_pct: 60 } },
+    };
+    const merged = mergeMonitoringStatuses([s1, s2]);
+    expect(merged?.circuits).toEqual({
+      "sensor.a_power": { utilization_pct: 40 },
+      "sensor.b_power": { utilization_pct: 60 },
+    });
+  });
+
+  it("merges mains maps across multiple statuses", () => {
+    const s1: MonitoringStatus = {
+      mains: { "sensor.main_a": { utilization_pct: 50 } },
+    };
+    const s2: MonitoringStatus = {
+      mains: { "sensor.main_b": { utilization_pct: 70 } },
+    };
+    const merged = mergeMonitoringStatuses([s1, s2]);
+    expect(merged?.mains).toEqual({
+      "sensor.main_a": { utilization_pct: 50 },
+      "sensor.main_b": { utilization_pct: 70 },
+    });
+  });
+
+  it("skips null entries while merging the rest", () => {
+    const s1: MonitoringStatus = {
+      circuits: { "sensor.a_power": { utilization_pct: 40 } },
+    };
+    const s2: MonitoringStatus = {
+      circuits: { "sensor.b_power": { utilization_pct: 60 } },
+    };
+    const merged = mergeMonitoringStatuses([s1, null, s2, undefined]);
+    expect(merged?.circuits).toEqual({
+      "sensor.a_power": { utilization_pct: 40 },
+      "sensor.b_power": { utilization_pct: 60 },
+    });
+  });
+
+  it("later entries overwrite earlier ones on key collision", () => {
+    const s1: MonitoringStatus = {
+      circuits: { "sensor.a_power": { utilization_pct: 10 } },
+    };
+    const s2: MonitoringStatus = {
+      circuits: { "sensor.a_power": { utilization_pct: 99 } },
+    };
+    const merged = mergeMonitoringStatuses([s1, s2]);
+    expect(merged?.circuits?.["sensor.a_power"]?.utilization_pct).toBe(99);
   });
 });

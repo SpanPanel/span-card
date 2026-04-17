@@ -1,7 +1,27 @@
 import { INTEGRATION_DOMAIN, GRAPH_HORIZONS, DEFAULT_GRAPH_HORIZON, INPUT_DEBOUNCE_MS } from "../constants.js";
 import { escapeHtml } from "../helpers/sanitize.js";
 import { t } from "../i18n.js";
-import type { HomeAssistant, PanelTopology, GraphSettings, CallServiceResponse } from "../types.js";
+import type { HomeAssistant, PanelTopology, GraphSettings, CircuitGraphOverride, CallServiceResponse } from "../types.js";
+
+/**
+ * Narrow an unvalidated ``get_graph_settings`` response into a
+ * ``GraphSettings`` we can trust. Unknown fields are dropped; bad shape
+ * returns null so callers fall back to defaults instead of silently
+ * reading undefined properties.
+ */
+function coerceGraphSettingsResponse(resp: unknown): GraphSettings | null {
+  if (!resp || typeof resp !== "object") return null;
+  const r = resp as Record<string, unknown>;
+  const out: GraphSettings = {};
+  if (typeof r.global_horizon === "string") out.global_horizon = r.global_horizon;
+  if (r.circuits && typeof r.circuits === "object") {
+    out.circuits = r.circuits as Record<string, CircuitGraphOverride>;
+  }
+  if (r.sub_devices && typeof r.sub_devices === "object") {
+    out.sub_devices = r.sub_devices as Record<string, CircuitGraphOverride>;
+  }
+  return out;
+}
 
 function horizonOptions(selectedKey: string): string {
   return Object.keys(GRAPH_HORIZONS)
@@ -53,8 +73,9 @@ export class SettingsTab {
         service_data: serviceData,
         return_response: true,
       });
-      graphSettings = (resp?.response as GraphSettings) || null;
-    } catch {
+      graphSettings = coerceGraphSettingsResponse(resp?.response);
+    } catch (err) {
+      console.warn("SPAN Panel: graph settings fetch failed", err);
       graphSettings = null;
     }
 

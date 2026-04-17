@@ -14,16 +14,22 @@ import { getChartMetric } from "../helpers/chart.js";
 import { findSubDevicePowerEntity } from "../helpers/entity-finder.js";
 import { getHistoryDurationMs, getHorizonDurationMs } from "../helpers/history.js";
 import { updateChart } from "../chart/chart-update.js";
+import { attrSelectorValue } from "../helpers/selector.js";
 import type { HomeAssistant, PanelTopology, CardConfig, HistoryMap, ChartMetricDef } from "../types.js";
 
 // ── Header stats ───────────────────────────────────────────────────────────
 
-function _updateHeaderStats(root: Element | ShadowRoot, hass: HomeAssistant, topology: PanelTopology, config: CardConfig, totalConsumption: number): void {
+/**
+ * Update a single ``.panel-stats`` block in-place from a specific
+ * topology. Shared between the standard panel header (one block rooted
+ * at the document) and the Favorites view (multiple per-panel blocks).
+ */
+export function updatePanelStatsBlock(scope: Element, hass: HomeAssistant, topology: PanelTopology, config: CardConfig, siteConsumptionFallback: number): void {
   const isAmpsMode = (config.chart_metric || "power") === "current";
 
   // Site / consumption stat
-  const consumptionEl = root.querySelector(".stat-consumption .stat-value");
-  const consumptionUnitEl = root.querySelector(".stat-consumption .stat-unit");
+  const consumptionEl = scope.querySelector(".stat-consumption .stat-value");
+  const consumptionUnitEl = scope.querySelector(".stat-consumption .stat-unit");
   if (isAmpsMode) {
     const siteEid = topology.panel_entities?.site_power;
     const siteState = siteEid ? hass.states[siteEid] : null;
@@ -31,6 +37,7 @@ function _updateHeaderStats(root: Element | ShadowRoot, hass: HomeAssistant, top
     if (consumptionEl) consumptionEl.textContent = Number.isFinite(amps) ? Math.abs(amps).toFixed(1) : "--";
     if (consumptionUnitEl) consumptionUnitEl.textContent = "A";
   } else {
+    let totalConsumption = siteConsumptionFallback;
     const siteEid = topology.panel_entities?.site_power;
     if (siteEid) {
       const state = hass.states[siteEid];
@@ -41,8 +48,8 @@ function _updateHeaderStats(root: Element | ShadowRoot, hass: HomeAssistant, top
   }
 
   // Upstream stat
-  const upstreamEl = root.querySelector(".stat-upstream .stat-value");
-  const upstreamUnitEl = root.querySelector(".stat-upstream .stat-unit");
+  const upstreamEl = scope.querySelector(".stat-upstream .stat-value");
+  const upstreamUnitEl = scope.querySelector(".stat-upstream .stat-unit");
   if (upstreamEl) {
     const upEid = topology.panel_entities?.current_power;
     const upState = upEid ? hass.states[upEid] : null;
@@ -58,8 +65,8 @@ function _updateHeaderStats(root: Element | ShadowRoot, hass: HomeAssistant, top
   }
 
   // Downstream stat
-  const downstreamEl = root.querySelector(".stat-downstream .stat-value");
-  const downstreamUnitEl = root.querySelector(".stat-downstream .stat-unit");
+  const downstreamEl = scope.querySelector(".stat-downstream .stat-value");
+  const downstreamUnitEl = scope.querySelector(".stat-downstream .stat-unit");
   if (downstreamEl) {
     const downEid = topology.panel_entities?.feedthrough_power;
     const downState = downEid ? hass.states[downEid] : null;
@@ -75,8 +82,8 @@ function _updateHeaderStats(root: Element | ShadowRoot, hass: HomeAssistant, top
   }
 
   // Solar stat — always read from panel-level PV power entity
-  const solarEl = root.querySelector(".stat-solar .stat-value");
-  const solarUnitEl = root.querySelector(".stat-solar .stat-unit");
+  const solarEl = scope.querySelector(".stat-solar .stat-value");
+  const solarUnitEl = scope.querySelector(".stat-solar .stat-unit");
   if (solarEl) {
     const solarEid = topology.panel_entities?.pv_power;
     const solarState = solarEid ? hass.states[solarEid] : null;
@@ -96,7 +103,7 @@ function _updateHeaderStats(root: Element | ShadowRoot, hass: HomeAssistant, top
   }
 
   // Battery SoC (always %)
-  const batteryEl = root.querySelector(".stat-battery .stat-value");
+  const batteryEl = scope.querySelector(".stat-battery .stat-value");
   if (batteryEl) {
     const battEid = topology.panel_entities?.battery_level;
     const battState = battEid ? hass.states[battEid] : null;
@@ -104,12 +111,18 @@ function _updateHeaderStats(root: Element | ShadowRoot, hass: HomeAssistant, top
   }
 
   // Grid / DSM state
-  const gridStateEl = root.querySelector(".stat-grid-state .stat-value");
+  const gridStateEl = scope.querySelector(".stat-grid-state .stat-value");
   if (gridStateEl) {
     const gridEid = topology.panel_entities?.dsm_state;
     const gridState = gridEid ? hass.states[gridEid] : null;
     gridStateEl.textContent = gridState ? hass.formatEntityState?.(gridState) || gridState.state : "--";
   }
+}
+
+function _updateHeaderStats(root: Element | ShadowRoot, hass: HomeAssistant, topology: PanelTopology, config: CardConfig, totalConsumption: number): void {
+  const scope = (root as ParentNode).querySelector(".panel-stats") as Element | null;
+  if (!scope) return;
+  updatePanelStatsBlock(scope, hass, topology, config, totalConsumption);
 }
 
 // ── Exported updaters ──────────────────────────────────────────────────────
@@ -143,7 +156,7 @@ export function updateCircuitDOM(
   const showCurrent = chartMetric.entityRole === "current";
 
   for (const [uuid, circuit] of Object.entries(topology.circuits)) {
-    const slot = root.querySelector(`[data-uuid="${uuid}"]`);
+    const slot = root.querySelector(`.circuit-slot[data-uuid="${attrSelectorValue(uuid)}"]`);
     if (!slot) continue;
 
     const entityId = circuit.entities?.power;
@@ -242,7 +255,7 @@ export function updateSubDeviceDOM(
   const defaultDurationMs = getHistoryDurationMs(config);
 
   for (const [devId, sub] of Object.entries(topology.sub_devices)) {
-    const section = root.querySelector(`[data-subdev="${devId}"]`);
+    const section = root.querySelector(`[data-subdev="${attrSelectorValue(devId)}"]`);
     if (!section) continue;
 
     const powerEid = findSubDevicePowerEntity(sub);
@@ -270,7 +283,7 @@ export function updateSubDeviceDOM(
     }
 
     for (const entityId of Object.keys(sub.entities || {})) {
-      const valEl = section.querySelector(`[data-eid="${entityId}"]`);
+      const valEl = section.querySelector(`[data-eid="${attrSelectorValue(entityId)}"]`);
       if (!valEl) continue;
       const state = hass.states[entityId];
       if (state) {
