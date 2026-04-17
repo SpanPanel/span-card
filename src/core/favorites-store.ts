@@ -73,11 +73,18 @@ export async function removeFavorite(hass: HomeAssistant, entityId: string): Pro
  * Cached favorites map with a 30-second TTL and in-flight deduplication.
  * Mirrors ``GraphSettingsCache``'s lifecycle so the dashboard panel can
  * refresh on events (``invalidate()``) without thrashing the backend.
+ *
+ * A monotonically-increasing ``_generation`` counter lets ``invalidate()``
+ * supersede an in-flight fetch: when an invalidate happens while a
+ * request is pending, that request's result is not committed to the
+ * cache, so the next ``fetch()`` caller re-queries the backend instead
+ * of reading stale pre-invalidate data as "fresh".
  */
 export class FavoritesCache {
   private _map: FavoritesMap | null;
   private _lastFetch: number;
   private _inflight: Promise<FavoritesMap> | null;
+  private _generation: number;
   private _errorStore: ErrorStore | null = null;
   private _retry: RetryManager | null = null;
 
@@ -94,6 +101,7 @@ export class FavoritesCache {
     this._map = null;
     this._lastFetch = 0;
     this._inflight = null;
+    this._generation = 0;
   }
 
   async fetch(hass: HomeAssistant): Promise<FavoritesMap> {
@@ -103,6 +111,7 @@ export class FavoritesCache {
       return this._map;
     }
 
+    const requestGen = this._generation;
     this._inflight = (async () => {
       try {
         const msg = {
@@ -118,12 +127,14 @@ export class FavoritesCache {
               errorMessage: t("error.favorites_fetch_failed"),
             })
           : await hass.callWS<CallServiceResponse<GetFavoritesResponse>>(msg);
-        this._map = resp?.response?.favorites ?? {};
-        this._lastFetch = Date.now();
-        return this._map;
+        const next = resp?.response?.favorites ?? {};
+        if (requestGen === this._generation) {
+          this._map = next;
+          this._lastFetch = Date.now();
+        }
+        return next;
       } catch (err) {
         console.warn("SPAN Panel: favorites fetch failed", err);
-        // RetryManager dispatches on exhaustion; only dispatch directly when no retry path ran
         if (!this._retry) {
           this._errorStore?.add({
             key: "fetch:favorites",
@@ -142,11 +153,13 @@ export class FavoritesCache {
 
   invalidate(): void {
     this._lastFetch = 0;
+    this._generation++;
   }
 
   clear(): void {
     this._map = null;
     this._lastFetch = 0;
+    this._generation++;
   }
 
   get map(): FavoritesMap {

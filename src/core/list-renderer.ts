@@ -120,7 +120,7 @@ export function buildListRowHTML(
   const gearColor = hasOverridesFlag ? MONITORING_COLORS.custom : "#555";
   const gearHTML = `<button class="gear-icon circuit-gear"
   data-uuid="${escapeHtml(uuid)}" style="color:${gearColor};"
-  title="${t("grid.configure")}">
+  title="${escapeHtml(t("grid.configure"))}">
   <ha-icon icon="mdi:cog" style="--mdc-icon-size:16px;"></ha-icon>
 </button>`;
 

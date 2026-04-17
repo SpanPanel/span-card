@@ -301,8 +301,15 @@ export class ErrorStore {
   }
 
   private _notify(): void {
+    // Subscribers may be arbitrary renderers; an exception from one must
+    // not starve the others or leave the transient timer callback in a
+    // half-notified state.
     for (const cb of this._subscribers) {
-      cb();
+      try {
+        cb();
+      } catch (err) {
+        console.warn("SPAN Panel: error-store subscriber threw", err);
+      }
     }
   }
 }

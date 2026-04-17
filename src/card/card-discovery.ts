@@ -163,7 +163,13 @@ export async function discoverEntitiesFallback(hass: HomeAssistant, deviceId: st
   let serial = "";
   if (panelDevice.identifiers) {
     for (const pair of panelDevice.identifiers) {
-      if (pair[0] === INTEGRATION_DOMAIN) serial = pair[1];
+      // Identifier pairs are [domain, value]. Skip malformed shapes rather
+      // than silently indexing past the end.
+      if (!Array.isArray(pair) || pair.length < 2) continue;
+      const [domain, value] = pair;
+      if (domain === INTEGRATION_DOMAIN && typeof value === "string") {
+        serial = value;
+      }
     }
   }
 

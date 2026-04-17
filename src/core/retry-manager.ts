@@ -79,6 +79,6 @@ export class RetryManager {
       message: errorMessage ?? lastError?.message ?? "Operation failed",
       persistent: false,
     });
-    throw lastError!;
+    throw lastError ?? new Error(errorMessage ?? "Operation failed");
   }
 }

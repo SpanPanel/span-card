@@ -384,6 +384,11 @@ class SpanSidePanel extends HTMLElement {
     return this._hass;
   }
 
+  disconnectedCallback(): void {
+    this._clearDebounceTimers();
+    this._config = null;
+  }
+
   open(config: SidePanelConfig): void {
     this._config = config;
     this._render();
@@ -397,10 +402,20 @@ class SpanSidePanel extends HTMLElement {
   }
 
   close(): void {
+    // Cancel any still-pending debounced writes so they don't fire
+    // against a torn-down ``_config`` and leak a stale service call.
+    this._clearDebounceTimers();
     this.removeAttribute("open");
     this.removeAttribute("data-mode");
     this._config = null;
     this.dispatchEvent(new CustomEvent("side-panel-closed", { bubbles: true, composed: true }));
+  }
+
+  private _clearDebounceTimers(): void {
+    for (const key of Object.keys(this._debounceTimers)) {
+      clearTimeout(this._debounceTimers[key]);
+    }
+    this._debounceTimers = {};
   }
 
   private _modeFor(cfg: SidePanelConfig): "favorites" | "panel" | "subDevice" | "circuit" {

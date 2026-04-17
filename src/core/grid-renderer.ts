@@ -156,20 +156,28 @@ export function renderCircuitSlot(
   if (priority !== "unknown") {
     const shedInfo: SheddingPriorityDef = SHEDDING_PRIORITIES[priority] ??
       SHEDDING_PRIORITIES.unknown ?? { icon: "mdi:help", color: "#999", label: () => "Unknown" };
+    // Escape every value that ends up inside an attribute. ``label()``
+    // resolves through i18n so future translations may contain quotes,
+    // and inline-style injection breaks on a stray ``"`` or ``;``.
+    const safeLabel = escapeHtml(shedInfo.label());
+    const safeIcon = escapeHtml(shedInfo.icon);
+    const safeColor = escapeHtml(shedInfo.color);
     if (shedInfo.icon2) {
-      sheddingHTML = `<span class="shedding-composite" title="${shedInfo.label()}">
-        <ha-icon class="shedding-icon" icon="${shedInfo.icon}" style="color:${shedInfo.color};--mdc-icon-size:16px;"></ha-icon>
-        <ha-icon class="shedding-icon-secondary" icon="${shedInfo.icon2}" style="color:${shedInfo.color};--mdc-icon-size:14px;"></ha-icon>
+      const safeIcon2 = escapeHtml(shedInfo.icon2);
+      sheddingHTML = `<span class="shedding-composite" title="${safeLabel}">
+        <ha-icon class="shedding-icon" icon="${safeIcon}" style="color:${safeColor};--mdc-icon-size:16px;"></ha-icon>
+        <ha-icon class="shedding-icon-secondary" icon="${safeIcon2}" style="color:${safeColor};--mdc-icon-size:14px;"></ha-icon>
       </span>`;
     } else if (shedInfo.textLabel) {
-      sheddingHTML = `<span class="shedding-composite" title="${shedInfo.label()}">
-        <ha-icon class="shedding-icon" icon="${shedInfo.icon}" style="color:${shedInfo.color};--mdc-icon-size:16px;"></ha-icon>
-        <span class="shedding-label" style="color:${shedInfo.color}">${shedInfo.textLabel}</span>
+      const safeTextLabel = escapeHtml(shedInfo.textLabel);
+      sheddingHTML = `<span class="shedding-composite" title="${safeLabel}">
+        <ha-icon class="shedding-icon" icon="${safeIcon}" style="color:${safeColor};--mdc-icon-size:16px;"></ha-icon>
+        <span class="shedding-label" style="color:${safeColor}">${safeTextLabel}</span>
       </span>`;
     } else {
-      sheddingHTML = `<ha-icon class="shedding-icon" icon="${shedInfo.icon}"
-        style="color:${shedInfo.color};--mdc-icon-size:16px;"
-        title="${shedInfo.label()}"></ha-icon>`;
+      sheddingHTML = `<ha-icon class="shedding-icon" icon="${safeIcon}"
+        style="color:${safeColor};--mdc-icon-size:16px;"
+        title="${safeLabel}"></ha-icon>`;
     }
   }
 
@@ -178,7 +186,7 @@ export function renderCircuitSlot(
   const gearColor = hasOverridesFlag ? MONITORING_COLORS.custom : "#555";
   const gearHTML = `<button class="gear-icon circuit-gear"
     data-uuid="${escapeHtml(uuid)}" style="color:${gearColor};"
-    title="${t("grid.configure")}">
+    title="${escapeHtml(t("grid.configure"))}">
     <ha-icon icon="mdi:cog" style="--mdc-icon-size:16px;"></ha-icon>
   </button>`;
 

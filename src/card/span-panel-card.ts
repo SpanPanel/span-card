@@ -66,6 +66,13 @@ export class SpanPanelCard extends LitElement {
   private readonly _listCtrl = new ListViewController(this._ctrl);
   private readonly _errorStore = new ErrorStore();
   private _areaUnsub: (() => void) | null = null;
+  /**
+   * Set while a ``subscribeAreaUpdates`` promise is in-flight. If the
+   * element disconnects before the promise resolves we flip this to
+   * ``false`` so the later ``.then`` callback can unsubscribe immediately
+   * instead of leaking the subscription.
+   */
+  private _areaSubscribing = false;
   private _tabBarCleanup: (() => void) | null = null;
   private _onVisibilityChange: (() => void) | null = null;
 
@@ -75,14 +82,26 @@ export class SpanPanelCard extends LitElement {
     return this._panelDevice?.config_entries?.[0] ?? null;
   }
 
+  /**
+   * Centralised accessor for the shadow root. LitElement guarantees this
+   * is set for a connected component; a null here means SSR or a teardown
+   * race, both of which we want to surface loudly rather than paper over
+   * with `!` assertions sprinkled at every use site.
+   */
+  private get _root(): ShadowRoot {
+    const root = this.shadowRoot;
+    if (!root) throw new Error("span-panel-card: shadow root is not available");
+    return root;
+  }
+
   connectedCallback(): void {
     super.connectedCallback();
-    this._ctrl.startIntervals(this.shadowRoot!);
+    this._ctrl.startIntervals(this._root);
 
     this._onVisibilityChange = () => {
       if (document.visibilityState !== "visible" || !this._discovered || !this.hass) return;
       this._ctrl.recordSamples();
-      this._ctrl.updateDOM(this.shadowRoot!);
+      this._ctrl.updateDOM(this._root);
     };
     document.addEventListener("visibilitychange", this._onVisibilityChange);
   }
@@ -90,6 +109,7 @@ export class SpanPanelCard extends LitElement {
   disconnectedCallback(): void {
     this._ctrl.stopIntervals();
     this._listCtrl.stop();
+    this._areaSubscribing = false;
     if (this._areaUnsub) {
       this._areaUnsub();
       this._areaUnsub = null;
@@ -194,9 +214,9 @@ export class SpanPanelCard extends LitElement {
 
     if (this._discovered) {
       this._ctrl.recordSamples();
-      this._ctrl.updateDOM(this.shadowRoot!);
+      this._ctrl.updateDOM(this._root);
 
-      const sidePanel = this.shadowRoot!.querySelector("span-side-panel") as SpanSidePanelElement | null;
+      const sidePanel = this._root.querySelector("span-side-panel") as SpanSidePanelElement | null;
       if (sidePanel) {
         sidePanel.hass = this.hass;
         sidePanel.errorStore = this._errorStore;
@@ -204,7 +224,7 @@ export class SpanPanelCard extends LitElement {
     }
 
     if (this._discovered && this._activeTab !== "panel" && this._topology) {
-      this._listCtrl.updateCollapsedRows(this.shadowRoot!, this.hass, this._topology, this._config);
+      this._listCtrl.updateCollapsedRows(this._root, this.hass, this._topology, this._config);
     }
   }
 
@@ -231,8 +251,12 @@ export class SpanPanelCard extends LitElement {
       this._errorStore.updateHass(this.hass);
     }
 
-    // Subscribe to area changes
+    // Subscribe to area changes. The subscribe call is async, so guard
+    // against disconnect-before-resolve: if ``_areaSubscribing`` is cleared
+    // (disconnectedCallback), drop the unsubscribe on the floor — we'd
+    // otherwise store it on a detached element and never call it.
     if (this._topology) {
+      this._areaSubscribing = true;
       subscribeAreaUpdates(
         this.hass,
         this._topology,
@@ -244,9 +268,22 @@ export class SpanPanelCard extends LitElement {
         this._errorStore
       )
         .then(unsub => {
-          this._areaUnsub = unsub;
+          if (this._areaSubscribing) {
+            this._areaUnsub = unsub;
+          } else {
+            unsub();
+          }
         })
-        .catch(() => {});
+        .catch((err: unknown) => {
+          this._areaSubscribing = false;
+          console.warn("SPAN Panel: area subscription failed", err);
+          this._errorStore.add({
+            key: "subscribe:area",
+            level: "warning",
+            message: t("error.areas_failed"),
+            persistent: false,
+          });
+        });
     }
 
     // Wait for lit to render the card-content div
@@ -256,7 +293,7 @@ export class SpanPanelCard extends LitElement {
     this._loadHistory();
 
     this._ctrl.monitoringCache.fetch(this.hass, this._configEntryId).then(() => {
-      if (this._discovered) this._ctrl.updateDOM(this.shadowRoot!);
+      if (this._discovered) this._ctrl.updateDOM(this._root);
     });
   }
 
@@ -299,7 +336,7 @@ export class SpanPanelCard extends LitElement {
 
     try {
       await this._ctrl.loadHistory();
-      this._ctrl.updateDOM(this.shadowRoot!);
+      this._ctrl.updateDOM(this._root);
     } catch (err) {
       console.warn("SPAN Panel: history fetch failed, charts will populate live", err);
     }
@@ -308,11 +345,11 @@ export class SpanPanelCard extends LitElement {
   // ── Imperative card content ────────────────────────────────────────────
 
   private _populateCardContent(): void {
-    const container = this.shadowRoot!.querySelector("#card-content");
+    const container = this._root.querySelector("#card-content");
     if (!container || !this.hass || !this._topology || !this._panelSize) return;
 
     // Populate tab bar
-    const tabsContainer = this.shadowRoot!.querySelector("#card-tabs");
+    const tabsContainer = this._root.querySelector("#card-tabs");
     if (tabsContainer) {
       const tabDefs = [
         { id: "panel", label: t("tab.by_panel"), icon: "mdi:view-dashboard" },
@@ -355,32 +392,32 @@ export class SpanPanelCard extends LitElement {
 
       const slideEl = container.querySelector(".slide-confirm");
       if (slideEl) {
-        const haCard = this.shadowRoot!.querySelector("ha-card");
+        const haCard = this._root.querySelector("ha-card");
         this._ctrl.bindSlideConfirm(slideEl, haCard);
         if (haCard) haCard.classList.add("switches-disabled");
       }
 
-      const sidePanel = this.shadowRoot!.querySelector("span-side-panel") as SpanSidePanelElement | null;
+      const sidePanel = this._root.querySelector("span-side-panel") as SpanSidePanelElement | null;
       if (sidePanel) {
         sidePanel.hass = this.hass;
         sidePanel.errorStore = this._errorStore;
       }
 
       this._ctrl.recordSamples();
-      this._ctrl.updateDOM(this.shadowRoot!);
-      this._ctrl.setupResizeObserver(this.shadowRoot!, this.shadowRoot!.querySelector("ha-card"));
+      this._ctrl.updateDOM(this._root);
+      this._ctrl.setupResizeObserver(this._root, this._root.querySelector("ha-card"));
     } else if (this._activeTab === "activity") {
       container.innerHTML = "";
       const listHeaderHTML = buildHeaderHTML(this._topology, this._config);
       this._listCtrl.setColumns(loadListColumns());
       this._listCtrl.renderActivityView(container as HTMLElement, this.hass, this._topology, this._config, this._ctrl.monitoringCache.status, listHeaderHTML);
-      this._ctrl.updateDOM(this.shadowRoot!);
+      this._ctrl.updateDOM(this._root);
     } else if (this._activeTab === "area") {
       container.innerHTML = "";
       const listHeaderHTML = buildHeaderHTML(this._topology, this._config);
       this._listCtrl.setColumns(loadListColumns());
       this._listCtrl.renderAreaView(container as HTMLElement, this.hass, this._topology, this._config, this._ctrl.monitoringCache.status, listHeaderHTML);
-      this._ctrl.updateDOM(this.shadowRoot!);
+      this._ctrl.updateDOM(this._root);
     }
   }
 
@@ -401,14 +438,14 @@ export class SpanPanelCard extends LitElement {
     // Toggle pill
     const togglePill = target.closest(".toggle-pill");
     if (togglePill) {
-      this._ctrl.onToggleClick(ev, this.shadowRoot!);
+      this._ctrl.onToggleClick(ev, this._root);
       return;
     }
 
     // Gear icon
     const gearBtn = target.closest(".gear-icon") as HTMLElement | null;
     if (gearBtn) {
-      this._ctrl.onGearClick(ev, this.shadowRoot!);
+      this._ctrl.onGearClick(ev, this._root);
       return;
     }
   }
@@ -431,7 +468,7 @@ export class SpanPanelCard extends LitElement {
     this._historyLoaded = false;
     this._populateCardContent();
     await this._loadHistory();
-    this._ctrl.updateDOM(this.shadowRoot!);
+    this._ctrl.updateDOM(this._root);
   }
 
   private async _onListUnitChanged(e: Event): Promise<void> {
@@ -452,11 +489,11 @@ export class SpanPanelCard extends LitElement {
     this._historyLoaded = false;
     this._populateCardContent();
     await this._loadHistory();
-    this._ctrl.updateDOM(this.shadowRoot!);
+    this._ctrl.updateDOM(this._root);
   }
 
   private _onGraphSettingsChanged(): void {
-    this._ctrl.onGraphSettingsChanged(this.shadowRoot!);
+    this._ctrl.onGraphSettingsChanged(this._root);
   }
 
   private _onListColumnsChanged(e: Event): void {

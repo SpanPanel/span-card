@@ -17,7 +17,8 @@ interface CallServiceResponse {
 export class MonitoringStatusCache {
   private _status: MonitoringStatus | null = null;
   private _lastFetch: number = 0;
-  private _fetching: boolean = false;
+  private _inflight: Promise<MonitoringStatus | null> | null = null;
+  private _generation: number = 0;
   private _errorStore: ErrorStore | null = null;
   private _retry: RetryManager | null = null;
 
@@ -31,55 +32,69 @@ export class MonitoringStatusCache {
   }
 
   /**
-   * Fetch monitoring status, returning cached data if recent.
+   * Fetch monitoring status, returning cached data if recent. Concurrent
+   * callers coalesce onto the in-flight promise instead of reading a
+   * possibly-stale ``_status`` (the old implementation returned the
+   * pre-fetch value while another request was pending, which could
+   * surface null on cold starts). A monotonically-increasing generation
+   * counter lets ``invalidate()`` supersede in-flight results.
    */
   async fetch(hass: HomeAssistant, configEntryId?: string | null): Promise<MonitoringStatus | null> {
     const now = Date.now();
-    if (this._fetching) return this._status;
+    if (this._inflight) return this._inflight;
     if (this._status && now - this._lastFetch < MONITORING_POLL_INTERVAL_MS) {
       return this._status;
     }
 
-    this._fetching = true;
-    try {
-      const serviceData: Record<string, string> = {};
-      if (configEntryId) serviceData.config_entry_id = configEntryId;
-      const msg = {
-        type: "call_service",
-        domain: INTEGRATION_DOMAIN,
-        service: "get_monitoring_status",
-        service_data: serviceData,
-        return_response: true,
-      };
-      const resp = this._retry
-        ? await this._retry.callWS<CallServiceResponse>(hass, msg, {
-            errorId: "fetch:monitoring",
-            errorMessage: t("error.monitoring_failed"),
-          })
-        : await hass.callWS<CallServiceResponse>(msg);
-      this._status = resp?.response ?? null;
-      this._lastFetch = Date.now();
-    } catch (err) {
-      console.warn("SPAN Panel: monitoring status fetch failed", err);
-      this._status = null;
-      // RetryManager dispatches on exhaustion; only dispatch directly when no retry path ran
-      if (!this._retry) {
-        this._errorStore?.add({
-          key: "fetch:monitoring",
-          level: "warning",
-          message: t("error.monitoring_failed"),
-          persistent: false,
-        });
+    const requestGen = this._generation;
+    this._inflight = (async () => {
+      try {
+        const serviceData: Record<string, string> = {};
+        if (configEntryId) serviceData.config_entry_id = configEntryId;
+        const msg = {
+          type: "call_service",
+          domain: INTEGRATION_DOMAIN,
+          service: "get_monitoring_status",
+          service_data: serviceData,
+          return_response: true,
+        };
+        const resp = this._retry
+          ? await this._retry.callWS<CallServiceResponse>(hass, msg, {
+              errorId: "fetch:monitoring",
+              errorMessage: t("error.monitoring_failed"),
+            })
+          : await hass.callWS<CallServiceResponse>(msg);
+        const next = resp?.response ?? null;
+        if (requestGen === this._generation) {
+          this._status = next;
+          this._lastFetch = Date.now();
+        }
+        return next;
+      } catch (err) {
+        console.warn("SPAN Panel: monitoring status fetch failed", err);
+        if (requestGen === this._generation) {
+          this._status = null;
+        }
+        if (!this._retry) {
+          this._errorStore?.add({
+            key: "fetch:monitoring",
+            level: "warning",
+            message: t("error.monitoring_failed"),
+            persistent: false,
+          });
+        }
+        return null;
+      } finally {
+        this._inflight = null;
       }
-    } finally {
-      this._fetching = false;
-    }
-    return this._status;
+    })();
+    return this._inflight;
   }
 
   /** Force the next fetch() call to re-query the backend. */
   invalidate(): void {
     this._lastFetch = 0;
+    this._generation++;
   }
 
   /** Last fetched status. */
@@ -91,6 +106,7 @@ export class MonitoringStatusCache {
   clear(): void {
     this._status = null;
     this._lastFetch = 0;
+    this._generation++;
   }
 }
 

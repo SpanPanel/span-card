@@ -87,6 +87,8 @@ export class SpanPanelElement extends LitElement {
    */
   private _refreshSeq = 0;
   private _areaUnsub: (() => void) | null = null;
+  /** Cleared on disconnect to tell a pending subscribe to self-cancel. */
+  private _areaSubscribing = false;
   private _onVisibilityChange: (() => void) | null = null;
   private _onFavoritesChanged: (() => void) | null = null;
   private _deviceRegistryUnsub: Promise<() => void> | null = null;
@@ -206,6 +208,18 @@ export class SpanPanelElement extends LitElement {
    */
   static override styles = [SpanPanelElement._shellStyles, unsafeCSS(CARD_STYLES)];
 
+  /**
+   * Centralised accessor for the shadow root. LitElement guarantees it
+   * for any connected component; if it's missing we've hit SSR or a
+   * teardown race, both of which should fail loudly rather than be
+   * silently bypassed with sprinkled ``!`` assertions.
+   */
+  private get _root(): ShadowRoot {
+    const root = this.shadowRoot;
+    if (!root) throw new Error("span-panel: shadow root is not available");
+    return root;
+  }
+
   connectedCallback(): void {
     super.connectedCallback();
 
@@ -235,6 +249,7 @@ export class SpanPanelElement extends LitElement {
     this._listDashCtrl.stopIntervals();
     for (const tab of this._favoritesMonitoringTabs.values()) tab.stop();
     this._favoritesMonitoringTabs.clear();
+    this._areaSubscribing = false;
     if (this._areaUnsub) {
       this._areaUnsub();
       this._areaUnsub = null;
@@ -271,7 +286,7 @@ export class SpanPanelElement extends LitElement {
 
       if (!this._discovered) {
         this._discoverPanels();
-      } else if (!this.shadowRoot!.getElementById("tab-content")) {
+      } else if (!this._root.getElementById("tab-content")) {
         // Re-render only if the tab-content container was lost
         this._scheduleTabRender();
       }
@@ -331,7 +346,7 @@ export class SpanPanelElement extends LitElement {
 
     // Live-update collapsed rows when hass changes on list view tabs
     if (changedProps.has("hass") && this._discovered && (this._activeTab === "activity" || this._activeTab === "area")) {
-      const tabContent = this.shadowRoot!.getElementById("tab-content");
+      const tabContent = this._root.getElementById("tab-content");
       const topo = this._listDashCtrl.topology;
       if (tabContent && topo) {
         this._listCtrl.updateCollapsedRows(tabContent, this.hass, topo, this._buildDashboardConfig());
@@ -429,6 +444,7 @@ export class SpanPanelElement extends LitElement {
     if (this._isFavoritesView && this._activeTab === "dashboard") {
       this._activeTab = "activity";
     }
+    this._areaSubscribing = false;
     if (this._areaUnsub) {
       this._areaUnsub();
       this._areaUnsub = null;
@@ -510,7 +526,7 @@ export class SpanPanelElement extends LitElement {
 
   private _onGraphSettingsChanged(): void {
     if (this._activeTab === "dashboard") {
-      const container = this.shadowRoot!.getElementById("tab-content");
+      const container = this._root.getElementById("tab-content");
       if (container) {
         const ctrl = this._dashboardTab["_ctrl"];
         ctrl.onGraphSettingsChanged(container);
@@ -533,9 +549,18 @@ export class SpanPanelElement extends LitElement {
     if (!detail) return;
     const viewState = this._favoritesViewState;
     viewState.activeTab = detail.view;
-    // Prune expansion ids to those still present in the merged topology.
-    const valid = this._listDashCtrl.topology?.circuits ?? {};
-    viewState.expanded[detail.view] = detail.expanded.filter(id => id in valid);
+    // Prune expansion ids to those still present in the merged topology,
+    // but only if we actually have a topology to prune against. An empty
+    // ``circuits`` map here usually means the Favorites tab is still
+    // re-rendering after a search keystroke; pruning against {} would
+    // drop every expansion and the user would lose their open rows.
+    const topology = this._listDashCtrl.topology;
+    const circuits = topology?.circuits;
+    if (circuits && Object.keys(circuits).length > 0) {
+      viewState.expanded[detail.view] = detail.expanded.filter(id => id in circuits);
+    } else {
+      viewState.expanded[detail.view] = detail.expanded;
+    }
     viewState.searchQuery = detail.searchQuery;
 
     // Search-box updates fire on every keystroke; expansion and tab
@@ -885,7 +910,7 @@ export class SpanPanelElement extends LitElement {
     this._favoritesMonitoringTabs.clear();
     this._favoritesPanelStats = [];
 
-    const container = this.shadowRoot!.getElementById("tab-content");
+    const container = this._root.getElementById("tab-content");
     if (!container) return;
 
     if (this._isFavoritesView) {
@@ -964,7 +989,8 @@ export class SpanPanelElement extends LitElement {
           this._listDashCtrl.updateDOM(container);
           this._listDashCtrl.startIntervals(container);
 
-          if (!this._areaUnsub) {
+          if (!this._areaUnsub && !this._areaSubscribing) {
+            this._areaSubscribing = true;
             subscribeAreaUpdates(
               this.hass,
               result.topology!,
@@ -976,14 +1002,30 @@ export class SpanPanelElement extends LitElement {
               this._errorStore
             )
               .then(unsub => {
-                this._areaUnsub = unsub;
+                if (this._areaSubscribing) {
+                  this._areaUnsub = unsub;
+                } else {
+                  // Element disconnected or panel changed while
+                  // subscribing — unsubscribe immediately so we don't
+                  // leak the subscription.
+                  unsub();
+                }
               })
-              .catch(() => {});
+              .catch((err: unknown) => {
+                this._areaSubscribing = false;
+                console.warn("SPAN Panel: area subscription failed", err);
+                this._errorStore.add({
+                  key: "subscribe:area",
+                  level: "warning",
+                  message: t("error.areas_failed"),
+                  persistent: false,
+                });
+              });
           }
         } catch (err) {
           const errEl = document.createElement("p");
           errEl.style.color = "var(--error-color)";
-          errEl.textContent = (err as Error).message;
+          errEl.textContent = err instanceof Error ? err.message : String(err);
           container.appendChild(errEl);
         }
         break;

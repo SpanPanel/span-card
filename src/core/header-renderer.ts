@@ -151,13 +151,13 @@ export function buildHeaderHTML(topology: PanelTopology, config: CardConfig, opt
         <div class="panel-identity">
           <h1 class="panel-title">${panelName}</h1>
           <span class="panel-serial">${serial}</span>
-          <button class="gear-icon panel-gear" title="${t("header.graph_settings")}">
+          <button class="gear-icon panel-gear" title="${escapeHtml(t("header.graph_settings"))}">
             <ha-icon icon="mdi:cog"></ha-icon>
           </button>
           ${
             showSwitches
-              ? `<div class="slide-confirm" data-text-off="${t("header.enable_switches")}" data-text-on="${t("header.switches_enabled")}">
-            <span class="slide-confirm-text">${t("header.enable_switches")}</span>
+              ? `<div class="slide-confirm" data-text-off="${escapeHtml(t("header.enable_switches"))}" data-text-on="${escapeHtml(t("header.switches_enabled"))}">
+            <span class="slide-confirm-text">${escapeHtml(t("header.enable_switches"))}</span>
             <div class="slide-confirm-knob">
               <ha-icon icon="mdi:lock"></ha-icon>
             </div>
@@ -170,7 +170,7 @@ export function buildHeaderHTML(topology: PanelTopology, config: CardConfig, opt
       <div class="header-right">
         <div class="header-right-top">
           <span class="meta-item">${firmware}</span>
-          <div class="unit-toggle" title="${t("header.toggle_units")}">
+          <div class="unit-toggle" title="${escapeHtml(t("header.toggle_units"))}">
             <button class="unit-btn ${isAmpsMode ? "" : "unit-active"}" data-unit="power">W</button>
             <button class="unit-btn ${isAmpsMode ? "unit-active" : ""}" data-unit="current">A</button>
           </div>
