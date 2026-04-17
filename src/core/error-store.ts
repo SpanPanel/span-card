@@ -130,6 +130,20 @@ export class ErrorStore {
   }
 
   /**
+   * True when any watched panel is currently marked offline. Covers both
+   * the legacy single-unnamed key (``panel-offline``) used by per-panel
+   * views and the per-entity keys (``panel-offline:<entityId>``) used by
+   * the Favorites multi-panel watch. ``RetryManager`` uses this to
+   * short-circuit retries without needing to know the naming mode.
+   */
+  hasAnyPanelOffline(): boolean {
+    for (const key of this._persistent.keys()) {
+      if (key === "panel-offline" || key.startsWith("panel-offline:")) return true;
+    }
+    return false;
+  }
+
+  /**
    * Subscribe to state changes. The callback is called after every `add`,
    * `remove`, `clear`, or transient auto-dismiss. Returns an unsubscribe fn.
    */

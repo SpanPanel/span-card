@@ -225,4 +225,17 @@ describe("RetryManager — panel offline short-circuit", () => {
     // No transient error should be added since fn() succeeded
     expect(store.active.filter(e => !e.persistent)).toHaveLength(0);
   });
+
+  it("short-circuits on per-entity panel-offline keys (Favorites multi-panel watch)", async () => {
+    const hass = makeHass();
+    // Simulate the Favorites-mode watch: per-entity key, not the legacy unnamed key.
+    store.add({ key: "panel-offline:binary_sensor.span_panel_2_panel_on", level: "error", message: "Panel 2 unreachable", persistent: true });
+
+    vi.mocked(hass.callWS).mockRejectedValueOnce(new Error("offline"));
+
+    await expect(manager.callWS(hass, { type: "span/get_panel" }, { errorId: "test-offline-ws-named" })).rejects.toThrow("offline");
+
+    // Only 1 attempt — no retries, despite the key being per-entity rather than the legacy name.
+    expect(hass.callWS).toHaveBeenCalledTimes(1);
+  });
 });

@@ -26,15 +26,20 @@ export function buildSheddingLegendHTML(): string {
     ${Object.entries(SHEDDING_PRIORITIES)
       .filter(([key]: [string, SheddingPriorityDef]) => key !== "unknown")
       .map(([, cfg]: [string, SheddingPriorityDef]) => {
+        const icon = escapeHtml(cfg.icon);
+        const color = escapeHtml(cfg.color);
+        const label = escapeHtml(cfg.label());
         let icons: string;
         if (cfg.icon2) {
-          icons = `<ha-icon icon="${cfg.icon}" style="color:${cfg.color}"></ha-icon><ha-icon class="shedding-legend-secondary" icon="${cfg.icon2}" style="color:${cfg.color}"></ha-icon>`;
+          const icon2 = escapeHtml(cfg.icon2);
+          icons = `<ha-icon icon="${icon}" style="color:${color}"></ha-icon><ha-icon class="shedding-legend-secondary" icon="${icon2}" style="color:${color}"></ha-icon>`;
         } else if (cfg.textLabel) {
-          icons = `<ha-icon icon="${cfg.icon}" style="color:${cfg.color}"></ha-icon><span class="shedding-legend-text" style="color:${cfg.color}">${cfg.textLabel}</span>`;
+          const textLabel = escapeHtml(cfg.textLabel);
+          icons = `<ha-icon icon="${icon}" style="color:${color}"></ha-icon><span class="shedding-legend-text" style="color:${color}">${textLabel}</span>`;
         } else {
-          icons = `<ha-icon icon="${cfg.icon}" style="color:${cfg.color}"></ha-icon>`;
+          icons = `<ha-icon icon="${icon}" style="color:${color}"></ha-icon>`;
         }
-        return `<div class="shedding-legend-item">${icons}<span class="shedding-legend-label">${cfg.label()}</span></div>`;
+        return `<div class="shedding-legend-item">${icons}<span class="shedding-legend-label">${label}</span></div>`;
       })
       .join("")}
   </div>`;

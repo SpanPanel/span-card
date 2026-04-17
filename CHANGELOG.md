@@ -6,8 +6,9 @@
 
 - **Compact expanded list rows** — Expanding a row in By Activity / By Area now shows only the chart. The gear icon and a real toggle-pill (arm-protected by the
   slide-to-confirm) moved onto the always-visible list row so expanding no longer duplicates information above the chart.
-- **Configurable list view columns** — 1 / 2 / 3 column grid for By Activity and By Area, set in Graph Settings → List View Columns. Persisted per device via
-  localStorage. Narrow viewports (< 600px) force single-column regardless. Expanded charts stay in their own column so row-to-chart association stays clear.
+- **Configurable list view columns** — 1 / 2 / 3 column grid for By Activity and By Area, set in Graph Settings → List View Columns. Persisted in localStorage
+  as a browser-wide preference (single key, not scoped per device). Narrow viewports (< 600px) force single-column regardless. Expanded charts stay in their own
+  column so row-to-chart association stays clear.
 - **Favorites per-panel status grid** — The Favorites view now renders a responsive grid of per-contributing-panel status cards (Site / Grid / Upstream /
   Downstream / Solar / Battery) below the slider + W/A row. One card per panel that contributes to the Favorites set; live values update on each tick.
 - **Slide-to-arm in Favorites** — Favorites view header now hosts the slide-confirm control so tappable ON/OFF toggles in list rows can actually fire. The

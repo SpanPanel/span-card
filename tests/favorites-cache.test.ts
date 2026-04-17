@@ -58,6 +58,39 @@ describe("FavoritesCache", () => {
     expect(second).toEqual({ panelA: { circuits: ["c1"], sub_devices: [] } });
   });
 
+  it("fetch() after invalidate() issues a fresh request even while an earlier fetch is pending", async () => {
+    // Resolve manually so we can control the ordering: pre-toggle response
+    // stays pending until we release it.
+    let resolveFirst!: (resp: { response: { favorites: Record<string, { circuits: string[]; sub_devices: string[] }> } }) => void;
+    const firstPromise = new Promise<{ response: { favorites: Record<string, { circuits: string[]; sub_devices: string[] }> } }>(resolve => {
+      resolveFirst = resolve;
+    });
+    const secondResponse = { response: { favorites: { panelA: { circuits: ["c1", "c2"], sub_devices: [] } } } };
+
+    let i = 0;
+    const callWS = vi.fn(async () => {
+      const idx = i;
+      i += 1;
+      return idx === 0 ? firstPromise : secondResponse;
+    });
+    const hass = { states: {}, services: {}, language: "en", callWS } as unknown as HomeAssistant;
+
+    const first = cache.fetch(hass);
+    cache.invalidate();
+
+    // Second fetch arrives while first is still in flight but after
+    // invalidate(). It must not dedupe onto the stale request; it must
+    // issue a new backend call and return the post-invalidate data.
+    const second = cache.fetch(hass);
+    expect(callWS).toHaveBeenCalledTimes(2);
+
+    resolveFirst({ response: { favorites: { panelA: { circuits: ["c1"], sub_devices: [] } } } });
+
+    const [firstResult, secondResult] = await Promise.all([first, second]);
+    expect(firstResult).toEqual({ panelA: { circuits: ["c1"], sub_devices: [] } });
+    expect(secondResult).toEqual({ panelA: { circuits: ["c1", "c2"], sub_devices: [] } });
+  });
+
   it("clear() drops the cached map and bumps generation", async () => {
     const { hass } = makeHass([{ panelA: { circuits: ["c1"], sub_devices: [] } }, { panelA: { circuits: [], sub_devices: [] } }]);
     await cache.fetch(hass);

@@ -17,7 +17,7 @@ interface CallServiceResponse {
 export class MonitoringStatusCache {
   private _status: MonitoringStatus | null = null;
   private _lastFetch: number = 0;
-  private _inflight: Promise<MonitoringStatus | null> | null = null;
+  private _inflight: { gen: number; promise: Promise<MonitoringStatus | null> } | null = null;
   private _generation: number = 0;
   private _errorStore: ErrorStore | null = null;
   private _retry: RetryManager | null = null;
@@ -41,13 +41,16 @@ export class MonitoringStatusCache {
    */
   async fetch(hass: HomeAssistant, configEntryId?: string | null): Promise<MonitoringStatus | null> {
     const now = Date.now();
-    if (this._inflight) return this._inflight;
+    // Only dedupe onto an in-flight request from the current generation.
+    // Requests predating the last invalidate() must not be reused, or the
+    // caller would await a stale promise whose result is silently dropped.
+    if (this._inflight && this._inflight.gen === this._generation) return this._inflight.promise;
     if (this._status && now - this._lastFetch < MONITORING_POLL_INTERVAL_MS) {
       return this._status;
     }
 
     const requestGen = this._generation;
-    this._inflight = (async () => {
+    const promise = (async (): Promise<MonitoringStatus | null> => {
       try {
         const serviceData: Record<string, string> = {};
         if (configEntryId) serviceData.config_entry_id = configEntryId;
@@ -85,10 +88,16 @@ export class MonitoringStatusCache {
         }
         return null;
       } finally {
-        this._inflight = null;
+        // Only clear the slot if it still points at this request; a
+        // later fetch() that ran after invalidate() may have replaced
+        // it with a newer in-flight promise we must not clobber.
+        if (this._inflight?.gen === requestGen) {
+          this._inflight = null;
+        }
       }
     })();
-    return this._inflight;
+    this._inflight = { gen: requestGen, promise };
+    return promise;
   }
 
   /** Force the next fetch() call to re-query the backend. */

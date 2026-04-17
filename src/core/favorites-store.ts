@@ -83,7 +83,7 @@ export async function removeFavorite(hass: HomeAssistant, entityId: string): Pro
 export class FavoritesCache {
   private _map: FavoritesMap | null;
   private _lastFetch: number;
-  private _inflight: Promise<FavoritesMap> | null;
+  private _inflight: { gen: number; promise: Promise<FavoritesMap> } | null;
   private _generation: number;
   private _errorStore: ErrorStore | null = null;
   private _retry: RetryManager | null = null;
@@ -106,13 +106,16 @@ export class FavoritesCache {
 
   async fetch(hass: HomeAssistant): Promise<FavoritesMap> {
     const now = Date.now();
-    if (this._inflight) return this._inflight;
+    // Only dedupe onto an in-flight request from the current generation.
+    // Requests predating the last invalidate() must not be reused, or
+    // the caller would await a stale promise whose result is dropped.
+    if (this._inflight && this._inflight.gen === this._generation) return this._inflight.promise;
     if (this._map && now - this._lastFetch < FAVORITES_POLL_INTERVAL_MS) {
       return this._map;
     }
 
     const requestGen = this._generation;
-    this._inflight = (async () => {
+    const promise = (async (): Promise<FavoritesMap> => {
       try {
         const msg = {
           type: "call_service",
@@ -145,10 +148,16 @@ export class FavoritesCache {
         }
         return this._map ?? {};
       } finally {
-        this._inflight = null;
+        // Only clear the slot if it still points at this request; a
+        // later fetch() that ran after invalidate() may have replaced
+        // it with a newer in-flight promise we must not clobber.
+        if (this._inflight?.gen === requestGen) {
+          this._inflight = null;
+        }
       }
     })();
-    return this._inflight;
+    this._inflight = { gen: requestGen, promise };
+    return promise;
   }
 
   invalidate(): void {

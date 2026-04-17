@@ -38,8 +38,11 @@ export class RetryManager {
   }
 
   private async _withRetry<T>(fn: () => Promise<T>, maxRetries: number, errorId: string, errorMessage?: string): Promise<T> {
-    // Short-circuit if panel is offline — single attempt, no retries
-    if (this._store.hasPersistent("panel-offline")) {
+    // Short-circuit if any watched panel is offline — single attempt,
+    // no retries. Uses ``hasAnyPanelOffline`` so it covers both the
+    // legacy single-unnamed key and the per-entity keys used by the
+    // Favorites multi-panel watch.
+    if (this._store.hasAnyPanelOffline()) {
       try {
         const result = await fn();
         this._store.remove(errorId);
