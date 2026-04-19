@@ -638,6 +638,12 @@ export const CARD_STYLES: string = `
     min-width: 70px;
     text-align: right;
     flex-shrink: 0;
+    /* Cancel the .list-row flex gap against the preceding relay
+       control (toggle-pill or list-status-badge). The 10px separator
+       between the ON/OFF badge and the reading robs horizontal space
+       from .list-circuit-name on narrow rows — close it up so the
+       ellipsis threshold pushes out. */
+    margin-left: -10px;
   }
 
   .list-expand-toggle {
