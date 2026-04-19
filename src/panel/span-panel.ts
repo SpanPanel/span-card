@@ -100,6 +100,12 @@ export class SpanPanelElement extends LitElement {
    * column count, horizon edits) the user made inside the sidebar.
    */
   private _pendingTabRender = false;
+  /**
+   * Pending retry timer for ``_recoverIfNeeded``. Cleared on disconnect
+   * so a delayed retry cannot fire against a detached element after HA
+   * has torn down the panel.
+   */
+  private _recoverTimer: ReturnType<typeof setTimeout> | null = null;
 
   private static _shellStyles = css`
     :host {
@@ -230,7 +236,7 @@ export class SpanPanelElement extends LitElement {
 
     this._onVisibilityChange = (): void => {
       if (document.visibilityState !== "visible" || !this._discovered || !this.hass) return;
-      this._scheduleTabRender();
+      this._recoverIfNeeded();
     };
     document.addEventListener("visibilitychange", this._onVisibilityChange);
 
@@ -266,6 +272,10 @@ export class SpanPanelElement extends LitElement {
     if (this._persistFavoritesViewStateTimer) {
       clearTimeout(this._persistFavoritesViewStateTimer);
       this._persistFavoritesViewStateTimer = null;
+    }
+    if (this._recoverTimer) {
+      clearTimeout(this._recoverTimer);
+      this._recoverTimer = null;
     }
     this._errorStore.dispose();
     super.disconnectedCallback();
@@ -870,6 +880,62 @@ export class SpanPanelElement extends LitElement {
    * tells a render branch whether it has been overtaken by a later render.
    */
   private readonly _beginRender = makeRenderToken();
+
+  /**
+   * Visibility-restore recovery. When the browser tab is backgrounded
+   * and HA's WebSocket drops/reconnects, a tab re-render kicked off on
+   * ``visibilitychange`` can silently bail out mid-flight — a WS call
+   * resolving empty, a supersession race, or a cache returning null
+   * without throwing — and the Favorites view in particular is left
+   * with a blank ``#tab-content`` because it clears the container
+   * before awaiting its async build steps.
+   *
+   * Wrap ``_scheduleTabRender`` in a try/catch **and** verify the
+   * container produced content afterwards; if either fails, retry
+   * with backoff so the render can catch a freshly-reconnected WS.
+   * Mirrors the pre-LitElement ``_recoverIfNeeded`` helper removed
+   * during the c4154d2 refactor.
+   */
+  private async _recoverIfNeeded(attempt = 0): Promise<void> {
+    if (!this._discovered || !this.hass) return;
+    // Retries scheduled after the initial render attempt (``attempt = 0``).
+    // With ``MAX_RETRIES = 3`` the behaviour is: one initial run plus up to
+    // three follow-ups at 2s / 4s / 6s backoff — four total renders in the
+    // worst case. Matches the pre-LitElement helper.
+    const MAX_RETRIES = 3;
+    const BACKOFF_BASE_MS = 2000;
+
+    const scheduleRetry = (): void => {
+      if (attempt >= MAX_RETRIES) return;
+      if (this._recoverTimer) clearTimeout(this._recoverTimer);
+      this._recoverTimer = setTimeout(
+        () => {
+          this._recoverTimer = null;
+          this._recoverIfNeeded(attempt + 1);
+        },
+        BACKOFF_BASE_MS * (attempt + 1)
+      );
+    };
+
+    try {
+      await this._scheduleTabRender();
+    } catch {
+      scheduleRetry();
+      return;
+    }
+
+    // A render that completed without throwing but left the tab
+    // container empty is the symptom we are recovering from. Every
+    // successful render path produces at least one child node — the
+    // empty-favorites state appends a ``<p>`` with ``list.no_results``,
+    // the error paths append a ``<p>`` with the error message, and the
+    // normal dashboard/activity/area/monitoring renders produce their
+    // respective headers/grids. Zero children means a silent bailout.
+    const container = this._root.getElementById("tab-content");
+    if (container && container.childNodes.length === 0) {
+      scheduleRetry();
+    }
+  }
 
   /**
    * Coalesce tab-render requests. If a render is in-flight, remember

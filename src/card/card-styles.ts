@@ -249,6 +249,12 @@ export const CARD_STYLES: string = `
     grid-template-columns: 28px 1fr 1fr 28px;
     gap: 8px;
     align-items: stretch;
+    /* Mark the grid as a size-query container so individual cells can
+       fold to a name-on-row-1 layout based on the grid's rendered
+       width (see .circuit-slot @container rule below). Viewport-based
+       media queries would mis-fire here because cells are half-width
+       of the grid, not half-width of the viewport. */
+    container-type: inline-size;
   }
 
   .tab-label {
@@ -324,6 +330,65 @@ export const CARD_STYLES: string = `
   }
 
   .circuit-controls { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+
+  /* Narrow-cell fold for By Panel breaker cells. At full width the
+     cell packs breaker + utilization + name on the left of .circuit-header
+     and power + toggle on the right, with .circuit-status (shedding +
+     gear) below. Each cell is half the .panel-grid width, so truncation
+     kicks in once the grid is narrower than ~760px (cell ~340px) —
+     well before any viewport-based media query would fire. Query the
+     grid's own width via a container query and, once crossed, collapse
+     the nested flex containers into a single grid so the name gets the
+     whole first row and all readings/controls/gear drop to a second row.
+     'display: contents' on the wrappers removes them from the layout
+     tree so the leaf elements can be placed by the outer grid. */
+  @container (max-width: 760px) {
+    .circuit-slot {
+      display: grid;
+      grid-template-columns: auto auto auto 1fr auto auto auto;
+      grid-template-areas:
+        "name  name  name name   name   name   name"
+        "badge util  shed .      status power  gear"
+        "chart chart chart chart chart  chart  chart";
+      row-gap: 6px;
+      column-gap: 8px;
+    }
+    .circuit-slot > .circuit-header,
+    .circuit-slot > .circuit-status,
+    .circuit-header > .circuit-info,
+    .circuit-header > .circuit-controls {
+      display: contents;
+    }
+    .circuit-slot .circuit-name {
+      grid-area: name;
+      justify-self: start;
+    }
+    .circuit-slot .breaker-badge {
+      grid-area: badge;
+    }
+    .circuit-slot .utilization {
+      grid-area: util;
+    }
+    .circuit-slot .shedding-icon,
+    .circuit-slot .shedding-composite {
+      grid-area: shed;
+    }
+    .circuit-slot .toggle-pill {
+      grid-area: status;
+      justify-self: end;
+    }
+    .circuit-slot .power-value {
+      grid-area: power;
+      justify-self: end;
+    }
+    .circuit-slot .gear-icon.circuit-gear {
+      grid-area: gear;
+      justify-self: end;
+    }
+    .circuit-slot > .chart-container {
+      grid-area: chart;
+    }
+  }
 
   .power-value { font-size: 0.9em; color: var(--primary-text-color, #fff); white-space: nowrap; }
   .power-value strong { font-weight: 700; font-size: 1.1em; }
@@ -635,9 +700,13 @@ export const CARD_STYLES: string = `
   .list-power-value {
     font-size: 0.9em;
     font-weight: 600;
-    min-width: 70px;
-    text-align: right;
     flex-shrink: 0;
+    /* No min-width / text-align:right: the old 70px right-aligned
+       cell left a visible blank column for short readings (e.g.
+       "1.3A" in a 70px slot), which robbed horizontal space from
+       .list-circuit-name on narrow rows. Let the value hug the
+       preceding relay control and size to its content so the freed
+       width flows back into the flex:1 name column. */
   }
 
   .list-expand-toggle {
@@ -667,6 +736,54 @@ export const CARD_STYLES: string = `
   }
   .list-row .gear-icon:hover {
     color: var(--primary-text-color);
+  }
+
+  /* Narrow-viewport fold: the flat flex row truncates the circuit
+     name heavily once breaker + utilization + shedding + toggle +
+     power + gear + chevron are all competing for width. Switch to a
+     two-row grid so the name gets the full width (paired only with
+     the expand chevron), and the badges/controls/reading/gear drop
+     to a secondary row underneath. Named areas keep the CSS readable
+     despite the flat HTML child order. */
+  @media (max-width: 520px) {
+    .list-row {
+      display: grid;
+      grid-template-columns: auto auto auto 1fr auto auto auto;
+      grid-template-areas:
+        "name name name name   name   name  chevron"
+        "badge util shed .     status power gear";
+      row-gap: 6px;
+      column-gap: 8px;
+    }
+    .list-row > .list-circuit-name {
+      grid-area: name;
+      justify-self: start;
+    }
+    .list-row > .list-expand-toggle {
+      grid-area: chevron;
+    }
+    .list-row > .breaker-badge {
+      grid-area: badge;
+    }
+    .list-row > .utilization {
+      grid-area: util;
+    }
+    .list-row > .shedding-icon,
+    .list-row > .shedding-composite {
+      grid-area: shed;
+    }
+    .list-row > .toggle-pill,
+    .list-row > .list-status-badge {
+      grid-area: status;
+    }
+    .list-row > .list-power-value {
+      grid-area: power;
+      justify-self: end;
+    }
+    .list-row > .gear-icon.circuit-gear {
+      grid-area: gear;
+      justify-self: end;
+    }
   }
 
   /* ── Expanded circuit content ──────────────────────────── */
