@@ -635,15 +635,13 @@ export const CARD_STYLES: string = `
   .list-power-value {
     font-size: 0.9em;
     font-weight: 600;
-    min-width: 70px;
-    text-align: right;
     flex-shrink: 0;
-    /* Cancel the .list-row flex gap against the preceding relay
-       control (toggle-pill or list-status-badge). The 10px separator
-       between the ON/OFF badge and the reading robs horizontal space
-       from .list-circuit-name on narrow rows — close it up so the
-       ellipsis threshold pushes out. */
-    margin-left: -10px;
+    /* No min-width / text-align:right: the old 70px right-aligned
+       cell left a visible blank column for short readings (e.g.
+       "1.3A" in a 70px slot), which robbed horizontal space from
+       .list-circuit-name on narrow rows. Let the value hug the
+       preceding relay control and size to its content so the freed
+       width flows back into the flex:1 name column. */
   }
 
   .list-expand-toggle {
