@@ -5,11 +5,12 @@
 ### Fixed
 
 - **Favorites view blanks after `visibilitychange` restore** — Restored a `_recoverIfNeeded` helper on the panel's visibilitychange handler. It wraps
-  `_scheduleTabRender` in try/catch **and** verifies `#tab-content` received content; on thrown error or zero child nodes, retries with 2s/4s/6s backoff up to
-  three attempts. The Favorites render path clears its container before awaiting several async build steps (`FavoritesController.build`,
-  `fetchAndBuildHorizonMaps`, `fetchMergedMonitoringStatus`), and when HA's WebSocket drops mid-render one of those resolved empty or null without throwing,
-  leaving the container blank with no console error. The retry catches the silent bailout. Dashboard (By Panel) avoided the symptom because its simpler render
-  produces an error message on failure instead of bailing quietly. The helper matches the pre-LitElement behaviour removed during the `c4154d2` refactor.
+  `_scheduleTabRender` in try/catch **and** verifies `#tab-content` received content; on thrown error or zero child nodes, it makes the initial render and then
+  retries up to three times with 2s / 4s / 6s backoff (four total renders in the worst case). The Favorites render path clears its container before awaiting
+  several async build steps (`FavoritesController.build`, `fetchAndBuildHorizonMaps`, `fetchMergedMonitoringStatus`), and when HA's WebSocket drops mid-render
+  one of those resolved empty or null without throwing, leaving the container blank with no console error. The retry catches the silent bailout. Dashboard (By
+  Panel) avoided the symptom because its simpler render produces an error message on failure instead of bailing quietly. The helper matches the pre-LitElement
+  behaviour removed during the `c4154d2` refactor.
 - **List row `.list-power-value` min-width shrank the name column for no benefit** — Dropped the 70px `min-width` and `text-align: right` on
   `.list-power-value`. Short readings (`1.3A`) were right-aligned inside a 70px cell, leaving a ~40px empty column between the relay control and the reading
   that robbed width from the `flex:1 .list-circuit-name`. The value now sizes to content and hugs the preceding relay pill; the freed column flows back into the

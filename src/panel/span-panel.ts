@@ -898,11 +898,15 @@ export class SpanPanelElement extends LitElement {
    */
   private async _recoverIfNeeded(attempt = 0): Promise<void> {
     if (!this._discovered || !this.hass) return;
-    const MAX_ATTEMPTS = 3;
+    // Retries scheduled after the initial render attempt (``attempt = 0``).
+    // With ``MAX_RETRIES = 3`` the behaviour is: one initial run plus up to
+    // three follow-ups at 2s / 4s / 6s backoff — four total renders in the
+    // worst case. Matches the pre-LitElement helper.
+    const MAX_RETRIES = 3;
     const BACKOFF_BASE_MS = 2000;
 
     const scheduleRetry = (): void => {
-      if (attempt >= MAX_ATTEMPTS) return;
+      if (attempt >= MAX_RETRIES) return;
       if (this._recoverTimer) clearTimeout(this._recoverTimer);
       this._recoverTimer = setTimeout(
         () => {
