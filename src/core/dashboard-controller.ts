@@ -652,7 +652,7 @@ export class DashboardController {
       if (pos >= SLIDE_THRESHOLD) {
         knob.style.left = maxX + "px";
         slideEl.classList.add("confirmed");
-        knob.querySelector("ha-icon")?.setAttribute("icon", "mdi:lock-open");
+        knob.querySelector("span-icon")?.setAttribute("icon", "mdi:lock-open");
         textEl.textContent = (slideEl as HTMLElement).dataset.textOn ?? "";
         if (parent) parent.classList.remove("switches-disabled");
       } else {
@@ -685,7 +685,7 @@ export class DashboardController {
       slideEl.classList.remove("confirmed");
       knob.classList.add("snapping");
       knob.style.left = "2px";
-      knob.querySelector("ha-icon")?.setAttribute("icon", "mdi:lock");
+      knob.querySelector("span-icon")?.setAttribute("icon", "mdi:lock");
       textEl.textContent = (slideEl as HTMLElement).dataset.textOff ?? "";
       if (parent) parent.classList.add("switches-disabled");
     });
@@ -728,7 +728,7 @@ export class DashboardController {
       if (this._resizeDebounce) clearTimeout(this._resizeDebounce);
       this._resizeDebounce = setTimeout(() => {
         for (const container of root.querySelectorAll(".chart-container")) {
-          const chart = container.querySelector("ha-chart-base");
+          const chart = container.querySelector("span-chart");
           if (chart) chart.remove();
         }
         this.updateDOM(root);

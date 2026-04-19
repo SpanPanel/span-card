@@ -98,7 +98,7 @@ export class SpanErrorBanner extends LitElement {
     return html`${this._errors.map(
       entry => html`
         <div class="banner-row level-${entry.level}" role=${entry.level === "info" ? "status" : "alert"}>
-          <ha-icon class="icon" icon=${this._iconForLevel(entry.level)}></ha-icon>
+          <span-icon class="icon" icon=${this._iconForLevel(entry.level)}></span-icon>
           <span class="message">${entry.message}</span>
           ${entry.retryFn ? html`<button class="retry-btn" type="button" @click=${() => entry.retryFn!()}>${t("error.retry")}</button>` : nothing}
         </div>

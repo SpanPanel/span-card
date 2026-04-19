@@ -17,7 +17,7 @@ export function buildSearchBarHTML(currentQuery: string = ""): string {
     <div class="list-search-container">
       <input class="list-search" type="text" placeholder="${escapeHtml(t("list.search_placeholder"))}"${valueAttr} />
       <button class="list-search-clear" style="${clearDisplay}">
-        <ha-icon icon="mdi:close" style="--mdc-icon-size:18px;"></ha-icon>
+        <span-icon icon="mdi:close" style="--mdc-icon-size:18px;"></span-icon>
       </button>
     </div>
   `;
@@ -86,18 +86,18 @@ export function buildListRowHTML(
       SHEDDING_PRIORITIES.unknown ?? { icon: "mdi:help", color: "#999", label: () => "Unknown" };
     if (shedInfo.icon2) {
       sheddingHTML = `<span class="shedding-composite" title="${shedInfo.label()}">
-        <ha-icon class="shedding-icon" icon="${shedInfo.icon}" style="color:${shedInfo.color};--mdc-icon-size:16px;"></ha-icon>
-        <ha-icon class="shedding-icon-secondary" icon="${shedInfo.icon2}" style="color:${shedInfo.color};--mdc-icon-size:14px;"></ha-icon>
+        <span-icon class="shedding-icon" icon="${shedInfo.icon}" style="color:${shedInfo.color};--mdc-icon-size:16px;"></span-icon>
+        <span-icon class="shedding-icon-secondary" icon="${shedInfo.icon2}" style="color:${shedInfo.color};--mdc-icon-size:14px;"></span-icon>
       </span>`;
     } else if (shedInfo.textLabel) {
       sheddingHTML = `<span class="shedding-composite" title="${shedInfo.label()}">
-        <ha-icon class="shedding-icon" icon="${shedInfo.icon}" style="color:${shedInfo.color};--mdc-icon-size:16px;"></ha-icon>
+        <span-icon class="shedding-icon" icon="${shedInfo.icon}" style="color:${shedInfo.color};--mdc-icon-size:16px;"></span-icon>
         <span class="shedding-label" style="color:${shedInfo.color}">${shedInfo.textLabel}</span>
       </span>`;
     } else {
-      sheddingHTML = `<ha-icon class="shedding-icon" icon="${shedInfo.icon}"
+      sheddingHTML = `<span-icon class="shedding-icon" icon="${shedInfo.icon}"
         style="color:${shedInfo.color};--mdc-icon-size:16px;"
-        title="${shedInfo.label()}"></ha-icon>`;
+        title="${shedInfo.label()}"></span-icon>`;
     }
   }
 
@@ -121,7 +121,7 @@ export function buildListRowHTML(
   const gearHTML = `<button class="gear-icon circuit-gear"
   data-uuid="${escapeHtml(uuid)}" style="color:${gearColor};"
   title="${escapeHtml(t("grid.configure"))}">
-  <ha-icon icon="mdi:cog" style="--mdc-icon-size:16px;"></ha-icon>
+  <span-icon icon="mdi:cog" style="--mdc-icon-size:16px;"></span-icon>
 </button>`;
 
   // Controllable circuits get a real toggle-pill arm-protected by the
@@ -147,7 +147,7 @@ export function buildListRowHTML(
       </span>
       ${gearHTML}
       <button class="list-expand-toggle ${isExpanded ? "expanded" : ""}" data-expand-uuid="${escapeHtml(uuid)}">
-        <ha-icon icon="mdi:chevron-down" style="--mdc-icon-size:18px;"></ha-icon>
+        <span-icon icon="mdi:chevron-down" style="--mdc-icon-size:18px;"></span-icon>
       </button>
     </div>
   `;

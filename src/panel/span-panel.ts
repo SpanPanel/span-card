@@ -6,6 +6,9 @@ import { setLanguage, t } from "../i18n.js";
 import { ErrorStore } from "../core/error-store.js";
 import "../core/side-panel.js";
 import "../core/error-banner.js";
+import "../core/span-icon.js";
+import "../core/span-switch.js";
+import "./span-menu-button.js";
 import { DashboardTab } from "./tab-dashboard.js";
 import { MonitoringTab } from "./tab-monitoring.js";
 import { ListViewController, type FavoritesViewStateDetail } from "../core/list-view-controller.js";
@@ -376,10 +379,11 @@ export class SpanPanelElement extends LitElement {
   protected render(): unknown {
     setLanguage(this.hass?.language);
 
-    // ``ha-menu-button`` reads ``this.hass.kioskMode`` in its willUpdate;
-    // creating it before HA has assigned ``hass`` throws. Render a bare
-    // shell until hass arrives — the ``hass`` setter will request a new
-    // render via Lit reactivity once HA injects the property.
+    // Render a bare shell until HA has injected ``hass``; downstream
+    // template fragments (panel selector, tab bar, error banner, side
+    // panels) all read from ``this.hass`` and would throw otherwise.
+    // The ``hass`` setter triggers a Lit reactivity pass once HA delivers
+    // the property, which re-renders into the discovered/loaded state.
     if (!this.hass) {
       return html`
         <div class="header">
@@ -398,7 +402,7 @@ export class SpanPanelElement extends LitElement {
       return html`
         <div class="header">
           <div class="toolbar">
-            <ha-menu-button .hass=${this.hass} .narrow=${this.narrow}></ha-menu-button>
+            <span-menu-button .narrow=${this.narrow}></span-menu-button>
             <div class="main-title">Span Panel</div>
           </div>
         </div>
@@ -412,7 +416,7 @@ export class SpanPanelElement extends LitElement {
     return html`
       <div class="header">
         <div class="toolbar">
-          <ha-menu-button .hass=${this.hass} .narrow=${this.narrow}></ha-menu-button>
+          <span-menu-button .narrow=${this.narrow}></span-menu-button>
           <div class="main-title">
             <span class="panel-selector">
               <select id="panel-select" @change=${this._onPanelChange}>
