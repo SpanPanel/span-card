@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.9.5
+
+### Fixed
+
+- **Favorites view blanks after `visibilitychange` restore** — Restored a `_recoverIfNeeded` helper on the panel's visibilitychange handler. It wraps
+  `_scheduleTabRender` in try/catch **and** verifies `#tab-content` received content; on thrown error or zero child nodes, retries with 2s/4s/6s backoff up to
+  three attempts. The Favorites render path clears its container before awaiting several async build steps (`FavoritesController.build`,
+  `fetchAndBuildHorizonMaps`, `fetchMergedMonitoringStatus`), and when HA's WebSocket drops mid-render one of those resolved empty or null without throwing,
+  leaving the container blank with no console error. The retry catches the silent bailout. Dashboard (By Panel) avoided the symptom because its simpler render
+  produces an error message on failure instead of bailing quietly. The helper matches the pre-LitElement behaviour removed during the `c4154d2` refactor.
+- **List row `.list-power-value` min-width shrank the name column for no benefit** — Dropped the 70px `min-width` and `text-align: right` on
+  `.list-power-value`. Short readings (`1.3A`) were right-aligned inside a 70px cell, leaving a ~40px empty column between the relay control and the reading
+  that robbed width from the `flex:1 .list-circuit-name`. The value now sizes to content and hugs the preceding relay pill; the freed column flows back into the
+  name.
+
+### Changed
+
+- **Narrow-viewport list rows fold to a two-row grid** — New `@media (max-width: 520px)` rule switches `.list-row` from flex to grid with `grid-template-areas`
+  so the circuit name occupies the whole first row (paired with the expand chevron) and `breaker-badge`, `utilization`, shedding icon, status control, power
+  value, and gear drop to a second row. A `1fr` gap column between the status and power slots keeps the relay pill snug against the reading.
+- **By Panel breaker cells fold based on grid width, not viewport** — Made `.panel-grid` a size-query container (`container-type: inline-size`) and added an
+  `@container (max-width: 760px)` rule on `.circuit-slot`. Each cell is half the grid's width, so truncation kicks in well before any viewport media query would
+  trigger. The fold uses `display: contents` on `.circuit-header`, `.circuit-info`, `.circuit-controls`, and `.circuit-status` so the leaf elements can be
+  placed directly via `grid-area` on the outer grid — name spans the full first row, the second row mirrors the list-row layout (badge, util, shed, status,
+  power, gear), and `.chart-container` stays as a full-width third row.
+
 ## 0.9.4
 
 ### Added
