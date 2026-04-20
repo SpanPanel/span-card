@@ -1,5 +1,5 @@
 import { LitElement, html, css } from "lit";
-import { customElement, property } from "lit/decorators.js";
+import { property } from "lit/decorators.js";
 import * as echarts from "echarts/core";
 import { LineChart } from "echarts/charts";
 import { GridComponent, TooltipComponent } from "echarts/components";
@@ -39,7 +39,6 @@ type ChartSeries = BuildChartResult["series"];
  *   disconnected  – dispose the ECharts instance and disconnect the
  *                   observer so hidden tabs don't leak chart instances.
  */
-@customElement("span-chart")
 export class SpanChart extends LitElement {
   @property({ attribute: false }) options: ChartOptions | null = null;
   @property({ attribute: false }) data: ChartSeries = [];
@@ -63,6 +62,18 @@ export class SpanChart extends LitElement {
     return html`<div class="chart-host" style="height:${this.height};"></div>`;
   }
 
+  connectedCallback(): void {
+    super.connectedCallback();
+    // If the element is being reattached after a previous disconnect
+    // (e.g. moved between DOM positions, adoptNode), firstUpdated has
+    // already run and won't run again. Re-mount the chart so the live
+    // SVG comes back.
+    if (this.hasUpdated && !this._chart && this.options) {
+      this._mount();
+      this._observeResize();
+    }
+  }
+
   protected override firstUpdated(): void {
     this._mount();
     this._observeResize();
@@ -75,6 +86,13 @@ export class SpanChart extends LitElement {
         // strongly-typed ChartOptionsDef is structurally compatible but
         // not assignable without a cast at the boundary.
         this._chart.setOption(this._mergedOptions() as unknown as Parameters<EChartsType["setOption"]>[0], true);
+      } else if (!this._chart && this.options) {
+        // Late-arriving options: firstUpdated already ran but options
+        // wasn't set yet so _mount bailed. Mount now that we have a
+        // valid option set. Without this branch the chart would stay
+        // permanently blank for any caller that assigns options after
+        // the first Lit update cycle.
+        this._mount();
       }
     }
     if (changed.has("height") && this._chart) {
@@ -128,4 +146,13 @@ declare global {
   interface HTMLElementTagNameMap {
     "span-chart": SpanChart;
   }
+}
+
+// Guarded registration: see span-icon.ts for the rationale.
+try {
+  if (!customElements.get("span-chart")) {
+    customElements.define("span-chart", SpanChart);
+  }
+} catch {
+  // Scoped custom element registry may throw on duplicate registration after upgrade
 }

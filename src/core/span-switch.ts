@@ -1,5 +1,5 @@
 import { LitElement, html, css } from "lit";
-import { customElement, property } from "lit/decorators.js";
+import { property } from "lit/decorators.js";
 
 /**
  * Drop-in replacement for HA's <ha-switch>. Track + thumb toggle that
@@ -15,7 +15,6 @@ import { customElement, property } from "lit/decorators.js";
  * shadow-root listeners and the existing addEventListener("change", ...)
  * handlers in side-panel.ts continue to work unchanged.
  */
-@customElement("span-switch")
 export class SpanSwitch extends LitElement {
   @property({ type: Boolean, reflect: true }) checked = false;
   @property({ type: Boolean, reflect: true }) disabled = false;
@@ -124,4 +123,13 @@ declare global {
   interface HTMLElementTagNameMap {
     "span-switch": SpanSwitch;
   }
+}
+
+// Guarded registration: see span-icon.ts for the rationale.
+try {
+  if (!customElements.get("span-switch")) {
+    customElements.define("span-switch", SpanSwitch);
+  }
+} catch {
+  // Scoped custom element registry may throw on duplicate registration after upgrade
 }

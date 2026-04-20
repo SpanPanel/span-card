@@ -28,8 +28,10 @@ export interface FoldConfig {
   /** Class to toggle on the row when folded. */
   foldClass: string;
   /** Extra px the row must grow past the fold-trigger width before
-   * unfolding. Defaults to 24px which avoids oscillation around any
-   * single-pixel boundary. */
+   * unfolding. Defaults to 48px — large enough to avoid oscillation
+   * for borderline-fitting names, where the unfolded layout consumes
+   * additional width on the chrome (badges, controls) that a folded
+   * row's measurement does not reflect. */
   hysteresisPx?: number;
 }
 
@@ -45,7 +47,7 @@ export interface FoldConfig {
  * expand/collapse, search).
  */
 export function observeFold(container: HTMLElement, config: FoldConfig): () => void {
-  const hysteresis = config.hysteresisPx ?? 24;
+  const hysteresis = config.hysteresisPx ?? 48;
   const observed = new WeakSet<HTMLElement>();
   /**
    * Width of a representative row when the fold was triggered. While
@@ -139,8 +141,14 @@ export function observeFold(container: HTMLElement, config: FoldConfig): () => v
 
   attachAll();
 
+  // childList:true with subtree:false is enough: rows appear in this
+  // container only through full re-renders that replace the container's
+  // direct child (the .list-view or .panel-grid wrapper), which fires
+  // a direct-children mutation. Row-internal mutations from expand/
+  // collapse never add new rows, so the deeper subtree traffic would
+  // just be wasted work.
   const mo = new MutationObserver(() => attachAll());
-  mo.observe(container, { childList: true, subtree: true });
+  mo.observe(container, { childList: true, subtree: false });
 
   return (): void => {
     ro.disconnect();

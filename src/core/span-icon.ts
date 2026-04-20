@@ -1,5 +1,5 @@
 import { LitElement, html, css, svg, nothing } from "lit";
-import { customElement, property } from "lit/decorators.js";
+import { property } from "lit/decorators.js";
 import {
   mdiAlert,
   mdiAlertCircle,
@@ -74,7 +74,6 @@ function warnOnce(name: string): void {
  * display: inline-flex so it aligns with adjacent text the same way
  * <ha-icon> does inside flex rows.
  */
-@customElement("span-icon")
 export class SpanIcon extends LitElement {
   @property({ type: String }) icon = "";
 
@@ -112,4 +111,17 @@ declare global {
   interface HTMLElementTagNameMap {
     "span-icon": SpanIcon;
   }
+}
+
+// Guarded registration: both span-panel.js and span-panel-card.js are
+// loaded onto the same document when a user has the Lovelace card on
+// a dashboard alongside the integration's HA panel. The second bundle
+// to import this module would otherwise throw NotSupportedError on the
+// duplicate define, which would break whichever view loaded second.
+try {
+  if (!customElements.get("span-icon")) {
+    customElements.define("span-icon", SpanIcon);
+  }
+} catch {
+  // Scoped custom element registry may throw on duplicate registration after upgrade
 }

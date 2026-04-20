@@ -1,5 +1,5 @@
 import { LitElement, html, css, svg } from "lit";
-import { customElement, property } from "lit/decorators.js";
+import { property } from "lit/decorators.js";
 import { mdiMenu } from "@mdi/js";
 
 /**
@@ -15,7 +15,6 @@ import { mdiMenu } from "@mdi/js";
  * collapsed behind the hamburger. The `narrow` property reflects to an
  * attribute so CSS can drive visibility without re-rendering.
  */
-@customElement("span-menu-button")
 export class SpanMenuButton extends LitElement {
   @property({ type: Boolean, reflect: true }) narrow = false;
 
@@ -77,4 +76,13 @@ declare global {
   interface HTMLElementTagNameMap {
     "span-menu-button": SpanMenuButton;
   }
+}
+
+// Guarded registration: see span-icon.ts for the rationale.
+try {
+  if (!customElements.get("span-menu-button")) {
+    customElements.define("span-menu-button", SpanMenuButton);
+  }
+} catch {
+  // Scoped custom element registry may throw on duplicate registration after upgrade
 }

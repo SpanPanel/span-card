@@ -5,6 +5,7 @@ import { INTEGRATION_DOMAIN, SHEDDING_PRIORITIES, GRAPH_HORIZONS, DEFAULT_GRAPH_
 import { t } from "../i18n.js";
 import { addFavorite, removeFavorite } from "./favorites-store.js";
 import { sortedCircuitsForSection } from "./favorites-sections.js";
+import type { SpanSwitch } from "./span-switch.js";
 import type { HomeAssistant, PanelTopology, GraphSettings, CircuitEntities, CircuitGraphOverride, MonitoringPointInfo } from "../types.js";
 import type { ErrorStore } from "./error-store.js";
 
@@ -107,12 +108,6 @@ interface FavoritesModeConfig {
 }
 
 type SidePanelConfig = PanelModeConfig | CircuitModeConfig | SubDeviceModeConfig | FavoritesModeConfig;
-
-// ── Custom element interface for span-switch ───────────────────────────────
-
-interface SpanSwitchElement extends HTMLElement {
-  checked: boolean;
-}
 
 // ── Styles ────────────────────────────────────────────────────────────────
 
@@ -1176,7 +1171,7 @@ class SpanSidePanel extends HTMLElement {
     label.className = "field-label";
     label.textContent = t("sidepanel.breaker");
 
-    const toggle = document.createElement("span-switch") as SpanSwitchElement;
+    const toggle = document.createElement("span-switch");
     toggle.dataset.role = "relay-toggle";
     const entityId = cfg.entities.switch;
     const currentState = this._hass?.states?.[entityId]?.state;
@@ -1359,7 +1354,7 @@ class SpanSidePanel extends HTMLElement {
     sectionLabel.textContent = t("sidepanel.monitoring");
     sectionLabel.style.margin = "0";
 
-    const enableToggle = document.createElement("span-switch") as SpanSwitchElement;
+    const enableToggle = document.createElement("span-switch");
     enableToggle.dataset.role = "monitoring-toggle";
 
     const info = cfg.monitoringInfo;
@@ -1579,7 +1574,7 @@ class SpanSidePanel extends HTMLElement {
 
     // Update relay toggle
     if (cfg.entities?.switch) {
-      const toggle = this.shadowRoot?.querySelector<SpanSwitchElement>('[data-role="relay-toggle"]');
+      const toggle = this.shadowRoot?.querySelector<SpanSwitch>('[data-role="relay-toggle"]');
       if (toggle) {
         const currentState = this._hass?.states?.[cfg.entities.switch]?.state;
         if (currentState === "on") {
