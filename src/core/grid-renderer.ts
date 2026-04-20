@@ -165,19 +165,19 @@ export function renderCircuitSlot(
     if (shedInfo.icon2) {
       const safeIcon2 = escapeHtml(shedInfo.icon2);
       sheddingHTML = `<span class="shedding-composite" title="${safeLabel}">
-        <ha-icon class="shedding-icon" icon="${safeIcon}" style="color:${safeColor};--mdc-icon-size:16px;"></ha-icon>
-        <ha-icon class="shedding-icon-secondary" icon="${safeIcon2}" style="color:${safeColor};--mdc-icon-size:14px;"></ha-icon>
+        <span-icon class="shedding-icon" icon="${safeIcon}" style="color:${safeColor};--mdc-icon-size:16px;"></span-icon>
+        <span-icon class="shedding-icon-secondary" icon="${safeIcon2}" style="color:${safeColor};--mdc-icon-size:14px;"></span-icon>
       </span>`;
     } else if (shedInfo.textLabel) {
       const safeTextLabel = escapeHtml(shedInfo.textLabel);
       sheddingHTML = `<span class="shedding-composite" title="${safeLabel}">
-        <ha-icon class="shedding-icon" icon="${safeIcon}" style="color:${safeColor};--mdc-icon-size:16px;"></ha-icon>
+        <span-icon class="shedding-icon" icon="${safeIcon}" style="color:${safeColor};--mdc-icon-size:16px;"></span-icon>
         <span class="shedding-label" style="color:${safeColor}">${safeTextLabel}</span>
       </span>`;
     } else {
-      sheddingHTML = `<ha-icon class="shedding-icon" icon="${safeIcon}"
+      sheddingHTML = `<span-icon class="shedding-icon" icon="${safeIcon}"
         style="color:${safeColor};--mdc-icon-size:16px;"
-        title="${safeLabel}"></ha-icon>`;
+        title="${safeLabel}"></span-icon>`;
     }
   }
 
@@ -187,7 +187,7 @@ export function renderCircuitSlot(
   const gearHTML = `<button class="gear-icon circuit-gear"
     data-uuid="${escapeHtml(uuid)}" style="color:${gearColor};"
     title="${escapeHtml(t("grid.configure"))}">
-    <ha-icon icon="mdi:cog" style="--mdc-icon-size:16px;"></ha-icon>
+    <span-icon icon="mdi:cog" style="--mdc-icon-size:16px;"></span-icon>
   </button>`;
 
   // Utilization — prefer monitoring data, fall back to live current / breaker rating

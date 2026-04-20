@@ -5,6 +5,7 @@ import { buildGridHTML } from "../core/grid-renderer.js";
 import { buildSubDevicesHTML } from "../core/sub-device-renderer.js";
 import { buildMonitoringSummaryHTML } from "../core/monitoring-status.js";
 import { DashboardController } from "../core/dashboard-controller.js";
+import { observeFold } from "../core/truncation-fold.js";
 import { CARD_STYLES } from "../card/card-styles.js";
 import "../core/side-panel.js";
 import type { HomeAssistant, CardConfig } from "../types.js";
@@ -22,6 +23,13 @@ export class DashboardTab {
   private _onToggleClick: ((ev: Event) => void) | null = null;
   private _onSidePanelClosed: (() => void) | null = null;
   private _onGraphSettingsChanged: (() => void) | null = null;
+  /**
+   * Tear-down for the per-cell truncation-fold observer (see
+   * src/core/truncation-fold.ts). Re-bound on every render so the
+   * previous render's observer is disconnected before a new one is
+   * attached.
+   */
+  private _foldUnobserve: (() => void) | null = null;
 
   get hass(): HomeAssistant | null {
     return this._ctrl.hass;
@@ -124,10 +132,21 @@ export class DashboardTab {
 
     this._ctrl.setupResizeObserver(container, container);
     this._ctrl.startIntervals(container);
+
+    if (this._foldUnobserve) this._foldUnobserve();
+    this._foldUnobserve = observeFold(container, {
+      rowSelector: ".circuit-slot",
+      nameSelector: ".circuit-name",
+      foldClass: "is-folded",
+    });
   }
 
   stop(): void {
     this._ctrl.stopIntervals();
+    if (this._foldUnobserve) {
+      this._foldUnobserve();
+      this._foldUnobserve = null;
+    }
     if (this._container) {
       if (this._onGearClick) {
         this._container.removeEventListener("click", this._onGearClick);

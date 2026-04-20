@@ -12,12 +12,15 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@mdi/js": "^7.4.47",
+    "echarts": "^6.0.0",
     "lit": "^3.3.2"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@evilmartians/lefthook": "^2.1.3",
     "@rollup/plugin-node-resolve": "^16.0.3",
+    "@rollup/plugin-replace": "^6.0.3",
     "@rollup/plugin-terser": "^0.4.0",
     "@rollup/plugin-typescript": "^12.3.0",
     "eslint": "^10.0.3",
