@@ -23,9 +23,14 @@ interface RO {
 }
 
 const ROs: RO[] = [];
+// Original ResizeObserver captured before each test installs the shim;
+// restored in afterEach so other test files (e.g. ones that depend on
+// happy-dom's real ResizeObserver) don't see our stub.
+let originalResizeObserver: typeof globalThis.ResizeObserver | undefined;
 
 function installResizeObserverShim(): void {
   ROs.length = 0;
+  originalResizeObserver = (globalThis as unknown as { ResizeObserver?: typeof globalThis.ResizeObserver }).ResizeObserver;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (globalThis as any).ResizeObserver = class {
     private _cb: (entries: ROEntry[]) => void;
@@ -47,6 +52,16 @@ function installResizeObserverShim(): void {
       return ro as unknown as ResizeObserver;
     }
   };
+}
+
+function restoreResizeObserverShim(): void {
+  if (originalResizeObserver === undefined) {
+    delete (globalThis as unknown as { ResizeObserver?: unknown }).ResizeObserver;
+  } else {
+    (globalThis as unknown as { ResizeObserver: typeof globalThis.ResizeObserver }).ResizeObserver = originalResizeObserver;
+  }
+  originalResizeObserver = undefined;
+  ROs.length = 0;
 }
 
 function makeRow(container: HTMLElement, opts: { rowWidth: number; nameClient: number; nameScroll: number }): HTMLElement {
@@ -93,6 +108,7 @@ describe("observeFold", () => {
   afterEach(() => {
     if (unobserve) unobserve();
     container.remove();
+    restoreResizeObserverShim();
   });
 
   it("returns an unobserve function for an empty container", () => {

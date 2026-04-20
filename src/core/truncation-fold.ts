@@ -141,14 +141,33 @@ export function observeFold(container: HTMLElement, config: FoldConfig): () => v
 
   attachAll();
 
-  // childList:true with subtree:false is enough: rows appear in this
-  // container only through full re-renders that replace the container's
-  // direct child (the .list-view or .panel-grid wrapper), which fires
-  // a direct-children mutation. Row-internal mutations from expand/
-  // collapse never add new rows, so the deeper subtree traffic would
-  // just be wasted work.
-  const mo = new MutationObserver(() => attachAll());
-  mo.observe(container, { childList: true, subtree: false });
+  // Watch the subtree because rows can be added under a wrapper that
+  // persists across renders (e.g. an incremental row append into an
+  // existing .list-view rather than a full container.innerHTML reset).
+  // Today's render paths happen to mutate the container's direct child
+  // — but tying observer correctness to that invariant is fragile; any
+  // future incremental-row code would silently regress the fold.
+  // Filter mutations so row-internal churn (expand/collapse, chart
+  // remounts) doesn't trigger a needless attachAll pass.
+  const mutationTouchesRows = (mutations: MutationRecord[]): boolean => {
+    const touchesRows = (nodes: NodeList): boolean => {
+      for (const node of nodes) {
+        if (!(node instanceof Element)) continue;
+        if (node.matches(config.rowSelector)) return true;
+        if (node.querySelector(config.rowSelector)) return true;
+      }
+      return false;
+    };
+    for (const m of mutations) {
+      if (touchesRows(m.addedNodes) || touchesRows(m.removedNodes)) return true;
+    }
+    return false;
+  };
+
+  const mo = new MutationObserver(mutations => {
+    if (mutationTouchesRows(mutations)) attachAll();
+  });
+  mo.observe(container, { childList: true, subtree: true });
 
   return (): void => {
     ro.disconnect();

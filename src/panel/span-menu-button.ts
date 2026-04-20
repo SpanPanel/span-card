@@ -56,7 +56,7 @@ export class SpanMenuButton extends LitElement {
 
   protected override render(): unknown {
     return html`
-      <button @click=${this._toggle} aria-label="Toggle menu" title="Toggle menu">
+      <button type="button" @click=${this._toggle} aria-label="Toggle menu" title="Toggle menu">
         <svg viewBox="0 0 24 24" aria-hidden="true">${svg`<path d=${mdiMenu} />`}</svg>
       </button>
     `;

@@ -1,9 +1,16 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import "../src/core/span-icon.js";
 
 describe("<span-icon>", () => {
   beforeEach(() => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    // Restore the console.warn spy so it doesn't leak into other test
+    // files that re-spy console.warn (vitest reuses workers across
+    // files; without this, call counts collide).
+    vi.restoreAllMocks();
   });
 
   it("registers as a custom element", () => {
