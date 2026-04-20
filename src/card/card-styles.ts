@@ -251,8 +251,15 @@ export const CARD_STYLES: string = `
 
   .panel-grid {
     display: grid;
-    grid-template-columns: 28px 1fr 1fr 28px;
-    gap: 8px;
+    /* Five columns: left tab label, left cell, explicit 8px spacer,
+       right cell, right tab label. Spacer is in-band rather than a
+       column-gap so we can keep inter-cell space without paying an
+       equal gap between each cell and its tab label. The tab columns
+       are sized to fit a 2-digit breaker number (the font is 0.85em
+       of the panel body ≈ 14px glyph width). */
+    grid-template-columns: 14px 1fr 8px 1fr 14px;
+    column-gap: 0;
+    row-gap: 8px;
     align-items: stretch;
   }
 

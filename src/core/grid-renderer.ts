@@ -79,8 +79,8 @@ export function buildGridHTML(
 
     if (leftEntry && leftEntry.layout === "row-span") {
       const { monInfo, sheddingPriority } = lookupMonitoring(leftEntry);
-      gridHTML += renderCircuitSlot(leftEntry.uuid, leftEntry.circuit, row, "2 / 4", "row-span", hass, config, monInfo, sheddingPriority);
-      gridHTML += `<div class="tab-label tab-right" style="grid-row: ${row}; grid-column: 4;">${rightTab}</div>`;
+      gridHTML += renderCircuitSlot(leftEntry.uuid, leftEntry.circuit, row, "2 / 5", "row-span", hass, config, monInfo, sheddingPriority);
+      gridHTML += `<div class="tab-label tab-right" style="grid-row: ${row}; grid-column: 5;">${rightTab}</div>`;
       continue;
     }
 
@@ -96,13 +96,13 @@ export function buildGridHTML(
     if (!rowsToSkipRight.has(row)) {
       if (rightEntry && (rightEntry.layout === "col-span" || rightEntry.layout === "single")) {
         const { monInfo, sheddingPriority } = lookupMonitoring(rightEntry);
-        gridHTML += renderCircuitSlot(rightEntry.uuid, rightEntry.circuit, row, "3", rightEntry.layout, hass, config, monInfo, sheddingPriority);
+        gridHTML += renderCircuitSlot(rightEntry.uuid, rightEntry.circuit, row, "4", rightEntry.layout, hass, config, monInfo, sheddingPriority);
       } else if (!occupiedTabs.has(rightTab)) {
-        gridHTML += renderEmptySlot(row, "3");
+        gridHTML += renderEmptySlot(row, "4");
       }
     }
 
-    gridHTML += `<div class="tab-label tab-right" style="grid-row: ${row}; grid-column: 4;">${rightTab}</div>`;
+    gridHTML += `<div class="tab-label tab-right" style="grid-row: ${row}; grid-column: 5;">${rightTab}</div>`;
   }
   return gridHTML;
 }
