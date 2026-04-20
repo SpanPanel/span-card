@@ -319,7 +319,7 @@ export const CARD_STYLES: string = `
     color: var(--span-accent);
     font-size: 0.7em;
     font-weight: 700;
-    padding: 2px 7px;
+    padding: 2px 3px;
     border-radius: 4px;
     white-space: nowrap;
     border: 1px solid color-mix(in srgb, var(--span-accent) 25%, transparent);
@@ -352,7 +352,12 @@ export const CARD_STYLES: string = `
      gear drop to a second row, chart stays as the full-width third. */
   .circuit-slot.is-folded {
     display: grid;
-    grid-template-columns: auto auto auto 1fr auto auto auto;
+    /* Columns: badges + relay-toggle pack tight on the left, slack
+       absorbed by the 1fr column between the relay and the power
+       reading, keeping power + gear pinned to the right edge. The
+       previous layout placed the slack between the shedding icon and
+       the relay, which read as wasted padding the user pointed out. */
+    grid-template-columns: auto auto auto auto 1fr auto auto;
     /* Rows: name and controls sized to content; chart absorbs any
        extra cell height. Without the explicit 1fr on row 3, a tall
        cell (e.g. .circuit-col-span's 280px min-height for 240V
@@ -362,9 +367,9 @@ export const CARD_STYLES: string = `
        relay toggle to fill the controls row. */
     grid-template-rows: auto auto 1fr;
     grid-template-areas:
-      "name  name  name name   name   name   name"
-      "badge util  shed .      status power  gear"
-      "chart chart chart chart chart  chart  chart";
+      "name  name  name name   name name  name"
+      "badge util  shed status .    power gear"
+      "chart chart chart chart chart chart chart";
     row-gap: 6px;
     column-gap: 8px;
   }
@@ -771,10 +776,16 @@ export const CARD_STYLES: string = `
      HTML child order. */
   .list-row.is-folded {
     display: grid;
-    grid-template-columns: auto auto auto 1fr auto auto auto;
+    /* Row 1: name spans the row up to the chevron at the trailing
+       column. Row 2: badge + util + shed + relay-toggle pack left,
+       the 1fr column absorbs slack between the relay and the power
+       reading, power + gear stay pinned to the right edge. The
+       earlier layout placed the slack between the shedding icon and
+       the relay, which the user flagged as wasted padding. */
+    grid-template-columns: auto auto auto auto 1fr auto auto;
     grid-template-areas:
-      "name name name name   name   name  chevron"
-      "badge util shed .     status power gear";
+      "name  name name name   name  name  chevron"
+      "badge util shed status .     power gear";
     row-gap: 6px;
     column-gap: 8px;
   }
