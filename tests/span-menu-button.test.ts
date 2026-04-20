@@ -1,11 +1,5 @@
-import { describe, it, expect, beforeAll } from "vitest";
+import { describe, it, expect } from "vitest";
 import "../src/panel/span-menu-button.js";
-
-beforeAll(() => {
-  // Force the customElements registration to run by importing the module.
-  // The guarded define inside the module is idempotent if the element is
-  // already registered.
-});
 
 describe("<span-menu-button>", () => {
   it("registers as a custom element", () => {

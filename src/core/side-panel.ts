@@ -1005,7 +1005,7 @@ class SpanSidePanel extends HTMLElement {
    * Build a Favorite section with a heart icon (filled = favorited,
    * outlined = not). Used in both the per-circuit and per-sub-device
    * side panels. A heart deliberately avoids the visual confusion of
-   * placing an span-switch directly under the breaker relay switch.
+   * placing a span-switch directly under the breaker relay switch.
    */
   private _appendFavoriteHeartSection(body: HTMLDivElement, entityId: string, isFavorite: boolean): void {
     const section = document.createElement("div");

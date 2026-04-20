@@ -98,6 +98,13 @@ export function observeFold(container: HTMLElement, config: FoldConfig): () => v
       if (refWidth > foldedAtWidth + hysteresis) {
         for (const row of rows) row.classList.remove(config.foldClass);
         foldedAtWidth = null;
+      } else {
+        // Stay folded — but make sure any row that arrived while we
+        // were already in the folded state (filter clears, area
+        // regroup, etc.) also wears the class. Without this, late
+        // additions render unfolded against an otherwise-folded grid
+        // and break the uniform-fold guarantee.
+        for (const row of rows) row.classList.add(config.foldClass);
       }
       return;
     }
@@ -123,20 +130,17 @@ export function observeFold(container: HTMLElement, config: FoldConfig): () => v
 
   const attachAll = (): void => {
     const rows = container.querySelectorAll<HTMLElement>(config.rowSelector);
-    let added = false;
     for (const row of rows) {
       if (observed.has(row)) continue;
       observed.add(row);
       ro.observe(row);
-      added = true;
     }
-    if (added) {
-      // Layout may not have happened yet — innerHTML insertion +
-      // observer attachment can both run before the browser computes
-      // sizes, so a synchronous evaluate would see zero widths and
-      // do nothing. Defer one rAF to land after layout.
-      requestAnimationFrame(() => evaluate());
-    }
+    // Always defer one rAF to land after layout, even if no new rows
+    // were observed: a row removal (e.g. search filter hides the
+    // longest-name row) can change whether the remaining rows still
+    // need the fold, and the MutationObserver path calls us for
+    // removals as well as additions.
+    requestAnimationFrame(() => evaluate());
   };
 
   attachAll();
