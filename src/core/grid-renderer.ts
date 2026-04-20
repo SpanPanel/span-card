@@ -3,8 +3,8 @@ import { formatPowerSigned, formatPowerUnit } from "../helpers/format.js";
 import { t } from "../i18n.js";
 import { tabToRow, tabToCol, classifyDualTab } from "../helpers/layout.js";
 import { getChartMetric } from "../helpers/chart.js";
-import { DEVICE_TYPE_PV, RELAY_STATE_CLOSED, SHEDDING_PRIORITIES, MONITORING_COLORS } from "../constants.js";
-import { getCircuitMonitoringInfo, hasCustomOverrides } from "./monitoring-status.js";
+import { DEVICE_TYPE_PV, RELAY_STATE_CLOSED, SHEDDING_PRIORITIES } from "../constants.js";
+import { getCircuitMonitoringInfo } from "./monitoring-status.js";
 import { getCircuitStateClasses } from "./circuit-state.js";
 import type { PanelTopology, Circuit, HomeAssistant, CardConfig, MonitoringStatus, MonitoringPointInfo, SheddingPriorityDef } from "../types.js";
 
@@ -182,10 +182,8 @@ export function renderCircuitSlot(
   }
 
   // Gear icon
-  const hasOverridesFlag = monitoringInfo && hasCustomOverrides(monitoringInfo);
-  const gearColor = hasOverridesFlag ? MONITORING_COLORS.custom : "#555";
   const gearHTML = `<button class="gear-icon circuit-gear"
-    data-uuid="${escapeHtml(uuid)}" style="color:${gearColor};"
+    data-uuid="${escapeHtml(uuid)}" style="color:#555;"
     title="${escapeHtml(t("grid.configure"))}">
     <span-icon icon="mdi:cog" style="--mdc-icon-size:16px;"></span-icon>
   </button>`;

@@ -2,8 +2,7 @@ import { escapeHtml } from "../helpers/sanitize.js";
 import { formatPowerSigned, formatPowerUnit } from "../helpers/format.js";
 import { t } from "../i18n.js";
 import { getChartMetric } from "../helpers/chart.js";
-import { RELAY_STATE_CLOSED, SHEDDING_PRIORITIES, MONITORING_COLORS, DEVICE_TYPE_PV } from "../constants.js";
-import { hasCustomOverrides } from "./monitoring-status.js";
+import { RELAY_STATE_CLOSED, SHEDDING_PRIORITIES, DEVICE_TYPE_PV } from "../constants.js";
 import { getCircuitStateClasses } from "./circuit-state.js";
 import type { Circuit, HomeAssistant, CardConfig, MonitoringPointInfo, SheddingPriorityDef } from "../types.js";
 
@@ -116,10 +115,8 @@ export function buildListRowHTML(
   }
 
   // Gear — matches the breaker-grid's gear so onGearClick handles it unchanged.
-  const hasOverridesFlag = monitoringInfo ? hasCustomOverrides(monitoringInfo) : false;
-  const gearColor = hasOverridesFlag ? MONITORING_COLORS.custom : "#555";
   const gearHTML = `<button class="gear-icon circuit-gear"
-  data-uuid="${escapeHtml(uuid)}" style="color:${gearColor};"
+  data-uuid="${escapeHtml(uuid)}" style="color:#555;"
   title="${escapeHtml(t("grid.configure"))}">
   <span-icon icon="mdi:cog" style="--mdc-icon-size:16px;"></span-icon>
 </button>`;

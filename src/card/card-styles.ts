@@ -493,10 +493,6 @@ export const CARD_STYLES: string = `
     border-color: #f44336 !important;
     box-shadow: 0 0 8px rgba(244, 67, 54, 0.3);
   }
-  .circuit-custom-monitoring {
-    border-left: 3px solid #ff9800;
-  }
-
   .chart-container {
     width: 100%;
     aspect-ratio: 4 / 1;
