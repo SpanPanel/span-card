@@ -353,6 +353,14 @@ export const CARD_STYLES: string = `
   .circuit-slot.is-folded {
     display: grid;
     grid-template-columns: auto auto auto 1fr auto auto auto;
+    /* Rows: name and controls sized to content; chart absorbs any
+       extra cell height. Without the explicit 1fr on row 3, a tall
+       cell (e.g. .circuit-col-span's 280px min-height for 240V
+       double-pole breakers) distributes excess space equally across
+       all three rows via the default align-content:stretch, which
+       pushes the chart down and vertically inflates the badge and
+       relay toggle to fill the controls row. */
+    grid-template-rows: auto auto 1fr;
     grid-template-areas:
       "name  name  name name   name   name   name"
       "badge util  shed .      status power  gear"
