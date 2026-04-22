@@ -76,7 +76,6 @@ export class SpanPanelCard extends LitElement {
    */
   private _areaSubscribing = false;
   private _tabBarCleanup: (() => void) | null = null;
-  private _onVisibilityChange: (() => void) | null = null;
 
   static override styles = unsafeCSS(CARD_STYLES);
 
@@ -99,13 +98,6 @@ export class SpanPanelCard extends LitElement {
   connectedCallback(): void {
     super.connectedCallback();
     this._ctrl.startIntervals(this._root);
-
-    this._onVisibilityChange = () => {
-      if (document.visibilityState !== "visible" || !this._discovered || !this.hass) return;
-      this._ctrl.recordSamples();
-      this._ctrl.updateDOM(this._root);
-    };
-    document.addEventListener("visibilitychange", this._onVisibilityChange);
   }
 
   disconnectedCallback(): void {
@@ -119,10 +111,6 @@ export class SpanPanelCard extends LitElement {
     if (this._tabBarCleanup) {
       this._tabBarCleanup();
       this._tabBarCleanup = null;
-    }
-    if (this._onVisibilityChange) {
-      document.removeEventListener("visibilitychange", this._onVisibilityChange);
-      this._onVisibilityChange = null;
     }
     this._errorStore.dispose();
     super.disconnectedCallback();
