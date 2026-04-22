@@ -18,6 +18,8 @@ import { RetryManager } from "../core/retry-manager.js";
 import { CARD_STYLES } from "./card-styles.js";
 import "../core/side-panel.js";
 import "../core/error-banner.js";
+import "../core/span-icon.js";
+import "../core/span-switch.js";
 import type { HomeAssistant, PanelTopology, PanelDevice, CardConfig } from "../types.js";
 
 interface SpanSidePanelElement extends HTMLElement {
@@ -74,7 +76,6 @@ export class SpanPanelCard extends LitElement {
    */
   private _areaSubscribing = false;
   private _tabBarCleanup: (() => void) | null = null;
-  private _onVisibilityChange: (() => void) | null = null;
 
   static override styles = unsafeCSS(CARD_STYLES);
 
@@ -97,13 +98,6 @@ export class SpanPanelCard extends LitElement {
   connectedCallback(): void {
     super.connectedCallback();
     this._ctrl.startIntervals(this._root);
-
-    this._onVisibilityChange = () => {
-      if (document.visibilityState !== "visible" || !this._discovered || !this.hass) return;
-      this._ctrl.recordSamples();
-      this._ctrl.updateDOM(this._root);
-    };
-    document.addEventListener("visibilitychange", this._onVisibilityChange);
   }
 
   disconnectedCallback(): void {
@@ -117,10 +111,6 @@ export class SpanPanelCard extends LitElement {
     if (this._tabBarCleanup) {
       this._tabBarCleanup();
       this._tabBarCleanup = null;
-    }
-    if (this._onVisibilityChange) {
-      document.removeEventListener("visibilitychange", this._onVisibilityChange);
-      this._onVisibilityChange = null;
     }
     this._errorStore.dispose();
     super.disconnectedCallback();
@@ -174,16 +164,17 @@ export class SpanPanelCard extends LitElement {
     if (!this._discovered) {
       const hasError = this._errorStore.hasPersistent("discovery-failed");
       return html`
-        <ha-card>
+        <div class="span-card">
           <span-error-banner .store=${this._errorStore}></span-error-banner>
           ${hasError ? nothing : html`<div style="padding: 24px; color: var(--secondary-text-color);">${escapeHtml(t("card.connecting"))}</div>`}
-        </ha-card>
+        </div>
       `;
     }
 
     // State 3: Discovered — render card shell; content populated imperatively
     return html`
-      <ha-card
+      <div
+        class="span-card"
         @click=${this._onCardClick}
         @graph-settings-changed=${this._onGraphSettingsChanged}
         @unit-changed=${this._onListUnitChanged}
@@ -193,7 +184,7 @@ export class SpanPanelCard extends LitElement {
         <span-error-banner .store=${this._errorStore}></span-error-banner>
         <div id="card-tabs"></div>
         <div id="card-content"></div>
-      </ha-card>
+      </div>
       <span-side-panel @side-panel-closed=${this._onSidePanelClosed}></span-side-panel>
     `;
   }
@@ -392,7 +383,7 @@ export class SpanPanelCard extends LitElement {
 
       const slideEl = container.querySelector(".slide-confirm");
       if (slideEl) {
-        const haCard = this._root.querySelector("ha-card");
+        const haCard = this._root.querySelector(".span-card");
         this._ctrl.bindSlideConfirm(slideEl, haCard);
         if (haCard) haCard.classList.add("switches-disabled");
       }
@@ -405,7 +396,7 @@ export class SpanPanelCard extends LitElement {
 
       this._ctrl.recordSamples();
       this._ctrl.updateDOM(this._root);
-      this._ctrl.setupResizeObserver(this._root, this._root.querySelector("ha-card"));
+      this._ctrl.setupResizeObserver(this._root, this._root.querySelector(".span-card"));
     } else if (this._activeTab === "activity") {
       container.innerHTML = "";
       const listHeaderHTML = buildHeaderHTML(this._topology, this._config);
@@ -532,7 +523,7 @@ export class SpanPanelCard extends LitElement {
     );
 
     return html`
-      <ha-card>
+      <div class="span-card">
         <div style="padding: 16px;">
           <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
             <span style="font-weight:600;font-size:1.1em;color:var(--primary-text-color);">SPAN Panel</span>
@@ -541,7 +532,7 @@ export class SpanPanelCard extends LitElement {
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">${cards}</div>
           <div style="margin-top:8px;font-size:0.7em;color:var(--secondary-text-color);">${t("card.no_device")}</div>
         </div>
-      </ha-card>
+      </div>
     `;
   }
 }

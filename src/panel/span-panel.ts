@@ -6,6 +6,9 @@ import { setLanguage, t } from "../i18n.js";
 import { ErrorStore } from "../core/error-store.js";
 import "../core/side-panel.js";
 import "../core/error-banner.js";
+import "../core/span-icon.js";
+import "../core/span-switch.js";
+import "./span-menu-button.js";
 import { DashboardTab } from "./tab-dashboard.js";
 import { MonitoringTab } from "./tab-monitoring.js";
 import { ListViewController, type FavoritesViewStateDetail } from "../core/list-view-controller.js";
@@ -89,7 +92,6 @@ export class SpanPanelElement extends LitElement {
   private _areaUnsub: (() => void) | null = null;
   /** Cleared on disconnect to tell a pending subscribe to self-cancel. */
   private _areaSubscribing = false;
-  private _onVisibilityChange: (() => void) | null = null;
   private _onFavoritesChanged: (() => void) | null = null;
   private _deviceRegistryUnsub: Promise<() => void> | null = null;
   /**
@@ -100,12 +102,6 @@ export class SpanPanelElement extends LitElement {
    * column count, horizon edits) the user made inside the sidebar.
    */
   private _pendingTabRender = false;
-  /**
-   * Pending retry timer for ``_recoverIfNeeded``. Cleared on disconnect
-   * so a delayed retry cannot fire against a detached element after HA
-   * has torn down the panel.
-   */
-  private _recoverTimer: ReturnType<typeof setTimeout> | null = null;
 
   private static _shellStyles = css`
     :host {
@@ -234,12 +230,6 @@ export class SpanPanelElement extends LitElement {
     this._favCache.errorStore = this._errorStore;
     this._monitoringTab.errorStore = this._errorStore;
 
-    this._onVisibilityChange = (): void => {
-      if (document.visibilityState !== "visible" || !this._discovered || !this.hass) return;
-      this._recoverIfNeeded();
-    };
-    document.addEventListener("visibilitychange", this._onVisibilityChange);
-
     this._onFavoritesChanged = (): void => {
       this._refreshFavorites();
     };
@@ -260,10 +250,6 @@ export class SpanPanelElement extends LitElement {
       this._areaUnsub();
       this._areaUnsub = null;
     }
-    if (this._onVisibilityChange) {
-      document.removeEventListener("visibilitychange", this._onVisibilityChange);
-      this._onVisibilityChange = null;
-    }
     if (this._onFavoritesChanged) {
       document.removeEventListener(FAVORITES_CHANGED_EVENT, this._onFavoritesChanged);
       this._onFavoritesChanged = null;
@@ -272,10 +258,6 @@ export class SpanPanelElement extends LitElement {
     if (this._persistFavoritesViewStateTimer) {
       clearTimeout(this._persistFavoritesViewStateTimer);
       this._persistFavoritesViewStateTimer = null;
-    }
-    if (this._recoverTimer) {
-      clearTimeout(this._recoverTimer);
-      this._recoverTimer = null;
     }
     this._errorStore.dispose();
     super.disconnectedCallback();
@@ -376,10 +358,11 @@ export class SpanPanelElement extends LitElement {
   protected render(): unknown {
     setLanguage(this.hass?.language);
 
-    // ``ha-menu-button`` reads ``this.hass.kioskMode`` in its willUpdate;
-    // creating it before HA has assigned ``hass`` throws. Render a bare
-    // shell until hass arrives — the ``hass`` setter will request a new
-    // render via Lit reactivity once HA injects the property.
+    // Render a bare shell until HA has injected ``hass``; downstream
+    // template fragments (panel selector, tab bar, error banner, side
+    // panels) all read from ``this.hass`` and would throw otherwise.
+    // The ``hass`` setter triggers a Lit reactivity pass once HA delivers
+    // the property, which re-renders into the discovered/loaded state.
     if (!this.hass) {
       return html`
         <div class="header">
@@ -398,7 +381,7 @@ export class SpanPanelElement extends LitElement {
       return html`
         <div class="header">
           <div class="toolbar">
-            <ha-menu-button .hass=${this.hass} .narrow=${this.narrow}></ha-menu-button>
+            <span-menu-button .narrow=${this.narrow}></span-menu-button>
             <div class="main-title">Span Panel</div>
           </div>
         </div>
@@ -412,7 +395,7 @@ export class SpanPanelElement extends LitElement {
     return html`
       <div class="header">
         <div class="toolbar">
-          <ha-menu-button .hass=${this.hass} .narrow=${this.narrow}></ha-menu-button>
+          <span-menu-button .narrow=${this.narrow}></span-menu-button>
           <div class="main-title">
             <span class="panel-selector">
               <select id="panel-select" @change=${this._onPanelChange}>
@@ -880,62 +863,6 @@ export class SpanPanelElement extends LitElement {
    * tells a render branch whether it has been overtaken by a later render.
    */
   private readonly _beginRender = makeRenderToken();
-
-  /**
-   * Visibility-restore recovery. When the browser tab is backgrounded
-   * and HA's WebSocket drops/reconnects, a tab re-render kicked off on
-   * ``visibilitychange`` can silently bail out mid-flight — a WS call
-   * resolving empty, a supersession race, or a cache returning null
-   * without throwing — and the Favorites view in particular is left
-   * with a blank ``#tab-content`` because it clears the container
-   * before awaiting its async build steps.
-   *
-   * Wrap ``_scheduleTabRender`` in a try/catch **and** verify the
-   * container produced content afterwards; if either fails, retry
-   * with backoff so the render can catch a freshly-reconnected WS.
-   * Mirrors the pre-LitElement ``_recoverIfNeeded`` helper removed
-   * during the c4154d2 refactor.
-   */
-  private async _recoverIfNeeded(attempt = 0): Promise<void> {
-    if (!this._discovered || !this.hass) return;
-    // Retries scheduled after the initial render attempt (``attempt = 0``).
-    // With ``MAX_RETRIES = 3`` the behaviour is: one initial run plus up to
-    // three follow-ups at 2s / 4s / 6s backoff — four total renders in the
-    // worst case. Matches the pre-LitElement helper.
-    const MAX_RETRIES = 3;
-    const BACKOFF_BASE_MS = 2000;
-
-    const scheduleRetry = (): void => {
-      if (attempt >= MAX_RETRIES) return;
-      if (this._recoverTimer) clearTimeout(this._recoverTimer);
-      this._recoverTimer = setTimeout(
-        () => {
-          this._recoverTimer = null;
-          this._recoverIfNeeded(attempt + 1);
-        },
-        BACKOFF_BASE_MS * (attempt + 1)
-      );
-    };
-
-    try {
-      await this._scheduleTabRender();
-    } catch {
-      scheduleRetry();
-      return;
-    }
-
-    // A render that completed without throwing but left the tab
-    // container empty is the symptom we are recovering from. Every
-    // successful render path produces at least one child node — the
-    // empty-favorites state appends a ``<p>`` with ``list.no_results``,
-    // the error paths append a ``<p>`` with the error message, and the
-    // normal dashboard/activity/area/monitoring renders produce their
-    // respective headers/grids. Zero children means a silent bailout.
-    const container = this._root.getElementById("tab-content");
-    if (container && container.childNodes.length === 0) {
-      scheduleRetry();
-    }
-  }
 
   /**
    * Coalesce tab-render requests. If a render is in-flight, remember

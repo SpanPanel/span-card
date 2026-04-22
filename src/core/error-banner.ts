@@ -1,9 +1,8 @@
 import { LitElement, html, css, nothing } from "lit";
-import { customElement, state } from "lit/decorators.js";
+import { state } from "lit/decorators.js";
 import { t } from "../i18n.js";
 import type { ErrorStore, ErrorEntry } from "./error-store.js";
 
-@customElement("span-error-banner")
 export class SpanErrorBanner extends LitElement {
   private _store: ErrorStore | null = null;
   private _unsub: (() => void) | null = null;
@@ -98,7 +97,7 @@ export class SpanErrorBanner extends LitElement {
     return html`${this._errors.map(
       entry => html`
         <div class="banner-row level-${entry.level}" role=${entry.level === "info" ? "status" : "alert"}>
-          <ha-icon class="icon" icon=${this._iconForLevel(entry.level)}></ha-icon>
+          <span-icon class="icon" icon=${this._iconForLevel(entry.level)}></span-icon>
           <span class="message">${entry.message}</span>
           ${entry.retryFn ? html`<button class="retry-btn" type="button" @click=${() => entry.retryFn!()}>${t("error.retry")}</button>` : nothing}
         </div>
@@ -116,4 +115,23 @@ export class SpanErrorBanner extends LitElement {
         return "mdi:information";
     }
   }
+}
+
+declare global {
+  interface HTMLElementTagNameMap {
+    "span-error-banner": SpanErrorBanner;
+  }
+}
+
+// Guarded registration: card and panel bundles both import this module, and
+// each bundle carries its own SpanErrorBanner class. Using @customElement
+// throws when the second bundle loads because the tag is already taken, and
+// that throw aborts the bundle's module execution before `@customElement("span-panel")`
+// ever runs — leaving <span-panel> an un-upgraded HTMLElement (blank view).
+try {
+  if (!customElements.get("span-error-banner")) {
+    customElements.define("span-error-banner", SpanErrorBanner);
+  }
+} catch {
+  // Scoped custom element registry may throw on duplicate registration after upgrade
 }

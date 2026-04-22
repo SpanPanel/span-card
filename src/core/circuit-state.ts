@@ -1,4 +1,4 @@
-import { hasCustomOverrides, isAlertActive } from "./monitoring-status.js";
+import { isAlertActive } from "./monitoring-status.js";
 import type { Circuit, MonitoringPointInfo } from "../types.js";
 
 /**
@@ -12,6 +12,5 @@ export function getCircuitStateClasses(_circuit: Circuit, monitoringInfo: Monito
   if (!isOn) classes.push("circuit-off");
   if (isProducer) classes.push("circuit-producer");
   if (isAlertActive(monitoringInfo)) classes.push("circuit-alert");
-  if (hasCustomOverrides(monitoringInfo)) classes.push("circuit-custom-monitoring");
   return classes.join(" ");
 }

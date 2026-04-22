@@ -46,8 +46,10 @@ export async function fetchFavorites(hass: HomeAssistant): Promise<FavoritesMap>
 /**
  * Mark the entity (a circuit current/power sensor or any sub-device
  * sensor) as a favorite. The backend resolves the entity_id to its
- * panel + (circuit_uuid | sub_device_id) tuple, so callers never need
- * to know storage shapes or internal identifiers.
+ * panel + (circuit_uuid | sub_device_id) tuple based on the entity's
+ * device attachment in the registry — entities on a sub-device become
+ * sub-device favorites; entities on the main panel device become
+ * circuit favorites.
  */
 export async function addFavorite(hass: HomeAssistant, entityId: string): Promise<FavoritesMap> {
   const resp = await _callFavoritesService<GetFavoritesResponse>(hass, "add_favorite", {
@@ -59,7 +61,7 @@ export async function addFavorite(hass: HomeAssistant, entityId: string): Promis
 
 /**
  * Remove the entity from the favorites map. See ``addFavorite`` for the
- * reasoning behind the entity_id API.
+ * resolution rule.
  */
 export async function removeFavorite(hass: HomeAssistant, entityId: string): Promise<FavoritesMap> {
   const resp = await _callFavoritesService<GetFavoritesResponse>(hass, "remove_favorite", {

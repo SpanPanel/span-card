@@ -3,8 +3,8 @@ import { formatPowerSigned, formatPowerUnit } from "../helpers/format.js";
 import { t } from "../i18n.js";
 import { tabToRow, tabToCol, classifyDualTab } from "../helpers/layout.js";
 import { getChartMetric } from "../helpers/chart.js";
-import { DEVICE_TYPE_PV, RELAY_STATE_CLOSED, SHEDDING_PRIORITIES, MONITORING_COLORS } from "../constants.js";
-import { getCircuitMonitoringInfo, hasCustomOverrides } from "./monitoring-status.js";
+import { DEVICE_TYPE_PV, RELAY_STATE_CLOSED, SHEDDING_PRIORITIES } from "../constants.js";
+import { getCircuitMonitoringInfo } from "./monitoring-status.js";
 import { getCircuitStateClasses } from "./circuit-state.js";
 import type { PanelTopology, Circuit, HomeAssistant, CardConfig, MonitoringStatus, MonitoringPointInfo, SheddingPriorityDef } from "../types.js";
 
@@ -79,8 +79,8 @@ export function buildGridHTML(
 
     if (leftEntry && leftEntry.layout === "row-span") {
       const { monInfo, sheddingPriority } = lookupMonitoring(leftEntry);
-      gridHTML += renderCircuitSlot(leftEntry.uuid, leftEntry.circuit, row, "2 / 4", "row-span", hass, config, monInfo, sheddingPriority);
-      gridHTML += `<div class="tab-label tab-right" style="grid-row: ${row}; grid-column: 4;">${rightTab}</div>`;
+      gridHTML += renderCircuitSlot(leftEntry.uuid, leftEntry.circuit, row, "2 / 5", "row-span", hass, config, monInfo, sheddingPriority);
+      gridHTML += `<div class="tab-label tab-right" style="grid-row: ${row}; grid-column: 5;">${rightTab}</div>`;
       continue;
     }
 
@@ -96,13 +96,13 @@ export function buildGridHTML(
     if (!rowsToSkipRight.has(row)) {
       if (rightEntry && (rightEntry.layout === "col-span" || rightEntry.layout === "single")) {
         const { monInfo, sheddingPriority } = lookupMonitoring(rightEntry);
-        gridHTML += renderCircuitSlot(rightEntry.uuid, rightEntry.circuit, row, "3", rightEntry.layout, hass, config, monInfo, sheddingPriority);
+        gridHTML += renderCircuitSlot(rightEntry.uuid, rightEntry.circuit, row, "4", rightEntry.layout, hass, config, monInfo, sheddingPriority);
       } else if (!occupiedTabs.has(rightTab)) {
-        gridHTML += renderEmptySlot(row, "3");
+        gridHTML += renderEmptySlot(row, "4");
       }
     }
 
-    gridHTML += `<div class="tab-label tab-right" style="grid-row: ${row}; grid-column: 4;">${rightTab}</div>`;
+    gridHTML += `<div class="tab-label tab-right" style="grid-row: ${row}; grid-column: 5;">${rightTab}</div>`;
   }
   return gridHTML;
 }
@@ -165,29 +165,27 @@ export function renderCircuitSlot(
     if (shedInfo.icon2) {
       const safeIcon2 = escapeHtml(shedInfo.icon2);
       sheddingHTML = `<span class="shedding-composite" title="${safeLabel}">
-        <ha-icon class="shedding-icon" icon="${safeIcon}" style="color:${safeColor};--mdc-icon-size:16px;"></ha-icon>
-        <ha-icon class="shedding-icon-secondary" icon="${safeIcon2}" style="color:${safeColor};--mdc-icon-size:14px;"></ha-icon>
+        <span-icon class="shedding-icon" icon="${safeIcon}" style="color:${safeColor};--mdc-icon-size:16px;"></span-icon>
+        <span-icon class="shedding-icon-secondary" icon="${safeIcon2}" style="color:${safeColor};--mdc-icon-size:14px;"></span-icon>
       </span>`;
     } else if (shedInfo.textLabel) {
       const safeTextLabel = escapeHtml(shedInfo.textLabel);
       sheddingHTML = `<span class="shedding-composite" title="${safeLabel}">
-        <ha-icon class="shedding-icon" icon="${safeIcon}" style="color:${safeColor};--mdc-icon-size:16px;"></ha-icon>
+        <span-icon class="shedding-icon" icon="${safeIcon}" style="color:${safeColor};--mdc-icon-size:16px;"></span-icon>
         <span class="shedding-label" style="color:${safeColor}">${safeTextLabel}</span>
       </span>`;
     } else {
-      sheddingHTML = `<ha-icon class="shedding-icon" icon="${safeIcon}"
+      sheddingHTML = `<span-icon class="shedding-icon" icon="${safeIcon}"
         style="color:${safeColor};--mdc-icon-size:16px;"
-        title="${safeLabel}"></ha-icon>`;
+        title="${safeLabel}"></span-icon>`;
     }
   }
 
   // Gear icon
-  const hasOverridesFlag = monitoringInfo && hasCustomOverrides(monitoringInfo);
-  const gearColor = hasOverridesFlag ? MONITORING_COLORS.custom : "#555";
   const gearHTML = `<button class="gear-icon circuit-gear"
-    data-uuid="${escapeHtml(uuid)}" style="color:${gearColor};"
+    data-uuid="${escapeHtml(uuid)}" style="color:#555;"
     title="${escapeHtml(t("grid.configure"))}">
-    <ha-icon icon="mdi:cog" style="--mdc-icon-size:16px;"></ha-icon>
+    <span-icon icon="mdi:cog" style="--mdc-icon-size:16px;"></span-icon>
   </button>`;
 
   // Utilization — prefer monitoring data, fall back to live current / breaker rating

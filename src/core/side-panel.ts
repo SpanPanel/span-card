@@ -5,6 +5,7 @@ import { INTEGRATION_DOMAIN, SHEDDING_PRIORITIES, GRAPH_HORIZONS, DEFAULT_GRAPH_
 import { t } from "../i18n.js";
 import { addFavorite, removeFavorite } from "./favorites-store.js";
 import { sortedCircuitsForSection } from "./favorites-sections.js";
+import type { SpanSwitch } from "./span-switch.js";
 import type { HomeAssistant, PanelTopology, GraphSettings, CircuitEntities, CircuitGraphOverride, MonitoringPointInfo } from "../types.js";
 import type { ErrorStore } from "./error-store.js";
 
@@ -107,12 +108,6 @@ interface FavoritesModeConfig {
 }
 
 type SidePanelConfig = PanelModeConfig | CircuitModeConfig | SubDeviceModeConfig | FavoritesModeConfig;
-
-// ── Custom element interface for ha-switch ───────────────────────────────
-
-interface HaSwitchElement extends HTMLElement {
-  checked: boolean;
-}
 
 // ── Styles ────────────────────────────────────────────────────────────────
 
@@ -343,7 +338,7 @@ const STYLES = `
   .fav-heart:hover:not(.active) {
     background: var(--secondary-background-color, #f5f5f5);
   }
-  .fav-heart ha-icon {
+  .fav-heart span-icon {
     --mdc-icon-size: 16px;
   }
 
@@ -957,7 +952,7 @@ class SpanSidePanel extends HTMLElement {
     btn.setAttribute("aria-checked", String(isFavorite));
     btn.setAttribute("aria-label", t("sidepanel.save_to_favorites"));
 
-    const icon = document.createElement("ha-icon");
+    const icon = document.createElement("span-icon");
     icon.setAttribute("icon", isFavorite ? "mdi:heart" : "mdi:heart-outline");
     btn.appendChild(icon);
 
@@ -1010,7 +1005,7 @@ class SpanSidePanel extends HTMLElement {
    * Build a Favorite section with a heart icon (filled = favorited,
    * outlined = not). Used in both the per-circuit and per-sub-device
    * side panels. A heart deliberately avoids the visual confusion of
-   * placing an ha-switch directly under the breaker relay switch.
+   * placing a span-switch directly under the breaker relay switch.
    */
   private _appendFavoriteHeartSection(body: HTMLDivElement, entityId: string, isFavorite: boolean): void {
     const section = document.createElement("div");
@@ -1176,7 +1171,7 @@ class SpanSidePanel extends HTMLElement {
     label.className = "field-label";
     label.textContent = t("sidepanel.breaker");
 
-    const toggle = document.createElement("ha-switch") as HaSwitchElement;
+    const toggle = document.createElement("span-switch");
     toggle.dataset.role = "relay-toggle";
     const entityId = cfg.entities.switch;
     const currentState = this._hass?.states?.[entityId]?.state;
@@ -1359,7 +1354,7 @@ class SpanSidePanel extends HTMLElement {
     sectionLabel.textContent = t("sidepanel.monitoring");
     sectionLabel.style.margin = "0";
 
-    const enableToggle = document.createElement("ha-switch") as HaSwitchElement;
+    const enableToggle = document.createElement("span-switch");
     enableToggle.dataset.role = "monitoring-toggle";
 
     const info = cfg.monitoringInfo;
@@ -1579,7 +1574,7 @@ class SpanSidePanel extends HTMLElement {
 
     // Update relay toggle
     if (cfg.entities?.switch) {
-      const toggle = this.shadowRoot?.querySelector<HaSwitchElement>('[data-role="relay-toggle"]');
+      const toggle = this.shadowRoot?.querySelector<SpanSwitch>('[data-role="relay-toggle"]');
       if (toggle) {
         const currentState = this._hass?.states?.[cfg.entities.switch]?.state;
         if (currentState === "on") {
