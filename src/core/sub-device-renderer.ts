@@ -67,7 +67,7 @@ export function buildSubDevicesHTML(topology: PanelTopology, hass: HomeAssistant
           <span class="sub-device-name">${escapeHtml(sub.name || "")}</span>
           ${powerEid ? `<span class="sub-power-value"><strong>${formatPowerSigned(powerW)}</strong> <span class="power-unit">${formatPowerUnit(powerW)}</span></span>` : ""}
           <button class="gear-icon subdevice-gear" data-subdev-id="${escapeHtml(devId)}" style="color:#555;" title="${escapeHtml(t("grid.configure_subdevice"))}">
-            <ha-icon icon="mdi:cog" style="--mdc-icon-size:16px;"></ha-icon>
+            <span-icon icon="mdi:cog" style="--mdc-icon-size:16px;"></span-icon>
           </button>
         </div>
         ${chartsHTML}

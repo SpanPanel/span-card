@@ -16,12 +16,12 @@ export function buildFavoritesSummaryHTML(isAmpsMode: boolean): string {
   return `
     <div class="favorites-summary">
       <button class="gear-icon panel-gear favorites-gear" title="${escapeHtml(t("header.graph_settings"))}">
-        <ha-icon icon="mdi:cog"></ha-icon>
+        <span-icon icon="mdi:cog"></span-icon>
       </button>
       <div class="slide-confirm" data-text-off="${escapeHtml(t("header.enable_switches"))}" data-text-on="${escapeHtml(t("header.switches_enabled"))}">
         <span class="slide-confirm-text">${escapeHtml(t("header.enable_switches"))}</span>
         <div class="slide-confirm-knob">
-          <ha-icon icon="mdi:lock"></ha-icon>
+          <span-icon icon="mdi:lock"></span-icon>
         </div>
       </div>
       <div class="favorites-summary-right">

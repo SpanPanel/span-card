@@ -6,6 +6,7 @@ import { getChartMetric } from "../helpers/chart.js";
 import { t } from "../i18n.js";
 import { getCircuitMonitoringInfo } from "./monitoring-status.js";
 import { buildSearchBarHTML, buildListRowHTML, buildExpandedChartHTML, buildAreaHeaderHTML } from "./list-renderer.js";
+import { observeFold } from "./truncation-fold.js";
 import type { DashboardController } from "./dashboard-controller.js";
 import type { HomeAssistant, PanelTopology, CardConfig, Circuit, MonitoringStatus } from "../types.js";
 import type { ErrorStore } from "./error-store.js";
@@ -164,6 +165,14 @@ export class ListViewController {
    */
   private _columns = 1;
 
+  /**
+   * Tear-down for the truncation-fold observer. Re-bound on every
+   * render so the previous render's observer is disconnected before
+   * a new one is attached — otherwise we'd accumulate observers on
+   * every search/sort/expand cycle.
+   */
+  private _foldUnobserve: (() => void) | null = null;
+
   constructor(ctrl: DashboardController) {
     this._ctrl = ctrl;
   }
@@ -239,6 +248,7 @@ export class ListViewController {
     this._bindEvents(container);
     if (this._searchQuery) this._applyFilter(container);
     this._ctrl.updateDOM(container);
+    this._attachFoldObserver(container);
   }
 
   renderAreaView(
@@ -310,6 +320,7 @@ export class ListViewController {
     this._bindEvents(container);
     if (this._searchQuery) this._applyFilter(container);
     this._ctrl.updateDOM(container);
+    this._attachFoldObserver(container);
   }
 
   updateCollapsedRows(root: Element | ShadowRoot, hass: HomeAssistant, topology: PanelTopology, config: CardConfig): void {
@@ -499,10 +510,32 @@ export class ListViewController {
         this._container.removeEventListener("graph-settings-changed", this._graphSettingsHandler);
       }
     }
+    if (this._foldUnobserve) {
+      this._foldUnobserve();
+      this._foldUnobserve = null;
+    }
     this._container = null;
     this._clickHandler = null;
     this._inputHandler = null;
     this._graphSettingsHandler = null;
+  }
+
+  /**
+   * Attach the truncation-fold observer to the rendered list view.
+   * Each row's name is measured against its allotted width; when the
+   * ellipsis is engaged, the row receives ``.is-folded`` and the CSS
+   * grid in card-styles.ts swaps the layout to two rows.
+   */
+  private _attachFoldObserver(container: HTMLElement): void {
+    if (this._foldUnobserve) {
+      this._foldUnobserve();
+      this._foldUnobserve = null;
+    }
+    this._foldUnobserve = observeFold(container, {
+      rowSelector: ".list-row",
+      nameSelector: ".list-circuit-name",
+      foldClass: "is-folded",
+    });
   }
 
   private _applyFilter(container: HTMLElement): void {

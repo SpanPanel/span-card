@@ -11,9 +11,9 @@ describe("buildSheddingLegendHTML", () => {
     expect(itemCount).toBeGreaterThan(0);
   });
 
-  it("includes an ha-icon with a color style for each item", () => {
+  it("includes a span-icon with a color style for each item", () => {
     const html = buildSheddingLegendHTML();
-    expect(html).toMatch(/<ha-icon icon="[^"]+" style="color:[^"]+"><\/ha-icon>/);
+    expect(html).toMatch(/<span-icon icon="[^"]+" style="color:[^"]+"><\/span-icon>/);
   });
 
   it("does not render a .shedding-legend-item for the 'unknown' priority key", () => {

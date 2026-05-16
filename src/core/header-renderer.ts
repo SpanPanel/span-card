@@ -32,12 +32,12 @@ export function buildSheddingLegendHTML(): string {
         let icons: string;
         if (cfg.icon2) {
           const icon2 = escapeHtml(cfg.icon2);
-          icons = `<ha-icon icon="${icon}" style="color:${color}"></ha-icon><ha-icon class="shedding-legend-secondary" icon="${icon2}" style="color:${color}"></ha-icon>`;
+          icons = `<span-icon icon="${icon}" style="color:${color}"></span-icon><span-icon class="shedding-legend-secondary" icon="${icon2}" style="color:${color}"></span-icon>`;
         } else if (cfg.textLabel) {
           const textLabel = escapeHtml(cfg.textLabel);
-          icons = `<ha-icon icon="${icon}" style="color:${color}"></ha-icon><span class="shedding-legend-text" style="color:${color}">${textLabel}</span>`;
+          icons = `<span-icon icon="${icon}" style="color:${color}"></span-icon><span class="shedding-legend-text" style="color:${color}">${textLabel}</span>`;
         } else {
-          icons = `<ha-icon icon="${icon}" style="color:${color}"></ha-icon>`;
+          icons = `<span-icon icon="${icon}" style="color:${color}"></span-icon>`;
         }
         return `<div class="shedding-legend-item">${icons}<span class="shedding-legend-label">${label}</span></div>`;
       })
@@ -157,14 +157,14 @@ export function buildHeaderHTML(topology: PanelTopology, config: CardConfig, opt
           <h1 class="panel-title">${panelName}</h1>
           <span class="panel-serial">${serial}</span>
           <button class="gear-icon panel-gear" title="${escapeHtml(t("header.graph_settings"))}">
-            <ha-icon icon="mdi:cog"></ha-icon>
+            <span-icon icon="mdi:cog"></span-icon>
           </button>
           ${
             showSwitches
               ? `<div class="slide-confirm" data-text-off="${escapeHtml(t("header.enable_switches"))}" data-text-on="${escapeHtml(t("header.switches_enabled"))}">
             <span class="slide-confirm-text">${escapeHtml(t("header.enable_switches"))}</span>
             <div class="slide-confirm-knob">
-              <ha-icon icon="mdi:lock"></ha-icon>
+              <span-icon icon="mdi:lock"></span-icon>
             </div>
           </div>`
               : ""

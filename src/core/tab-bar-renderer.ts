@@ -15,7 +15,7 @@ export function buildTabBarHTML(tabs: TabDef[], activeTab: string, style: "text"
       const activeClass = tab.id === activeTab ? " active" : "";
       const safeId = escapeHtml(tab.id);
       if (style === "icon") {
-        return `<button class="shared-tab${activeClass}" data-tab="${safeId}" title="${escapeHtml(tab.label)}"><ha-icon icon="${escapeHtml(tab.icon)}" style="--mdc-icon-size:20px;"></ha-icon></button>`;
+        return `<button class="shared-tab${activeClass}" data-tab="${safeId}" title="${escapeHtml(tab.label)}"><span-icon icon="${escapeHtml(tab.icon)}" style="--mdc-icon-size:20px;"></span-icon></button>`;
       }
       return `<button class="shared-tab${activeClass}" data-tab="${safeId}">${escapeHtml(tab.label)}</button>`;
     })
