@@ -29,10 +29,10 @@ describe("getCircuitStateClasses", () => {
     expect(result).toContain("circuit-alert");
   });
 
-  it("adds circuit-custom-monitoring when continuous_threshold_pct is set", () => {
+  it("ignores continuous_threshold_pct (custom-monitoring indicator was removed)", () => {
     const info: MonitoringPointInfo = { continuous_threshold_pct: 80 };
     const result = getCircuitStateClasses(baseCircuit, info, true, false);
-    expect(result).toContain("circuit-custom-monitoring");
+    expect(result).toBe("");
   });
 
   it("handles all classes together", () => {
@@ -45,6 +45,5 @@ describe("getCircuitStateClasses", () => {
     expect(result).toContain("circuit-off");
     expect(result).toContain("circuit-producer");
     expect(result).toContain("circuit-alert");
-    expect(result).toContain("circuit-custom-monitoring");
   });
 });
