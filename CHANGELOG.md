@@ -18,6 +18,14 @@
 
 ### Changed
 
+- **A sub-device with nothing to draw is no longer given a tile** — The Microgrid Interconnect Device, new in the panel's parent/child data model, rendered as a
+  header bar reading "SUB-DEVICE" and a gear icon with no content under it: its only entity is a diagnostic enum, so there was no power reading, no chart, and
+  nothing opted into `visible_sub_entities`. `buildSubDevicesHTML` now builds each tile's contents first and skips the tile when all three are empty. Tested on
+  emptiness rather than on device type — excluding the MID by name would fix one device and leave the next to rediscover it, and the panel's v1.0 model has more
+  classes coming (sub-enclosures, PV devices, inverters as battery children). It self-corrects too: give the device something chartable, or make one of its
+  entities visible, and the tile returns with no code change. `evseCount` moves to the surviving set as a consequence, so a skipped sub-device cannot shift
+  which charger is the odd one out on its row. Note the card was never blind to the MID — the header's `Grid` field reads `dsm_state`, which on the new data
+  model _is_ the MID's sensed islanding state.
 - **Narrow-viewport list rows fold to a two-row grid** — New `@media (max-width: 520px)` rule switches `.list-row` from flex to grid with `grid-template-areas`
   so the circuit name occupies the whole first row (paired with the expand chevron) and `breaker-badge`, `utilization`, shedding icon, status control, power
   value, and gear drop to a second row. A `1fr` gap column between the status and power slots keeps the relay pill snug against the reading.
