@@ -12,6 +12,7 @@ export interface HomeAssistant {
   states: Record<string, HassEntity>;
   services: Record<string, Record<string, unknown>>;
   language: string;
+  user?: { is_admin: boolean };
   callService: (domain: string, service: string, data?: Record<string, unknown>, target?: Record<string, unknown>) => Promise<void>;
   callWS: <T = unknown>(msg: Record<string, unknown>) => Promise<T>;
   formatEntityState?: (entity: HassEntity) => string;
@@ -91,6 +92,56 @@ export interface DiscoveryResult {
   topology: PanelTopology | null;
   panelDevice: PanelDevice | null;
   panelSize: number;
+}
+
+// -- Adopted entity curation --
+
+/**
+ * One curatable property the panel publishes, as reported by
+ * ``span_panel/adopted/list``. Listed whether or not its entity exists yet:
+ * adopted entities are created disabled, and curation is keyed on the wire
+ * address rather than on a registry id.
+ */
+export interface AdoptedRow {
+  /** The curation key a save is keyed on. */
+  key: string;
+  /** The ``{node}/{property}`` wire address. */
+  path: string;
+  /** ``sensor``, ``binary_sensor``, ``switch``, ``select``, or ``number``. */
+  platform: string;
+  /** Null when the entity is not in the registry yet. */
+  entity_id: string | null;
+  /** The declared Homie datatype. */
+  datatype: string;
+  /** The declared unit, verbatim. */
+  unit: string | null;
+  /** Whether the panel accepts a write to this property. */
+  settable: boolean;
+  /** The entity's name in wire vocabulary. */
+  name: string;
+  /** The stored record, as stored; ``{}`` when the row has never been curated. */
+  curation: Record<string, string>;
+  /** Device classes this platform and unit admit; empty for a control row. */
+  allowed_device_classes: string[];
+  /** State classes this row admits; empty off a numeric sensor. */
+  allowed_state_classes: string[];
+  /** Stored fields the current declaration no longer supports. */
+  stale_fields: string[];
+}
+
+/** The adopted rows that render on one device card. */
+export interface AdoptedDeviceGroup {
+  /** Null for an adopted device whose card is not created yet. */
+  device_id: string | null;
+  /** The card's display name, or the wire label when there is no card yet. */
+  name: string | null;
+  /** Whether the card is one adoption minted, rather than a curated SPAN device. */
+  adopted_device: boolean;
+  rows: AdoptedRow[];
+}
+
+export interface AdoptedListResponse {
+  devices: AdoptedDeviceGroup[];
 }
 
 // -- Card configuration --
