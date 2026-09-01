@@ -2,11 +2,12 @@ import { INTEGRATION_DOMAIN } from "../constants.js";
 import { escapeHtml } from "../helpers/sanitize.js";
 import { t, tf } from "../i18n.js";
 import {
+  appliedSeed,
   buildSavePlan,
   coerceRegistrySeed,
   filterGroups,
   humanizeClass,
-  registryDirty,
+  registryPayload,
   seedForm,
   sensorOptions,
   sensorOptionsDirty,
@@ -661,8 +662,10 @@ export class AdoptedTab {
    * then the curate command, whose reload picks up everything Core's own
    * delayed reload would have.
    *
-   * Registry writes are skipped when nothing registry-owned moved, which is
-   * what keeps a curation-only save from touching ``disabled_by``. A clear
+   * What that registry write may say is ``registryPayload``'s decision: it is
+   * null when nothing registry-owned moved, and it drops ``disabled_by``
+   * whenever the enable control did not move, so neither a curation-only save
+   * nor a rename can rewrite the disabler of an entity nobody enabled. A clear
    * touches the registry not at all: it removes a record, and a record is not
    * a name, an icon, or an enabled entity.
    */
@@ -683,9 +686,10 @@ export class AdoptedTab {
     // against, and a second save of the same form writes nothing again.
     let seed = editor.seed;
     try {
-      if (!clears && seed !== null && plan.registryUpdate !== null && registryDirty(seed, form)) {
-        await hass.callWS(plan.registryUpdate);
-        seed = { ...seed, disabledBy: form.enabled ? null : "user", name: form.name, icon: form.icon };
+      const payload = clears || seed === null ? null : registryPayload(plan, seed, form);
+      if (payload !== null && seed !== null) {
+        await hass.callWS(payload);
+        seed = appliedSeed(seed, form);
         editor.seed = seed;
       }
       if (

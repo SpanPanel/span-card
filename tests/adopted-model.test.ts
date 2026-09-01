@@ -1,10 +1,12 @@
 import { describe, it, expect } from "vitest";
 import {
+  appliedSeed,
   coerceRegistrySeed,
   filterGroups,
   buildSavePlan,
   humanizeClass,
   registryDirty,
+  registryPayload,
   seedForm,
   sensorOptions,
   sensorOptionsDirty,
@@ -302,6 +304,84 @@ describe("registryDirty", () => {
 
   it("is false without a seed, so an unreadable registry is never written blind", () => {
     expect(registryDirty(null, makeForm({ enabled: true, name: "Engine Hours" }))).toBe(false);
+  });
+});
+
+describe("registryPayload", () => {
+  it("omits disabled_by when the enable control was not touched", () => {
+    const seed = makeSeed({ disabledBy: "integration" });
+    const form = { ...seedForm(makeRow(), seed), name: "Cell Voltage" };
+    const payload = registryPayload(buildSavePlan(makeRow(), form), seed, form);
+
+    expect(payload).not.toHaveProperty("disabled_by");
+    expect(payload).toEqual({
+      type: "config/entity_registry/update",
+      entity_id: "sensor.backup_generator_active_power",
+      name: "Cell Voltage",
+      icon: null,
+    });
+  });
+
+  it("omits disabled_by on a rename of an already-enabled entity too", () => {
+    const seed = makeSeed({ disabledBy: null });
+    const form = { ...seedForm(makeRow(), seed), name: "Cell Voltage" };
+    expect(registryPayload(buildSavePlan(makeRow(), form), seed, form)).not.toHaveProperty("disabled_by");
+  });
+
+  it("clears the disabler when an integration-disabled entity is enabled", () => {
+    const seed = makeSeed({ disabledBy: "integration" });
+    const form = { ...seedForm(makeRow(), seed), enabled: true };
+    expect(registryPayload(buildSavePlan(makeRow(), form), seed, form)).toMatchObject({ disabled_by: null });
+  });
+
+  it("disables an enabled entity as the user's own choice", () => {
+    const seed = makeSeed({ disabledBy: null });
+    const form = { ...seedForm(makeRow(), seed), enabled: false };
+    expect(registryPayload(buildSavePlan(makeRow(), form), seed, form)).toMatchObject({ disabled_by: "user" });
+  });
+
+  it("carries the enable change alongside a rename", () => {
+    const seed = makeSeed({ disabledBy: "integration" });
+    const form = { ...seedForm(makeRow(), seed), enabled: true, name: "Cell Voltage" };
+    expect(registryPayload(buildSavePlan(makeRow(), form), seed, form)).toMatchObject({ name: "Cell Voltage", disabled_by: null });
+  });
+
+  it("is null when nothing registry-owned moved", () => {
+    const seed = makeSeed({ disabledBy: "integration", name: "Run Hours" });
+    const form = { ...seedForm(makeRow(), seed), stateClass: "measurement" };
+    expect(registryPayload(buildSavePlan(makeRow(), form), seed, form)).toBeNull();
+  });
+
+  it("is null without a seed, and null for a row with no entity", () => {
+    const form = makeForm({ name: "Cell Voltage" });
+    expect(registryPayload(buildSavePlan(makeRow(), form), null, form)).toBeNull();
+    expect(registryPayload(buildSavePlan(makeRow({ entity_id: null }), form), makeSeed(), form)).toBeNull();
+  });
+});
+
+describe("appliedSeed", () => {
+  it("keeps the integration's disabler when the form left the entity disabled", () => {
+    const seed = makeSeed({ disabledBy: "integration" });
+    expect(appliedSeed(seed, makeForm({ enabled: false, name: "Cell Voltage" }))).toEqual({
+      disabledBy: "integration",
+      name: "Cell Voltage",
+      icon: "",
+      unit: "",
+      precision: "",
+    });
+  });
+
+  it("records the user as the disabler when an enabled entity is disabled", () => {
+    expect(appliedSeed(makeSeed({ disabledBy: null }), makeForm({ enabled: false })).disabledBy).toBe("user");
+  });
+
+  it("clears the disabler when the entity is enabled", () => {
+    expect(appliedSeed(makeSeed({ disabledBy: "integration" }), makeForm({ enabled: true })).disabledBy).toBeNull();
+  });
+
+  it("leaves the display options alone", () => {
+    const seed = makeSeed({ unit: "mV", precision: "2" });
+    expect(appliedSeed(seed, makeForm())).toMatchObject({ unit: "mV", precision: "2" });
   });
 });
 

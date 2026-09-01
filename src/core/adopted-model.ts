@@ -175,6 +175,52 @@ export function registryDirty(seed: RegistrySeed | null, form: CurationForm): bo
   return form.enabled !== (seed.disabledBy === null) || form.name !== seed.name || form.icon !== seed.icon;
 }
 
+/** Whether the enable control still says what the registry says. */
+function enableUntouched(seed: RegistrySeed, form: CurationForm): boolean {
+  return form.enabled === (seed.disabledBy === null);
+}
+
+/**
+ * The registry write a save should actually issue, or null when it has nothing
+ * to say.
+ *
+ * ``buildSavePlan`` spells ``disabled_by`` as a two-valued control — enabled or
+ * disabled-by-user — because those are the only two values Core's command
+ * accepts. But an adopted entity is disabled *by the integration*, which is a
+ * third state the payload cannot express, so sending the plan's value verbatim
+ * on a save that only renamed something would rewrite that entity as
+ * user-disabled while the enable control sat untouched.
+ *
+ * So the key is dropped whenever the control did not move. Core builds its
+ * changes from the keys present in the message
+ * (``components/config/entity_registry.py:215-225``), so an absent
+ * ``disabled_by`` leaves the disabler exactly as it was — which is the whole
+ * point: only a deliberate move of the enable control ever writes it.
+ */
+export function registryPayload(plan: SavePlan, seed: RegistrySeed | null, form: CurationForm): Record<string, unknown> | null {
+  if (plan.registryUpdate === null || seed === null || !registryDirty(seed, form)) return null;
+  const payload = { ...plan.registryUpdate };
+  if (enableUntouched(seed, form)) delete payload.disabled_by;
+  return payload;
+}
+
+/**
+ * The registry state a write from ``registryPayload`` leaves behind, so a
+ * second save of the same form finds nothing to write.
+ *
+ * The disabler follows the same rule the payload does: an entity left disabled
+ * keeps whichever disabler it had, because that is what omitting the key did to
+ * it; one the user just disabled becomes theirs.
+ */
+export function appliedSeed(seed: RegistrySeed, form: CurationForm): RegistrySeed {
+  return {
+    ...seed,
+    disabledBy: form.enabled ? null : (seed.disabledBy ?? "user"),
+    name: form.name,
+    icon: form.icon,
+  };
+}
+
 /**
  * The ``sensor`` registry options for a display unit and precision. Core
  * replaces the domain's options wholesale on each write, so both fields go on

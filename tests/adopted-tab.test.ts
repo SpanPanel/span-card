@@ -412,8 +412,59 @@ describe("AdoptedTab", () => {
         entity_id: "sensor.battery_2_cell_voltage",
         name: "Cell Voltage",
         icon: "mdi:flash",
-        disabled_by: null,
       });
+      tab.stop();
+    });
+
+    it("renames an integration-disabled entity without rewriting its disabler", async () => {
+      const hass = makeHass({ disabledBy: "integration" });
+      await tab.render(container, hass, "panel-device-1");
+      await expand(container, VOLTAGE_KEY);
+      type(container, "name", "Cell Voltage");
+      await press(container, "save");
+
+      // The enable control never moved, so the payload must not carry
+      // ``disabled_by`` at all — sending it would turn an entity the
+      // integration disabled into one the user disabled.
+      expect(writes(hass)[0]).not.toHaveProperty("disabled_by");
+      expect(writes(hass)[0]).toEqual({
+        type: "config/entity_registry/update",
+        entity_id: "sensor.battery_2_cell_voltage",
+        name: "Cell Voltage",
+        icon: null,
+      });
+      tab.stop();
+    });
+
+    it("disables an enabled entity as the user's own choice", async () => {
+      const hass = makeHass({ disabledBy: null });
+      await tab.render(container, hass, "panel-device-1");
+      await expand(container, VOLTAGE_KEY);
+      await press(container, "toggle-enable");
+      await press(container, "save");
+
+      expect(writes(hass)[0]).toMatchObject({ disabled_by: "user" });
+      tab.stop();
+    });
+
+    it("writes the disabler once, not again on a second save of the same form", async () => {
+      const hass = makeHass({ disabledBy: "integration" });
+      await tab.render(container, hass, "panel-device-1");
+      await expand(container, VOLTAGE_KEY);
+      await press(container, "toggle-enable");
+      await press(container, "save");
+      await press(container, "save");
+
+      const registryWrites = writes(hass).filter(call => call.type === "config/entity_registry/update");
+      expect(registryWrites).toEqual([
+        {
+          type: "config/entity_registry/update",
+          entity_id: "sensor.battery_2_cell_voltage",
+          name: null,
+          icon: null,
+          disabled_by: null,
+        },
+      ]);
       tab.stop();
     });
 
