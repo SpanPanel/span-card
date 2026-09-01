@@ -45,14 +45,13 @@ function makeGroup(overrides: Partial<AdoptedDeviceGroup> = {}): AdoptedDeviceGr
 }
 
 function makeSeed(overrides: Partial<RegistrySeed> = {}): RegistrySeed {
-  return { disabledBy: null, name: "", icon: "", unit: "", precision: "", ...overrides };
+  return { disabledBy: null, name: "", unit: "", precision: "", ...overrides };
 }
 
 function makeForm(overrides: Partial<CurationForm> = {}): CurationForm {
   return {
     enabled: true,
     name: "",
-    icon: "",
     deviceClass: "",
     stateClass: "",
     promote: false,
@@ -131,19 +130,18 @@ describe("filterGroups", () => {
 
 describe("buildSavePlan", () => {
   it("builds a registry update for a registered row", () => {
-    const plan = buildSavePlan(makeRow({ entity_id: "sensor.generator_active_power" }), makeForm({ name: "Generator Output", icon: "mdi:flash" }));
+    const plan = buildSavePlan(makeRow({ entity_id: "sensor.generator_active_power" }), makeForm({ name: "Generator Output" }));
     expect(plan.registryUpdate).toEqual({
       type: "config/entity_registry/update",
       entity_id: "sensor.generator_active_power",
       name: "Generator Output",
-      icon: "mdi:flash",
       disabled_by: null,
     });
   });
 
-  it("sends null rather than an empty string for a blank name and icon", () => {
+  it("sends null rather than an empty string for a blank name", () => {
     const plan = buildSavePlan(makeRow(), makeForm());
-    expect(plan.registryUpdate).toMatchObject({ name: null, icon: null });
+    expect(plan.registryUpdate).toMatchObject({ name: null });
   });
 
   it("disables the entity when the form is not enabled", () => {
@@ -220,10 +218,9 @@ describe("coerceRegistrySeed", () => {
       entity_id: "sensor.generator_run_hours",
       disabled_by: null,
       name: "Run Hours",
-      icon: "mdi:engine",
       options: { sensor: { unit_of_measurement: "min", display_precision: 1 } },
     });
-    expect(seed).toEqual({ disabledBy: null, name: "Run Hours", icon: "mdi:engine", unit: "min", precision: "1" });
+    expect(seed).toEqual({ disabledBy: null, name: "Run Hours", unit: "min", precision: "1" });
   });
 
   it("reports a disabled entity's disabler verbatim", () => {
@@ -232,8 +229,8 @@ describe("coerceRegistrySeed", () => {
   });
 
   it("renders absent overrides and options as empty strings", () => {
-    const seed = coerceRegistrySeed({ entity_id: "sensor.x", disabled_by: null, name: null, icon: null, options: {} });
-    expect(seed).toEqual({ disabledBy: null, name: "", icon: "", unit: "", precision: "" });
+    const seed = coerceRegistrySeed({ entity_id: "sensor.x", disabled_by: null, name: null, options: {} });
+    expect(seed).toEqual({ disabledBy: null, name: "", unit: "", precision: "" });
   });
 
   it("keeps a zero display precision rather than reading it as absent", () => {
@@ -255,14 +252,12 @@ describe("coerceRegistrySeed", () => {
 describe("seedForm", () => {
   it("seeds the curation fields from the stored record", () => {
     const row = makeRow({ curation: { device_class: "power", state_class: "measurement", entity_category: "none" } });
-    expect(seedForm(row, makeSeed())).toEqual({ enabled: true, name: "", icon: "", deviceClass: "power", stateClass: "measurement", promote: true });
+    expect(seedForm(row, makeSeed())).toEqual({ enabled: true, name: "", deviceClass: "power", stateClass: "measurement", promote: true });
   });
 
-  it("seeds the name and icon from the registry, not from the wire name", () => {
+  it("seeds the name from the registry, not from the wire name", () => {
     const row = makeRow({ name: "Run Hours" });
-    const form = seedForm(row, makeSeed({ name: "Generator Hours", icon: "mdi:engine" }));
-    expect(form.name).toBe("Generator Hours");
-    expect(form.icon).toBe("mdi:engine");
+    expect(seedForm(row, makeSeed({ name: "Generator Hours" })).name).toBe("Generator Hours");
   });
 
   it("seeds the enable selector from the registry's disabled state", () => {
@@ -271,7 +266,7 @@ describe("seedForm", () => {
   });
 
   it("seeds a row with no registry entry as disabled and unnamed", () => {
-    expect(seedForm(makeRow({ entity_id: null }), null)).toEqual({ enabled: false, name: "", icon: "", deviceClass: "", stateClass: "", promote: false });
+    expect(seedForm(makeRow({ entity_id: null }), null)).toEqual({ enabled: false, name: "", deviceClass: "", stateClass: "", promote: false });
   });
 
   it("leaves prominence diagnostic when the record does not promote", () => {
@@ -281,7 +276,7 @@ describe("seedForm", () => {
 
 describe("registryDirty", () => {
   it("is false for a form still carrying its seeded registry values", () => {
-    const seed = makeSeed({ disabledBy: "integration", name: "Run Hours", icon: "mdi:engine" });
+    const seed = makeSeed({ disabledBy: "integration", name: "Run Hours" });
     expect(registryDirty(seed, seedForm(makeRow(), seed))).toBe(false);
   });
 
@@ -296,10 +291,9 @@ describe("registryDirty", () => {
     expect(registryDirty(seed, { ...seedForm(makeRow(), seed), enabled: true })).toBe(true);
   });
 
-  it("is true once the name or the icon is edited", () => {
+  it("is true once the name is edited", () => {
     const seed = makeSeed({ name: "Run Hours" });
     expect(registryDirty(seed, { ...seedForm(makeRow(), seed), name: "Engine Hours" })).toBe(true);
-    expect(registryDirty(seed, { ...seedForm(makeRow(), seed), icon: "mdi:engine" })).toBe(true);
   });
 
   it("is false without a seed, so an unreadable registry is never written blind", () => {
@@ -318,7 +312,6 @@ describe("registryPayload", () => {
       type: "config/entity_registry/update",
       entity_id: "sensor.backup_generator_active_power",
       name: "Cell Voltage",
-      icon: null,
     });
   });
 
@@ -365,7 +358,6 @@ describe("appliedSeed", () => {
     expect(appliedSeed(seed, makeForm({ enabled: false, name: "Cell Voltage" }))).toEqual({
       disabledBy: "integration",
       name: "Cell Voltage",
-      icon: "",
       unit: "",
       precision: "",
     });

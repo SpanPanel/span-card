@@ -113,7 +113,6 @@ function makeHass(options: { disabledBy?: string | null; failCurate?: string; wa
             entity_id: msg.entity_id,
             disabled_by: options.disabledBy === undefined ? "integration" : options.disabledBy,
             name: null,
-            icon: null,
             options: {},
           } as T;
         case "sensor/device_class_convertible_units":
@@ -298,7 +297,7 @@ describe("AdoptedTab", () => {
       await expand(container, RELAY_KEY);
       expect(container.querySelector('[data-action="toggle-enable"]')).toBeNull();
       expect(container.querySelector('input[data-field="name"]')).toBeNull();
-      expect(container.textContent).toContain("Enable, name, and icon become available");
+      expect(container.textContent).toContain("Enable and name become available");
     });
 
     it("collapses the row again on a second click", async () => {
@@ -391,7 +390,6 @@ describe("AdoptedTab", () => {
           type: "config/entity_registry/update",
           entity_id: "sensor.battery_2_cell_voltage",
           name: null,
-          icon: null,
           disabled_by: null,
         },
         { type: "span_panel/adopted/curate", device_id: "panel-device-1", key: VOLTAGE_KEY, record: {} },
@@ -404,14 +402,12 @@ describe("AdoptedTab", () => {
       await tab.render(container, hass, "panel-device-1");
       await expand(container, VOLTAGE_KEY);
       type(container, "name", "Cell Voltage");
-      type(container, "icon", "mdi:flash");
       await press(container, "save");
 
       expect(writes(hass)[0]).toEqual({
         type: "config/entity_registry/update",
         entity_id: "sensor.battery_2_cell_voltage",
         name: "Cell Voltage",
-        icon: "mdi:flash",
       });
       tab.stop();
     });
@@ -431,7 +427,6 @@ describe("AdoptedTab", () => {
         type: "config/entity_registry/update",
         entity_id: "sensor.battery_2_cell_voltage",
         name: "Cell Voltage",
-        icon: null,
       });
       tab.stop();
     });
@@ -461,7 +456,6 @@ describe("AdoptedTab", () => {
           type: "config/entity_registry/update",
           entity_id: "sensor.battery_2_cell_voltage",
           name: null,
-          icon: null,
           disabled_by: null,
         },
       ]);

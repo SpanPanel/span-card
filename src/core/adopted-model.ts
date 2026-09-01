@@ -8,7 +8,6 @@ import type { AdoptedDeviceGroup, AdoptedRow } from "../types.js";
 export interface CurationForm {
   enabled: boolean;
   name: string;
-  icon: string;
   deviceClass: string;
   stateClass: string;
   promote: boolean;
@@ -28,8 +27,6 @@ export interface RegistrySeed {
   disabledBy: string | null;
   /** The user's name override, ``""`` when the entity carries its own name. */
   name: string;
-  /** The user's icon override, ``""`` when the entity carries its own icon. */
-  icon: string;
   /** The sensor display-unit override, ``""`` when the reading shows as published. */
   unit: string;
   /** The sensor display precision, ``""`` when Core chooses it. */
@@ -37,9 +34,9 @@ export interface RegistrySeed {
 }
 
 /**
- * The two writes one save makes. Renaming, icons, and enabling are Core's
- * registry command; a state class, device class, and prominence are the
- * integration's, since Core has nowhere to put them.
+ * The two writes one save makes. Renaming and enabling are Core's registry
+ * command; a state class, device class, and prominence are the integration's,
+ * since Core has nowhere to put them.
  */
 export interface SavePlan {
   /** ``config/entity_registry/update`` payload, or null when the row has no entity yet. */
@@ -92,7 +89,6 @@ export function buildSavePlan(row: AdoptedRow, form: CurationForm): SavePlan {
           type: "config/entity_registry/update",
           entity_id: row.entity_id,
           name: form.name || null,
-          icon: form.icon || null,
           disabled_by: form.enabled ? null : "user",
         };
 
@@ -133,7 +129,6 @@ export function coerceRegistrySeed(raw: unknown): RegistrySeed | null {
   return {
     disabledBy: typeof entry.disabled_by === "string" ? entry.disabled_by : null,
     name: stringField(entry, "name"),
-    icon: stringField(entry, "icon"),
     unit: stringField(sensor, "unit_of_measurement"),
     precision: typeof precision === "number" ? String(precision) : "",
   };
@@ -151,7 +146,6 @@ export function seedForm(row: AdoptedRow, seed: RegistrySeed | null): CurationFo
   return {
     enabled: seed !== null && seed.disabledBy === null,
     name: seed === null ? "" : seed.name,
-    icon: seed === null ? "" : seed.icon,
     deviceClass: row.curation.device_class ?? "",
     stateClass: row.curation.state_class ?? "",
     promote: row.curation.entity_category === "none",
@@ -172,7 +166,7 @@ export function seedForm(row: AdoptedRow, seed: RegistrySeed | null): CurationFo
  */
 export function registryDirty(seed: RegistrySeed | null, form: CurationForm): boolean {
   if (seed === null) return false;
-  return form.enabled !== (seed.disabledBy === null) || form.name !== seed.name || form.icon !== seed.icon;
+  return form.enabled !== (seed.disabledBy === null) || form.name !== seed.name;
 }
 
 /** Whether the enable control still says what the registry says. */
@@ -217,7 +211,6 @@ export function appliedSeed(seed: RegistrySeed, form: CurationForm): RegistrySee
     ...seed,
     disabledBy: form.enabled ? null : (seed.disabledBy ?? "user"),
     name: form.name,
-    icon: form.icon,
   };
 }
 

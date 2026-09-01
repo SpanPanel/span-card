@@ -111,11 +111,15 @@ function errorText(err: unknown): string {
  * grouped by the device it renders on, each row expandable into an editor.
  *
  * The editor writes to two places, because two places own the answer. A name,
- * an icon, enabled-ness and a display unit are Core's registry state, written
- * through Core's own admin command; a device class, a state class and
- * prominence have nowhere in the registry to live and go to the integration's
- * curation store. The split is the design's, not an implementation detail:
- * ``buildSavePlan`` decides it, and this class only issues what it decided.
+ * enabled-ness and a display unit are Core's registry state, written through
+ * Core's own admin command; a device class, a state class and prominence have
+ * nowhere in the registry to live and go to the integration's curation store.
+ * The split is the design's, not an implementation detail: ``buildSavePlan``
+ * decides it, and this class only issues what it decided.
+ *
+ * What Core's own entity settings dialog already does well, this tab does not
+ * restate. The icon is the case in point: it was offered here, wrote through
+ * the same registry command, and gave a user a second place to set one thing.
  *
  * DOM only. Every decision that can be made without a document —- what to
  * filter, what to write, what to warn about -— lives in ``core/adopted-model``
@@ -376,8 +380,6 @@ export class AdoptedTab {
       <div style="${FIELD_ROW}">
         <span style="${FIELD_LABEL}">${t("adopted.name")}</span>
         <input type="text" data-field="name" value="${escapeHtml(editor.form.name)}" style="${INPUT_STYLE}width:260px;">
-        <span style="font-size:0.85em;color:${MUTED};">${t("adopted.icon")}</span>
-        <input type="text" data-field="icon" value="${escapeHtml(editor.form.icon)}" style="${INPUT_STYLE}width:140px;">
       </div>
     `;
   }
@@ -556,7 +558,6 @@ export class AdoptedTab {
     if (!editor || !field) return;
     const value = (target as HTMLInputElement).value;
     if (field === "name") editor.form = { ...editor.form, name: value };
-    if (field === "icon") editor.form = { ...editor.form, icon: value };
   }
 
   private async _handleChange(e: Event): Promise<void> {
@@ -667,7 +668,7 @@ export class AdoptedTab {
    * whenever the enable control did not move, so neither a curation-only save
    * nor a rename can rewrite the disabler of an entity nobody enabled. A clear
    * touches the registry not at all: it removes a record, and a record is not
-   * a name, an icon, or an enabled entity.
+   * a name or an enabled entity.
    */
   private async _commit(clears: boolean): Promise<void> {
     const editor = this._editor;
