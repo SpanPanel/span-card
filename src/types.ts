@@ -144,6 +144,16 @@ export interface AdoptedListResponse {
   devices: AdoptedDeviceGroup[];
 }
 
+/**
+ * The reply to ``span_panel/adopted/curate``: the record as stored, and the
+ * consequences of the save that the record does not show on its face
+ * (``total_increasing``, ``statistics_removed``).
+ */
+export interface AdoptedCurateResponse {
+  record: Record<string, string>;
+  warnings: string[];
+}
+
 // -- Card configuration --
 
 export interface CardConfig {

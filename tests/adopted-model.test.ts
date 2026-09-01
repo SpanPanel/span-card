@@ -1,6 +1,17 @@
 import { describe, it, expect } from "vitest";
-import { filterGroups, buildSavePlan, statisticsConfirmation } from "../src/core/adopted-model.js";
-import type { CurationForm } from "../src/core/adopted-model.js";
+import {
+  coerceRegistrySeed,
+  filterGroups,
+  buildSavePlan,
+  humanizeClass,
+  registryDirty,
+  seedForm,
+  sensorOptions,
+  sensorOptionsDirty,
+  showsDisplayUnit,
+  statisticsConfirmation,
+} from "../src/core/adopted-model.js";
+import type { CurationForm, RegistrySeed } from "../src/core/adopted-model.js";
 import type { AdoptedDeviceGroup, AdoptedRow } from "../src/types.js";
 
 function makeRow(overrides: Partial<AdoptedRow> = {}): AdoptedRow {
@@ -29,6 +40,10 @@ function makeGroup(overrides: Partial<AdoptedDeviceGroup> = {}): AdoptedDeviceGr
     rows: [makeRow()],
     ...overrides,
   };
+}
+
+function makeSeed(overrides: Partial<RegistrySeed> = {}): RegistrySeed {
+  return { disabledBy: null, name: "", icon: "", unit: "", precision: "", ...overrides };
 }
 
 function makeForm(overrides: Partial<CurationForm> = {}): CurationForm {
@@ -194,5 +209,161 @@ describe("statisticsConfirmation", () => {
   it("prefers the total_increasing warning over the clearing one", () => {
     const row = makeRow({ curation: { state_class: "measurement" } });
     expect(statisticsConfirmation(row, makeForm({ stateClass: "total_increasing" }))).toBe("total_increasing");
+  });
+});
+
+describe("coerceRegistrySeed", () => {
+  it("reads the enabled state, the overrides, and the sensor options", () => {
+    const seed = coerceRegistrySeed({
+      entity_id: "sensor.generator_run_hours",
+      disabled_by: null,
+      name: "Run Hours",
+      icon: "mdi:engine",
+      options: { sensor: { unit_of_measurement: "min", display_precision: 1 } },
+    });
+    expect(seed).toEqual({ disabledBy: null, name: "Run Hours", icon: "mdi:engine", unit: "min", precision: "1" });
+  });
+
+  it("reports a disabled entity's disabler verbatim", () => {
+    const seed = coerceRegistrySeed({ entity_id: "sensor.x", disabled_by: "integration" });
+    expect(seed?.disabledBy).toBe("integration");
+  });
+
+  it("renders absent overrides and options as empty strings", () => {
+    const seed = coerceRegistrySeed({ entity_id: "sensor.x", disabled_by: null, name: null, icon: null, options: {} });
+    expect(seed).toEqual({ disabledBy: null, name: "", icon: "", unit: "", precision: "" });
+  });
+
+  it("keeps a zero display precision rather than reading it as absent", () => {
+    const seed = coerceRegistrySeed({
+      entity_id: "sensor.x",
+      disabled_by: null,
+      options: { sensor: { display_precision: 0 } },
+    });
+    expect(seed?.precision).toBe("0");
+  });
+
+  it("returns null for a payload that is not a registry entry", () => {
+    expect(coerceRegistrySeed(null)).toBeNull();
+    expect(coerceRegistrySeed("sensor.x")).toBeNull();
+    expect(coerceRegistrySeed({ disabled_by: null })).toBeNull();
+  });
+});
+
+describe("seedForm", () => {
+  it("seeds the curation fields from the stored record", () => {
+    const row = makeRow({ curation: { device_class: "power", state_class: "measurement", entity_category: "none" } });
+    expect(seedForm(row, makeSeed())).toEqual({ enabled: true, name: "", icon: "", deviceClass: "power", stateClass: "measurement", promote: true });
+  });
+
+  it("seeds the name and icon from the registry, not from the wire name", () => {
+    const row = makeRow({ name: "Run Hours" });
+    const form = seedForm(row, makeSeed({ name: "Generator Hours", icon: "mdi:engine" }));
+    expect(form.name).toBe("Generator Hours");
+    expect(form.icon).toBe("mdi:engine");
+  });
+
+  it("seeds the enable selector from the registry's disabled state", () => {
+    expect(seedForm(makeRow(), makeSeed({ disabledBy: "integration" })).enabled).toBe(false);
+    expect(seedForm(makeRow(), makeSeed({ disabledBy: null })).enabled).toBe(true);
+  });
+
+  it("seeds a row with no registry entry as disabled and unnamed", () => {
+    expect(seedForm(makeRow({ entity_id: null }), null)).toEqual({ enabled: false, name: "", icon: "", deviceClass: "", stateClass: "", promote: false });
+  });
+
+  it("leaves prominence diagnostic when the record does not promote", () => {
+    expect(seedForm(makeRow({ curation: { device_class: "power" } }), makeSeed()).promote).toBe(false);
+  });
+});
+
+describe("registryDirty", () => {
+  it("is false for a form still carrying its seeded registry values", () => {
+    const seed = makeSeed({ disabledBy: "integration", name: "Run Hours", icon: "mdi:engine" });
+    expect(registryDirty(seed, seedForm(makeRow(), seed))).toBe(false);
+  });
+
+  it("stays false when only the curation fields were edited", () => {
+    const seed = makeSeed({ disabledBy: "integration" });
+    const form = { ...seedForm(makeRow(), seed), deviceClass: "power", stateClass: "measurement", promote: true };
+    expect(registryDirty(seed, form)).toBe(false);
+  });
+
+  it("is true once the enable selector moves", () => {
+    const seed = makeSeed({ disabledBy: "integration" });
+    expect(registryDirty(seed, { ...seedForm(makeRow(), seed), enabled: true })).toBe(true);
+  });
+
+  it("is true once the name or the icon is edited", () => {
+    const seed = makeSeed({ name: "Run Hours" });
+    expect(registryDirty(seed, { ...seedForm(makeRow(), seed), name: "Engine Hours" })).toBe(true);
+    expect(registryDirty(seed, { ...seedForm(makeRow(), seed), icon: "mdi:engine" })).toBe(true);
+  });
+
+  it("is false without a seed, so an unreadable registry is never written blind", () => {
+    expect(registryDirty(null, makeForm({ enabled: true, name: "Engine Hours" }))).toBe(false);
+  });
+});
+
+describe("sensorOptions", () => {
+  it("sends the chosen unit and precision", () => {
+    expect(sensorOptions("mV", "2")).toEqual({ unit_of_measurement: "mV", display_precision: 2 });
+  });
+
+  it("sends null for the as-published unit and the default precision", () => {
+    expect(sensorOptions("", "")).toEqual({ unit_of_measurement: null, display_precision: null });
+  });
+
+  it("keeps a zero precision rather than dropping it as falsy", () => {
+    expect(sensorOptions("V", "0")).toEqual({ unit_of_measurement: "V", display_precision: 0 });
+  });
+
+  it("sends null for a precision that is not a number", () => {
+    expect(sensorOptions("V", "none")).toEqual({ unit_of_measurement: "V", display_precision: null });
+  });
+});
+
+describe("sensorOptionsDirty", () => {
+  it("is false for the seeded unit and precision", () => {
+    expect(sensorOptionsDirty(makeSeed({ unit: "mV", precision: "2" }), "mV", "2")).toBe(false);
+  });
+
+  it("is true once either control moves", () => {
+    const seed = makeSeed({ unit: "mV", precision: "2" });
+    expect(sensorOptionsDirty(seed, "kV", "2")).toBe(true);
+    expect(sensorOptionsDirty(seed, "mV", "3")).toBe(true);
+  });
+
+  it("is false without a seed", () => {
+    expect(sensorOptionsDirty(null, "kV", "3")).toBe(false);
+  });
+});
+
+describe("showsDisplayUnit", () => {
+  it("shows the controls for a convertible device class the row admits", () => {
+    expect(showsDisplayUnit("voltage", ["voltage"], ["V", "mV", "kV"])).toBe(true);
+  });
+
+  it("hides them while no device class is chosen", () => {
+    expect(showsDisplayUnit("", ["voltage"], ["V", "mV"])).toBe(false);
+  });
+
+  it("hides them for a device class Core will not convert", () => {
+    expect(showsDisplayUnit("power_factor", ["power_factor"], [])).toBe(false);
+  });
+
+  it("hides them for a class the row does not admit", () => {
+    expect(showsDisplayUnit("energy", ["power"], ["Wh", "kWh"])).toBe(false);
+  });
+});
+
+describe("humanizeClass", () => {
+  it("renders an enum value as a sentence-cased label", () => {
+    expect(humanizeClass("total_increasing")).toBe("Total increasing");
+    expect(humanizeClass("voltage")).toBe("Voltage");
+  });
+
+  it("returns an empty string untouched", () => {
+    expect(humanizeClass("")).toBe("");
   });
 });

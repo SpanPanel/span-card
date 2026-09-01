@@ -11,6 +11,7 @@ import "../core/span-switch.js";
 import "./span-menu-button.js";
 import { DashboardTab } from "./tab-dashboard.js";
 import { MonitoringTab } from "./tab-monitoring.js";
+import { AdoptedTab } from "./tab-adopted.js";
 import { ListViewController, type FavoritesViewStateDetail } from "../core/list-view-controller.js";
 import { DashboardController } from "../core/dashboard-controller.js";
 import { buildTabBarHTML } from "../core/tab-bar-renderer.js";
@@ -40,7 +41,16 @@ import type { CardConfig, FavoritesMap, FavoritesTopology, HomeAssistant, PanelD
 
 const FAVORITES_PANEL_ID = "favorites";
 
-type TabName = "dashboard" | "activity" | "area" | "monitoring";
+type TabName = "dashboard" | "activity" | "area" | "monitoring" | "adopted";
+
+/**
+ * Tabs that exist only on a real panel: "By Panel" needs a breaker grid, and
+ * Adopted curates one panel's own published rows. The Favorites pseudo-panel
+ * has neither, so landing on one there re-routes to Activity.
+ */
+function isPanelOnlyTab(tab: TabName): tab is "dashboard" | "adopted" {
+  return tab === "dashboard" || tab === "adopted";
+}
 
 @customElement("span-panel")
 export class SpanPanelElement extends LitElement {
@@ -69,6 +79,7 @@ export class SpanPanelElement extends LitElement {
 
   private _dashboardTab = new DashboardTab();
   private _monitoringTab = new MonitoringTab();
+  private _adoptedTab = new AdoptedTab();
   private _listDashCtrl = new DashboardController();
   private _listCtrl = new ListViewController(this._listDashCtrl);
   private _favCache = new FavoritesCache();
@@ -241,6 +252,7 @@ export class SpanPanelElement extends LitElement {
   disconnectedCallback(): void {
     this._dashboardTab.stop();
     this._monitoringTab.stop();
+    this._adoptedTab.stop();
     this._listCtrl.stop();
     this._listDashCtrl.stopIntervals();
     for (const tab of this._favoritesMonitoringTabs.values()) tab.stop();
@@ -298,12 +310,12 @@ export class SpanPanelElement extends LitElement {
         changedProps.has("_listColumns"))
     ) {
       // Defensive normalization: the Favorites pseudo-panel has no
-      // "By Panel" tab. ``_onPanelChange`` and ``_discoverPanels``
-      // redirect when they switch into Favorites, but an external
-      // navigate-tab event or a stale state could still land here —
-      // coerce to the Activity tab and let the resulting state change
-      // schedule the single render.
-      if (this._isFavoritesView && this._activeTab === "dashboard") {
+      // "By Panel" or Adopted tab. ``_onPanelChange`` and
+      // ``_discoverPanels`` redirect when they switch into Favorites, but
+      // an external navigate-tab event or a stale state could still land
+      // here — coerce to the Activity tab and let the resulting state
+      // change schedule the single render.
+      if (this._isFavoritesView && isPanelOnlyTab(this._activeTab)) {
         this._activeTab = "activity";
         return;
       }
@@ -432,9 +444,9 @@ export class SpanPanelElement extends LitElement {
     const select = e.target as HTMLSelectElement;
     this._selectedPanelId = select.value;
     localStorage.setItem("span_panel_selected", select.value);
-    // The Favorites pseudo-panel has no "By Panel" tab, so re-route away
-    // from it when the user lands on favorites with that tab active.
-    if (this._isFavoritesView && this._activeTab === "dashboard") {
+    // The Favorites pseudo-panel has no "By Panel" or Adopted tab, so
+    // re-route away when the user lands on favorites with one active.
+    if (this._isFavoritesView && isPanelOnlyTab(this._activeTab)) {
       this._activeTab = "activity";
     }
     this._areaSubscribing = false;
@@ -457,7 +469,7 @@ export class SpanPanelElement extends LitElement {
     const tab = btn.dataset.tab as TabName | undefined;
     if (!tab || tab === this._activeTab) return;
     this._activeTab = tab;
-    if (this._isFavoritesView && tab !== "dashboard") {
+    if (this._isFavoritesView && !isPanelOnlyTab(tab)) {
       this._favoritesViewState.activeTab = tab;
       saveFavoritesViewState(this._favoritesViewState);
     }
@@ -691,7 +703,7 @@ export class SpanPanelElement extends LitElement {
         const restoredTab = this._favoritesViewState.activeTab;
         if (restoredTab === "activity" || restoredTab === "area" || restoredTab === "monitoring") {
           this._activeTab = restoredTab;
-        } else if (this._activeTab === "dashboard") {
+        } else if (isPanelOnlyTab(this._activeTab)) {
           this._activeTab = "activity";
         }
       }
@@ -775,7 +787,12 @@ export class SpanPanelElement extends LitElement {
   /**
    * Build the tab list for the current panel selection. The Favorites
    * pseudo-panel drops "By Panel" because its merged topology has no
-   * physical breaker grid to render.
+   * physical breaker grid to render, and drops Adopted because curation
+   * is one panel's business.
+   *
+   * Adopted is admin-only: every command behind it is ``@require_admin``
+   * (both new ones, and Core's own registry update), so a non-admin would
+   * meet a tab whose every action is refused.
    */
   private _buildTabList(): { id: string; label: string; icon: string }[] {
     const tabs: { id: string; label: string; icon: string }[] = [];
@@ -787,6 +804,9 @@ export class SpanPanelElement extends LitElement {
       { id: "area", label: t("tab.by_area"), icon: "mdi:home-group" },
       { id: "monitoring", label: t("tab.monitoring"), icon: "mdi:monitor-eye" }
     );
+    if (!this._isFavoritesView && this.hass?.user?.is_admin === true) {
+      tabs.push({ id: "adopted", label: t("tab.adopted"), icon: "mdi:tune" });
+    }
     return tabs;
   }
 
@@ -897,6 +917,7 @@ export class SpanPanelElement extends LitElement {
 
     this._dashboardTab.stop();
     this._monitoringTab.stop();
+    this._adoptedTab.stop();
     this._listCtrl.stop();
     this._listDashCtrl.stopIntervals();
     for (const tab of this._favoritesMonitoringTabs.values()) tab.stop();
@@ -1029,6 +1050,13 @@ export class SpanPanelElement extends LitElement {
         const monEntryId = monDevice?.config_entries?.[0] ?? null;
         // Monitoring is a pure configuration view — no panel-stats header.
         await this._monitoringTab.render(container, this.hass, monEntryId ?? undefined);
+        break;
+      }
+      case "adopted": {
+        container.innerHTML = "";
+        // Curation is keyed on the panel device, the same handle
+        // ``panel_topology`` takes — not on the config entry.
+        await this._adoptedTab.render(container, this.hass, this._selectedPanelId ?? "");
         break;
       }
     }
