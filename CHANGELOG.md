@@ -15,6 +15,14 @@
   `.list-power-value`. Short readings (`1.3A`) were right-aligned inside a 70px cell, leaving a ~40px empty column between the relay control and the reading
   that robbed width from the `flex:1 .list-circuit-name`. The value now sizes to content and hugs the preceding relay pill; the freed column flows back into the
   name.
+- **A card holding a device id from before Home Assistant 2026.8 lost its panel** — That release split every device shared between integrations into one device
+  per integration, each with a new id, so a card configured earlier can hold an id the device list no longer contains. Discovery looked the panel up in that
+  list by the saved id and found nothing, leaving the config entry null — monitoring and entry-scoped service calls went without one — and circuits without an
+  area of their own lost the panel-area fallback. Discovery and the area resolver now take the panel's current device from `panel_device_id` in the topology
+  response (span integration 2.1.2), falling back to the saved id when topology names none, and the card takes its entry from topology's `config_entry_id`
+  before the device's.
+- **Stopped reading the deprecated `config_entries` device field** — Home Assistant 2026.8 gives each device a single owning entry, `config_entry_id`, and
+  removes the `config_entries` list in 2027.8. The card, the dashboard page and the favorites controller now read `config_entry_id`.
 
 ### Changed
 
