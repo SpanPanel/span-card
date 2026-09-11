@@ -17,7 +17,7 @@ function makePanel(id: string, name: string, entryId: string): PanelDevice {
     id,
     name,
     name_by_user: undefined,
-    config_entries: [entryId],
+    config_entry_id: entryId,
   } as unknown as PanelDevice;
 }
 

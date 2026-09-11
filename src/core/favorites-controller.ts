@@ -78,7 +78,7 @@ export class FavoritesController {
 
     for (const { panelDeviceId, panel, topology } of contributing) {
       if (!topology) continue;
-      const configEntryId = panel.config_entries?.[0] ?? null;
+      const configEntryId = panel.config_entry_id ?? null;
       if (configEntryId) entryIds.add(configEntryId);
 
       const panelLabel = panel.name_by_user ?? panel.name ?? topology.device_name ?? "";

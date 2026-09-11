@@ -941,14 +941,14 @@ export class SpanPanelElement extends LitElement {
         container.innerHTML = "";
         const config = this._buildDashboardConfig();
         const dashDevice = this._panels.find(p => p.id === this._selectedPanelId);
-        const dashEntryId = dashDevice?.config_entries?.[0] ?? null;
+        const dashEntryId = dashDevice?.config_entry_id ?? null;
         await this._dashboardTab.render(container, this.hass, this._selectedPanelId ?? "", config, dashEntryId);
         break;
       }
       case "activity": {
         container.innerHTML = "";
         const device = this._panels.find(p => p.id === this._selectedPanelId);
-        const entryId = device?.config_entries?.[0] ?? null;
+        const entryId = device?.config_entry_id ?? null;
         try {
           const retry = new RetryManager(this._errorStore);
           const result = await discoverTopology(this.hass, this._selectedPanelId ?? undefined, retry);
@@ -983,7 +983,7 @@ export class SpanPanelElement extends LitElement {
       case "area": {
         container.innerHTML = "";
         const areaDevice = this._panels.find(p => p.id === this._selectedPanelId);
-        const areaEntryId = areaDevice?.config_entries?.[0] ?? null;
+        const areaEntryId = areaDevice?.config_entry_id ?? null;
         try {
           const retry = new RetryManager(this._errorStore);
           const result = await discoverTopology(this.hass, this._selectedPanelId ?? undefined, retry);
@@ -1047,7 +1047,7 @@ export class SpanPanelElement extends LitElement {
       case "monitoring": {
         container.innerHTML = "";
         const monDevice = this._panels.find(p => p.id === this._selectedPanelId);
-        const monEntryId = monDevice?.config_entries?.[0] ?? null;
+        const monEntryId = monDevice?.config_entry_id ?? null;
         // Monitoring is a pure configuration view — no panel-stats header.
         await this._monitoringTab.render(container, this.hass, monEntryId ?? undefined);
         break;
@@ -1098,7 +1098,7 @@ export class SpanPanelElement extends LitElement {
       perPanelInfoMap.set(p.panelDeviceId, {
         panelName: p.panelName,
         topology: p.topology,
-        configEntryId: realPanel?.config_entries?.[0] ?? null,
+        configEntryId: realPanel?.config_entry_id ?? null,
       });
     }
     this._listDashCtrl.setFavoritesPerPanelInfo(perPanelInfoMap);
@@ -1186,7 +1186,7 @@ export class SpanPanelElement extends LitElement {
 
     const panelsByEntry = new Map<string, PanelDevice>();
     for (const panel of realPanels) {
-      const eid = panel.config_entries?.[0];
+      const eid = panel.config_entry_id;
       if (eid) panelsByEntry.set(eid, panel);
     }
 

@@ -74,14 +74,23 @@ export interface PanelTopology {
   serial?: string;
   firmware?: string;
   panel_size?: number;
+  /** The device id the request carried, echoed as sent. */
   device_id?: string;
+  /**
+   * The panel's current device. Differs from `device_id` only when that is an id
+   * from before Home Assistant 2026.8, which the device list no longer holds.
+   */
+  panel_device_id?: string;
+  /** The config entry that owns the panel. */
+  config_entry_id?: string;
 }
 
 export interface PanelDevice {
   id: string;
   name?: string;
   name_by_user?: string;
-  config_entries?: string[];
+  /** The one config entry that owns the device (Home Assistant 2026.8+). */
+  config_entry_id?: string;
   identifiers?: [string, string][];
   via_device_id?: string | null;
   sw_version?: string;

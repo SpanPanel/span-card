@@ -10,7 +10,7 @@ interface DeviceRegistryEntry {
   id: string;
   name?: string;
   name_by_user?: string;
-  config_entries?: string[];
+  config_entry_id?: string;
   identifiers?: [string, string][];
   via_device_id?: string | null;
   sw_version?: string;
@@ -43,7 +43,11 @@ export async function discoverTopology(hass: HomeAssistant, deviceId: string | u
   const devices = retry
     ? await retry.callWS<DeviceRegistryEntry[]>(hass, devicesMsg, { errorId: "fetch:topology" })
     : await hass.callWS<DeviceRegistryEntry[]>(devicesMsg);
-  const panelDevice = deviceToPanelDevice(devices.find(d => d.id === deviceId));
+  // Found by the device topology names rather than the id the card holds: they
+  // differ when the card was configured before Home Assistant 2026.8, whose split
+  // of shared devices left the old id naming no device in this list.
+  const panelDeviceId = topology.panel_device_id ?? deviceId;
+  const panelDevice = deviceToPanelDevice(devices.find(d => d.id === panelDeviceId));
 
   await resolveAndAssignAreas(hass, topology);
 
@@ -63,6 +67,18 @@ function panelSizeFromCircuits(circuits: Record<string, Circuit>): number {
   return maxTab > 0 ? maxTab + (maxTab % 2) : 0;
 }
 
+// ── The panel's config entry ─────────────────────────────────────────────────
+
+/**
+ * The config entry that owns the panel: the one topology names, else the panel
+ * device's own. Topology is asked first because it answers even when the card
+ * holds an id from before Home Assistant 2026.8 and so found no device; the
+ * device is the fallback for topology built by entity discovery, which names none.
+ */
+export function panelConfigEntryId(topology: PanelTopology | null, panelDevice: PanelDevice | null): string | null {
+  return topology?.config_entry_id ?? panelDevice?.config_entry_id ?? null;
+}
+
 // ── Map device registry entry to PanelDevice ─────────────────────────────────
 
 function deviceToPanelDevice(entry: DeviceRegistryEntry | undefined): PanelDevice | null {
@@ -71,7 +87,7 @@ function deviceToPanelDevice(entry: DeviceRegistryEntry | undefined): PanelDevic
     id: entry.id,
     name: entry.name,
     name_by_user: entry.name_by_user,
-    config_entries: entry.config_entries,
+    config_entry_id: entry.config_entry_id,
     identifiers: entry.identifiers,
     via_device_id: entry.via_device_id,
     sw_version: entry.sw_version,

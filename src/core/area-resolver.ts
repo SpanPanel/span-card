@@ -23,7 +23,7 @@ interface DeviceRegistryEntry {
  *
  * Resolution order per circuit:
  *   1. First entity in `circuit.entities` that has an explicit area assignment.
- *   2. The panel device's area (via `topology.device_id`).
+ *   2. The panel device's area (via `topology.panel_device_id`, else `topology.device_id`).
  *   3. `undefined` (no area).
  */
 export async function resolveAndAssignAreas(hass: HomeAssistant, topology: PanelTopology): Promise<void> {
@@ -55,8 +55,11 @@ export async function resolveAndAssignAreas(hass: HomeAssistant, topology: Panel
 
   // Resolve fallback: the panel device's own area
   let panelAreaName: string | undefined;
-  if (topology.device_id) {
-    const panelDevAreaId = deviceArea.get(topology.device_id);
+  // The panel's current device, which differs from the requested id when that
+  // is one from before Home Assistant 2026.8 the device list no longer holds.
+  const panelDeviceId = topology.panel_device_id ?? topology.device_id;
+  if (panelDeviceId) {
+    const panelDevAreaId = deviceArea.get(panelDeviceId);
     if (panelDevAreaId) {
       panelAreaName = areaNames.get(panelDevAreaId);
     }

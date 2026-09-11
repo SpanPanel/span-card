@@ -13,7 +13,7 @@ import { ListViewController } from "../core/list-view-controller.js";
 import { buildTabBarHTML, bindTabBarEvents } from "../core/tab-bar-renderer.js";
 import { subscribeAreaUpdates } from "../core/area-resolver.js";
 import { ErrorStore } from "../core/error-store.js";
-import { discoverTopology, discoverEntitiesFallback } from "./card-discovery.js";
+import { discoverTopology, discoverEntitiesFallback, panelConfigEntryId } from "./card-discovery.js";
 import { RetryManager } from "../core/retry-manager.js";
 import { CARD_STYLES } from "./card-styles.js";
 import "../core/side-panel.js";
@@ -80,7 +80,7 @@ export class SpanPanelCard extends LitElement {
   static override styles = unsafeCSS(CARD_STYLES);
 
   private get _configEntryId(): string | null {
-    return this._panelDevice?.config_entries?.[0] ?? null;
+    return panelConfigEntryId(this._topology, this._panelDevice);
   }
 
   /**
