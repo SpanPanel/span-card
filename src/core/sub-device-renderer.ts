@@ -11,6 +11,15 @@ interface BessChartDef {
   available: boolean;
 }
 
+/** A sub-device that has something to show, with the pieces already built. */
+interface RenderableSubDevice {
+  devId: string;
+  sub: SubDevice;
+  powerEid: string | null;
+  chartsHTML: string;
+  entHTML: string;
+}
+
 /**
  * Build the HTML for all sub-devices (BESS, EVSE, etc.) in the topology.
  */
@@ -28,19 +37,21 @@ export function buildSubDevicesHTML(topology: PanelTopology, hass: HomeAssistant
 
   if (entries.length === 0) return "";
 
-  const evseCount: number = entries.filter(([, sub]) => sub.type === SUB_DEVICE_TYPE_EVSE).length;
-  let evseIndex = 0;
-
-  let subDevHTML = "";
+  // Build each tile's contents before deciding whether it is a tile at all. A
+  // sub-device with no power reading, no charts and no visible entities renders
+  // as a header bar and a gear icon and nothing else -- which is what the
+  // Microgrid Interconnect did the day it appeared: its one entity is a
+  // diagnostic enum, so there was never anything to draw.
+  //
+  // Tested on emptiness rather than on type. Excluding the MID by name would fix
+  // one device and leave the next one to rediscover this, and v1.0 has more of
+  // them coming -- sub-enclosures, PV devices, inverters as battery children. It
+  // also self-corrects: give this device something chartable and its tile comes
+  // back with no code change.
+  const renderable: RenderableSubDevice[] = [];
   for (const [devId, sub] of entries) {
-    const label: string =
-      sub.type === SUB_DEVICE_TYPE_EVSE ? t("subdevice.ev_charger") : sub.type === SUB_DEVICE_TYPE_BESS ? t("subdevice.battery") : t("subdevice.fallback");
     const powerEid: string | null = findSubDevicePowerEntity(sub);
-    const powerState = powerEid ? hass.states[powerEid] : undefined;
-    const powerW: number = powerState ? parseFloat(powerState.state) || 0 : 0;
-
     const isBess: boolean = sub.type === SUB_DEVICE_TYPE_BESS;
-    const isEvse: boolean = sub.type === SUB_DEVICE_TYPE_EVSE;
     const battLevelEid: string | null = isBess ? findBatteryLevelEntity(sub) : null;
     const battSoeEid: string | null = isBess ? findBatterySoeEntity(sub) : null;
     const battCapEid: string | null = isBess ? findBatteryCapacityEntity(sub) : null;
@@ -48,6 +59,28 @@ export function buildSubDevicesHTML(topology: PanelTopology, hass: HomeAssistant
     const hideEids: Set<string> = new Set([powerEid, battLevelEid, battSoeEid, battCapEid].filter((eid): eid is string => eid !== null));
     const entHTML: string = buildSubEntityHTML(sub, hass, config, hideEids);
     const chartsHTML: string = buildSubDeviceChartsHTML(devId, sub, isBess, powerEid, battLevelEid, battSoeEid);
+
+    if (!powerEid && !chartsHTML && !entHTML) continue;
+
+    renderable.push({ devId, sub, powerEid, chartsHTML, entHTML });
+  }
+
+  if (renderable.length === 0) return "";
+
+  // Counted over what will actually be drawn, so a skipped sub-device cannot
+  // throw off which EVSE is the odd one out on its row.
+  const evseCount: number = renderable.filter((r: RenderableSubDevice) => r.sub.type === SUB_DEVICE_TYPE_EVSE).length;
+  let evseIndex = 0;
+
+  let subDevHTML = "";
+  for (const { devId, sub, powerEid, chartsHTML, entHTML } of renderable) {
+    const label: string =
+      sub.type === SUB_DEVICE_TYPE_EVSE ? t("subdevice.ev_charger") : sub.type === SUB_DEVICE_TYPE_BESS ? t("subdevice.battery") : t("subdevice.fallback");
+    const powerState = powerEid ? hass.states[powerEid] : undefined;
+    const powerW: number = powerState ? parseFloat(powerState.state) || 0 : 0;
+
+    const isBess: boolean = sub.type === SUB_DEVICE_TYPE_BESS;
+    const isEvse: boolean = sub.type === SUB_DEVICE_TYPE_EVSE;
 
     // EVSE: span full row if it's the odd one out (last on its row alone)
     let spanClass = "";
