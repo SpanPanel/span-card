@@ -36,6 +36,8 @@
   side panel could show the wrong priority.
 - **The card and dashboard pick up a panel's changed controls when the integration reloads or Home Assistant restarts**, without a page refresh.
 - **The card keeps following area changes and the panel's online state after you switch dashboard views**, where both stopped until the page was refreshed.
+- **The side panel's breaker switch turns a breaker off**, where it sent a turn-on command and the breaker stayed on.
+- **Errors from Home Assistant show its message**, where they read "[object Object]".
 
 ### Changed
 
