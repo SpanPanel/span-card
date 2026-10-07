@@ -13,7 +13,7 @@ import { ErrorStore } from "../src/core/error-store.js";
 import { FavoritesController } from "../src/core/favorites-controller.js";
 import { ListViewController } from "../src/core/list-view-controller.js";
 import { DashboardTab } from "../src/panel/tab-dashboard.js";
-import "../src/panel/span-panel.js";
+import { SpanPanelElement } from "../src/panel/span-panel.js";
 import { ENTITY_REGISTRY, ENTRY_RELOADS, FakeConnection, flush, hassWith } from "./fake-connection.js";
 
 /**
@@ -64,7 +64,7 @@ beforeEach(() => {
   deviceListCalls = 0;
   watch = vi.spyOn(ErrorStore.prototype, "watchPanelStatus");
   watchMany = vi.spyOn(ErrorStore.prototype, "watchPanelStatuses");
-  vi.spyOn(DashboardTab.prototype, "render").mockResolvedValue(undefined);
+  vi.spyOn(DashboardTab.prototype, "render").mockResolvedValue(null);
   mockDiscover.mockImplementation(async (_hass, deviceId) => ({
     topology: { circuits: {}, panel_entities: { panel_status: statusOf(String(deviceId)) } } as unknown as PanelTopology,
     panelDevice: null,
@@ -256,5 +256,100 @@ describe("span-panel subscriptions", () => {
     connection.emit(ENTRY_RELOADS, loaded(1));
 
     await vi.waitFor(() => expect(rendered).toHaveBeenCalledTimes(2));
+  });
+
+  /** Switch the open view to `tab`, the way the tab bar's click handler does. */
+  function showTab(panel: Panel, tab: string): void {
+    (panel as unknown as { _activeTab: string })._activeTab = tab;
+  }
+
+  it("keeps the dashboard's view when a re-seed changes only live fields", async () => {
+    const render = vi.spyOn(DashboardTab.prototype, "render").mockResolvedValue(kitchenTopology("CLOSED").topology);
+    const connection = new FakeConnection();
+    await mount(connection, () => expect(render).toHaveBeenCalledTimes(1));
+    connection.emit(ENTRY_RELOADS, loaded(1));
+    await flush();
+    const calls = mockDiscover.mock.calls.length;
+    mockDiscover.mockImplementation(async () => kitchenTopology("OPEN"));
+
+    connection.emit(ENTRY_RELOADS, loaded(1));
+    await vi.waitFor(() => expect(mockDiscover.mock.calls.length).toBe(calls + 1));
+    await flush();
+
+    expect(render).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not override a re-render that lands while the comparison is fetching", async () => {
+    devices = [device(1), device(2)];
+    const connection = new FakeConnection();
+    const rendered = await onActivityTab(connection);
+    let resolveCompare: (value: Awaited<ReturnType<typeof discoverTopology>>) => void = () => {};
+    mockDiscover.mockImplementationOnce(() => new Promise(r => (resolveCompare = r)));
+    const calls = mockDiscover.mock.calls.length;
+    connection.emit(ENTRY_RELOADS, loaded(1));
+    await vi.waitFor(() => expect(mockDiscover.mock.calls.length).toBe(calls + 1));
+
+    // The user switches panels while panel 1's topology is being compared.
+    const select = document.querySelector("span-panel")!.shadowRoot!.querySelector<HTMLSelectElement>("#panel-select")!;
+    select.value = "panel-2";
+    select.dispatchEvent(new Event("change"));
+    await vi.waitFor(() => expect(rendered).toHaveBeenCalledTimes(2));
+    const schedule = vi.spyOn(SpanPanelElement.prototype as unknown as { _scheduleTabRender: () => Promise<void> }, "_scheduleTabRender");
+
+    // Panel 1 changed structure, but the view now shows panel 2.
+    resolveCompare(kitchenTopology("CLOSED", "Garage"));
+    await flush();
+
+    expect(schedule).not.toHaveBeenCalled();
+  });
+
+  describe("in the favorites view", () => {
+    function favoritesOf(...panelIds: number[]): typeof favorites {
+      return Object.fromEntries(panelIds.map(n => [`panel-${n}`, { circuits: [`c${n}`], sub_devices: [] }]));
+    }
+
+    /** The favorites view, built from the panels in `resolved`; any other panel's fetch failed at build time. */
+    async function mountFavorites(connection: FakeConnection, resolved: number[]): Promise<ReturnType<typeof vi.spyOn>> {
+      localStorage.setItem("span_panel_selected", "favorites");
+      const build = vi.spyOn(FavoritesController.prototype, "build").mockResolvedValue({
+        topology: { circuits: {}, sub_devices: {}, _favoriteRefs: {} },
+        entryIds: [],
+        perPanelStats: resolved.map(n => ({
+          panelDeviceId: `panel-${n}`,
+          panelName: `Panel ${n}`,
+          topology: { circuits: {}, panel_entities: { panel_status: statusOf(`panel-${n}`) } } as unknown as PanelTopology,
+        })),
+      } as unknown as Awaited<ReturnType<FavoritesController["build"]>>);
+      await mount(connection, () => expect(build).toHaveBeenCalledTimes(1));
+      connection.emit(ENTRY_RELOADS, loaded(1, 2));
+      await flush();
+      return build;
+    }
+
+    it("ignores a re-seed of a panel that has no favorites, and keeps an unchanged one", async () => {
+      devices = [device(1), device(2)];
+      favorites = favoritesOf(1);
+      const connection = new FakeConnection();
+      const build = await mountFavorites(connection, [1]);
+      const calls = mockDiscover.mock.calls.length;
+
+      connection.emit(ENTRY_RELOADS, loaded(1, 2));
+      await vi.waitFor(() => expect(mockDiscover.mock.calls.length).toBe(calls + 1));
+      await flush();
+
+      expect(build).toHaveBeenCalledTimes(1);
+      expect(mockDiscover).toHaveBeenLastCalledWith(expect.anything(), "panel-1", null);
+    });
+
+    it("rebuilds for a panel with favorites whose fetch failed at build time", async () => {
+      devices = [device(1), device(2)];
+      favorites = favoritesOf(1, 2);
+      const connection = new FakeConnection();
+      const build = await mountFavorites(connection, [1]);
+
+      connection.emit(ENTRY_RELOADS, loaded(1, 2));
+
+      await vi.waitFor(() => expect(build).toHaveBeenCalledTimes(2));
+    });
   });
 });

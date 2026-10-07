@@ -28,7 +28,7 @@ import { errorText } from "../helpers/error-text.js";
 import { loadListColumns, saveListColumns } from "../helpers/list-columns.js";
 import { attrSelectorValue } from "../helpers/selector.js";
 import { CARD_STYLES } from "../card/card-styles.js";
-import { FAVORITES_CHANGED_EVENT, FavoritesCache, hasAnyFavorites } from "../core/favorites-store.js";
+import { FAVORITES_CHANGED_EVENT, FavoritesCache, hasAnyFavorites, panelHasFavorites } from "../core/favorites-store.js";
 import { FavoritesController, type FavoritesPanelStatsInfo } from "../core/favorites-controller.js";
 import {
   clearFavoritesViewState,
@@ -652,6 +652,11 @@ export class SpanPanelElement extends LitElement {
     }
     if (!panel) {
       this._requestTabRender();
+      return;
+    }
+    if (this._isFavoritesView && !this._renderedTopologies.has(panel.id) && !panelHasFavorites(this._favorites, panel.id)) {
+      // Not shown here. A panel with favorites and no baseline is a fetch that
+      // failed when the view was built, and may succeed now, so it rebuilds.
       return;
     }
     void this._renderIfRestructured(panel.id);

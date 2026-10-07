@@ -194,9 +194,11 @@ export function countFavorites(map: FavoritesMap): number {
  * True when the user has at least one favorite configured (any kind).
  */
 export function hasAnyFavorites(map: FavoritesMap): boolean {
-  for (const entry of Object.values(map)) {
-    if ((entry.circuits?.length ?? 0) > 0) return true;
-    if ((entry.sub_devices?.length ?? 0) > 0) return true;
-  }
-  return false;
+  return Object.keys(map).some(panelDeviceId => panelHasFavorites(map, panelDeviceId));
+}
+
+/** True when the user has at least one favorite (any kind) on this panel. */
+export function panelHasFavorites(map: FavoritesMap, panelDeviceId: string): boolean {
+  const entry = map[panelDeviceId];
+  return (entry?.circuits?.length ?? 0) > 0 || (entry?.sub_devices?.length ?? 0) > 0;
 }
