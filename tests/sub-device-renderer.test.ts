@@ -173,6 +173,16 @@ describe("solar tiles", () => {
     expect(html).not.toContain("data-chart-key");
   });
 
+  it("never tells the Solar tile it is included in the site total, even with no reading at all", () => {
+    // Unreachable today -- the integration registers PV Power whenever it sends a site block -- but the
+    // note is about an inverter's output, and the Solar tile is the site total's own tile.
+    const site: SubDevice = { ...SITE, entities: {}, solar: block({ role: "site", vendor: "Enphase" }) };
+    const html = buildSubDevicesHTML(topologyOf({ site }), solarHass, {} as CardConfig);
+
+    expect(html).toContain("Enphase");
+    expect(html).not.toContain("Included in the site total");
+  });
+
   it("renders an inverter's power without consulting topology.circuits", () => {
     // The favorites merge re-keys and filters circuits; the tile must not need them.
     const topology = { sub_devices: { second: SECOND }, circuits: {} } as unknown as PanelTopology;

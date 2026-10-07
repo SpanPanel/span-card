@@ -64,8 +64,9 @@ export function buildSubDevicesHTML(topology: PanelTopology, hass: HomeAssistant
 
     const entHTML: string = buildSubEntityHTML(sub, hass, config, tileRenderedEntityIds(sub));
     const chartsHTML: string = buildSubDeviceChartsHTML(devId, sub, isBess, power.headlineEid, battLevelEid, battSoeEid);
-    // A solar tile always has something to say -- its identity, its site
-    // total, or that its output is in the site total -- so it is never empty.
+    // What a solar block adds -- its identity, its site-total row, or that an
+    // inverter's output is in the site total -- counts as something to draw, so
+    // an inverter with no reading or chart still gets its tile.
     const solarHTML: string = sub.solar ? buildSolarDetailHTML(sub.solar, power, hass) : "";
 
     if (!power.headlineEid && !chartsHTML && !entHTML && !solarHTML) continue;
@@ -128,10 +129,11 @@ function tileLabel(sub: SubDevice): string {
 }
 
 /**
- * A solar tile's identity line, its site-total row and, where it has no
- * individual reading, where its output is counted. The site total is a row
+ * A solar tile's identity line, its site-total row and, for an inverter with
+ * no individual reading, where its output is counted. The site total is a row
  * whenever the header shows an inverter's circuit, single-inverter sites
  * included; when the header is the site total it is captioned there instead.
+ * The note is an inverter's alone: the Solar tile is the site total's own tile.
  */
 export function buildSolarDetailHTML(solar: SubDeviceSolar, power: SubDevicePower, hass: HomeAssistant): string {
   let html = "";
@@ -144,7 +146,7 @@ export function buildSolarDetailHTML(solar: SubDeviceSolar, power: SubDevicePowe
         <span class="sub-site-total-value" data-site-total-eid="${escapeHtml(power.siteTotalEid)}">${formatPowerHTML(stateWatts(hass, power.siteTotalEid))}</span>
       </div>`;
   }
-  if (!power.headlineEid) html += `<div class="sub-note">${escapeHtml(t("subdevice.in_site_total"))}</div>`;
+  if (solar.role === "inverter" && !power.headlineEid) html += `<div class="sub-note">${escapeHtml(t("subdevice.in_site_total"))}</div>`;
   return html;
 }
 
