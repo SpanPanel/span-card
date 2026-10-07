@@ -8,6 +8,7 @@ vi.mock("../src/card/card-discovery.js", async importOriginal => ({
 }));
 
 import { discoverEntitiesFallback, discoverTopology } from "../src/card/card-discovery.js";
+import { DashboardController } from "../src/core/dashboard-controller.js";
 import { ErrorStore } from "../src/core/error-store.js";
 import "../src/card/span-panel-card.js";
 import { ENTITY_REGISTRY, ENTRY_RELOADS, FakeConnection, flush, hassWith } from "./fake-connection.js";
@@ -255,6 +256,8 @@ describe("span-panel-card subscriptions", () => {
     expect(shell.classList.contains("switches-disabled")).toBe(false);
     // The card's topology now carries it, as the relay's last-resort fallback.
     expect((card as unknown as { _topology: PanelTopology })._topology.circuits.kitchen?.relay_state).toBe("OPEN");
+    // And so does the controller, which the toggle and the live updater read.
+    expect((card as unknown as { _ctrl: DashboardController })._ctrl.topology?.circuits.kitchen?.relay_state).toBe("OPEN");
   });
 
   it("re-renders a refresh that changes structure along with a relay state", async () => {
