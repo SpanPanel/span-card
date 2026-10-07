@@ -13,7 +13,7 @@ import { ListViewController } from "../core/list-view-controller.js";
 import { buildTabBarHTML, bindTabBarEvents } from "../core/tab-bar-renderer.js";
 import { subscribeAreaUpdates } from "../core/area-resolver.js";
 import { subscribeEntryReloads } from "../core/entry-reload.js";
-import { coalesceRuns } from "../panel/coalesce.js";
+import { coalesceRuns, makeRenderToken } from "../panel/coalesce.js";
 import { ErrorStore } from "../core/error-store.js";
 import { discoverTopology, discoverEntitiesFallback, panelConfigEntryId } from "./card-discovery.js";
 import { RetryManager } from "../core/retry-manager.js";
@@ -88,6 +88,11 @@ export class SpanPanelCard extends LitElement {
   private _topologySource: TopologySource | null = null;
   /** At most one re-fetch in flight, and at most one more after it. */
   private readonly _topologyRefresh = coalesceRuns(() => this._refreshTopology());
+  /**
+   * Starts a new topology epoch: `setConfig` and a detach each start one, and so
+   * does every refresh, which drops its result once a later epoch has begun.
+   */
+  private readonly _beginTopologyEpoch = makeRenderToken();
   private _tabBarCleanup: (() => void) | null = null;
 
   static override styles = unsafeCSS(CARD_STYLES);
@@ -120,6 +125,7 @@ export class SpanPanelCard extends LitElement {
     this._ctrl.stopIntervals();
     this._listCtrl.stop();
     this._detachSubscriptions();
+    this._beginTopologyEpoch();
     if (this._tabBarCleanup) {
       this._tabBarCleanup();
       this._tabBarCleanup = null;
@@ -130,6 +136,7 @@ export class SpanPanelCard extends LitElement {
 
   setConfig(config: CardConfig): void {
     this._detachSubscriptions();
+    this._beginTopologyEpoch();
     this._errorStore.clear();
     this._config = config;
     this._discovered = false;
@@ -315,6 +322,7 @@ export class SpanPanelCard extends LitElement {
   private async _refreshTopology(): Promise<void> {
     const source = this._topologySource;
     if (!this.hass || !this._discovered || !source) return;
+    const superseded = this._beginTopologyEpoch();
     let result: DiscoveryResult;
     try {
       result =
@@ -325,6 +333,9 @@ export class SpanPanelCard extends LitElement {
       console.warn("SPAN Panel: topology refresh failed; keeping the current topology:", errorText(err));
       return;
     }
+    // A setConfig to another panel, or a detach, while this awaited: the result
+    // may belong to a panel the card no longer shows.
+    if (superseded()) return;
     if (!result.topology) {
       console.warn("SPAN Panel: topology refresh found no panel; keeping the current topology");
       return;

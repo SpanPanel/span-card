@@ -209,6 +209,45 @@ describe("span-panel-card subscriptions", () => {
     expect(card.shadowRoot!.querySelector(".toggle-pill")).toBeNull();
   });
 
+  it("drops a refresh that straddles a setConfig to another panel", async () => {
+    const connection = new FakeConnection();
+    const card = await mount(connection);
+    let resolveStale: (value: Awaited<ReturnType<typeof discoverTopology>>) => void = () => {};
+    mockDiscover.mockImplementationOnce(() => new Promise(r => (resolveStale = r)));
+    reload(connection);
+    await vi.waitFor(() => expect(mockDiscover).toHaveBeenCalledTimes(2));
+
+    const other = topology(true);
+    other.circuits.kitchen!.name = "Garage";
+    mockDiscover.mockImplementation(async () => ({ topology: other, panelDevice: null, panelSize: 32 }));
+    card.setConfig({ device_id: "panel-2" } as CardConfig);
+    card.hass = hassFor(connection);
+    await vi.waitFor(() => expect(card.shadowRoot!.textContent).toContain("Garage"));
+
+    const stale = topology(true);
+    stale.circuits.kitchen!.name = "Stale";
+    resolveStale({ topology: stale, panelDevice: null, panelSize: 32 });
+    await flush();
+
+    expect(card.shadowRoot!.textContent).toContain("Garage");
+    expect(card.shadowRoot!.textContent).not.toContain("Stale");
+  });
+
+  it("drops a refresh that straddles a detach", async () => {
+    const connection = new FakeConnection();
+    const card = await mount(connection);
+    let resolveStale: (value: Awaited<ReturnType<typeof discoverTopology>>) => void = () => {};
+    mockDiscover.mockImplementationOnce(() => new Promise(r => (resolveStale = r)));
+    reload(connection);
+    await vi.waitFor(() => expect(mockDiscover).toHaveBeenCalledTimes(2));
+
+    card.remove();
+    resolveStale({ topology: topology(false), panelDevice: null, panelSize: 32 });
+    await flush();
+
+    expect(card.shadowRoot!.querySelector(".toggle-pill")).not.toBeNull();
+  });
+
   it("refreshes an admin's card from panel_topology in one attempt, and keeps its topology when that fails", async () => {
     const connection = new FakeConnection();
     const card = await mount(connection);
