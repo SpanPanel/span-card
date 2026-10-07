@@ -155,7 +155,8 @@ describe("solar tiles", () => {
   });
 
   it("gives every other inverter its own tile with its circuit's power", () => {
-    const html = buildSubDevicesHTML(topologyOf({ site: SITE, second: SECOND }), solarHass, {} as CardConfig);
+    // The inverter comes first in the topology, so the Solar tile leading is the ordering's doing.
+    const html = buildSubDevicesHTML(topologyOf({ second: SECOND, site: SITE }), solarHass, {} as CardConfig);
 
     expect(html).toContain('<span class="sub-device-type">Solar inverter</span>');
     expect(html).toContain("SolarEdge · SE3800H-US");
