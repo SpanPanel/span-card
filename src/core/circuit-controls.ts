@@ -1,13 +1,11 @@
+// A breaker's two control markers, built and updated in one place so the grid,
+// the list and the live updater cannot drift.
+
 import { SHEDDING_PRIORITIES } from "../constants.js";
 import { t } from "../i18n.js";
 import { escapeHtml } from "../helpers/sanitize.js";
 import type { SwitchPresence } from "./circuit-state.js";
 import type { SheddingPriorityDef } from "../types.js";
-
-/**
- * A breaker's two control markers, built and updated in one place so the grid,
- * the list and the live updater cannot drift.
- */
 
 /** The pill for a breaker's switch: none without one, dimmed and inert while it is unavailable. */
 export function buildTogglePillHTML(isOn: boolean, presence: SwitchPresence): string {

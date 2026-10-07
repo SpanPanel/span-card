@@ -8,9 +8,9 @@ import { getEffectiveHorizon, getEffectiveSubDeviceHorizon } from "./graph-setti
 import { MonitoringStatusCache, MonitoringStatusMultiCache, mergeMonitoringStatuses } from "./monitoring-status.js";
 import { GraphSettingsCache } from "./graph-settings.js";
 import { groupFavoritesByPanel } from "./favorites-sections.js";
+import { switchPresence } from "./circuit-state.js";
 import type { FavoritesPanelInfo, FavoritesPanelGroup } from "./favorites-sections.js";
 import type { CircuitModeConfig, FavoritesPanelSection, SidePanelConfig } from "./side-panel.js";
-import { switchPresence } from "./circuit-state.js";
 import type { CardConfig, FavoriteRef, GraphSettings, HistoryMap, HomeAssistant, MonitoringStatus, MonitoringStatusResponse, PanelTopology } from "../types.js";
 import type { ErrorStore } from "./error-store.js";
 import { RetryManager } from "./retry-manager.js";

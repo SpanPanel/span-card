@@ -1242,8 +1242,8 @@ class SpanSidePanel extends HTMLElement {
     row.appendChild(selectEl);
     section.appendChild(row);
     body.appendChild(section);
-    // Once attached: inserting a select's ancestor re-runs its selectedness
-    // algorithm, which would choose the first option over an unknown priority.
+    // Once attached: happy-dom re-runs selectedness when the select is connected,
+    // which would choose the first option over an unknown priority.
     this._applySheddingSelect(selectEl, cfg);
   }
 
