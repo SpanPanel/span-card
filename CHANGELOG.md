@@ -29,6 +29,8 @@
 - **Stopped reading the deprecated `config_entries` device field** — Home Assistant 2026.8 gives each device a single owning entry, `config_entry_id`, and
   removes the `config_entries` list in 2027.8. The card, the dashboard page and the favorites controller now read `config_entry_id`.
 - **The editor lists the entities of every EV charger**, not only the last one.
+- **The breaker chart of a circuit that feeds an EV charger keeps its history**, where it opened empty or stayed blank because the charger's tile charts the
+  same circuit.
 
 ### Changed
 
