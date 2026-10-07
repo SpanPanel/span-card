@@ -17,6 +17,7 @@ import { coalesceRuns } from "../panel/coalesce.js";
 import { ErrorStore } from "../core/error-store.js";
 import { discoverTopology, discoverEntitiesFallback, panelConfigEntryId } from "./card-discovery.js";
 import { RetryManager } from "../core/retry-manager.js";
+import { errorText } from "../helpers/error-text.js";
 import { CARD_STYLES } from "./card-styles.js";
 import "../core/side-panel.js";
 import "../core/error-banner.js";
@@ -28,6 +29,12 @@ interface SpanSidePanelElement extends HTMLElement {
   hass: HomeAssistant;
   errorStore: ErrorStore | null;
 }
+
+/**
+ * Where first discovery found the topology: the integration's `panel_topology`,
+ * which requires an admin, or entity discovery, which is how a non-admin's card works.
+ */
+type TopologySource = "panel_topology" | "entity_fallback";
 
 const PREVIEW_CIRCUITS = [
   {
@@ -76,6 +83,8 @@ export class SpanPanelCard extends LitElement {
    */
   private _areaSub: Promise<() => void> | null = null;
   private _reloadSub: Promise<() => Promise<void>> | null = null;
+  /** Set by first discovery; a refresh asks the same source. */
+  private _topologySource: TopologySource | null = null;
   /** At most one re-fetch in flight, and at most one more after it. */
   private readonly _topologyRefresh = coalesceRuns(() => this._refreshTopology());
   private _tabBarCleanup: (() => void) | null = null;
@@ -126,6 +135,7 @@ export class SpanPanelCard extends LitElement {
     this._discovering = false;
     this._historyLoaded = false;
     this._topology = null;
+    this._topologySource = null;
     this._panelDevice = null;
     this._panelSize = 0;
     this._activeTab = "panel";
@@ -254,28 +264,29 @@ export class SpanPanelCard extends LitElement {
     });
   }
 
-  /** Fetch the topology, falling back to entity discovery (a non-admin's card). Throws when both fail. */
-  private async _fetchTopology(): Promise<DiscoveryResult> {
-    const retry = new RetryManager(this._errorStore);
-    try {
-      return await discoverTopology(this.hass, this._config.device_id, retry);
-    } catch (err) {
-      console.error("SPAN Panel: topology fetch failed, falling back to entity discovery", err);
-      return discoverEntitiesFallback(this.hass, this._config.device_id, retry);
-    }
-  }
-
   private _adoptTopology(result: DiscoveryResult): void {
     this._topology = result.topology;
     this._panelDevice = result.panelDevice;
     this._panelSize = result.panelSize;
   }
 
-  /** First discovery. Its failure is persistent, with a retry. */
+  /**
+   * First discovery: `panel_topology`, else entity discovery. Its failure is
+   * persistent, with a retry. It records which source answered, for refreshes.
+   */
   private async _discoverTopology(): Promise<void> {
     if (!this.hass) return;
+    const retry = new RetryManager(this._errorStore);
     try {
-      this._adoptTopology(await this._fetchTopology());
+      this._adoptTopology(await discoverTopology(this.hass, this._config.device_id, retry));
+      this._topologySource = "panel_topology";
+      return;
+    } catch (err) {
+      console.error("SPAN Panel: topology fetch failed, falling back to entity discovery", err);
+    }
+    try {
+      this._adoptTopology(await discoverEntitiesFallback(this.hass, this._config.device_id, retry));
+      this._topologySource = "entity_fallback";
     } catch (fallbackErr) {
       console.error("SPAN Panel: fallback discovery also failed", fallbackErr);
       this._errorStore.add({
@@ -293,21 +304,28 @@ export class SpanPanelCard extends LitElement {
 
   /**
    * Re-fetch after the panel's entry reloads, which is how the integration adds
-   * or removes a circuit's controls. A failure keeps the rendered topology and
-   * says so for a moment; it is not first discovery's persistent failure. Neither
+   * or removes a circuit's controls. It asks the source first discovery used, in
+   * one attempt: the entry has already reached `loaded`, so retries buy nothing,
+   * and a non-admin's card must never ask `panel_topology`. A failure keeps the
+   * rendered topology and is only logged; it is a background refresh. Neither
    * subscription is re-created -- the area one reads the topology through its
    * getter -- and history, keyed by entity id, is kept.
    */
   private async _refreshTopology(): Promise<void> {
-    if (!this.hass || !this._discovered) return;
-    let result: DiscoveryResult | null = null;
+    const source = this._topologySource;
+    if (!this.hass || !this._discovered || !source) return;
+    let result: DiscoveryResult;
     try {
-      result = await this._fetchTopology();
+      result =
+        source === "panel_topology"
+          ? await discoverTopology(this.hass, this._config.device_id, null)
+          : await discoverEntitiesFallback(this.hass, this._config.device_id, null);
     } catch (err) {
-      console.warn("SPAN Panel: topology refresh failed; keeping the current topology", err);
+      console.warn("SPAN Panel: topology refresh failed; keeping the current topology:", errorText(err));
+      return;
     }
-    if (!result?.topology) {
-      this._errorStore.add({ key: "refresh:topology", level: "warning", message: t("error.discovery_failed"), persistent: false });
+    if (!result.topology) {
+      console.warn("SPAN Panel: topology refresh found no panel; keeping the current topology");
       return;
     }
     this._adoptTopology(result);

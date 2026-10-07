@@ -183,15 +183,37 @@ describe("span-panel-card subscriptions", () => {
     await vi.waitFor(() => expect(refetched.circuits.kitchen?.area).toBe("Kitchen Area"));
   });
 
-  it("keeps the rendered topology when a re-fetch fails", async () => {
+  it("refreshes an admin's card from panel_topology in one attempt, and keeps its topology when that fails", async () => {
     const connection = new FakeConnection();
     const card = await mount(connection);
-    mockDiscover.mockRejectedValue(new Error("not loaded"));
+    const add = vi.spyOn(ErrorStore.prototype, "add");
+    mockDiscover.mockRejectedValue({ code: "unknown_error", message: "not loaded" });
 
     reload(connection);
-    await vi.waitFor(() => expect(mockFallback).toHaveBeenCalled());
+    await vi.waitFor(() => expect(mockDiscover).toHaveBeenCalledTimes(2));
     await flush();
 
-    expect(card.shadowRoot!.querySelector(".toggle-pill")).not.toBeNull();
+    expect(mockDiscover).toHaveBeenLastCalledWith(expect.anything(), "panel-1", null);
+    expect(mockFallback).not.toHaveBeenCalled();
+    expect(add).not.toHaveBeenCalled();
+    // A kept topology renders the next view; a nulled one would leave the grid in place.
+    card.shadowRoot!.querySelector<HTMLElement>('.shared-tab[data-tab="activity"]')!.click();
+    expect(card.shadowRoot!.querySelector(".list-row")).not.toBeNull();
+  });
+
+  it("refreshes a non-admin's card from fallback discovery alone, in one attempt, without a toast", async () => {
+    mockDiscover.mockRejectedValue({ code: "unauthorized", message: "Unauthorized" });
+    mockFallback.mockImplementation(async () => ({ topology: topology(true), panelDevice: null, panelSize: 32 }));
+    const connection = new FakeConnection();
+    await mount(connection);
+    const add = vi.spyOn(ErrorStore.prototype, "add");
+
+    reload(connection);
+    await vi.waitFor(() => expect(mockFallback).toHaveBeenCalledTimes(2));
+    await flush();
+
+    expect(mockDiscover).toHaveBeenCalledTimes(1);
+    expect(mockFallback).toHaveBeenLastCalledWith(expect.anything(), "panel-1", null);
+    expect(add).not.toHaveBeenCalled();
   });
 });
