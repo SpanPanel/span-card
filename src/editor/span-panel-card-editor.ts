@@ -1,6 +1,7 @@
 import { CHART_METRICS, DEFAULT_CHART_METRIC, INTEGRATION_DOMAIN } from "../constants.js";
 import { t } from "../i18n.js";
-import type { HomeAssistant, CardConfig, PanelTopology, SubDevice, SubDeviceEntityInfo, ChartMetricDef } from "../types.js";
+import { subEntityGroups } from "./sub-entity-groups.js";
+import type { HomeAssistant, CardConfig, PanelTopology, SubDevice, ChartMetricDef } from "../types.js";
 
 interface PanelOption {
   device_id: string;
@@ -260,6 +261,7 @@ export class SpanPanelCardEditor extends HTMLElement {
       { key: "show_panel", label: t("editor.panel_circuits"), subDeviceType: null },
       { key: "show_battery", label: t("editor.battery_bess"), subDeviceType: "bess" },
       { key: "show_evse", label: t("editor.ev_charger_evse"), subDeviceType: "evse" },
+      { key: "show_solar", label: t("editor.solar_pv"), subDeviceType: "pv" },
     ];
 
     this._checkboxes = {};
@@ -299,57 +301,54 @@ export class SpanPanelCardEditor extends HTMLElement {
     wrapper.appendChild(group);
   }
 
-  private _isChartEntity(_entityId: string, info: SubDeviceEntityInfo, subDeviceType: string): boolean {
-    const name = (info.original_name ?? "").toLowerCase();
-    const uid = info.unique_id ?? "";
-    if (name === "power" || name === "battery power" || uid.endsWith("_power")) return true;
-    if (subDeviceType === "bess") {
-      if (name === "battery level" || name === "battery percentage" || uid.endsWith("_battery_level") || uid.endsWith("_battery_percentage")) return true;
-      if (name === "state of energy" || uid.endsWith("_soe_kwh")) return true;
-      if (name === "nameplate capacity" || uid.endsWith("_nameplate_capacity")) return true;
-    }
-    return false;
-  }
-
   private _populateEntityCheckboxes(subDevices: Record<string, SubDevice>): void {
     const visibleEnts = this._config.visible_sub_entities ?? {};
     const checkboxStyle = "display: flex; align-items: center; gap: 8px; margin-bottom: 5px; cursor: pointer;";
     const cbLabelStyle = "font-size: 0.85em; color: var(--primary-text-color); cursor: pointer;";
+    const headingStyle = "font-size: 0.85em; font-weight: 500; color: var(--secondary-text-color); margin: 8px 0 4px;";
 
-    for (const [, sub] of Object.entries(subDevices)) {
-      const container = sub.type ? this._entityContainers[sub.type] : undefined;
-      if (!container) continue;
+    // Each container is cleared once and filled with every device of its
+    // type, each under its name; clearing it per device left only the last
+    // device's checkboxes. The heading is always shown, so the layout does
+    // not change when a second device of the type appears.
+    for (const [type, container] of Object.entries(this._entityContainers)) {
       container.innerHTML = "";
-      if (!sub.entities) continue;
-
-      for (const [entityId, info] of Object.entries(sub.entities)) {
-        if (info.domain === "sensor" && this._isChartEntity(entityId, info, sub.type ?? "")) continue;
-        const row = document.createElement("div");
-        row.style.cssText = checkboxStyle;
-        const cb = document.createElement("input");
-        cb.type = "checkbox";
-        cb.checked = visibleEnts[entityId] === true;
-        cb.style.cssText = "width: 16px; height: 16px; cursor: pointer; accent-color: var(--primary-color);";
-        const lbl = document.createElement("span");
-        let name = info.original_name ?? entityId;
-        const devName = sub.name ?? "";
-        if (name.startsWith(devName + " ")) name = name.slice(devName.length + 1);
-        lbl.textContent = name;
-        lbl.style.cssText = cbLabelStyle;
-        row.appendChild(cb);
-        row.appendChild(lbl);
-        container.appendChild(row);
-
-        cb.addEventListener("change", () => {
-          const updated: Record<string, boolean> = { ...(this._config.visible_sub_entities ?? {}) };
-          if (cb.checked) {
-            updated[entityId] = true;
-          } else {
-            delete updated[entityId];
-          }
-          this._config = { ...this._config, visible_sub_entities: updated };
-          this._fireConfigChanged();
-        });
+      for (const group of subEntityGroups(subDevices, type)) {
+        const heading = document.createElement("div");
+        heading.textContent = group.name;
+        heading.style.cssText = headingStyle;
+        container.appendChild(heading);
+        if (group.entities.length === 0) {
+          const none = document.createElement("div");
+          none.textContent = t("editor.no_entities");
+          none.style.cssText = cbLabelStyle;
+          container.appendChild(none);
+          continue;
+        }
+        for (const { entityId, label } of group.entities) {
+          const row = document.createElement("div");
+          row.style.cssText = checkboxStyle;
+          const cb = document.createElement("input");
+          cb.type = "checkbox";
+          cb.checked = visibleEnts[entityId] === true;
+          cb.style.cssText = "width: 16px; height: 16px; cursor: pointer; accent-color: var(--primary-color);";
+          const lbl = document.createElement("span");
+          lbl.textContent = label;
+          lbl.style.cssText = cbLabelStyle;
+          row.appendChild(cb);
+          row.appendChild(lbl);
+          container.appendChild(row);
+          cb.addEventListener("change", () => {
+            const updated: Record<string, boolean> = { ...(this._config.visible_sub_entities ?? {}) };
+            if (cb.checked) {
+              updated[entityId] = true;
+            } else {
+              delete updated[entityId];
+            }
+            this._config = { ...this._config, visible_sub_entities: updated };
+            this._fireConfigChanged();
+          });
+        }
       }
     }
   }
