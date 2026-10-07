@@ -8,6 +8,7 @@ vi.mock("../src/card/card-discovery.js", async importOriginal => ({
 }));
 
 import { discoverTopology } from "../src/card/card-discovery.js";
+import { DashboardController } from "../src/core/dashboard-controller.js";
 import { ErrorStore } from "../src/core/error-store.js";
 import { FavoritesController } from "../src/core/favorites-controller.js";
 import { DashboardTab } from "../src/panel/tab-dashboard.js";
@@ -188,5 +189,24 @@ describe("span-panel subscriptions", () => {
     expect(first.unsubscribed).toBe(true);
     expect(connection.live(ENTITY_REGISTRY)).toBe(1);
     expect(connection.live(ENTRY_RELOADS)).toBe(1);
+  });
+
+  it("does not subscribe the area tab on an element detached while the tab rendered", async () => {
+    const connection = new FakeConnection();
+    const panel = await mount(connection, () => expect(watch).toHaveBeenCalledWith(statusOf("panel-1")));
+    // The render's last step before it subscribes; stubbed so no interval outlives the test.
+    const started = vi.spyOn(DashboardController.prototype, "startIntervals").mockImplementation(() => {});
+    let resolveArea: (value: Awaited<ReturnType<typeof discoverTopology>>) => void = () => {};
+    mockDiscover.mockImplementationOnce(() => new Promise(r => (resolveArea = r)));
+    const calls = mockDiscover.mock.calls.length;
+    (panel as unknown as { _activeTab: string })._activeTab = "area";
+    await vi.waitFor(() => expect(mockDiscover.mock.calls.length).toBe(calls + 1));
+
+    panel.remove();
+    resolveArea({ topology: { circuits: {}, panel_entities: {} } as unknown as PanelTopology, panelDevice: null, panelSize: 32 });
+    await vi.waitFor(() => expect(started).toHaveBeenCalled());
+    await flush();
+
+    expect(connection.live(ENTITY_REGISTRY)).toBe(0);
   });
 });

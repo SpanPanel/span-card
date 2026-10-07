@@ -1090,7 +1090,9 @@ export class SpanPanelElement extends LitElement {
           this._listDashCtrl.startIntervals(container);
 
           this._areaTopology = result.topology;
-          this._subscribeAreaTab();
+          // An element detached during the awaits above subscribes nothing;
+          // `connectedCallback` subscribes when it returns.
+          if (this.isConnected) this._subscribeAreaTab();
         } catch (err) {
           const errEl = document.createElement("p");
           errEl.style.color = "var(--error-color)";
