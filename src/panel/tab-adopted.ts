@@ -43,6 +43,18 @@ const FIELD_LABEL = `font-size:0.85em;color:${MUTED};min-width:130px;`;
 const NOTE = `color:${MUTED};font-size:0.75em;`;
 const BUTTON = `background:none;border:1px solid ${LINE};color:var(--primary-text-color);border-radius:6px;padding:6px 12px;font-size:0.8em;cursor:pointer;`;
 
+/** One read of a panel's rows: what it found, or why it found nothing. */
+interface ListRead {
+  /** The panel the read was for; a result for any other is dropped. */
+  deviceId: string | null;
+  groups: AdoptedDeviceGroup[];
+  /** Why the read failed, or null when it succeeded. */
+  error: string | null;
+}
+
+/** What adopting a read did to the view: dropped as stale, left it as shown, or changed it. */
+type ListAdoption = "stale" | "unchanged" | "changed";
+
 /** One row's editor while it is open. Only the expanded row has one. */
 interface EditorState {
   form: CurationForm;
@@ -166,7 +178,8 @@ export class AdoptedTab {
     this._unbind();
     this._container = container;
     this._hass = hass;
-    await this._fetchList(hass, false);
+    // A render for another panel started meanwhile, and paints that panel.
+    if (this._adoptList(await this._fetchList(hass), false) === "stale") return;
     this._paint();
   }
 
@@ -179,37 +192,39 @@ export class AdoptedTab {
   async refresh(): Promise<void> {
     const hass = this._hass;
     if (!hass || !this._container) return;
-    const shown = this._groups;
-    await this._fetchList(hass, true);
-    if (deepEqual(this._groups, shown)) return;
-    this._paintGroups();
+    if (this._adoptList(await this._fetchList(hass), true) === "changed") this._paintGroups();
   }
 
   // ── Data ────────────────────────────────────────────────────────────
 
-  /**
-   * Load the curatable rows for the selected panel. ``keepOnError`` holds the
-   * rows already on screen: the post-save re-read runs while the entry is
-   * reloading, and a refusal there means "not yet", not "nothing to show".
-   */
-  private async _fetchList(hass: HomeAssistant, keepOnError: boolean): Promise<void> {
-    if (!this._deviceId) {
-      this._groups = [];
-      this._loadError = null;
-      return;
-    }
+  /** Read the curatable rows for the selected panel. It assigns nothing: `_adoptList` decides. */
+  private async _fetchList(hass: HomeAssistant): Promise<ListRead> {
+    const deviceId = this._deviceId;
+    if (!deviceId) return { deviceId, groups: [], error: null };
     try {
       const response = await hass.callWS<AdoptedListResponse>({
         type: `${INTEGRATION_DOMAIN}/adopted/list`,
-        device_id: this._deviceId,
+        device_id: deviceId,
       });
-      this._groups = Array.isArray(response?.devices) ? response.devices : [];
-      this._loadError = null;
+      return { deviceId, groups: Array.isArray(response?.devices) ? response.devices : [], error: null };
     } catch (err) {
-      if (keepOnError) return;
-      this._groups = [];
-      this._loadError = errorText(err);
+      return { deviceId, groups: [], error: errorText(err) };
     }
+  }
+
+  /**
+   * Adopt a read unless the panel changed while it was in flight. ``keepOnError``
+   * holds the rows already on screen: a re-read runs while the entry is reloading,
+   * and a refusal there means "not yet", not "nothing to show". A recovery clears
+   * a load error even when it finds no rows.
+   */
+  private _adoptList(read: ListRead, keepOnError: boolean): ListAdoption {
+    if (read.deviceId !== this._deviceId) return "stale";
+    if (read.error !== null && keepOnError) return "unchanged";
+    const changed = read.error !== this._loadError || !deepEqual(read.groups, this._groups);
+    this._groups = read.groups;
+    this._loadError = read.error;
+    return changed ? "changed" : "unchanged";
   }
 
   /** Core's registry entry for a row, or null when it has none to read. */
@@ -750,7 +765,9 @@ export class AdoptedTab {
       this._refreshTimer = null;
       const hass = this._hass;
       if (!hass) return;
-      void this._fetchList(hass, true).then(() => this._paintGroups());
+      void this._fetchList(hass).then(read => {
+        if (this._adoptList(read, true) === "changed") this._paintGroups();
+      });
     }, REFRESH_AFTER_SAVE_MS);
   }
 }

@@ -94,7 +94,14 @@ interface FakeHass extends HomeAssistant {
   calls: Record<string, unknown>[];
 }
 
-function makeHass(options: { disabledBy?: string | null; failCurate?: string; warnings?: string[]; list?: () => AdoptedListResponse } = {}): FakeHass {
+function makeHass(
+  options: {
+    disabledBy?: string | null;
+    failCurate?: string;
+    warnings?: string[];
+    list?: (deviceId: string) => AdoptedListResponse | Promise<AdoptedListResponse>;
+  } = {}
+): FakeHass {
   const calls: Record<string, unknown>[] = [];
   const hass = {
     calls,
@@ -107,7 +114,7 @@ function makeHass(options: { disabledBy?: string | null; failCurate?: string; wa
       calls.push(msg);
       switch (msg.type) {
         case "span_panel/adopted/list":
-          return (options.list ?? listResponse)() as T;
+          return (await (options.list ?? listResponse)(String(msg.device_id))) as T;
         case "config/entity_registry/get":
           return {
             entity_id: msg.entity_id,
@@ -618,6 +625,48 @@ describe("AdoptedTab", () => {
 
       expect(container.textContent).toContain("Standby Generator");
       expect(nameField()?.value).toBe("Cell V");
+    });
+
+    it("clears a load error once the rows load, even when there are none", async () => {
+      let refused = true;
+      const list = (): AdoptedListResponse => {
+        if (refused) throw new Error("Config entry is reloading");
+        return { devices: [] };
+      };
+      await tab.render(container, makeHass({ list }), "panel-device-1");
+      expect(container.textContent).toContain("Config entry is reloading");
+      refused = false;
+
+      await tab.refresh();
+
+      expect(container.textContent).not.toContain("Config entry is reloading");
+    });
+
+    it("drops a refresh that resolves after a switch to another panel", async () => {
+      const second: AdoptedListResponse = {
+        devices: [{ device_id: "dev-second", name: "Second Panel Meter", adopted_device: false, rows: [row({ key: "second/meter", name: "Meter" })] }],
+      };
+      let hold = false;
+      let release: () => void = () => {};
+      const list = (deviceId: string): AdoptedListResponse | Promise<AdoptedListResponse> => {
+        if (deviceId !== "panel-device-1") return second;
+        if (!hold) return listResponse();
+        return new Promise(resolve => (release = () => resolve(listResponse())));
+      };
+      const hass = makeHass({ list });
+      await tab.render(container, hass, "panel-device-1");
+      hold = true;
+
+      const refreshing = tab.refresh();
+      await tab.render(container, hass, "panel-device-2");
+      release();
+      await refreshing;
+      // A filter keystroke repaints from the rows the tab holds.
+      const filter = container.querySelector<HTMLInputElement>("#adopted-filter")!;
+      filter.dispatchEvent(new Event("input", { bubbles: true }));
+
+      expect(container.textContent).toContain("Second Panel Meter");
+      expect(container.textContent).not.toContain("Backup Generator");
     });
   });
 });
