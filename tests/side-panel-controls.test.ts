@@ -1,5 +1,6 @@
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, vi } from "vitest";
 import "../src/core/side-panel.js";
+import "../src/core/span-switch.js";
 import type { HomeAssistant } from "../src/types.js";
 
 const SWITCH = "switch.kitchen_breaker";
@@ -8,11 +9,13 @@ const POWER = "sensor.kitchen_power";
 
 type SidePanel = HTMLElement & { hass: HomeAssistant; open(config: unknown): void };
 
-function hass(states: Record<string, string>): HomeAssistant {
+type CallService = HomeAssistant["callService"];
+
+function hass(states: Record<string, string>, callService: CallService = async () => undefined): HomeAssistant {
   const full = Object.fromEntries(
     Object.entries(states).map(([entity_id, state]) => [entity_id, { entity_id, state, attributes: {}, last_changed: "", last_updated: "" }])
   );
-  return { states: full, services: {}, language: "en", callService: async () => undefined, callWS: async () => ({}) } as unknown as HomeAssistant;
+  return { states: full, services: {}, language: "en", callService, callWS: async () => ({}) } as unknown as HomeAssistant;
 }
 
 const mounted: HTMLElement[] = [];
@@ -20,11 +23,11 @@ afterEach(() => {
   for (const el of mounted.splice(0)) el.remove();
 });
 
-function openFor(states: Record<string, string>, priority?: string): SidePanel {
+function openFor(states: Record<string, string>, priority?: string, callService?: CallService): SidePanel {
   const panel = document.createElement("span-side-panel") as SidePanel;
   document.body.appendChild(panel);
   mounted.push(panel);
-  panel.hass = hass(states);
+  panel.hass = hass(states, callService);
   panel.open({
     uuid: "kitchen",
     name: "Kitchen",
@@ -79,5 +82,24 @@ describe("the side panel's controls", () => {
     const panel = openFor({ [SWITCH]: "off", [SELECT]: "never" });
     panel.hass = hass({ [SWITCH]: "unavailable", [SELECT]: "never" });
     expect(relay(panel).disabled).toBe(true);
+  });
+});
+
+describe("the side panel's relay switch", () => {
+  // The switch flips its `checked` property and fires `change` at once; Lit
+  // reflects the attribute only on its next update, so the handler must read
+  // the property.
+  it("turns an on breaker off", () => {
+    const callService = vi.fn<CallService>(async () => undefined);
+    const panel = openFor({ [SWITCH]: "on", [SELECT]: "never" }, undefined, callService);
+    relay(panel).click();
+    expect(callService).toHaveBeenCalledWith("switch", "turn_off", { entity_id: SWITCH });
+  });
+
+  it("turns an off breaker on", () => {
+    const callService = vi.fn<CallService>(async () => undefined);
+    const panel = openFor({ [SWITCH]: "off", [SELECT]: "never" }, undefined, callService);
+    relay(panel).click();
+    expect(callService).toHaveBeenCalledWith("switch", "turn_on", { entity_id: SWITCH });
   });
 });

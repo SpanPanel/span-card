@@ -1177,7 +1177,9 @@ class SpanSidePanel extends HTMLElement {
 
     toggle.addEventListener("change", () => {
       if (!this._hass || switchPresence(cfg, this._hass) !== "operable") return;
-      const isOn = toggle.hasAttribute("checked") || toggle.checked;
+      // The switch has already flipped `checked`; its attribute reflects only on
+      // Lit's next update, so it still reads the old state here.
+      const isOn = toggle.checked;
       this._callService("switch", isOn ? "turn_on" : "turn_off", { entity_id: entityId }).catch((err: Error) => {
         console.warn("SPAN Panel: relay toggle failed", err);
         this.errorStore?.add({
