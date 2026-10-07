@@ -53,9 +53,8 @@ export function buildSubDevicesHTML(topology: PanelTopology, hass: HomeAssistant
   //
   // Tested on emptiness rather than on type. Excluding the MID by name would fix
   // one device and leave the next one to rediscover this, and v1.0 has more of
-  // them coming -- sub-enclosures, PV devices, inverters as battery children. It
-  // also self-corrects: give this device something chartable and its tile comes
-  // back with no code change.
+  // them coming -- sub-enclosures, PV devices. It also self-corrects: give this
+  // device something chartable and its tile comes back with no code change.
   const renderable: RenderableSubDevice[] = [];
   for (const [devId, sub] of entries) {
     const power: SubDevicePower = resolveSubDevicePower(sub);
