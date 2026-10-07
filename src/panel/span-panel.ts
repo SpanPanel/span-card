@@ -16,6 +16,7 @@ import { ListViewController, type FavoritesViewStateDetail } from "../core/list-
 import { DashboardController } from "../core/dashboard-controller.js";
 import { buildTabBarHTML } from "../core/tab-bar-renderer.js";
 import { subscribeAreaUpdates } from "../core/area-resolver.js";
+import { subscribeEntryReloads } from "../core/entry-reload.js";
 import { discoverTopology } from "../card/card-discovery.js";
 import { RetryManager } from "../core/retry-manager.js";
 import { buildHeaderHTML, buildPanelStatsHTML } from "../core/header-renderer.js";
@@ -35,9 +36,9 @@ import {
   type FavoritesViewState,
 } from "./favorites-view-state.js";
 import { buildFavoritesSummaryHTML } from "./favorites-summary.js";
-import { coalesceRuns, makeRenderToken } from "./coalesce.js";
+import { batchCalls, coalesceRuns, makeRenderToken } from "./coalesce.js";
 import type { FavoritesPanelInfo } from "../core/favorites-sections.js";
-import type { CardConfig, FavoritesMap, FavoritesTopology, HomeAssistant, PanelDevice } from "../types.js";
+import type { CardConfig, FavoritesMap, FavoritesTopology, HomeAssistant, PanelDevice, PanelTopology } from "../types.js";
 
 const FAVORITES_PANEL_ID = "favorites";
 
@@ -100,9 +101,21 @@ export class SpanPanelElement extends LitElement {
    * state or scheduling another tab render.
    */
   private _refreshSeq = 0;
-  private _areaUnsub: (() => void) | null = null;
-  /** Cleared on disconnect to tell a pending subscribe to self-cancel. */
-  private _areaSubscribing = false;
+  /** Held as the promise it was handed and unsubscribed through it, like `_deviceRegistryUnsub`. */
+  private _areaSub: Promise<() => void> | null = null;
+  /** The topology the area tab last rendered; the area subscription reads it through a getter. */
+  private _areaTopology: PanelTopology | null = null;
+  private _reloadSub: Promise<() => Promise<void>> | null = null;
+  /** What the favorites view last passed to `watchPanelStatuses`, re-applied on re-attach. */
+  private _favoritesWatchEntries: { entityId: string; panelName: string }[] = [];
+  private readonly _panelsRefresh = coalesceRuns(() => this._refreshPanels());
+  /** A re-seed reports every loaded panel in one loop; these collapse it to one request each. */
+  private readonly _requestPanelsRefresh = batchCalls(() => {
+    void this._panelsRefresh();
+  });
+  private readonly _requestTabRender = batchCalls(() => {
+    void this._scheduleTabRender();
+  });
   private _onFavoritesChanged: (() => void) | null = null;
   private _deviceRegistryUnsub: Promise<() => void> | null = null;
   /**
@@ -247,6 +260,13 @@ export class SpanPanelElement extends LitElement {
     document.addEventListener(FAVORITES_CHANGED_EVENT, this._onFavoritesChanged);
 
     this._subscribeDeviceRegistry();
+    this._subscribeEntryReloads();
+    // `disconnectedCallback` disposed the error store, and nothing else re-watches:
+    // `_updatePanelStatusWatch` runs only when the selected panel changes.
+    if (this._discovered) {
+      this._reapplyPanelStatusWatch();
+      if (this._activeTab === "area" && !this._isFavoritesView) this._subscribeAreaTab();
+    }
   }
 
   disconnectedCallback(): void {
@@ -257,16 +277,14 @@ export class SpanPanelElement extends LitElement {
     this._listDashCtrl.stopIntervals();
     for (const tab of this._favoritesMonitoringTabs.values()) tab.stop();
     this._favoritesMonitoringTabs.clear();
-    this._areaSubscribing = false;
-    if (this._areaUnsub) {
-      this._areaUnsub();
-      this._areaUnsub = null;
-    }
+    this._unsubscribeAreaTab();
     if (this._onFavoritesChanged) {
       document.removeEventListener(FAVORITES_CHANGED_EVENT, this._onFavoritesChanged);
       this._onFavoritesChanged = null;
     }
     this._unsubscribeDeviceRegistry();
+    this._unsubscribeEntryReloads();
+    this._watchedPanelId = null;
     if (this._persistFavoritesViewStateTimer) {
       clearTimeout(this._persistFavoritesViewStateTimer);
       this._persistFavoritesViewStateTimer = null;
@@ -297,6 +315,7 @@ export class SpanPanelElement extends LitElement {
 
       if (!oldHass && this.hass) {
         this._subscribeDeviceRegistry();
+        this._subscribeEntryReloads();
       }
     }
 
@@ -449,11 +468,8 @@ export class SpanPanelElement extends LitElement {
     if (this._isFavoritesView && isPanelOnlyTab(this._activeTab)) {
       this._activeTab = "activity";
     }
-    this._areaSubscribing = false;
-    if (this._areaUnsub) {
-      this._areaUnsub();
-      this._areaUnsub = null;
-    }
+    this._unsubscribeAreaTab();
+    this._areaTopology = null;
     // Reactive updated() handles the re-render via _selectedPanelId
     // (and possibly _activeTab) changes.
   }
@@ -592,6 +608,74 @@ export class SpanPanelElement extends LitElement {
       this._deviceRegistryUnsub.then(unsub => unsub());
       this._deviceRegistryUnsub = null;
     }
+  }
+
+  /** Subscribe once to config-entry reloads of every SPAN panel; entries a later `_refreshPanels` adds are accepted too. */
+  private _subscribeEntryReloads(): void {
+    if (this._reloadSub || !this.hass?.connection) return;
+    this._reloadSub = subscribeEntryReloads(
+      this.hass,
+      entry => entry.domain === INTEGRATION_DOMAIN,
+      entryId => this._onEntryLoaded(entryId),
+      { initialIsReseed: this._discovered }
+    ).catch((err: unknown): (() => Promise<void>) => {
+      console.warn("SPAN Panel: config entry subscription failed", err);
+      return async () => {};
+    });
+  }
+
+  private _unsubscribeEntryReloads(): void {
+    const sub = this._reloadSub;
+    this._reloadSub = null;
+    void sub?.then(unsubscribe => unsubscribe());
+  }
+
+  /**
+   * A panel's entry finished loading, so its controls may have changed. The
+   * selected panel's tab, or the favorites view, re-renders (both re-run
+   * `discoverTopology`); any other panel may have been added or renamed.
+   */
+  private _onEntryLoaded(entryId: string): void {
+    const selected = this._panels.find(p => p.id === this._selectedPanelId);
+    if (this._isFavoritesView || selected?.config_entry_id === entryId) {
+      this._requestTabRender();
+      return;
+    }
+    this._requestPanelsRefresh();
+  }
+
+  /** Re-apply the panel-status watch after a re-attach. */
+  private _reapplyPanelStatusWatch(): void {
+    if (this._isFavoritesView) {
+      // The favorites tab is not re-rendered on re-attach: `#tab-content` survives.
+      this._errorStore.watchPanelStatuses(this._favoritesWatchEntries);
+      if (this.hass) this._errorStore.updateHass(this.hass);
+      return;
+    }
+    void this._updatePanelStatusWatch();
+  }
+
+  /** One area subscription per attachment, reading whichever topology the area tab rendered last. */
+  private _subscribeAreaTab(): void {
+    if (this._areaSub || !this.hass) return;
+    this._areaSub = subscribeAreaUpdates(
+      this.hass,
+      () => this._areaTopology,
+      () => {
+        if (this._activeTab === "area") void this._scheduleTabRender();
+      },
+      this._errorStore
+    ).catch((err: unknown): (() => void) => {
+      console.warn("SPAN Panel: area subscription failed", err);
+      this._errorStore.add({ key: "subscribe:area", level: "warning", message: t("error.areas_failed"), persistent: false });
+      return () => {};
+    });
+  }
+
+  private _unsubscribeAreaTab(): void {
+    const sub = this._areaSub;
+    this._areaSub = null;
+    void sub?.then(unsubscribe => unsubscribe());
   }
 
   private async _refreshPanels(): Promise<void> {
@@ -1004,39 +1088,8 @@ export class SpanPanelElement extends LitElement {
           this._listDashCtrl.updateDOM(container);
           this._listDashCtrl.startIntervals(container);
 
-          if (!this._areaUnsub && !this._areaSubscribing) {
-            this._areaSubscribing = true;
-            subscribeAreaUpdates(
-              this.hass,
-              () => result.topology,
-              () => {
-                if (this._activeTab === "area") {
-                  this._scheduleTabRender();
-                }
-              },
-              this._errorStore
-            )
-              .then(unsub => {
-                if (this._areaSubscribing) {
-                  this._areaUnsub = unsub;
-                } else {
-                  // Element disconnected or panel changed while
-                  // subscribing — unsubscribe immediately so we don't
-                  // leak the subscription.
-                  unsub();
-                }
-              })
-              .catch((err: unknown) => {
-                this._areaSubscribing = false;
-                console.warn("SPAN Panel: area subscription failed", err);
-                this._errorStore.add({
-                  key: "subscribe:area",
-                  level: "warning",
-                  message: t("error.areas_failed"),
-                  persistent: false,
-                });
-              });
-          }
+          this._areaTopology = result.topology;
+          this._subscribeAreaTab();
         } catch (err) {
           const errEl = document.createElement("p");
           errEl.style.color = "var(--error-color)";
@@ -1087,6 +1140,7 @@ export class SpanPanelElement extends LitElement {
         return typeof entityId === "string" ? { entityId, panelName: p.panelName } : null;
       })
       .filter((e): e is { entityId: string; panelName: string } => e !== null);
+    this._favoritesWatchEntries = panelStatusEntries;
     this._errorStore.watchPanelStatuses(panelStatusEntries);
     this._errorStore.updateHass(this.hass);
 
