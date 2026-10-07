@@ -1,20 +1,19 @@
 import {
   BESS_CHART_METRICS,
   DEVICE_TYPE_PV,
-  RELAY_STATE_CLOSED,
-  SHEDDING_PRIORITIES,
   CIRCUIT_CHART_HEIGHT,
   CIRCUIT_COL_SPAN_CHART_HEIGHT,
   BESS_CHART_COL_HEIGHT,
   EVSE_CHART_HEIGHT,
 } from "../constants.js";
 import { formatPowerSigned, formatPowerUnit, formatPowerHTML, formatKw } from "../helpers/format.js";
-import { t } from "../i18n.js";
 import { getChartMetric } from "../helpers/chart.js";
 import { resolveSubDevicePower, stateWatts } from "../helpers/sub-device-power.js";
 import { getHistoryDurationMs, getHorizonDurationMs } from "../helpers/history.js";
 import { updateChart } from "../chart/chart-update.js";
 import { attrSelectorValue } from "../helpers/selector.js";
+import { relayClosed, shedPriorityKey, switchPresence } from "./circuit-state.js";
+import { applySheddingIcon, applyTogglePill } from "./circuit-controls.js";
 import type { HomeAssistant, PanelTopology, CardConfig, HistoryMap, ChartMetricDef } from "../types.js";
 
 // ── Header stats ───────────────────────────────────────────────────────────
@@ -164,11 +163,7 @@ export function updateCircuitDOM(
     const powerW = state ? parseFloat(state.state) || 0 : 0;
     const isProducer = circuit.device_type === DEVICE_TYPE_PV || powerW < 0;
 
-    const switchEntityId = circuit.entities?.switch;
-    const switchState = switchEntityId ? hass.states[switchEntityId] : null;
-    const isOn = switchState
-      ? switchState.state === "on"
-      : ((state?.attributes?.relay_state as string | undefined) || circuit.relay_state) === RELAY_STATE_CLOSED;
+    const isOn = relayClosed(circuit, hass);
 
     const powerVal = slot.querySelector(".power-value");
     if (powerVal) {
@@ -182,55 +177,12 @@ export function updateCircuitDOM(
       }
     }
 
-    const toggle = slot.querySelector(".toggle-pill") as HTMLElement | null;
-    if (toggle) {
-      toggle.className = `toggle-pill ${isOn ? "toggle-on" : "toggle-off"}`;
-      const label = toggle.querySelector(".toggle-label");
-      if (label) label.textContent = isOn ? t("grid.on") : t("grid.off");
-    }
+    applyTogglePill(slot, isOn, switchPresence(circuit, hass));
 
     slot.classList.toggle("circuit-off", !isOn);
     slot.classList.toggle("circuit-producer", isProducer);
 
-    // Update shedding priority icon
-    let priority: string;
-    if (circuit.always_on) {
-      priority = "always_on";
-    } else {
-      const selectEid = circuit.entities?.select;
-      const selectState = selectEid ? hass.states[selectEid] : null;
-      priority = selectState ? selectState.state : "unknown";
-    }
-    // "unknown" key always exists in SHEDDING_PRIORITIES, so the fallback is guaranteed
-    const shedInfo = (SHEDDING_PRIORITIES[priority] ?? SHEDDING_PRIORITIES["unknown"])!;
-    const sheddingIcon = slot.querySelector(".shedding-icon") as HTMLElement | null;
-    if (sheddingIcon) {
-      sheddingIcon.setAttribute("icon", shedInfo.icon);
-      sheddingIcon.style.color = shedInfo.color;
-      sheddingIcon.title = shedInfo.label();
-    }
-    // Update secondary icon if present
-    const secondaryIcon = slot.querySelector(".shedding-icon-secondary") as HTMLElement | null;
-    if (secondaryIcon) {
-      if (shedInfo.icon2) {
-        secondaryIcon.setAttribute("icon", shedInfo.icon2);
-        secondaryIcon.style.color = shedInfo.color;
-        secondaryIcon.style.display = "";
-      } else {
-        secondaryIcon.style.display = "none";
-      }
-    }
-    // Update text label if present
-    const sheddingLabel = slot.querySelector(".shedding-label") as HTMLElement | null;
-    if (sheddingLabel) {
-      if (shedInfo.textLabel) {
-        sheddingLabel.textContent = shedInfo.textLabel;
-        sheddingLabel.style.color = shedInfo.color;
-        sheddingLabel.style.display = "";
-      } else {
-        sheddingLabel.style.display = "none";
-      }
-    }
+    applySheddingIcon(slot, shedPriorityKey(circuit, hass));
 
     const chartContainer = slot.querySelector(".chart-container") as HTMLElement | null;
     if (chartContainer) {

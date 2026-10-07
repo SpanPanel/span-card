@@ -1,10 +1,11 @@
 import { escapeHtml } from "../helpers/sanitize.js";
 import { attrSelectorValue } from "../helpers/selector.js";
-import { RELAY_STATE_CLOSED } from "../constants.js";
 import { formatPowerSigned, formatPowerUnit } from "../helpers/format.js";
 import { getChartMetric } from "../helpers/chart.js";
 import { t } from "../i18n.js";
 import { getCircuitMonitoringInfo } from "./monitoring-status.js";
+import { relayClosed, shedPriorityKey, switchPresence } from "./circuit-state.js";
+import { applySheddingIcon, applyTogglePill } from "./circuit-controls.js";
 import { buildSearchBarHTML, buildListRowHTML, buildExpandedChartHTML, buildAreaHeaderHTML } from "./list-renderer.js";
 import { observeFold } from "./truncation-fold.js";
 import type { DashboardController } from "./dashboard-controller.js";
@@ -22,13 +23,9 @@ interface CircuitSortInfo {
 }
 
 function getCircuitSortInfo(circuit: Circuit, hass: HomeAssistant, config: CardConfig): CircuitSortInfo {
-  const switchEntityId = circuit.entities?.switch;
-  const switchState = switchEntityId ? hass.states[switchEntityId] : null;
   const powerEid = circuit.entities?.power;
   const powerState = powerEid ? hass.states[powerEid] : null;
-  const isOn = switchState
-    ? switchState.state === "on"
-    : ((powerState?.attributes?.relay_state as string | undefined) || circuit.relay_state) === RELAY_STATE_CLOSED;
+  const isOn = relayClosed(circuit, hass);
 
   const isCurrentMode = (config.chart_metric || "power") === "current";
   let value: number;
@@ -40,13 +37,6 @@ function getCircuitSortInfo(circuit: Circuit, hass: HomeAssistant, config: CardC
     value = powerState ? Math.abs(parseFloat(powerState.state) || 0) : 0;
   }
   return { isOn, value };
-}
-
-function getSheddingPriority(circuit: Circuit, hass: HomeAssistant): string {
-  if (circuit.always_on) return "always_on";
-  const selectEid = circuit.entities?.select;
-  const selectState = selectEid ? hass.states[selectEid] : null;
-  return selectState ? selectState.state : "unknown";
 }
 
 function compareCircuits(a: Circuit, b: Circuit, hass: HomeAssistant, config: CardConfig): number {
@@ -227,7 +217,7 @@ export class ListViewController {
 
     for (const [uuid, circuit] of sorted) {
       const monitoringInfo = getCircuitMonitoringInfo(monitoringStatus, getCircuitEntityId(circuit));
-      const sheddingPriority = getSheddingPriority(circuit, hass);
+      const sheddingPriority = shedPriorityKey(circuit, hass);
       const isExpanded = this._expandedUuids.has(uuid);
       html += `<div class="list-cell" data-cell-uuid="${escapeHtml(uuid)}">`;
       html += buildListRowHTML(uuid, circuit, hass, config, monitoringInfo, sheddingPriority, isExpanded);
@@ -298,7 +288,7 @@ export class ListViewController {
 
       for (const [uuid, circuit] of sorted) {
         const monitoringInfo = getCircuitMonitoringInfo(monitoringStatus, getCircuitEntityId(circuit));
-        const sheddingPriority = getSheddingPriority(circuit, hass);
+        const sheddingPriority = shedPriorityKey(circuit, hass);
         const isExpanded = this._expandedUuids.has(uuid);
         html += `<div class="list-cell" data-cell-uuid="${escapeHtml(uuid)}">`;
         html += buildListRowHTML(uuid, circuit, hass, config, monitoringInfo, sheddingPriority, isExpanded);
@@ -355,13 +345,8 @@ export class ListViewController {
       // Update the status control — real toggle-pill for controllable
       // circuits, static text badge for the rest. Only one will be
       // present in any given row.
-      const togglePill = row.querySelector(".toggle-pill") as HTMLElement | null;
-      if (togglePill) {
-        togglePill.classList.toggle("toggle-on", isOn);
-        togglePill.classList.toggle("toggle-off", !isOn);
-        const label = togglePill.querySelector(".toggle-label");
-        if (label) label.textContent = isOn ? t("grid.on") : t("grid.off");
-      }
+      applyTogglePill(row, isOn, switchPresence(circuit, hass));
+      applySheddingIcon(row, shedPriorityKey(circuit, hass));
       const statusBadge = row.querySelector(".list-status-badge") as HTMLElement | null;
       if (statusBadge) {
         statusBadge.textContent = isOn ? "ON" : "OFF";

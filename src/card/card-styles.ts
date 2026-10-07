@@ -452,6 +452,13 @@ export const CARD_STYLES: string = `
     margin-right: auto;
     order: -1;
   }
+  /* A switch Home Assistant reports unavailable: the relay state is still
+     shown, but the pill cannot be operated. */
+  .toggle-pill.toggle-unavailable {
+    opacity: 0.4;
+    pointer-events: none;
+    cursor: default;
+  }
 
   .circuit-status {
     display: flex;

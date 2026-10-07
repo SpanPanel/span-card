@@ -2,9 +2,10 @@ import { escapeHtml } from "../helpers/sanitize.js";
 import { formatPowerSigned, formatPowerUnit } from "../helpers/format.js";
 import { t } from "../i18n.js";
 import { getChartMetric } from "../helpers/chart.js";
-import { RELAY_STATE_CLOSED, SHEDDING_PRIORITIES, DEVICE_TYPE_PV } from "../constants.js";
-import { getCircuitStateClasses } from "./circuit-state.js";
-import type { Circuit, HomeAssistant, CardConfig, MonitoringPointInfo, SheddingPriorityDef } from "../types.js";
+import { DEVICE_TYPE_PV } from "../constants.js";
+import { getCircuitStateClasses, relayClosed, switchPresence } from "./circuit-state.js";
+import { buildSheddingIconHTML, buildTogglePillHTML } from "./circuit-controls.js";
+import type { Circuit, HomeAssistant, CardConfig, MonitoringPointInfo } from "../types.js";
 
 /**
  * Build the search bar HTML for the list view.
@@ -51,11 +52,8 @@ export function buildListRowHTML(
   const state = entityId ? hass.states[entityId] : null;
   const powerW = state ? parseFloat(state.state) || 0 : 0;
 
-  const switchEntityId = circuit.entities?.switch;
-  const switchState = switchEntityId ? hass.states[switchEntityId] : null;
-  const isOn = switchState
-    ? switchState.state === "on"
-    : ((state?.attributes?.relay_state as string | undefined) || circuit.relay_state) === RELAY_STATE_CLOSED;
+  const isOn = relayClosed(circuit, hass);
+  const presence = switchPresence(circuit, hass);
 
   const breakerAmps = circuit.breaker_rating_a;
   const breakerLabel = breakerAmps ? `${Math.round(breakerAmps)}A` : "";
@@ -76,29 +74,7 @@ export function buildListRowHTML(
     valueHTML = `<strong>${formatPowerSigned(powerW)}</strong><span class="power-unit">${formatPowerUnit(powerW)}</span>`;
   }
 
-  // Shedding icon (supports composite: dual-icon or icon+text)
-  // Hide for "unknown" priority (e.g. PV systems that have no shedding select entity)
-  const priority = sheddingPriority || "unknown";
-  let sheddingHTML = "";
-  if (priority !== "unknown") {
-    const shedInfo: SheddingPriorityDef = SHEDDING_PRIORITIES[priority] ??
-      SHEDDING_PRIORITIES.unknown ?? { icon: "mdi:help", color: "#999", label: () => "Unknown" };
-    if (shedInfo.icon2) {
-      sheddingHTML = `<span class="shedding-composite" title="${shedInfo.label()}">
-        <span-icon class="shedding-icon" icon="${shedInfo.icon}" style="color:${shedInfo.color};--mdc-icon-size:16px;"></span-icon>
-        <span-icon class="shedding-icon-secondary" icon="${shedInfo.icon2}" style="color:${shedInfo.color};--mdc-icon-size:14px;"></span-icon>
-      </span>`;
-    } else if (shedInfo.textLabel) {
-      sheddingHTML = `<span class="shedding-composite" title="${shedInfo.label()}">
-        <span-icon class="shedding-icon" icon="${shedInfo.icon}" style="color:${shedInfo.color};--mdc-icon-size:16px;"></span-icon>
-        <span class="shedding-label" style="color:${shedInfo.color}">${shedInfo.textLabel}</span>
-      </span>`;
-    } else {
-      sheddingHTML = `<span-icon class="shedding-icon" icon="${shedInfo.icon}"
-        style="color:${shedInfo.color};--mdc-icon-size:16px;"
-        title="${shedInfo.label()}"></span-icon>`;
-    }
-  }
+  const sheddingHTML = buildSheddingIconHTML(sheddingPriority || "unknown");
 
   // Utilization — prefer monitoring data, fall back to live current / breaker rating
   let utilizationHTML = "";
@@ -121,15 +97,12 @@ export function buildListRowHTML(
   <span-icon icon="mdi:cog" style="--mdc-icon-size:16px;"></span-icon>
 </button>`;
 
-  // Controllable circuits get a real toggle-pill arm-protected by the
-  // header's slide-confirm; non-controllable circuits keep a static badge.
-  const isToggleable = circuit.is_user_controllable !== false && !!circuit.entities?.switch;
-  const statusControl = isToggleable
-    ? `<div class="toggle-pill ${isOn ? "toggle-on" : "toggle-off"}">
-        <span class="toggle-label">${isOn ? t("grid.on") : t("grid.off")}</span>
-        <span class="toggle-knob"></span>
-      </div>`
-    : `<span class="list-status-badge ${isOn ? "list-status-on" : "list-status-off"}">${isOn ? "ON" : "OFF"}</span>`;
+  // A switch -- operable, or dimmed and inert while unavailable -- gets the pill,
+  // armed by the header's slide-confirm; a circuit with none keeps a static badge.
+  const statusControl =
+    presence === "none"
+      ? `<span class="list-status-badge ${isOn ? "list-status-on" : "list-status-off"}">${isOn ? "ON" : "OFF"}</span>`
+      : buildTogglePillHTML(isOn, presence);
 
   return `
     <div class="list-row ${isOn ? "" : "circuit-off"} ${isExpanded ? "list-row-expanded" : ""}"
@@ -169,11 +142,7 @@ export function buildExpandedChartHTML(
   const powerW = powerState ? parseFloat(powerState.state) || 0 : 0;
   const isProducer = circuit.device_type === DEVICE_TYPE_PV || powerW < 0;
 
-  const switchEid = circuit.entities?.switch;
-  const switchState = switchEid ? hass.states[switchEid] : null;
-  const isOn = switchState
-    ? switchState.state === "on"
-    : ((powerState?.attributes?.relay_state as string | undefined) || circuit.relay_state) === RELAY_STATE_CLOSED;
+  const isOn = relayClosed(circuit, hass);
 
   const stateClasses = getCircuitStateClasses(circuit, monitoringInfo, isOn, isProducer);
   const safeUuid = escapeHtml(uuid);
