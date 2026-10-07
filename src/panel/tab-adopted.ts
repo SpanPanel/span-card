@@ -1,6 +1,7 @@
 import { INTEGRATION_DOMAIN } from "../constants.js";
 import { escapeHtml } from "../helpers/sanitize.js";
 import { errorText } from "../helpers/error-text.js";
+import { deepEqual } from "../helpers/deep-equal.js";
 import { t, tf } from "../i18n.js";
 import {
   appliedSeed,
@@ -167,6 +168,21 @@ export class AdoptedTab {
     this._hass = hass;
     await this._fetchList(hass, false);
     this._paint();
+  }
+
+  /**
+   * Re-read the rows after the panel's entry reloaded, and repaint them only when
+   * they changed. An open editor's state survives a repaint, but the field the
+   * user is typing in would lose its focus and caret to one that changed nothing.
+   * A failed read keeps the rows on screen.
+   */
+  async refresh(): Promise<void> {
+    const hass = this._hass;
+    if (!hass || !this._container) return;
+    const shown = this._groups;
+    await this._fetchList(hass, true);
+    if (deepEqual(this._groups, shown)) return;
+    this._paintGroups();
   }
 
   // ── Data ────────────────────────────────────────────────────────────

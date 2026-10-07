@@ -12,6 +12,7 @@ import { DashboardController } from "../src/core/dashboard-controller.js";
 import { ErrorStore } from "../src/core/error-store.js";
 import { FavoritesController } from "../src/core/favorites-controller.js";
 import { ListViewController } from "../src/core/list-view-controller.js";
+import { AdoptedTab } from "../src/panel/tab-adopted.js";
 import { DashboardTab } from "../src/panel/tab-dashboard.js";
 import { SpanPanelElement } from "../src/panel/span-panel.js";
 import { ENTITY_REGISTRY, ENTRY_RELOADS, FakeConnection, flush, hassWith } from "./fake-connection.js";
@@ -36,6 +37,8 @@ function statusOf(deviceId: string): string {
 let devices: PanelDevice[] = [];
 let favorites: Record<string, { circuits: string[]; sub_devices: string[] }> = {};
 let deviceListCalls = 0;
+/** What `get_monitoring_status` answers; null answers nothing. */
+let monitoring: Record<string, unknown> | null = null;
 
 function hassFor(connection: FakeConnection): HomeAssistant {
   return hassWith(connection, {
@@ -45,6 +48,7 @@ function hassFor(connection: FakeConnection): HomeAssistant {
         return devices;
       }
       if (msg.type === "call_service" && msg.service === "get_favorites") return { response: { favorites } };
+      if (msg.type === "call_service" && msg.service === "get_monitoring_status" && monitoring) return { response: monitoring };
       return {};
     }) as HomeAssistant["callWS"],
   });
@@ -62,6 +66,7 @@ beforeEach(() => {
   devices = [device(1)];
   favorites = {};
   deviceListCalls = 0;
+  monitoring = null;
   watch = vi.spyOn(ErrorStore.prototype, "watchPanelStatus");
   watchMany = vi.spyOn(ErrorStore.prototype, "watchPanelStatuses");
   vi.spyOn(DashboardTab.prototype, "render").mockResolvedValue(null);
@@ -301,6 +306,49 @@ describe("span-panel subscriptions", () => {
     await flush();
 
     expect(schedule).not.toHaveBeenCalled();
+  });
+
+  it("keeps an unsaved monitoring edit across a re-seed that changes only live fields", async () => {
+    monitoring = {
+      enabled: true,
+      global_settings: { continuous_threshold_pct: 80, spike_threshold_pct: 100, window_duration_m: 15, cooldown_duration_m: 15 },
+    };
+    const connection = new FakeConnection();
+    const panel = await mount(connection, () => expect(watch).toHaveBeenCalledWith(statusOf("panel-1")));
+    mockDiscover.mockImplementation(async () => kitchenTopology("CLOSED"));
+    showTab(panel, "monitoring");
+    const field = (): HTMLInputElement | null => panel.shadowRoot!.querySelector<HTMLInputElement>("#g-continuous");
+    await vi.waitFor(() => expect(field()).not.toBeNull());
+    connection.emit(ENTRY_RELOADS, loaded(1));
+    await flush();
+    const edited = field()!;
+    edited.value = "93";
+    const calls = mockDiscover.mock.calls.length;
+    mockDiscover.mockImplementation(async () => kitchenTopology("OPEN"));
+
+    connection.emit(ENTRY_RELOADS, loaded(1));
+    await vi.waitFor(() => expect(mockDiscover.mock.calls.length).toBe(calls + 1));
+    await flush();
+
+    expect(field()).toBe(edited);
+    expect(edited.value).toBe("93");
+  });
+
+  it("refreshes the Adopted tab's rows in place on a re-seed, without re-rendering it", async () => {
+    const render = vi.spyOn(AdoptedTab.prototype, "render");
+    const refresh = vi.spyOn(AdoptedTab.prototype, "refresh");
+    const connection = new FakeConnection();
+    const panel = await mount(connection, () => expect(watch).toHaveBeenCalledWith(statusOf("panel-1")));
+    showTab(panel, "adopted");
+    await vi.waitFor(() => expect(render).toHaveBeenCalledTimes(1));
+    connection.emit(ENTRY_RELOADS, loaded(1));
+    await flush();
+
+    connection.emit(ENTRY_RELOADS, loaded(1));
+
+    await vi.waitFor(() => expect(refresh).toHaveBeenCalledTimes(1));
+    await flush();
+    expect(render).toHaveBeenCalledTimes(1);
   });
 
   describe("in the favorites view", () => {

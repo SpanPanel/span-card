@@ -111,7 +111,8 @@ export class SpanPanelElement extends LitElement {
   /**
    * The topology the current view rendered, by panel device id. An entry reload
    * re-renders the view only when its panel's topology changed structure since.
-   * Empty on the Monitoring and Adopted tabs, which render no topology.
+   * The Monitoring tab records one fetched beside it; the Adopted tab records
+   * none, because a reload refreshes its rows instead.
    */
   private readonly _renderedTopologies = new Map<string, PanelTopology>();
   /** What the favorites view last passed to `watchPanelStatuses`, re-applied on re-attach. */
@@ -659,6 +660,12 @@ export class SpanPanelElement extends LitElement {
       // failed when the view was built, and may succeed now, so it rebuilds.
       return;
     }
+    if (!this._isFavoritesView && this._activeTab === "adopted") {
+      // The rows it renders are its own, not the topology's; an open editor
+      // keeps what the user typed.
+      void this._adoptedTab.refresh();
+      return;
+    }
     void this._renderIfRestructured(panel.id);
   }
 
@@ -687,6 +694,17 @@ export class SpanPanelElement extends LitElement {
     if (this._renderedTopologies.get(panelId) !== rendered) return;
     if (topology && sameTopologyStructure(topology, rendered)) return;
     this._requestTabRender();
+  }
+
+  /** The selected panel's topology in one attempt, or null when it cannot be had; for a view that renders none. */
+  private async _fetchBaselineTopology(): Promise<PanelTopology | null> {
+    if (!this.hass || !this._selectedPanelId) return null;
+    try {
+      return (await discoverTopology(this.hass, this._selectedPanelId, null)).topology;
+    } catch (err) {
+      console.warn("SPAN Panel: no topology baseline for this view:", errorText(err));
+      return null;
+    }
   }
 
   /** Remember the topology the selected panel's view rendered. */
@@ -1158,8 +1176,12 @@ export class SpanPanelElement extends LitElement {
         container.innerHTML = "";
         const monDevice = this._panels.find(p => p.id === this._selectedPanelId);
         const monEntryId = monDevice?.config_entry_id ?? null;
-        // Monitoring is a pure configuration view — no panel-stats header.
-        await this._monitoringTab.render(container, this.hass, monEntryId ?? undefined);
+        // Monitoring is a pure configuration view — no panel-stats header. It
+        // renders no topology, but one is fetched beside it as the baseline an
+        // entry reload compares against, so a reload that changed nothing
+        // keeps a threshold the user has not saved yet.
+        const [, baseline] = await Promise.all([this._monitoringTab.render(container, this.hass, monEntryId ?? undefined), this._fetchBaselineTopology()]);
+        if (!superseded()) this._recordRenderedTopology(baseline);
         break;
       }
       case "adopted": {

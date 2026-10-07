@@ -94,7 +94,7 @@ interface FakeHass extends HomeAssistant {
   calls: Record<string, unknown>[];
 }
 
-function makeHass(options: { disabledBy?: string | null; failCurate?: string; warnings?: string[] } = {}): FakeHass {
+function makeHass(options: { disabledBy?: string | null; failCurate?: string; warnings?: string[]; list?: () => AdoptedListResponse } = {}): FakeHass {
   const calls: Record<string, unknown>[] = [];
   const hass = {
     calls,
@@ -107,7 +107,7 @@ function makeHass(options: { disabledBy?: string | null; failCurate?: string; wa
       calls.push(msg);
       switch (msg.type) {
         case "span_panel/adopted/list":
-          return listResponse() as T;
+          return (options.list ?? listResponse)() as T;
         case "config/entity_registry/get":
           return {
             entity_id: msg.entity_id,
@@ -586,6 +586,38 @@ describe("AdoptedTab", () => {
       expect(writes(hass)).toEqual([]);
       expect(container.textContent).toContain("Confirm statistics class");
       tab.stop();
+    });
+  });
+
+  describe("a refresh after an entry reload", () => {
+    function nameField(): HTMLInputElement | null {
+      return container.querySelector<HTMLInputElement>('input[data-field="name"]');
+    }
+
+    it("leaves the field being typed in alone while the rows are unchanged", async () => {
+      await tab.render(container, makeHass(), "panel-device-1");
+      await expand(container, VOLTAGE_KEY);
+      type(container, "name", "Cell V");
+      const field = nameField();
+
+      await tab.refresh();
+
+      expect(nameField()).toBe(field);
+      expect(field?.value).toBe("Cell V");
+    });
+
+    it("repaints changed rows and keeps the open editor's unsaved name", async () => {
+      let list = listResponse();
+      await tab.render(container, makeHass({ list: () => list }), "panel-device-1");
+      await expand(container, VOLTAGE_KEY);
+      type(container, "name", "Cell V");
+      list = listResponse();
+      list.devices[1]!.name = "Standby Generator";
+
+      await tab.refresh();
+
+      expect(container.textContent).toContain("Standby Generator");
+      expect(nameField()?.value).toBe("Cell V");
     });
   });
 });
