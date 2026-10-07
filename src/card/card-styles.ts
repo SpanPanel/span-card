@@ -547,6 +547,9 @@ export const CARD_STYLES: string = `
   .sub-entity { display: flex; gap: 6px; padding: 3px 0; font-size: 0.85em; }
   .sub-entity-name { color: var(--secondary-text-color, #999); }
   .sub-entity-value { font-weight: 500; color: var(--primary-text-color, #e0e0e0); }
+  .sub-identity { font-size: 0.85em; color: var(--secondary-text-color, #999); margin: 2px 0 6px; }
+  .sub-note { font-size: 0.85em; color: var(--secondary-text-color, #999); font-style: italic; margin-top: 4px; }
+  .sub-power-caption { font-size: 0.75em; color: var(--secondary-text-color, #999); margin-right: 6px; text-transform: uppercase; }
 
   /* ── Shared tab bar ────────────────────────────────────── */
 

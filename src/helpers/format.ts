@@ -11,6 +11,11 @@ export function formatPowerSigned(watts: number): string {
   return sign + powerMetric.format(watts);
 }
 
+/** A power value with its unit, as every tile header and total row draws one. */
+export function formatPowerHTML(watts: number): string {
+  return `<strong>${formatPowerSigned(watts)}</strong> <span class="power-unit">${formatPowerUnit(watts)}</span>`;
+}
+
 export function formatKw(watts: number): string {
   return (Math.abs(watts) / 1000).toFixed(1);
 }

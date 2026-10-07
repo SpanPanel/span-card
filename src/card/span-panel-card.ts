@@ -149,6 +149,7 @@ export class SpanPanelCard extends LitElement {
       show_panel: true,
       show_battery: true,
       show_evse: true,
+      show_solar: true,
     };
   }
 
