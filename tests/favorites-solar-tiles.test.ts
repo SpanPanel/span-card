@@ -47,7 +47,8 @@ describe("solar tiles in the favorites view", () => {
   it("keeps each panel's Solar tile and inverters together, Solar tile first", async () => {
     const topologies: Record<string, PanelTopology> = { "panel-a": panelTopology("a"), "panel-b": panelTopology("b") };
     mockDiscover.mockImplementation(async (_hass, panelDeviceId) => ({
-      topology: topologies[panelDeviceId] ?? null,
+      // `discoverTopology` takes the device id as optional; build always passes one.
+      topology: (panelDeviceId && topologies[panelDeviceId]) || null,
       panelDevice: null,
       panelSize: 0,
     }));

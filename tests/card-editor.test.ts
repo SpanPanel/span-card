@@ -134,6 +134,7 @@ describe("the card editor's entity checkboxes", () => {
     checkbox.checked = true;
     checkbox.dispatchEvent(new Event("change"));
 
-    expect(changes.at(-1)?.visible_sub_entities).toEqual({ "sensor.drive_b_lock": true });
+    // The one tick fires one config-changed, carrying the ticked entity.
+    expect(changes.map(config => config.visible_sub_entities)).toEqual([{ "sensor.drive_b_lock": true }]);
   });
 });
