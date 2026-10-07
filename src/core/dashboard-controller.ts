@@ -9,7 +9,8 @@ import { MonitoringStatusCache, MonitoringStatusMultiCache, mergeMonitoringStatu
 import { GraphSettingsCache } from "./graph-settings.js";
 import { groupFavoritesByPanel } from "./favorites-sections.js";
 import type { FavoritesPanelInfo, FavoritesPanelGroup } from "./favorites-sections.js";
-import type { FavoritesPanelSection } from "./side-panel.js";
+import type { CircuitModeConfig, FavoritesPanelSection, SidePanelConfig } from "./side-panel.js";
+import { switchPresence } from "./circuit-state.js";
 import type { CardConfig, FavoriteRef, GraphSettings, HistoryMap, HomeAssistant, MonitoringStatus, MonitoringStatusResponse, PanelTopology } from "../types.js";
 import type { ErrorStore } from "./error-store.js";
 import { RetryManager } from "./retry-manager.js";
@@ -25,7 +26,7 @@ type DOMRoot = Element | ShadowRoot;
 interface SpanSidePanelElement extends HTMLElement {
   hass: HomeAssistant;
   errorStore: ErrorStore | null;
-  open(config: Record<string, unknown>): void;
+  open(config: SidePanelConfig): void;
 }
 
 /**
@@ -416,12 +417,8 @@ export class DashboardController {
     if (!circuit) return;
     const switchEntity = circuit.entities?.switch;
     if (!switchEntity) return;
-    const switchState = this._hass.states[switchEntity];
-    if (!switchState) {
-      console.warn("SPAN Panel: switch entity not found:", switchEntity);
-      return;
-    }
-    const service = switchState.state === "on" ? "turn_off" : "turn_on";
+    if (switchPresence(circuit, this._hass) !== "operable") return;
+    const service = this._hass.states[switchEntity]?.state === "on" ? "turn_off" : "turn_on";
     this._hass.callService("switch", service, {}, { entity_id: switchEntity }).catch(err => {
       console.warn("SPAN Panel: switch service call failed", err);
       this._errorStore?.add({
@@ -450,6 +447,7 @@ export class DashboardController {
         sidePanel.open({ favoritesMode: true, perPanelSections: sections });
         return;
       }
+      if (!this._topology) return;
       await this.graphSettingsCache.fetch(this._hass, this._configEntryId);
       sidePanel.open({
         panelMode: true,
@@ -498,9 +496,18 @@ export class DashboardController {
         const favoritePanelDeviceId = ref?.panelDeviceId ?? this._panelFavorites?.panelDeviceId;
         const isFavorite = ref !== null || (this._panelFavorites?.circuitUuids.has(realUuid) ?? false);
 
-        sidePanel.open({
-          ...circuit,
+        const circuitConfig: CircuitModeConfig = {
           uuid: realUuid,
+          name: circuit.name,
+          tabs: circuit.tabs,
+          entities: circuit.entities,
+          breaker_rating_a: circuit.breaker_rating_a ?? undefined,
+          voltage: circuit.voltage,
+          is_user_controllable: circuit.is_user_controllable,
+          always_on: circuit.always_on,
+          relay_state: circuit.relay_state,
+          priority: circuit.priority,
+          device_type: circuit.device_type,
           monitoringInfo,
           showMonitoring: this._showMonitoring,
           graphHorizonInfo,
@@ -508,7 +515,8 @@ export class DashboardController {
           favoritePanelDeviceId,
           isFavorite,
           configEntryId: entryId,
-        } as Record<string, unknown>);
+        };
+        sidePanel.open(circuitConfig);
         return;
       }
     }
