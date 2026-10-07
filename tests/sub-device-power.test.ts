@@ -62,10 +62,12 @@ describe("tileRenderedEntityIds", () => {
     expect(tileRenderedEntityIds(sub)).toEqual(new Set([CIRCUIT, SITE_TOTAL]));
   });
 
-  it("hides what a real battery tile draws, and not its Meter Power", () => {
+  it("hides what a real battery tile draws, and not its Meter Power or Nameplate Capacity", () => {
     // The old editor rule hid every `_power` sensor; the tile draws only one of the two (spec F15).
+    // It also hid Nameplate Capacity, which the tile draws nowhere: no header, chart or row shows it.
     const drawn = tileRenderedEntityIds(REALISTIC_BESS);
-    expect(drawn).toEqual(new Set([BATTERY_POWER, BATTERY_LEVEL, BATTERY_SOE, BATTERY_CAPACITY]));
+    expect(drawn).toEqual(new Set([BATTERY_POWER, BATTERY_LEVEL, BATTERY_SOE]));
     expect(drawn.has(METER_POWER)).toBe(false);
+    expect(drawn.has(BATTERY_CAPACITY)).toBe(false);
   });
 });

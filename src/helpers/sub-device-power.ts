@@ -1,5 +1,5 @@
 import { SUB_DEVICE_TYPE_BESS } from "../constants.js";
-import { findSubDevicePowerEntity, findBatteryLevelEntity, findBatterySoeEntity, findBatteryCapacityEntity } from "./entity-finder.js";
+import { findSubDevicePowerEntity, findBatteryLevelEntity, findBatterySoeEntity } from "./entity-finder.js";
 import type { HomeAssistant, SubDevice } from "../types.js";
 
 export interface SubDevicePower {
@@ -34,14 +34,17 @@ export function resolveSubDevicePower(sub: SubDevice): SubDevicePower {
 /**
  * The entities a tile draws itself, which its entity rows leave out and the
  * editor offers no checkbox for. One set for both, so the two cannot disagree.
- * A battery's Meter Power is not among them: the tile does not draw it, so the
- * editor offers it, and the renderer shows it as a row once it is chosen.
+ *
+ * It is exactly what the tile draws: the headline, the site total, and a
+ * battery's SoC and SoE, which have charts. Anything else is offered, and
+ * shown as a row once it is chosen -- a battery's Meter Power and Nameplate
+ * Capacity included, which the tile shows nowhere else.
  */
 export function tileRenderedEntityIds(sub: SubDevice): Set<string> {
   const { headlineEid, siteTotalEid } = resolveSubDevicePower(sub);
   const ids: (string | null)[] = [headlineEid, siteTotalEid];
   if (sub.type === SUB_DEVICE_TYPE_BESS) {
-    ids.push(findBatteryLevelEntity(sub), findBatterySoeEntity(sub), findBatteryCapacityEntity(sub));
+    ids.push(findBatteryLevelEntity(sub), findBatterySoeEntity(sub));
   }
   return new Set(ids.filter((eid): eid is string => eid !== null));
 }

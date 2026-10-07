@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { subEntityGroups } from "../src/editor/sub-entity-groups.js";
 import type { SubDevice, SubDeviceSolar } from "../src/types.js";
-import { BATTERY_VENDOR, METER_POWER, REALISTIC_BESS } from "./realistic-bess.js";
+import { BATTERY_CAPACITY, BATTERY_VENDOR, METER_POWER, REALISTIC_BESS } from "./realistic-bess.js";
 
 const block = (overrides: Partial<SubDeviceSolar>): SubDeviceSolar => ({
   role: "inverter",
@@ -54,10 +54,11 @@ describe("subEntityGroups", () => {
     expect(groups.map(g => g.entities.map(e => e.entityId))).toEqual([["sensor.a_status"], ["sensor.b_status"]]);
   });
 
-  it("offers the battery's Meter Power, which the tile does not draw", () => {
-    // A deliberate change (spec F15): the old suffix rule hid it, with every other `_power` sensor.
+  it("offers the battery's Meter Power and Nameplate Capacity, which the tile does not draw", () => {
+    // A deliberate change (spec F15): the old suffix rule hid Meter Power, with every other `_power`
+    // sensor, and hid Nameplate Capacity, which the tile shows nowhere.
     const [group] = subEntityGroups({ bess: REALISTIC_BESS }, "bess");
 
-    expect(group?.entities.map(e => e.entityId)).toEqual([METER_POWER, BATTERY_VENDOR]);
+    expect(group?.entities.map(e => e.entityId)).toEqual([METER_POWER, BATTERY_CAPACITY, BATTERY_VENDOR]);
   });
 });

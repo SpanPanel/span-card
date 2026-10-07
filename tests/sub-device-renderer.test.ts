@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { buildSubDevicesHTML } from "../src/core/sub-device-renderer.js";
 import { formatPowerHTML } from "../src/helpers/format.js";
 import type { PanelTopology, HomeAssistant, CardConfig, SubDevice, SubDeviceSolar } from "../src/types.js";
+import { BATTERY_CAPACITY, REALISTIC_BESS } from "./realistic-bess.js";
 
 /**
  * A sub-device earns a tile by having something to draw, not by being a known type.
@@ -181,5 +182,20 @@ describe("solar tiles", () => {
   it("hides every solar tile when show_solar is off", () => {
     const html = buildSubDevicesHTML(topologyOf({ site: SITE, second: SECOND }), solarHass, { show_solar: false } as CardConfig);
     expect(html).toBe("");
+  });
+});
+
+describe("battery tile rows", () => {
+  it("shows Nameplate Capacity as a row once it is chosen, since the tile draws it nowhere else", () => {
+    const batteryHass = {
+      states: { [BATTERY_CAPACITY]: { state: "13.5", attributes: { unit_of_measurement: "kWh" } } },
+      services: {},
+      language: "en",
+    } as unknown as HomeAssistant;
+    const config = { visible_sub_entities: { [BATTERY_CAPACITY]: true } } as unknown as CardConfig;
+
+    const html = buildSubDevicesHTML(topologyOf({ bess: REALISTIC_BESS }), batteryHass, config);
+
+    expect(html).toContain(`data-eid="${BATTERY_CAPACITY}"`);
   });
 });
