@@ -251,7 +251,7 @@ export class SpanPanelCard extends LitElement {
       this._areaSubscribing = true;
       subscribeAreaUpdates(
         this.hass,
-        this._topology,
+        () => this._topology,
         () => {
           if (this._activeTab === "area" && this._discovered) {
             this._populateCardContent();

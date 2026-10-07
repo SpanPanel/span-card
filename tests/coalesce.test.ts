@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { coalesceRuns, makeRenderToken } from "../src/panel/coalesce.js";
+import { batchCalls, coalesceRuns, makeRenderToken } from "../src/panel/coalesce.js";
 
 // ---------------------------------------------------------------------------
 // coalesceRuns
@@ -184,5 +184,28 @@ describe("makeRenderToken", () => {
 
     // A's token should still be valid
     expect(supersededA()).toBe(false);
+  });
+});
+
+describe("batchCalls", () => {
+  it("runs work once for every call made in one synchronous run", async () => {
+    const work = vi.fn();
+    const trigger = batchCalls(work);
+    trigger();
+    trigger();
+    trigger();
+    expect(work).not.toHaveBeenCalled();
+    await Promise.resolve();
+    expect(work).toHaveBeenCalledTimes(1);
+  });
+
+  it("runs again for a call made after the batch ran", async () => {
+    const work = vi.fn();
+    const trigger = batchCalls(work);
+    trigger();
+    await Promise.resolve();
+    trigger();
+    await Promise.resolve();
+    expect(work).toHaveBeenCalledTimes(2);
   });
 });

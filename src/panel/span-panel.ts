@@ -1008,7 +1008,7 @@ export class SpanPanelElement extends LitElement {
             this._areaSubscribing = true;
             subscribeAreaUpdates(
               this.hass,
-              result.topology!,
+              () => result.topology,
               () => {
                 if (this._activeTab === "area") {
                   this._scheduleTabRender();
