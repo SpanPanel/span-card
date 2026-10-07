@@ -18,6 +18,7 @@ import { ErrorStore } from "../core/error-store.js";
 import { discoverTopology, discoverEntitiesFallback, panelConfigEntryId } from "./card-discovery.js";
 import { RetryManager } from "../core/retry-manager.js";
 import { errorText } from "../helpers/error-text.js";
+import { deepEqual } from "../helpers/deep-equal.js";
 import { CARD_STYLES } from "./card-styles.js";
 import "../core/side-panel.js";
 import "../core/error-banner.js";
@@ -328,6 +329,9 @@ export class SpanPanelCard extends LitElement {
       console.warn("SPAN Panel: topology refresh found no panel; keeping the current topology");
       return;
     }
+    // Most reloads, and every re-attach, change nothing: re-rendering would only
+    // re-lock the switches the user unlocked.
+    if (deepEqual(result.topology, this._topology)) return;
     this._adoptTopology(result);
     this._ctrl.init(this._topology, this._config, this.hass, this._configEntryId);
     this._watchPanelStatus();

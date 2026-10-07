@@ -183,6 +183,32 @@ describe("span-panel-card subscriptions", () => {
     await vi.waitFor(() => expect(refetched.circuits.kitchen?.area).toBe("Kitchen Area"));
   });
 
+  it("does not re-render, or re-lock the switches, for a refresh whose topology is unchanged", async () => {
+    const connection = new FakeConnection();
+    const card = await mount(connection);
+    const grid = card.shadowRoot!.querySelector(".panel-grid");
+    const shell = card.shadowRoot!.querySelector(".span-card")!;
+    shell.classList.remove("switches-disabled");
+
+    reload(connection);
+    await vi.waitFor(() => expect(mockDiscover).toHaveBeenCalledTimes(2));
+    await flush();
+
+    expect(card.shadowRoot!.querySelector(".panel-grid")).toBe(grid);
+    expect(shell.classList.contains("switches-disabled")).toBe(false);
+  });
+
+  it("re-renders a refresh whose topology changed", async () => {
+    const connection = new FakeConnection();
+    const card = await mount(connection);
+    const grid = card.shadowRoot!.querySelector(".panel-grid");
+    mockDiscover.mockImplementation(async () => ({ topology: topology(false), panelDevice: null, panelSize: 32 }));
+
+    reload(connection);
+    await vi.waitFor(() => expect(card.shadowRoot!.querySelector(".panel-grid")).not.toBe(grid));
+    expect(card.shadowRoot!.querySelector(".toggle-pill")).toBeNull();
+  });
+
   it("refreshes an admin's card from panel_topology in one attempt, and keeps its topology when that fails", async () => {
     const connection = new FakeConnection();
     const card = await mount(connection);
