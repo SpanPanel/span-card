@@ -8,11 +8,12 @@ import type { CardConfig, HomeAssistant, PanelTopology, SubDevice, SubDeviceEnti
  * The `solar` blocks the integration's topology handler actually sends, fed
  * through the renderer and the editor.
  *
- * The blocks for scenario A, for span#269's shape and for PV with no inverter
- * published are copied verbatim from the handler's output over a real
- * registry (illustrative serial `example-40t-001`). The pending block is the
- * shape the integration's tests pin: no inverter published, so no identity,
- * and the bound circuit C as its power.
+ * The blocks and entity lists of all four shapes are copied verbatim from the
+ * handler's output over a real registry (illustrative serial
+ * `example-40t-001`), with the entities in the sorted order it was printed in.
+ * The PV Panel Link is registered only where a link record was published: on
+ * the Solar device and the circuit-fed inverter in scenario A, and on the
+ * Solar device while pending.
  *
  * Each sub-device also carries the registry fields the wire sends beside the
  * block. The card does not type them, because it never reads them; they are
@@ -43,31 +44,44 @@ const hass = {
   language: "en",
 } as unknown as HomeAssistant;
 
-/** The Solar device's entities: PV Power, the metadata sensors and the panel link. */
-function solarEntities(): Record<string, SubDeviceEntityInfo> {
+/** The Solar device's entities: the panel link where one is registered, the metadata sensors and PV Power. */
+function solarEntities(withLink: boolean): Record<string, SubDeviceEntityInfo> {
+  const link: Record<string, SubDeviceEntityInfo> = withLink
+    ? { "binary_sensor.span_panel_solar_pv_panel_link": { domain: "binary_sensor", original_name: "PV Panel Link", unique_id: `span_${SERIAL}_pv_panel_link` } }
+    : {};
   return {
-    [SITE_TOTAL]: { domain: "sensor", original_name: "PV Power", unique_id: `span_${SERIAL}_pv_power` },
-    "sensor.span_panel_solar_pv_vendor": { domain: "sensor", original_name: "PV Vendor", unique_id: `span_${SERIAL}_pv_vendor` },
-    "sensor.span_panel_solar_pv_product": { domain: "sensor", original_name: "PV Product", unique_id: `span_${SERIAL}_pv_product` },
+    ...link,
     "sensor.span_panel_solar_pv_nameplate_capacity": {
       domain: "sensor",
       original_name: "PV Nameplate Capacity",
       unique_id: `span_${SERIAL}_pv_nameplate_capacity`,
     },
-    "binary_sensor.span_panel_solar_pv_panel_link": { domain: "binary_sensor", original_name: "PV Panel Link", unique_id: `span_${SERIAL}_pv_panel_link` },
+    [SITE_TOTAL]: { domain: "sensor", original_name: "PV Power", unique_id: `span_${SERIAL}_pv_power` },
+    "sensor.span_panel_solar_pv_product": { domain: "sensor", original_name: "PV Product", unique_id: `span_${SERIAL}_pv_product` },
+    "sensor.span_panel_solar_pv_vendor": { domain: "sensor", original_name: "PV Vendor", unique_id: `span_${SERIAL}_pv_vendor` },
   };
 }
 
-/** An inverter card's metadata sensors, whose unique ids embed its key (spec F8). */
-function inverterEntities(slug: string, key: string): Record<string, SubDeviceEntityInfo> {
+/** An inverter card's entities, whose unique ids embed its key (spec F8). It owns no power sensor. */
+function inverterEntities(slug: string, key: string, withLink: boolean): Record<string, SubDeviceEntityInfo> {
+  const link: Record<string, SubDeviceEntityInfo> = withLink
+    ? {
+        [`binary_sensor.${slug}_pv_panel_link`]: {
+          domain: "binary_sensor",
+          original_name: "PV Panel Link",
+          unique_id: `span_${SERIAL}_pv_${key}_pv_panel_link`,
+        },
+      }
+    : {};
   return {
-    [`sensor.${slug}_pv_vendor`]: { domain: "sensor", original_name: "PV Vendor", unique_id: `span_${SERIAL}_pv_${key}_pv_vendor` },
-    [`sensor.${slug}_pv_product`]: { domain: "sensor", original_name: "PV Product", unique_id: `span_${SERIAL}_pv_${key}_pv_product` },
+    ...link,
     [`sensor.${slug}_pv_nameplate_capacity`]: {
       domain: "sensor",
       original_name: "PV Nameplate Capacity",
       unique_id: `span_${SERIAL}_pv_${key}_pv_nameplate_capacity`,
     },
+    [`sensor.${slug}_pv_product`]: { domain: "sensor", original_name: "PV Product", unique_id: `span_${SERIAL}_pv_${key}_pv_product` },
+    [`sensor.${slug}_pv_vendor`]: { domain: "sensor", original_name: "PV Vendor", unique_id: `span_${SERIAL}_pv_${key}_pv_vendor` },
   };
 }
 
@@ -119,7 +133,7 @@ const SCENARIO_A: Record<string, WireSubDevice> = {
     model: "IQ8PLUS-72-2-US",
     serial_number: null,
     sw_version: null,
-    entities: inverterEntities("span_panel_solar_inverter_garage_solar", "5be1d2c3a4f5061728394a5b6c7d8e9f"),
+    entities: inverterEntities("span_panel_solar_inverter_garage_solar", "5be1d2c3a4f5061728394a5b6c7d8e9f", true),
     solar: A_INVERTER_BLOCK,
   },
   dev_solar: {
@@ -129,7 +143,7 @@ const SCENARIO_A: Record<string, WireSubDevice> = {
     model: "IQ8PLUS-72-2-US",
     serial_number: null,
     sw_version: null,
-    entities: solarEntities(),
+    entities: solarEntities(true),
     solar: A_SITE_BLOCK,
   },
 };
@@ -169,7 +183,7 @@ const SCENARIO_B: Record<string, WireSubDevice> = {
     model: "USE7600H-US",
     serial_number: null,
     sw_version: null,
-    entities: inverterEntities("span_panel_solar_inverter_2", "panel-use7600h-us-2"),
+    entities: inverterEntities("span_panel_solar_inverter_2", "panel-use7600h-us-2", false),
     solar: B_INVERTER_2_BLOCK,
   },
   dev_solar: {
@@ -179,7 +193,7 @@ const SCENARIO_B: Record<string, WireSubDevice> = {
     model: "Solar Inverter",
     serial_number: null,
     sw_version: null,
-    entities: solarEntities(),
+    entities: solarEntities(false),
     solar: B_SITE_BLOCK,
   },
   dev_inv_1: {
@@ -189,7 +203,7 @@ const SCENARIO_B: Record<string, WireSubDevice> = {
     model: "SE7600H-US",
     serial_number: null,
     sw_version: null,
-    entities: inverterEntities("span_panel_solar_inverter_1", "panel-se7600h-us-1"),
+    entities: inverterEntities("span_panel_solar_inverter_1", "panel-se7600h-us-1", false),
     solar: B_INVERTER_1_BLOCK,
   },
 };
@@ -216,7 +230,8 @@ const PENDING_BLOCK: SubDeviceSolar = {
   site_power_entity_id: "sensor.span_panel_solar_pv_power",
 };
 
-function soleSolar(block: SubDeviceSolar): Record<string, WireSubDevice> {
+/** The Solar device alone; its panel link is registered only once a link record was published (pending, not undecided). */
+function soleSolar(block: SubDeviceSolar, withLink: boolean): Record<string, WireSubDevice> {
   return {
     dev_solar: {
       name: "SPAN Panel Solar",
@@ -225,18 +240,19 @@ function soleSolar(block: SubDeviceSolar): Record<string, WireSubDevice> {
       model: "Solar Inverter",
       serial_number: null,
       sw_version: null,
-      entities: solarEntities(),
+      entities: solarEntities(withLink),
       solar: block,
     },
   };
 }
 
+/** The Solar device's editor options: everything but PV Power, which its tile draws. */
 const SOLAR_DEVICE_OPTIONS = [
-  { entityId: "sensor.span_panel_solar_pv_vendor", label: "PV Vendor" },
-  { entityId: "sensor.span_panel_solar_pv_product", label: "PV Product" },
   { entityId: "sensor.span_panel_solar_pv_nameplate_capacity", label: "PV Nameplate Capacity" },
-  { entityId: "binary_sensor.span_panel_solar_pv_panel_link", label: "PV Panel Link" },
+  { entityId: "sensor.span_panel_solar_pv_product", label: "PV Product" },
+  { entityId: "sensor.span_panel_solar_pv_vendor", label: "PV Vendor" },
 ];
+const SOLAR_DEVICE_OPTIONS_WITH_LINK = [{ entityId: "binary_sensor.span_panel_solar_pv_panel_link", label: "PV Panel Link" }, ...SOLAR_DEVICE_OPTIONS];
 
 describe("the integration's solar blocks, scenario A: two circuit-fed inverters", () => {
   const html = render(SCENARIO_A);
@@ -266,14 +282,15 @@ describe("the integration's solar blocks, scenario A: two circuit-fed inverters"
 
   it("offers each device's metadata in the editor, under its own heading, and never PV Power", () => {
     expect(subEntityGroups(SCENARIO_A, "pv")).toEqual([
-      { devId: "dev_solar", name: "SPAN Panel Solar", entities: SOLAR_DEVICE_OPTIONS },
+      { devId: "dev_solar", name: "SPAN Panel Solar", entities: SOLAR_DEVICE_OPTIONS_WITH_LINK },
       {
         devId: "dev_garage",
         name: "SPAN Panel Solar Inverter (Garage Solar)",
         entities: [
-          { entityId: "sensor.span_panel_solar_inverter_garage_solar_pv_vendor", label: "PV Vendor" },
-          { entityId: "sensor.span_panel_solar_inverter_garage_solar_pv_product", label: "PV Product" },
+          { entityId: "binary_sensor.span_panel_solar_inverter_garage_solar_pv_panel_link", label: "PV Panel Link" },
           { entityId: "sensor.span_panel_solar_inverter_garage_solar_pv_nameplate_capacity", label: "PV Nameplate Capacity" },
+          { entityId: "sensor.span_panel_solar_inverter_garage_solar_pv_product", label: "PV Product" },
+          { entityId: "sensor.span_panel_solar_inverter_garage_solar_pv_vendor", label: "PV Vendor" },
         ],
       },
     ]);
@@ -322,7 +339,7 @@ describe("the integration's solar blocks, span#269's shape: two upstream inverte
 });
 
 describe("the integration's solar blocks, PV commissioned with no inverter published", () => {
-  const html = render(soleSolar(NONE_PUBLISHED_BLOCK));
+  const html = render(soleSolar(NONE_PUBLISHED_BLOCK, false));
 
   it("labels the tile Solar, with no identity, and the captioned site total as its headline", () => {
     const site = tile(html, "dev_solar");
@@ -338,12 +355,14 @@ describe("the integration's solar blocks, PV commissioned with no inverter publi
   });
 
   it("offers the Solar device's metadata in the editor, and never PV Power", () => {
-    expect(subEntityGroups(soleSolar(NONE_PUBLISHED_BLOCK), "pv")).toEqual([{ devId: "dev_solar", name: "SPAN Panel Solar", entities: SOLAR_DEVICE_OPTIONS }]);
+    expect(subEntityGroups(soleSolar(NONE_PUBLISHED_BLOCK, false), "pv")).toEqual([
+      { devId: "dev_solar", name: "SPAN Panel Solar", entities: SOLAR_DEVICE_OPTIONS },
+    ]);
   });
 });
 
 describe("the integration's solar blocks, pending: bound to circuit C, no inverter published", () => {
-  const html = render(soleSolar(PENDING_BLOCK));
+  const html = render(soleSolar(PENDING_BLOCK, true));
 
   it("keeps the bound circuit as the headline, with no identity and the site total as a row", () => {
     const site = tile(html, "dev_solar");
@@ -357,6 +376,8 @@ describe("the integration's solar blocks, pending: bound to circuit C, no invert
   });
 
   it("offers the Solar device's metadata in the editor, and never PV Power or the bound circuit", () => {
-    expect(subEntityGroups(soleSolar(PENDING_BLOCK), "pv")).toEqual([{ devId: "dev_solar", name: "SPAN Panel Solar", entities: SOLAR_DEVICE_OPTIONS }]);
+    expect(subEntityGroups(soleSolar(PENDING_BLOCK, true), "pv")).toEqual([
+      { devId: "dev_solar", name: "SPAN Panel Solar", entities: SOLAR_DEVICE_OPTIONS_WITH_LINK },
+    ]);
   });
 });
