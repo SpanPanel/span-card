@@ -2,6 +2,11 @@
 
 ## 0.9.5
 
+### Added
+
+- **Each additional solar inverter has its own tile**, with its vendor, model, and the power and chart of the circuit that feeds it.
+- **The editor has a Solar section** for choosing which entities of the Solar device and of each inverter appear on their tiles.
+
 ### Fixed
 
 - **Favorites view blanks after `visibilitychange` restore** — Restored a `_recoverIfNeeded` helper on the panel's visibilitychange handler. It wraps
@@ -23,6 +28,7 @@
   before the device's.
 - **Stopped reading the deprecated `config_entries` device field** — Home Assistant 2026.8 gives each device a single owning entry, `config_entry_id`, and
   removes the `config_entries` list in 2027.8. The card, the dashboard page and the favorites controller now read `config_entry_id`.
+- **The editor lists the entities of every EV charger**, not only the last one.
 
 ### Changed
 
@@ -42,6 +48,7 @@
   trigger. The fold uses `display: contents` on `.circuit-header`, `.circuit-info`, `.circuit-controls`, and `.circuit-status` so the leaf elements can be
   placed directly via `grid-area` on the outer grid — name spans the full first row, the second row mirrors the list-row layout (badge, util, shed, status,
   power, gear), and `.chart-container` stays as a full-width third row.
+- **The Solar tile's headline and chart now show the power of the circuit that feeds its inverter**, with the site's total PV power in a row beneath it.
 
 ## 0.9.4
 

@@ -59,6 +59,7 @@ chart_metric: power
 show_panel: true
 show_battery: true
 show_evse: true
+show_solar: true
 ```
 
 ### Options
@@ -73,7 +74,14 @@ show_evse: true
 | `show_panel`           | boolean | `true`         | Show the panel circuits grid                                                      |
 | `show_battery`         | boolean | `true`         | Show battery (BESS) sub-device section                                            |
 | `show_evse`            | boolean | `true`         | Show EV charger (EVSE) sub-device section                                         |
+| `show_solar`           | boolean | `true`         | Show the Solar and solar inverter tiles                                           |
 | `visible_sub_entities` | object  | `{}`           | Map of entity IDs to booleans controlling which sub-device entities are displayed |
+
+### Solar and Inverter Tiles
+
+Each solar inverter has a tile with its vendor and model, and the power and chart of the circuit that feeds it. The Solar tile is the first inverter's tile,
+with the site's total PV power in a **Site total** row beneath it; on a single-inverter site the two numbers are usually close. An inverter that no panel
+circuit feeds shows its identity and that its output is included in the site total. The editor's Battery section now also offers Meter Power.
 
 ### Finding Your Device ID
 
