@@ -165,6 +165,12 @@ describe("a list row's status control and shedding marker", () => {
     return div;
   }
 
+  it("draws an operable pill while the switch reads on or off", () => {
+    const pill = row({ "switch.k": { state: "on" } }).querySelector(".toggle-pill")!;
+    expect(pill.classList.contains("toggle-on")).toBe(true);
+    expect(pill.classList.contains("toggle-unavailable")).toBe(false);
+  });
+
   it("draws an inert pill showing the relay state while the switch is unavailable", () => {
     const pill = row({ "switch.k": { state: "unavailable" }, "sensor.k_power": { state: "0", attributes: { relay_state: "OPEN" } } }).querySelector(
       ".toggle-pill"
