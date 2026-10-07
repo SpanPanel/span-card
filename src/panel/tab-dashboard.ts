@@ -9,7 +9,7 @@ import { DashboardController } from "../core/dashboard-controller.js";
 import { observeFold } from "../core/truncation-fold.js";
 import { CARD_STYLES } from "../card/card-styles.js";
 import "../core/side-panel.js";
-import type { HomeAssistant, CardConfig } from "../types.js";
+import type { HomeAssistant, CardConfig, PanelTopology } from "../types.js";
 
 export interface PanelFavoriteInfo {
   panelDeviceId: string;
@@ -53,7 +53,14 @@ export class DashboardTab {
     this._ctrl.setPanelFavorites(info);
   }
 
-  async render(container: HTMLElement, hass: HomeAssistant, deviceId: string, config: CardConfig, configEntryId?: string | null): Promise<void> {
+  /** Render the panel's grid; answers the topology it rendered, or null when it showed an error instead. */
+  async render(
+    container: HTMLElement,
+    hass: HomeAssistant,
+    deviceId: string,
+    config: CardConfig,
+    configEntryId?: string | null
+  ): Promise<PanelTopology | null> {
     this.stop();
     this._ctrl.reset();
     this._ctrl.showMonitoring = true;
@@ -67,7 +74,7 @@ export class DashboardTab {
       panelSize = result.panelSize;
     } catch (err) {
       container.innerHTML = `<p style="color:var(--error-color);">${escapeHtml(errorText(err))}</p>`;
-      return;
+      return null;
     }
 
     this._ctrl.init(topology, config, hass, configEntryId ?? null);
@@ -140,6 +147,7 @@ export class DashboardTab {
       nameSelector: ".circuit-name",
       foldClass: "is-folded",
     });
+    return topology;
   }
 
   stop(): void {

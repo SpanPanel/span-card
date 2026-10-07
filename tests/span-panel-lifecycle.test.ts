@@ -11,6 +11,7 @@ import { discoverTopology } from "../src/card/card-discovery.js";
 import { DashboardController } from "../src/core/dashboard-controller.js";
 import { ErrorStore } from "../src/core/error-store.js";
 import { FavoritesController } from "../src/core/favorites-controller.js";
+import { ListViewController } from "../src/core/list-view-controller.js";
 import { DashboardTab } from "../src/panel/tab-dashboard.js";
 import "../src/panel/span-panel.js";
 import { ENTITY_REGISTRY, ENTRY_RELOADS, FakeConnection, flush, hassWith } from "./fake-connection.js";
@@ -208,5 +209,52 @@ describe("span-panel subscriptions", () => {
     await flush();
 
     expect(connection.live(ENTITY_REGISTRY)).toBe(0);
+  });
+
+  /** Panel 1's topology with one circuit; `name` is structure, `relay` is live. */
+  function kitchenTopology(relay: string, name = "Kitchen"): Awaited<ReturnType<typeof discoverTopology>> {
+    return {
+      topology: {
+        circuits: { kitchen: { name, tabs: [1], entities: { power: "sensor.kitchen_power" }, relay_state: relay } },
+        panel_entities: { panel_status: statusOf("panel-1") },
+      } as unknown as PanelTopology,
+      panelDevice: null,
+      panelSize: 32,
+    };
+  }
+
+  async function onActivityTab(connection: FakeConnection): Promise<ReturnType<typeof vi.spyOn>> {
+    const panel = await mount(connection, () => expect(watch).toHaveBeenCalledWith(statusOf("panel-1")));
+    mockDiscover.mockImplementation(async () => kitchenTopology("CLOSED"));
+    const rendered = vi.spyOn(ListViewController.prototype, "renderActivityView");
+    (panel as unknown as { _activeTab: string })._activeTab = "activity";
+    await vi.waitFor(() => expect(rendered).toHaveBeenCalledTimes(1));
+    // The subscription's first batch only seeds.
+    connection.emit(ENTRY_RELOADS, loaded(1));
+    await flush();
+    return rendered;
+  }
+
+  it("re-fetches on a re-seed and leaves the view alone when only live fields changed", async () => {
+    const connection = new FakeConnection();
+    const rendered = await onActivityTab(connection);
+    const calls = mockDiscover.mock.calls.length;
+    mockDiscover.mockImplementation(async () => kitchenTopology("OPEN"));
+
+    connection.emit(ENTRY_RELOADS, loaded(1));
+    await vi.waitFor(() => expect(mockDiscover.mock.calls.length).toBe(calls + 1));
+    await flush();
+
+    expect(rendered).toHaveBeenCalledTimes(1);
+  });
+
+  it("re-renders on a re-seed when the topology's structure changed", async () => {
+    const connection = new FakeConnection();
+    const rendered = await onActivityTab(connection);
+    mockDiscover.mockImplementation(async () => kitchenTopology("CLOSED", "Garage"));
+
+    connection.emit(ENTRY_RELOADS, loaded(1));
+
+    await vi.waitFor(() => expect(rendered).toHaveBeenCalledTimes(2));
   });
 });
