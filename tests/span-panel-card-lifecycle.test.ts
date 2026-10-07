@@ -237,6 +237,39 @@ describe("span-panel-card subscriptions", () => {
     expect(card.shadowRoot!.querySelector(".toggle-pill")).toBeNull();
   });
 
+  it("adopts a refresh that changes only a breaker's relay state, without re-rendering or re-locking", async () => {
+    const connection = new FakeConnection();
+    const card = await mount(connection);
+    const grid = card.shadowRoot!.querySelector(".panel-grid");
+    const shell = card.shadowRoot!.querySelector(".span-card")!;
+    shell.classList.remove("switches-disabled");
+    const opened = topology(true);
+    opened.circuits.kitchen!.relay_state = "OPEN";
+    mockDiscover.mockImplementation(async () => ({ topology: opened, panelDevice: null, panelSize: 32 }));
+
+    reload(connection);
+    await vi.waitFor(() => expect(mockDiscover).toHaveBeenCalledTimes(2));
+    await flush();
+
+    expect(card.shadowRoot!.querySelector(".panel-grid")).toBe(grid);
+    expect(shell.classList.contains("switches-disabled")).toBe(false);
+    // The card's topology now carries it, as the relay's last-resort fallback.
+    expect((card as unknown as { _topology: PanelTopology })._topology.circuits.kitchen?.relay_state).toBe("OPEN");
+  });
+
+  it("re-renders a refresh that changes structure along with a relay state", async () => {
+    const connection = new FakeConnection();
+    const card = await mount(connection);
+    const grid = card.shadowRoot!.querySelector(".panel-grid");
+    const changed = topology(false);
+    changed.circuits.kitchen!.relay_state = "OPEN";
+    mockDiscover.mockImplementation(async () => ({ topology: changed, panelDevice: null, panelSize: 32 }));
+
+    reload(connection);
+    await vi.waitFor(() => expect(card.shadowRoot!.querySelector(".panel-grid")).not.toBe(grid));
+    expect(card.shadowRoot!.querySelector(".toggle-pill")).toBeNull();
+  });
+
   it("drops a refresh that straddles a setConfig to another panel", async () => {
     const connection = new FakeConnection();
     const card = await mount(connection);
