@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import type { HomeAssistant, PanelTopology } from "../src/types.js";
-import { resolveAndAssignAreas } from "../src/core/area-resolver.js";
+import { resolveAndAssignAreas, subscribeAreaUpdates } from "../src/core/area-resolver.js";
+import { ENTITY_REGISTRY, FakeConnection } from "./fake-connection.js";
 
 // A circuit with no area of its own takes the panel device's area. The panel is
 // found by the device topology names, because the id a card holds can be one
@@ -46,5 +47,51 @@ describe("resolveAndAssignAreas", () => {
     await resolveAndAssignAreas(hassWithPanelIn("Garage"), topology);
 
     expect(topology.circuits.kitchen?.area).toBe("Garage");
+  });
+});
+
+describe("subscribeAreaUpdates", () => {
+  function hassOn(connection: FakeConnection): HomeAssistant {
+    return { ...hassWithPanelIn("Garage"), connection } as unknown as HomeAssistant;
+  }
+
+  it("reads the topology once per registry event", async () => {
+    const connection = new FakeConnection();
+    const topology = topologyWith({ panel_device_id: CURRENT_ID });
+    const getTopology = vi.fn(() => topology);
+    await subscribeAreaUpdates(hassOn(connection), getTopology, () => {});
+
+    connection.emit(ENTITY_REGISTRY, {});
+
+    await vi.waitFor(() => expect(topology.circuits.kitchen?.area).toBe("Garage"));
+    expect(getTopology).toHaveBeenCalledTimes(1);
+  });
+
+  it("resolves against whichever topology is current when the event arrives", async () => {
+    const connection = new FakeConnection();
+    const first = topologyWith({ panel_device_id: CURRENT_ID });
+    const second = topologyWith({ panel_device_id: CURRENT_ID });
+    let current = first;
+    const changed = vi.fn();
+    await subscribeAreaUpdates(hassOn(connection), () => current, changed);
+
+    current = second;
+    connection.emit(ENTITY_REGISTRY, {});
+
+    await vi.waitFor(() => expect(changed).toHaveBeenCalledTimes(1));
+    expect(second.circuits.kitchen?.area).toBe("Garage");
+    expect(first.circuits.kitchen?.area).toBeUndefined();
+  });
+
+  it("does nothing while there is no topology", async () => {
+    const connection = new FakeConnection();
+    const changed = vi.fn();
+    const hass = hassOn(connection);
+    await subscribeAreaUpdates(hass, () => null, changed);
+
+    connection.emit(ENTITY_REGISTRY, {});
+    await Promise.resolve();
+
+    expect(changed).not.toHaveBeenCalled();
   });
 });

@@ -1,17 +1,16 @@
 // src/core/side-panel.ts
 import { escapeHtml } from "../helpers/sanitize.js";
 import { loadListColumns, saveListColumns } from "../helpers/list-columns.js";
-import { INTEGRATION_DOMAIN, SHEDDING_PRIORITIES, GRAPH_HORIZONS, DEFAULT_GRAPH_HORIZON, INPUT_DEBOUNCE_MS } from "../constants.js";
+import { INTEGRATION_DOMAIN, SHEDDING_PRIORITIES, SELECTABLE_PRIORITY_KEYS, GRAPH_HORIZONS, DEFAULT_GRAPH_HORIZON, INPUT_DEBOUNCE_MS } from "../constants.js";
 import { t } from "../i18n.js";
 import { addFavorite, removeFavorite } from "./favorites-store.js";
 import { sortedCircuitsForSection } from "./favorites-sections.js";
 import { subDeviceCharts } from "../helpers/sub-device-power.js";
 import { subDeviceFavoriteEntityId } from "../helpers/sub-device-settings.js";
+import { relayClosed, selectOperable, shedPriorityKey, switchPresence, type CircuitControlFields } from "./circuit-state.js";
 import type { SpanSwitch } from "./span-switch.js";
 import type { HomeAssistant, PanelTopology, GraphSettings, CircuitEntities, CircuitGraphOverride, MonitoringPointInfo } from "../types.js";
 import type { ErrorStore } from "./error-store.js";
-
-const PRIORITY_OPTIONS: string[] = Object.keys(SHEDDING_PRIORITIES).filter(k => k !== "unknown" && k !== "always_on");
 
 // ── Interfaces for config shapes passed to open() ────────────────────────
 
@@ -48,7 +47,7 @@ interface PanelModeConfig {
   configEntryId?: string | null;
 }
 
-interface CircuitModeConfig {
+export type CircuitModeConfig = CircuitControlFields & {
   panelMode?: undefined;
   subDeviceMode?: undefined;
   favoritesMode?: undefined;
@@ -57,9 +56,6 @@ interface CircuitModeConfig {
   tabs: number[];
   breaker_rating_a?: number;
   voltage?: number;
-  entities: CircuitEntities;
-  is_user_controllable?: boolean;
-  always_on?: boolean;
   monitoringInfo: MonitoringPointInfo | null;
   showMonitoring?: boolean;
   graphHorizonInfo: GraphHorizonInfo;
@@ -71,7 +67,7 @@ interface CircuitModeConfig {
   isFavorite?: boolean;
   /** Route domain service calls to this config entry (favorites view). */
   configEntryId?: string | null;
-}
+};
 
 interface SubDeviceModeConfig {
   panelMode?: undefined;
@@ -111,7 +107,7 @@ interface FavoritesModeConfig {
   perPanelSections: FavoritesPanelSection[];
 }
 
-type SidePanelConfig = PanelModeConfig | CircuitModeConfig | SubDeviceModeConfig | FavoritesModeConfig;
+export type SidePanelConfig = PanelModeConfig | CircuitModeConfig | SubDeviceModeConfig | FavoritesModeConfig;
 
 // ── Styles ────────────────────────────────────────────────────────────────
 
@@ -1161,7 +1157,7 @@ class SpanSidePanel extends HTMLElement {
   // ── Relay section ───────────────────────────────────────────────────
 
   private _renderRelaySection(body: HTMLDivElement, cfg: CircuitModeConfig): void {
-    if (cfg.is_user_controllable === false || !cfg.entities?.switch) return;
+    if (!this._hass || switchPresence(cfg, this._hass) === "none") return;
 
     const section = document.createElement("div");
     section.className = "section";
@@ -1177,13 +1173,13 @@ class SpanSidePanel extends HTMLElement {
     const toggle = document.createElement("span-switch");
     toggle.dataset.role = "relay-toggle";
     const entityId = cfg.entities.switch;
-    const currentState = this._hass?.states?.[entityId]?.state;
-    if (currentState === "on") {
-      toggle.setAttribute("checked", "");
-    }
+    this._applyRelayToggle(toggle, cfg);
 
     toggle.addEventListener("change", () => {
-      const isOn = toggle.hasAttribute("checked") || toggle.checked;
+      if (!this._hass || switchPresence(cfg, this._hass) !== "operable") return;
+      // The switch has already flipped `checked`; its attribute reflects only on
+      // Lit's next update, so it still reads the old state here.
+      const isOn = toggle.checked;
       this._callService("switch", isOn ? "turn_on" : "turn_off", { entity_id: entityId }).catch((err: Error) => {
         console.warn("SPAN Panel: relay toggle failed", err);
         this.errorStore?.add({
@@ -1220,15 +1216,13 @@ class SpanSidePanel extends HTMLElement {
     const selectEl = document.createElement("select");
     selectEl.dataset.role = "shedding-select";
     const entityId = cfg.entities.select;
-    const currentPriority = this._hass?.states?.[entityId]?.state || "";
 
-    for (const key of PRIORITY_OPTIONS) {
+    for (const key of SELECTABLE_PRIORITY_KEYS) {
       const priority = SHEDDING_PRIORITIES[key];
       if (!priority) continue;
       const opt = document.createElement("option");
       opt.value = key;
       opt.textContent = t(`shedding.select.${key}`) || priority.label();
-      if (key === currentPriority) opt.selected = true;
       selectEl.appendChild(opt);
     }
 
@@ -1248,6 +1242,9 @@ class SpanSidePanel extends HTMLElement {
     row.appendChild(selectEl);
     section.appendChild(row);
     body.appendChild(section);
+    // Once attached: happy-dom re-runs selectedness when the select is connected,
+    // which would choose the first option over an unknown priority.
+    this._applySheddingSelect(selectEl, cfg);
   }
 
   // ── Graph horizon section ──────────────────────────────────────────
@@ -1578,24 +1575,31 @@ class SpanSidePanel extends HTMLElement {
     // Update relay toggle
     if (cfg.entities?.switch) {
       const toggle = this.shadowRoot?.querySelector<SpanSwitch>('[data-role="relay-toggle"]');
-      if (toggle) {
-        const currentState = this._hass?.states?.[cfg.entities.switch]?.state;
-        if (currentState === "on") {
-          toggle.setAttribute("checked", "");
-        } else {
-          toggle.removeAttribute("checked");
-        }
-      }
+      if (toggle) this._applyRelayToggle(toggle, cfg);
     }
 
     // Update shedding select
     if (cfg.entities?.select) {
       const selectEl = this.shadowRoot?.querySelector<HTMLSelectElement>('[data-role="shedding-select"]');
-      if (selectEl) {
-        const currentPriority = this._hass?.states?.[cfg.entities.select]?.state || "";
-        selectEl.value = currentPriority;
-      }
+      if (selectEl) this._applySheddingSelect(selectEl, cfg);
     }
+  }
+
+  /** The relay switch shows the relay state; it is disabled while Home Assistant reports it unavailable. */
+  private _applyRelayToggle(toggle: SpanSwitch, cfg: CircuitModeConfig): void {
+    if (!this._hass) return;
+    toggle.disabled = switchPresence(cfg, this._hass) !== "operable";
+    if (relayClosed(cfg, this._hass)) toggle.setAttribute("checked", "");
+    else toggle.removeAttribute("checked");
+  }
+
+  /** The select shows the last known priority, or none chosen when it is unknown, and is disabled unless operable. */
+  private _applySheddingSelect(selectEl: HTMLSelectElement, cfg: CircuitModeConfig): void {
+    if (!this._hass) return;
+    const key = shedPriorityKey(cfg, this._hass);
+    if (SELECTABLE_PRIORITY_KEYS.includes(key)) selectEl.value = key;
+    else selectEl.selectedIndex = -1;
+    selectEl.disabled = !selectOperable(cfg, this._hass);
   }
 
   // ── Service calls ───────────────────────────────────────────────────

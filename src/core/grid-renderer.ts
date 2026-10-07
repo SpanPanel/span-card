@@ -3,10 +3,11 @@ import { formatPowerSigned, formatPowerUnit } from "../helpers/format.js";
 import { t } from "../i18n.js";
 import { tabToRow, tabToCol, classifyDualTab } from "../helpers/layout.js";
 import { getChartMetric } from "../helpers/chart.js";
-import { DEVICE_TYPE_PV, RELAY_STATE_CLOSED, SHEDDING_PRIORITIES } from "../constants.js";
+import { DEVICE_TYPE_PV } from "../constants.js";
 import { getCircuitMonitoringInfo } from "./monitoring-status.js";
-import { getCircuitStateClasses } from "./circuit-state.js";
-import type { PanelTopology, Circuit, HomeAssistant, CardConfig, MonitoringStatus, MonitoringPointInfo, SheddingPriorityDef } from "../types.js";
+import { getCircuitStateClasses, relayClosed, shedPriorityKey, switchPresence } from "./circuit-state.js";
+import { buildSheddingIconHTML, buildTogglePillHTML } from "./circuit-controls.js";
+import type { PanelTopology, Circuit, HomeAssistant, CardConfig, MonitoringStatus, MonitoringPointInfo } from "../types.js";
 
 type SlotLayout = "single" | "row-span" | "col-span";
 
@@ -58,13 +59,7 @@ export function buildGridHTML(
   } {
     const circuitEntityId = entry.circuit.entities?.current ?? entry.circuit.entities?.power;
     const monInfo = monitoringStatus ? getCircuitMonitoringInfo(monitoringStatus, circuitEntityId ?? "") : null;
-    let sheddingPriority: string;
-    if (entry.circuit.always_on) {
-      sheddingPriority = "always_on";
-    } else {
-      const selectEid = entry.circuit.entities?.select;
-      sheddingPriority = selectEid && hass.states[selectEid] ? hass.states[selectEid].state : "unknown";
-    }
+    const sheddingPriority = shedPriorityKey(entry.circuit, hass);
     return { monInfo, sheddingPriority };
   }
 
@@ -127,11 +122,8 @@ export function renderCircuitSlot(
   const powerW = state ? parseFloat(state.state) || 0 : 0;
   const isProducer = circuit.device_type === DEVICE_TYPE_PV || powerW < 0;
 
-  const switchEntityId = circuit.entities?.switch;
-  const switchState = switchEntityId ? hass.states[switchEntityId] : null;
-  const isOn = switchState
-    ? switchState.state === "on"
-    : ((state?.attributes?.relay_state as string | undefined) || circuit.relay_state) === RELAY_STATE_CLOSED;
+  const isOn = relayClosed(circuit, hass);
+  const presence = switchPresence(circuit, hass);
 
   const breakerAmps = circuit.breaker_rating_a;
   const breakerLabel = breakerAmps ? `${Math.round(breakerAmps)}A` : "";
@@ -149,37 +141,7 @@ export function renderCircuitSlot(
     valueHTML = `<strong>${formatPowerSigned(powerW)}</strong><span class="power-unit">${formatPowerUnit(powerW)}</span>`;
   }
 
-  // Shedding icon (supports composite: dual-icon or icon+text)
-  // Hidden for "unknown" priority (e.g. PV systems with no shedding select entity)
-  const priority = sheddingPriority || "unknown";
-  let sheddingHTML = "";
-  if (priority !== "unknown") {
-    const shedInfo: SheddingPriorityDef = SHEDDING_PRIORITIES[priority] ??
-      SHEDDING_PRIORITIES.unknown ?? { icon: "mdi:help", color: "#999", label: () => "Unknown" };
-    // Escape every value that ends up inside an attribute. ``label()``
-    // resolves through i18n so future translations may contain quotes,
-    // and inline-style injection breaks on a stray ``"`` or ``;``.
-    const safeLabel = escapeHtml(shedInfo.label());
-    const safeIcon = escapeHtml(shedInfo.icon);
-    const safeColor = escapeHtml(shedInfo.color);
-    if (shedInfo.icon2) {
-      const safeIcon2 = escapeHtml(shedInfo.icon2);
-      sheddingHTML = `<span class="shedding-composite" title="${safeLabel}">
-        <span-icon class="shedding-icon" icon="${safeIcon}" style="color:${safeColor};--mdc-icon-size:16px;"></span-icon>
-        <span-icon class="shedding-icon-secondary" icon="${safeIcon2}" style="color:${safeColor};--mdc-icon-size:14px;"></span-icon>
-      </span>`;
-    } else if (shedInfo.textLabel) {
-      const safeTextLabel = escapeHtml(shedInfo.textLabel);
-      sheddingHTML = `<span class="shedding-composite" title="${safeLabel}">
-        <span-icon class="shedding-icon" icon="${safeIcon}" style="color:${safeColor};--mdc-icon-size:16px;"></span-icon>
-        <span class="shedding-label" style="color:${safeColor}">${safeTextLabel}</span>
-      </span>`;
-    } else {
-      sheddingHTML = `<span-icon class="shedding-icon" icon="${safeIcon}"
-        style="color:${safeColor};--mdc-icon-size:16px;"
-        title="${safeLabel}"></span-icon>`;
-    }
-  }
+  const sheddingHTML = buildSheddingIconHTML(sheddingPriority || "unknown");
 
   // Gear icon
   const gearHTML = `<button class="gear-icon circuit-gear"
@@ -222,16 +184,7 @@ export function renderCircuitSlot(
           <span class="power-value">
             ${valueHTML}
           </span>
-          ${
-            circuit.is_user_controllable !== false && circuit.entities?.switch
-              ? `
-            <div class="toggle-pill ${isOn ? "toggle-on" : "toggle-off"}">
-              <span class="toggle-label">${isOn ? t("grid.on") : t("grid.off")}</span>
-              <span class="toggle-knob"></span>
-            </div>
-          `
-              : ""
-          }
+          ${buildTogglePillHTML(isOn, presence)}
         </div>
       </div>
       <div class="circuit-status">

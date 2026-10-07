@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildExpandedChartHTML } from "../src/core/list-renderer.js";
+import { buildExpandedChartHTML, buildListRowHTML } from "../src/core/list-renderer.js";
 import type { Circuit, HomeAssistant, CardConfig } from "../src/types.js";
 
 const mockHass = {
@@ -69,8 +69,6 @@ describe("buildExpandedChartHTML", () => {
   });
 });
 
-import { buildListRowHTML } from "../src/core/list-renderer.js";
-
 const controllableCircuit = {
   name: "Kitchen",
   tabs: [1],
@@ -139,5 +137,57 @@ describe("buildListRowHTML gear and status control", () => {
     const attrs = rowMatch?.[1] ?? "";
     expect(attrs).toContain('data-uuid="uuid-42"');
     expect(attrs).toContain('data-row-uuid="uuid-42"');
+  });
+});
+
+function hassWith(states: Record<string, { state: string; attributes?: Record<string, unknown> }>): HomeAssistant {
+  const full = Object.fromEntries(
+    Object.entries(states).map(([entity_id, s]) => [
+      entity_id,
+      { entity_id, state: s.state, attributes: s.attributes ?? {}, last_changed: "", last_updated: "" },
+    ])
+  );
+  return { states: full, services: {}, language: "en" } as unknown as HomeAssistant;
+}
+
+describe("a list row's status control and shedding marker", () => {
+  const circuit = {
+    name: "Kitchen",
+    tabs: [1],
+    relay_state: "CLOSED",
+    is_user_controllable: true,
+    entities: { switch: "switch.k", power: "sensor.k_power", select: "select.k" },
+  } as unknown as Circuit;
+
+  function row(states: Record<string, { state: string; attributes?: Record<string, unknown> }>, priority = "unknown"): HTMLElement {
+    const div = document.createElement("div");
+    div.innerHTML = buildListRowHTML("k", circuit, hassWith(states), mockConfig, null, priority, false);
+    return div;
+  }
+
+  it("draws an operable pill while the switch reads on or off", () => {
+    const pill = row({ "switch.k": { state: "on" } }).querySelector(".toggle-pill")!;
+    expect(pill.classList.contains("toggle-on")).toBe(true);
+    expect(pill.classList.contains("toggle-unavailable")).toBe(false);
+  });
+
+  it("draws an inert pill showing the relay state while the switch is unavailable", () => {
+    const pill = row({ "switch.k": { state: "unavailable" }, "sensor.k_power": { state: "0", attributes: { relay_state: "OPEN" } } }).querySelector(
+      ".toggle-pill"
+    )!;
+    expect(pill.classList.contains("toggle-off")).toBe(true);
+    expect(pill.classList.contains("toggle-unavailable")).toBe(true);
+  });
+
+  it("keeps the static badge when there is no switch", () => {
+    const el = row({ "sensor.k_power": { state: "0" } });
+    expect(el.querySelector(".toggle-pill")).toBeNull();
+    expect(el.querySelector(".list-status-badge")).not.toBeNull();
+  });
+
+  it("emits the shedding marker hidden when the priority is unknown", () => {
+    const marker = row({ "switch.k": { state: "on" } }).querySelector<HTMLElement>(".shedding-composite");
+    expect(marker).not.toBeNull();
+    expect(marker!.style.display).toBe("none");
   });
 });

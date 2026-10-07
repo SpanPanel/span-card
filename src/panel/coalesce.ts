@@ -47,6 +47,23 @@ export function coalesceRuns(work: () => Promise<void>): () => Promise<void> {
 }
 
 /**
+ * Returns a trigger that collapses every call made in one synchronous run into
+ * a single call of `work` on the next microtask. A re-seed reports each loaded
+ * entry in one loop; this turns those into one request.
+ */
+export function batchCalls(work: () => void): () => void {
+  let pending = false;
+  return () => {
+    if (pending) return;
+    pending = true;
+    void Promise.resolve().then(() => {
+      pending = false;
+      work();
+    });
+  };
+}
+
+/**
  * Returns a pair ``[beginRun, superseded]``.
  *
  * ``beginRun()`` increments an internal monotonic counter and returns

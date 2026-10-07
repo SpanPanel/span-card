@@ -94,7 +94,14 @@ interface FakeHass extends HomeAssistant {
   calls: Record<string, unknown>[];
 }
 
-function makeHass(options: { disabledBy?: string | null; failCurate?: string; warnings?: string[] } = {}): FakeHass {
+function makeHass(
+  options: {
+    disabledBy?: string | null;
+    failCurate?: string;
+    warnings?: string[];
+    list?: (deviceId: string) => AdoptedListResponse | Promise<AdoptedListResponse>;
+  } = {}
+): FakeHass {
   const calls: Record<string, unknown>[] = [];
   const hass = {
     calls,
@@ -107,7 +114,7 @@ function makeHass(options: { disabledBy?: string | null; failCurate?: string; wa
       calls.push(msg);
       switch (msg.type) {
         case "span_panel/adopted/list":
-          return listResponse() as T;
+          return (await (options.list ?? listResponse)(String(msg.device_id))) as T;
         case "config/entity_registry/get":
           return {
             entity_id: msg.entity_id,
@@ -586,6 +593,80 @@ describe("AdoptedTab", () => {
       expect(writes(hass)).toEqual([]);
       expect(container.textContent).toContain("Confirm statistics class");
       tab.stop();
+    });
+  });
+
+  describe("a refresh after an entry reload", () => {
+    function nameField(): HTMLInputElement | null {
+      return container.querySelector<HTMLInputElement>('input[data-field="name"]');
+    }
+
+    it("leaves the field being typed in alone while the rows are unchanged", async () => {
+      await tab.render(container, makeHass(), "panel-device-1");
+      await expand(container, VOLTAGE_KEY);
+      type(container, "name", "Cell V");
+      const field = nameField();
+
+      await tab.refresh();
+
+      expect(nameField()).toBe(field);
+      expect(field?.value).toBe("Cell V");
+    });
+
+    it("repaints changed rows and keeps the open editor's unsaved name", async () => {
+      let list = listResponse();
+      await tab.render(container, makeHass({ list: () => list }), "panel-device-1");
+      await expand(container, VOLTAGE_KEY);
+      type(container, "name", "Cell V");
+      list = listResponse();
+      list.devices[1]!.name = "Standby Generator";
+
+      await tab.refresh();
+
+      expect(container.textContent).toContain("Standby Generator");
+      expect(nameField()?.value).toBe("Cell V");
+    });
+
+    it("clears a load error once the rows load, even when there are none", async () => {
+      let refused = true;
+      const list = (): AdoptedListResponse => {
+        if (refused) throw new Error("Config entry is reloading");
+        return { devices: [] };
+      };
+      await tab.render(container, makeHass({ list }), "panel-device-1");
+      expect(container.textContent).toContain("Config entry is reloading");
+      refused = false;
+
+      await tab.refresh();
+
+      expect(container.textContent).not.toContain("Config entry is reloading");
+    });
+
+    it("drops a refresh that resolves after a switch to another panel", async () => {
+      const second: AdoptedListResponse = {
+        devices: [{ device_id: "dev-second", name: "Second Panel Meter", adopted_device: false, rows: [row({ key: "second/meter", name: "Meter" })] }],
+      };
+      let hold = false;
+      let release: () => void = () => {};
+      const list = (deviceId: string): AdoptedListResponse | Promise<AdoptedListResponse> => {
+        if (deviceId !== "panel-device-1") return second;
+        if (!hold) return listResponse();
+        return new Promise(resolve => (release = () => resolve(listResponse())));
+      };
+      const hass = makeHass({ list });
+      await tab.render(container, hass, "panel-device-1");
+      hold = true;
+
+      const refreshing = tab.refresh();
+      await tab.render(container, hass, "panel-device-2");
+      release();
+      await refreshing;
+      // A filter keystroke repaints from the rows the tab holds.
+      const filter = container.querySelector<HTMLInputElement>("#adopted-filter")!;
+      filter.dispatchEvent(new Event("input", { bubbles: true }));
+
+      expect(container.textContent).toContain("Second Panel Meter");
+      expect(container.textContent).not.toContain("Backup Generator");
     });
   });
 });

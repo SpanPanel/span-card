@@ -16,16 +16,19 @@ import { ListViewController, type FavoritesViewStateDetail } from "../core/list-
 import { DashboardController } from "../core/dashboard-controller.js";
 import { buildTabBarHTML } from "../core/tab-bar-renderer.js";
 import { subscribeAreaUpdates } from "../core/area-resolver.js";
+import { subscribeEntryReloads } from "../core/entry-reload.js";
+import { sameTopologyStructure } from "../core/topology-structure.js";
 import { discoverTopology } from "../card/card-discovery.js";
 import { RetryManager } from "../core/retry-manager.js";
 import { buildHeaderHTML, buildPanelStatsHTML } from "../core/header-renderer.js";
 import { updatePanelStatsBlock } from "../core/dom-updater.js";
 import { buildSubDevicesHTML } from "../core/sub-device-renderer.js";
 import { escapeHtml } from "../helpers/sanitize.js";
+import { errorText } from "../helpers/error-text.js";
 import { loadListColumns, saveListColumns } from "../helpers/list-columns.js";
 import { attrSelectorValue } from "../helpers/selector.js";
 import { CARD_STYLES } from "../card/card-styles.js";
-import { FAVORITES_CHANGED_EVENT, FavoritesCache, hasAnyFavorites } from "../core/favorites-store.js";
+import { FAVORITES_CHANGED_EVENT, FavoritesCache, hasAnyFavorites, panelHasFavorites } from "../core/favorites-store.js";
 import { FavoritesController, type FavoritesPanelStatsInfo } from "../core/favorites-controller.js";
 import {
   clearFavoritesViewState,
@@ -35,9 +38,9 @@ import {
   type FavoritesViewState,
 } from "./favorites-view-state.js";
 import { buildFavoritesSummaryHTML } from "./favorites-summary.js";
-import { coalesceRuns, makeRenderToken } from "./coalesce.js";
+import { batchCalls, coalesceRuns, makeRenderToken } from "./coalesce.js";
 import type { FavoritesPanelInfo } from "../core/favorites-sections.js";
-import type { CardConfig, FavoritesMap, FavoritesTopology, HomeAssistant, PanelDevice } from "../types.js";
+import type { CardConfig, FavoritesMap, FavoritesTopology, HomeAssistant, PanelDevice, PanelTopology } from "../types.js";
 
 const FAVORITES_PANEL_ID = "favorites";
 
@@ -100,9 +103,28 @@ export class SpanPanelElement extends LitElement {
    * state or scheduling another tab render.
    */
   private _refreshSeq = 0;
-  private _areaUnsub: (() => void) | null = null;
-  /** Cleared on disconnect to tell a pending subscribe to self-cancel. */
-  private _areaSubscribing = false;
+  /** Held as the promise it was handed and unsubscribed through it, like `_deviceRegistryUnsub`. */
+  private _areaSub: Promise<() => void> | null = null;
+  /** The topology the area tab last rendered; the area subscription reads it through a getter. */
+  private _areaTopology: PanelTopology | null = null;
+  private _reloadSub: Promise<() => Promise<void>> | null = null;
+  /**
+   * The topology the current view rendered, by panel device id. An entry reload
+   * re-renders the view only when its panel's topology changed structure since.
+   * The Monitoring tab records one fetched beside it; the Adopted tab records
+   * none, because a reload refreshes its rows instead.
+   */
+  private readonly _renderedTopologies = new Map<string, PanelTopology>();
+  /** What the favorites view last passed to `watchPanelStatuses`, re-applied on re-attach. */
+  private _favoritesWatchEntries: { entityId: string; panelName: string }[] = [];
+  private readonly _panelsRefresh = coalesceRuns(() => this._refreshPanels());
+  /** A re-seed reports every loaded panel in one loop; these collapse it to one request each. */
+  private readonly _requestPanelsRefresh = batchCalls(() => {
+    void this._panelsRefresh();
+  });
+  private readonly _requestTabRender = batchCalls(() => {
+    void this._scheduleTabRender();
+  });
   private _onFavoritesChanged: (() => void) | null = null;
   private _deviceRegistryUnsub: Promise<() => void> | null = null;
   /**
@@ -247,6 +269,13 @@ export class SpanPanelElement extends LitElement {
     document.addEventListener(FAVORITES_CHANGED_EVENT, this._onFavoritesChanged);
 
     this._subscribeDeviceRegistry();
+    this._subscribeEntryReloads();
+    // `disconnectedCallback` disposed the error store, and nothing else re-watches:
+    // `_updatePanelStatusWatch` runs only when the selected panel changes.
+    if (this._discovered) {
+      this._reapplyPanelStatusWatch();
+      if (this._activeTab === "area" && !this._isFavoritesView) this._subscribeAreaTab();
+    }
   }
 
   disconnectedCallback(): void {
@@ -257,16 +286,14 @@ export class SpanPanelElement extends LitElement {
     this._listDashCtrl.stopIntervals();
     for (const tab of this._favoritesMonitoringTabs.values()) tab.stop();
     this._favoritesMonitoringTabs.clear();
-    this._areaSubscribing = false;
-    if (this._areaUnsub) {
-      this._areaUnsub();
-      this._areaUnsub = null;
-    }
+    this._unsubscribeAreaTab();
     if (this._onFavoritesChanged) {
       document.removeEventListener(FAVORITES_CHANGED_EVENT, this._onFavoritesChanged);
       this._onFavoritesChanged = null;
     }
     this._unsubscribeDeviceRegistry();
+    this._unsubscribeEntryReloads();
+    this._watchedPanelId = null;
     if (this._persistFavoritesViewStateTimer) {
       clearTimeout(this._persistFavoritesViewStateTimer);
       this._persistFavoritesViewStateTimer = null;
@@ -297,6 +324,7 @@ export class SpanPanelElement extends LitElement {
 
       if (!oldHass && this.hass) {
         this._subscribeDeviceRegistry();
+        this._subscribeEntryReloads();
       }
     }
 
@@ -449,11 +477,8 @@ export class SpanPanelElement extends LitElement {
     if (this._isFavoritesView && isPanelOnlyTab(this._activeTab)) {
       this._activeTab = "activity";
     }
-    this._areaSubscribing = false;
-    if (this._areaUnsub) {
-      this._areaUnsub();
-      this._areaUnsub = null;
-    }
+    this._unsubscribeAreaTab();
+    this._areaTopology = null;
     // Reactive updated() handles the re-render via _selectedPanelId
     // (and possibly _activeTab) changes.
   }
@@ -592,6 +617,133 @@ export class SpanPanelElement extends LitElement {
       this._deviceRegistryUnsub.then(unsub => unsub());
       this._deviceRegistryUnsub = null;
     }
+  }
+
+  /** Subscribe once to config-entry reloads of every SPAN panel; entries a later `_refreshPanels` adds are accepted too. */
+  private _subscribeEntryReloads(): void {
+    if (this._reloadSub || !this.hass?.connection) return;
+    this._reloadSub = subscribeEntryReloads(
+      this.hass,
+      entry => entry.domain === INTEGRATION_DOMAIN,
+      entryId => this._onEntryLoaded(entryId),
+      { initialIsReseed: this._discovered }
+    ).catch((err: unknown): (() => Promise<void>) => {
+      console.warn("SPAN Panel: config entry subscription failed", err);
+      return async () => {};
+    });
+  }
+
+  private _unsubscribeEntryReloads(): void {
+    const sub = this._reloadSub;
+    this._reloadSub = null;
+    void sub?.then(unsubscribe => unsubscribe());
+  }
+
+  /**
+   * A panel's entry finished loading, so its controls may have changed. A panel
+   * the view shows -- the selected one, or any in the favorites view -- is
+   * checked for a change of structure; any other panel may have been added or
+   * renamed.
+   */
+  private _onEntryLoaded(entryId: string): void {
+    const panel = this._panels.find(p => p.id !== FAVORITES_PANEL_ID && p.config_entry_id === entryId);
+    if (!this._isFavoritesView && (!panel || panel.id !== this._selectedPanelId)) {
+      this._requestPanelsRefresh();
+      return;
+    }
+    if (!panel) {
+      this._requestTabRender();
+      return;
+    }
+    if (this._isFavoritesView && !this._renderedTopologies.has(panel.id) && !panelHasFavorites(this._favorites, panel.id)) {
+      // Not shown here. A panel with favorites and no baseline is a fetch that
+      // failed when the view was built, and may succeed now, so it rebuilds.
+      return;
+    }
+    if (!this._isFavoritesView && this._activeTab === "adopted") {
+      // The rows it renders are its own, not the topology's; an open editor
+      // keeps what the user typed.
+      void this._adoptedTab.refresh();
+      return;
+    }
+    void this._renderIfRestructured(panel.id);
+  }
+
+  /**
+   * Re-render the view only when the panel's topology changed structure since
+   * the view rendered it. Most reloads, every re-seed after a re-attach or a
+   * Home Assistant restart among them, change nothing, and a re-render reloads
+   * history and re-locks the switches. A breaker or priority change is not
+   * structure. A view that rendered no topology for the panel re-renders; a
+   * failed fetch keeps the view and is only logged.
+   */
+  private async _renderIfRestructured(panelId: string): Promise<void> {
+    const rendered = this._renderedTopologies.get(panelId);
+    if (!rendered || !this.hass) {
+      this._requestTabRender();
+      return;
+    }
+    let topology: PanelTopology | null;
+    try {
+      ({ topology } = await discoverTopology(this.hass, panelId, null));
+    } catch (err) {
+      console.warn("SPAN Panel: topology refresh failed; keeping the current view:", errorText(err));
+      return;
+    }
+    // The view re-rendered meanwhile, from a topology at least as new.
+    if (this._renderedTopologies.get(panelId) !== rendered) return;
+    if (topology && sameTopologyStructure(topology, rendered)) return;
+    this._requestTabRender();
+  }
+
+  /** The selected panel's topology in one attempt, or null when it cannot be had; for a view that renders none. */
+  private async _fetchBaselineTopology(): Promise<PanelTopology | null> {
+    if (!this.hass || !this._selectedPanelId) return null;
+    try {
+      return (await discoverTopology(this.hass, this._selectedPanelId, null)).topology;
+    } catch (err) {
+      console.warn("SPAN Panel: no topology baseline for this view:", errorText(err));
+      return null;
+    }
+  }
+
+  /** Remember the topology the selected panel's view rendered. */
+  private _recordRenderedTopology(topology: PanelTopology | null): void {
+    if (topology && this._selectedPanelId) this._renderedTopologies.set(this._selectedPanelId, topology);
+  }
+
+  /** Re-apply the panel-status watch after a re-attach. */
+  private _reapplyPanelStatusWatch(): void {
+    if (this._isFavoritesView) {
+      // The favorites tab is not re-rendered on re-attach: `#tab-content` survives.
+      this._errorStore.watchPanelStatuses(this._favoritesWatchEntries);
+      if (this.hass) this._errorStore.updateHass(this.hass);
+      return;
+    }
+    void this._updatePanelStatusWatch();
+  }
+
+  /** One area subscription per attachment, reading whichever topology the area tab rendered last. */
+  private _subscribeAreaTab(): void {
+    if (this._areaSub || !this.hass) return;
+    this._areaSub = subscribeAreaUpdates(
+      this.hass,
+      () => this._areaTopology,
+      () => {
+        if (this._activeTab === "area") void this._scheduleTabRender();
+      },
+      this._errorStore
+    ).catch((err: unknown): (() => void) => {
+      console.warn("SPAN Panel: area subscription failed", err);
+      this._errorStore.add({ key: "subscribe:area", level: "warning", message: t("error.areas_failed"), persistent: false });
+      return () => {};
+    });
+  }
+
+  private _unsubscribeAreaTab(): void {
+    const sub = this._areaSub;
+    this._areaSub = null;
+    void sub?.then(unsubscribe => unsubscribe());
   }
 
   private async _refreshPanels(): Promise<void> {
@@ -924,6 +1076,7 @@ export class SpanPanelElement extends LitElement {
     for (const tab of this._favoritesMonitoringTabs.values()) tab.stop();
     this._favoritesMonitoringTabs.clear();
     this._favoritesPanelStats = [];
+    this._renderedTopologies.clear();
 
     const container = this._root.getElementById("tab-content");
     if (!container) return;
@@ -943,7 +1096,8 @@ export class SpanPanelElement extends LitElement {
         const config = this._buildDashboardConfig();
         const dashDevice = this._panels.find(p => p.id === this._selectedPanelId);
         const dashEntryId = dashDevice?.config_entry_id ?? null;
-        await this._dashboardTab.render(container, this.hass, this._selectedPanelId ?? "", config, dashEntryId);
+        const rendered = await this._dashboardTab.render(container, this.hass, this._selectedPanelId ?? "", config, dashEntryId);
+        if (!superseded()) this._recordRenderedTopology(rendered);
         break;
       }
       case "activity": {
@@ -972,11 +1126,12 @@ export class SpanPanelElement extends LitElement {
           if (superseded()) return;
           this._listDashCtrl.updateDOM(container);
           this._listDashCtrl.startIntervals(container);
+          this._recordRenderedTopology(result.topology);
         } catch (err) {
           if (superseded()) return;
           const errEl = document.createElement("p");
           errEl.style.color = "var(--error-color)";
-          errEl.textContent = (err as Error).message;
+          errEl.textContent = errorText(err);
           container.appendChild(errEl);
         }
         break;
@@ -1003,44 +1158,16 @@ export class SpanPanelElement extends LitElement {
           if (superseded()) return;
           this._listDashCtrl.updateDOM(container);
           this._listDashCtrl.startIntervals(container);
+          this._recordRenderedTopology(result.topology);
 
-          if (!this._areaUnsub && !this._areaSubscribing) {
-            this._areaSubscribing = true;
-            subscribeAreaUpdates(
-              this.hass,
-              result.topology!,
-              () => {
-                if (this._activeTab === "area") {
-                  this._scheduleTabRender();
-                }
-              },
-              this._errorStore
-            )
-              .then(unsub => {
-                if (this._areaSubscribing) {
-                  this._areaUnsub = unsub;
-                } else {
-                  // Element disconnected or panel changed while
-                  // subscribing — unsubscribe immediately so we don't
-                  // leak the subscription.
-                  unsub();
-                }
-              })
-              .catch((err: unknown) => {
-                this._areaSubscribing = false;
-                console.warn("SPAN Panel: area subscription failed", err);
-                this._errorStore.add({
-                  key: "subscribe:area",
-                  level: "warning",
-                  message: t("error.areas_failed"),
-                  persistent: false,
-                });
-              });
-          }
+          this._areaTopology = result.topology;
+          // An element detached during the awaits above subscribes nothing;
+          // `connectedCallback` subscribes when it returns.
+          if (this.isConnected) this._subscribeAreaTab();
         } catch (err) {
           const errEl = document.createElement("p");
           errEl.style.color = "var(--error-color)";
-          errEl.textContent = err instanceof Error ? err.message : String(err);
+          errEl.textContent = errorText(err);
           container.appendChild(errEl);
         }
         break;
@@ -1049,8 +1176,12 @@ export class SpanPanelElement extends LitElement {
         container.innerHTML = "";
         const monDevice = this._panels.find(p => p.id === this._selectedPanelId);
         const monEntryId = monDevice?.config_entry_id ?? null;
-        // Monitoring is a pure configuration view — no panel-stats header.
-        await this._monitoringTab.render(container, this.hass, monEntryId ?? undefined);
+        // Monitoring is a pure configuration view — no panel-stats header. It
+        // renders no topology, but one is fetched beside it as the baseline an
+        // entry reload compares against, so a reload that changed nothing
+        // keeps a threshold the user has not saved yet.
+        const [, baseline] = await Promise.all([this._monitoringTab.render(container, this.hass, monEntryId ?? undefined), this._fetchBaselineTopology()]);
+        if (!superseded()) this._recordRenderedTopology(baseline);
         break;
       }
       case "adopted": {
@@ -1076,6 +1207,7 @@ export class SpanPanelElement extends LitElement {
     const realPanels = this._panels.filter(p => p.id !== FAVORITES_PANEL_ID);
     const build = await this._favCtrl.build(this.hass, this._favorites, realPanels, this._errorStore);
     if (superseded()) return;
+    for (const p of build.perPanelStats) this._renderedTopologies.set(p.panelDeviceId, p.topology);
 
     // Drive the offline-banner watch for every contributing panel whose
     // topology resolved. Each row in <span-error-banner> is scoped per
@@ -1087,6 +1219,7 @@ export class SpanPanelElement extends LitElement {
         return typeof entityId === "string" ? { entityId, panelName: p.panelName } : null;
       })
       .filter((e): e is { entityId: string; panelName: string } => e !== null);
+    this._favoritesWatchEntries = panelStatusEntries;
     this._errorStore.watchPanelStatuses(panelStatusEntries);
     this._errorStore.updateHass(this.hass);
 
@@ -1169,7 +1302,7 @@ export class SpanPanelElement extends LitElement {
       if (superseded()) return;
       const errEl = document.createElement("p");
       errEl.style.color = "var(--error-color)";
-      errEl.textContent = (err as Error).message;
+      errEl.textContent = errorText(err);
       container.appendChild(errEl);
     }
   }
@@ -1220,7 +1353,7 @@ export class SpanPanelElement extends LitElement {
         console.warn("SPAN Panel: favorites monitoring render failed", entryId, err);
         const errEl = document.createElement("p");
         errEl.style.color = "var(--error-color)";
-        errEl.textContent = (err as Error).message ?? String(err);
+        errEl.textContent = errorText(err);
         body.appendChild(errEl);
       }
     }

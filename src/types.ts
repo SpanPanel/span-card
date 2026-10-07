@@ -18,6 +18,8 @@ export interface HomeAssistant {
   formatEntityState?: (entity: HassEntity) => string;
   connection?: {
     subscribeEvents: (callback: () => void, event: string) => Promise<() => void>;
+    /** home-assistant-js-websocket's: replays the subscription on reconnect, and the unsubscribe stays valid. */
+    subscribeMessage: <T>(callback: (message: T) => void, subscribeMessage: Record<string, unknown>) => Promise<() => Promise<void>>;
   };
 }
 
@@ -38,11 +40,21 @@ export interface Circuit {
   breaker_rating_a?: number | null;
   device_type?: string;
   relay_state?: string;
+  relay_state_target?: string;
+  /** Shed priority as the panel publishes it: `NEVER`, `SOC_THRESHOLD`, `OFF_GRID` or `UNKNOWN`. */
+  priority?: string;
+  priority_target?: string;
   is_user_controllable?: boolean;
   always_on?: boolean;
   voltage?: number;
   area?: string;
 }
+
+/**
+ * The `Circuit` fields that follow the panel's live state, not its structure:
+ * a topology that differs only in these renders the same view.
+ */
+export const CIRCUIT_LIVE_FIELDS = ["relay_state", "relay_state_target", "priority", "priority_target"] as const satisfies readonly (keyof Circuit)[];
 
 export interface SubDeviceEntityInfo {
   domain: string;

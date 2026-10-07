@@ -88,15 +88,16 @@ export async function resolveAndAssignAreas(hass: HomeAssistant, topology: Panel
 }
 
 /**
- * Subscribe to HA area and entity registry changes.
- * When a change is detected that alters any circuit's area assignment,
- * the provided callback is invoked.
+ * Subscribe to HA area and entity registry changes, re-resolving circuit areas
+ * on whichever topology `getTopology` returns when the event arrives. A re-fetch
+ * replaces the topology; the subscription is never re-created for it, and never
+ * bound to a stale object. The callback runs when any circuit's area changed.
  *
  * Returns an unsubscribe function that tears down both listeners.
  */
 export async function subscribeAreaUpdates(
   hass: HomeAssistant,
-  topology: PanelTopology,
+  getTopology: () => PanelTopology | null,
   callback: () => void,
   errorStore?: ErrorStore | null
 ): Promise<() => void> {
@@ -105,6 +106,10 @@ export async function subscribeAreaUpdates(
   }
 
   const handler = async (): Promise<void> => {
+    // Read once: the snapshot of areas and the resolution must act on the same
+    // object even if a re-fetch lands while this handler awaits.
+    const topology = getTopology();
+    if (!topology) return;
     try {
       // Snapshot current area values
       const before = new Map<string, string | undefined>();

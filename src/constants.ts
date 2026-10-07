@@ -105,6 +105,9 @@ export const SHEDDING_PRIORITIES: Record<string, SheddingPriorityDef> = {
   unknown: { icon: "mdi:help-circle-outline", color: "#888", label: () => t("shedding.unknown") },
 };
 
+/** The priorities a circuit's select offers, in the order the side panel lists them. */
+export const SELECTABLE_PRIORITY_KEYS: readonly string[] = Object.keys(SHEDDING_PRIORITIES).filter(k => k !== "unknown" && k !== "always_on");
+
 export const MONITORING_COLORS: Record<string, string> = {
   normal: "#4caf50",
   warning: "#ff9800",
