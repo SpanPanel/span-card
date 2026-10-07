@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildSubDevicesHTML } from "../src/core/sub-device-renderer.js";
+import { buildSubDevicesHTML, type SubDeviceView } from "../src/core/sub-device-renderer.js";
 import { subEntityGroups } from "../src/editor/sub-entity-groups.js";
 import { formatPowerHTML } from "../src/helpers/format.js";
 import type { CardConfig, HomeAssistant, PanelTopology, SubDevice, SubDeviceEntityInfo, SubDeviceSolar } from "../src/types.js";
@@ -33,6 +33,9 @@ const SERIAL = "example-40t-001";
 const SITE_TOTAL = "sensor.span_panel_solar_pv_power";
 const CIRCUIT_C = "sensor.span_panel_solar_inverter_power";
 const CIRCUIT_C2 = "sensor.span_panel_garage_solar_power";
+
+/** The standalone card's view, which shows no favorites. */
+const CARD_VIEW: SubDeviceView = { showFavorites: false };
 
 const hass = {
   states: {
@@ -103,7 +106,7 @@ function text(el: HTMLElement, selector: string): string | undefined {
 }
 
 function render(subs: Record<string, WireSubDevice>): string {
-  return buildSubDevicesHTML(topologyOf(subs), hass, {} as CardConfig);
+  return buildSubDevicesHTML(topologyOf(subs), hass, {} as CardConfig, CARD_VIEW);
 }
 
 // -- Scenario A: two inverters, both fed by a circuit --

@@ -3,6 +3,7 @@ import { formatPowerHTML } from "../helpers/format.js";
 import { t } from "../i18n.js";
 import { findBatteryLevelEntity, findBatterySoeEntity } from "../helpers/entity-finder.js";
 import { resolveSubDevicePower, tileRenderedEntityIds, stateWatts, type SubDevicePower } from "../helpers/sub-device-power.js";
+import { subDeviceHasSettings } from "../helpers/sub-device-settings.js";
 import { orderSubDevices, panelOfSubDevice } from "./sub-device-order.js";
 import { SUB_DEVICE_TYPE_BESS, SUB_DEVICE_TYPE_EVSE, SUB_DEVICE_TYPE_PV, SUB_DEVICE_KEY_PREFIX } from "../constants.js";
 import type { PanelTopology, HomeAssistant, CardConfig, SubDevice, SubDeviceSolar } from "../types.js";
@@ -23,10 +24,16 @@ interface RenderableSubDevice {
   solarHTML: string;
 }
 
+/** What the view drawing the tiles knows that the topology does not. */
+export interface SubDeviceView {
+  /** Whether the view's side panels offer favorite hearts: `DashboardController.showFavorites`. */
+  showFavorites: boolean;
+}
+
 /**
  * Build the HTML for all sub-devices (BESS, EVSE, etc.) in the topology.
  */
-export function buildSubDevicesHTML(topology: PanelTopology, hass: HomeAssistant, config: CardConfig): string {
+export function buildSubDevicesHTML(topology: PanelTopology, hass: HomeAssistant, config: CardConfig, view: SubDeviceView): string {
   const showBattery: boolean = config.show_battery !== false;
   const showEvse: boolean = config.show_evse !== false;
   const showSolar: boolean = config.show_solar !== false;
@@ -86,6 +93,12 @@ export function buildSubDevicesHTML(topology: PanelTopology, hass: HomeAssistant
     const label: string = tileLabel(sub);
     const caption = power.headlineIsSiteTotal ? `<span class="sub-power-caption">${escapeHtml(t("subdevice.site_total"))}</span>` : "";
     const headline = power.headlineEid ? `${caption}<span class="sub-power-value">${formatPowerHTML(stateWatts(hass, power.headlineEid))}</span>` : "";
+    // The gear opens the tile's side panel; one with nothing to offer would open empty.
+    const gear = subDeviceHasSettings(sub, view.showFavorites)
+      ? `<button class="gear-icon subdevice-gear" data-subdev-id="${escapeHtml(devId)}" style="color:#555;" title="${escapeHtml(t("grid.configure_subdevice"))}">
+            <span-icon icon="mdi:cog" style="--mdc-icon-size:16px;"></span-icon>
+          </button>`
+      : "";
 
     const isBess: boolean = sub.type === SUB_DEVICE_TYPE_BESS;
     const isEvse: boolean = sub.type === SUB_DEVICE_TYPE_EVSE;
@@ -107,9 +120,7 @@ export function buildSubDevicesHTML(topology: PanelTopology, hass: HomeAssistant
           <span class="sub-device-type">${escapeHtml(label)}</span>
           <span class="sub-device-name">${escapeHtml(sub.name || "")}</span>
           ${headline}
-          <button class="gear-icon subdevice-gear" data-subdev-id="${escapeHtml(devId)}" style="color:#555;" title="${escapeHtml(t("grid.configure_subdevice"))}">
-            <span-icon icon="mdi:cog" style="--mdc-icon-size:16px;"></span-icon>
-          </button>
+          ${gear}
         </div>
         ${chartsHTML}
         ${solarHTML}

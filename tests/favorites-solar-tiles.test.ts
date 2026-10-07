@@ -58,7 +58,7 @@ describe("solar tiles in the favorites view", () => {
     };
 
     const { topology } = await new FavoritesController().build(hass, favorites, [panel("panel-a", "Alpha"), panel("panel-b", "Bravo")]);
-    const html = buildSubDevicesHTML(topology, hass, {} as CardConfig);
+    const html = buildSubDevicesHTML(topology, hass, {} as CardConfig, { showFavorites: true });
 
     const order = Array.from(html.matchAll(/data-subdev="([^"]+)"/g), match => match[1]);
     expect(order).toEqual([

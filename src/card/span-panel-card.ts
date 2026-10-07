@@ -373,7 +373,7 @@ export class SpanPanelCard extends LitElement {
       const monitoringStatus = this._ctrl.monitoringCache.status;
       const monitoringSummaryHTML = buildMonitoringSummaryHTML(monitoringStatus);
       const gridHTML = buildGridHTML(this._topology, totalRows, this.hass, this._config, monitoringStatus);
-      const subDevHTML = buildSubDevicesHTML(this._topology, this.hass, this._config);
+      const subDevHTML = buildSubDevicesHTML(this._topology, this.hass, this._config, { showFavorites: this._ctrl.showFavorites });
 
       container.innerHTML = `
         ${headerHTML}

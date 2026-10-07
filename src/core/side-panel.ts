@@ -6,6 +6,7 @@ import { t } from "../i18n.js";
 import { addFavorite, removeFavorite } from "./favorites-store.js";
 import { sortedCircuitsForSection } from "./favorites-sections.js";
 import { subDeviceCharts } from "../helpers/sub-device-power.js";
+import { subDeviceFavoriteEntityId } from "../helpers/sub-device-settings.js";
 import type { SpanSwitch } from "./span-switch.js";
 import type { HomeAssistant, PanelTopology, GraphSettings, CircuitEntities, CircuitGraphOverride, MonitoringPointInfo } from "../types.js";
 import type { ErrorStore } from "./error-store.js";
@@ -858,27 +859,12 @@ class SpanSidePanel extends HTMLElement {
   }
 
   /**
-   * Pick any entity_id from a sub-device's entity map. The favorites
-   * service resolves the entity to its parent SPAN panel + sub-device
-   * id, so any sensor on the sub-device works. Prefers a sensor.
-   */
-  private _subDeviceFavoriteEntityId(entities: Record<string, { domain: string }> | undefined): string | null {
-    if (!entities) return null;
-    let fallback: string | null = null;
-    for (const [entityId, info] of Object.entries(entities)) {
-      if (info.domain === "sensor") return entityId;
-      if (!fallback) fallback = entityId;
-    }
-    return fallback;
-  }
-
-  /**
    * Build a heart toggle for a sub-device row in panel-mode Graph
    * Settings. Returns ``null`` when the sub-device has no entities to
    * resolve (favorites services need an entity_id).
    */
   private _buildSubDeviceFavoriteHeart(entities: Record<string, { domain: string }> | undefined, isFavorite: boolean): HTMLButtonElement | null {
-    const entityId = this._subDeviceFavoriteEntityId(entities);
+    const entityId = subDeviceFavoriteEntityId(entities);
     if (!entityId) return null;
     return this._buildHeartButton(entityId, isFavorite);
   }
@@ -1057,7 +1043,7 @@ class SpanSidePanel extends HTMLElement {
   }
 
   private _renderSubDeviceFavoriteSection(body: HTMLDivElement, cfg: SubDeviceModeConfig): void {
-    const entityId = this._subDeviceFavoriteEntityId(cfg.entities);
+    const entityId = subDeviceFavoriteEntityId(cfg.entities);
     if (!entityId) return;
     this._appendFavoriteHeartSection(body, entityId, cfg.isFavorite === true);
   }

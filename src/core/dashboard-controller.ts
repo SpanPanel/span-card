@@ -159,6 +159,15 @@ export class DashboardController {
     return this._favRefs !== null;
   }
 
+  /**
+   * Whether this view's side panels offer favorite hearts: in the Favorites
+   * view, and on a real panel whose favorites the dashboard has provided.
+   * The standalone card provides none, so it shows no hearts.
+   */
+  get showFavorites(): boolean {
+    return this._inFavoritesView || this._panelFavorites !== null;
+  }
+
   setConfig(config: CardConfig): void {
     this._config = config;
   }
@@ -488,7 +497,6 @@ export class DashboardController {
         // <span-panel-card> omits both and hearts don't render.
         const favoritePanelDeviceId = ref?.panelDeviceId ?? this._panelFavorites?.panelDeviceId;
         const isFavorite = ref !== null || (this._panelFavorites?.circuitUuids.has(realUuid) ?? false);
-        const showFavorites = this._inFavoritesView || this._panelFavorites !== null;
 
         sidePanel.open({
           ...circuit,
@@ -496,7 +504,7 @@ export class DashboardController {
           monitoringInfo,
           showMonitoring: this._showMonitoring,
           graphHorizonInfo,
-          showFavorites,
+          showFavorites: this.showFavorites,
           favoritePanelDeviceId,
           isFavorite,
           configEntryId: entryId,
@@ -526,7 +534,6 @@ export class DashboardController {
 
       const favoritePanelDeviceId = ref?.panelDeviceId ?? this._panelFavorites?.panelDeviceId;
       const isFavorite = ref !== null || (this._panelFavorites?.subDeviceIds.has(realSubDevId) ?? false);
-      const showFavorites = this._inFavoritesView || this._panelFavorites !== null;
 
       sidePanel.open({
         subDeviceMode: true,
@@ -536,7 +543,7 @@ export class DashboardController {
         entities: sub.entities,
         hasChart: subDeviceCharts(sub).length > 0,
         graphHorizonInfo,
-        showFavorites,
+        showFavorites: this.showFavorites,
         favoritePanelDeviceId,
         isFavorite,
         configEntryId: entryId,

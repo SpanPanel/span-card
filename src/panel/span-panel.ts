@@ -1151,7 +1151,7 @@ export class SpanPanelElement extends LitElement {
       const panelStatsHTML = this._buildFavoritesPanelStatsGridHTML(build.perPanelStats, config);
       const subDevicesHTML = hasSubDevices
         ? `<div class="favorites-subdevices-section">
-             <div class="sub-devices">${buildSubDevicesHTML(merged, this.hass, config)}</div>
+             <div class="sub-devices">${buildSubDevicesHTML(merged, this.hass, config, { showFavorites: this._listDashCtrl.showFavorites })}</div>
            </div>`
         : "";
       const headerHTML = summaryHTML + panelStatsHTML + subDevicesHTML;
