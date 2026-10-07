@@ -8,10 +8,10 @@ import {
   BESS_CHART_COL_HEIGHT,
   EVSE_CHART_HEIGHT,
 } from "../constants.js";
-import { formatPowerSigned, formatPowerUnit, formatKw } from "../helpers/format.js";
+import { formatPowerSigned, formatPowerUnit, formatPowerHTML, formatKw } from "../helpers/format.js";
 import { t } from "../i18n.js";
 import { getChartMetric } from "../helpers/chart.js";
-import { findSubDevicePowerEntity } from "../helpers/entity-finder.js";
+import { resolveSubDevicePower, stateWatts } from "../helpers/sub-device-power.js";
 import { getHistoryDurationMs, getHorizonDurationMs } from "../helpers/history.js";
 import { updateChart } from "../chart/chart-update.js";
 import { attrSelectorValue } from "../helpers/selector.js";
@@ -258,14 +258,14 @@ export function updateSubDeviceDOM(
     const section = root.querySelector(`[data-subdev="${attrSelectorValue(devId)}"]`);
     if (!section) continue;
 
-    const powerEid = findSubDevicePowerEntity(sub);
-    if (powerEid) {
-      const state = hass.states[powerEid];
-      const powerW = state ? parseFloat(state.state) || 0 : 0;
+    const power = resolveSubDevicePower(sub);
+    if (power.headlineEid) {
       const powerEl = section.querySelector(".sub-power-value");
-      if (powerEl) {
-        powerEl.innerHTML = `<strong>${formatPowerSigned(powerW)}</strong> <span class="power-unit">${formatPowerUnit(powerW)}</span>`;
-      }
+      if (powerEl) powerEl.innerHTML = formatPowerHTML(stateWatts(hass, power.headlineEid));
+    }
+    if (power.siteTotalEid) {
+      const totalEl = section.querySelector(".sub-site-total-value");
+      if (totalEl) totalEl.innerHTML = formatPowerHTML(stateWatts(hass, power.siteTotalEid));
     }
 
     const chartContainers = section.querySelectorAll("[data-chart-key]");

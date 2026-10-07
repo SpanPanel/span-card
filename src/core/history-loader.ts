@@ -1,7 +1,7 @@
 import { getHistoryDurationMs, getMaxHistoryPoints, getMinGapMs, deduplicateAndTrim, getHorizonDurationMs } from "../helpers/history.js";
 import { getCircuitChartEntity } from "../helpers/chart.js";
-import { findSubDevicePowerEntity, findBatteryLevelEntity, findBatterySoeEntity } from "../helpers/entity-finder.js";
-import { SUB_DEVICE_TYPE_BESS, SUB_DEVICE_KEY_PREFIX, STATISTICS_PERIOD_THRESHOLD_HOURS } from "../constants.js";
+import { subDeviceCharts } from "../helpers/sub-device-power.js";
+import { SUB_DEVICE_KEY_PREFIX, STATISTICS_PERIOD_THRESHOLD_HOURS } from "../constants.js";
 import type { HomeAssistant, PanelTopology, CardConfig, HistoryMap, HistoryPoint, SubDeviceEntityRef } from "../types.js";
 
 interface StatisticsEntry {
@@ -15,15 +15,37 @@ interface RawHistoryEntry {
   lc?: number;
 }
 
+/**
+ * The charts loaded over one duration. An entity can feed several charts -- a
+ * circuit-fed inverter's tile draws the same circuit sensor as that circuit's
+ * breaker, and so does a Drive's tile -- so each entity maps to every chart key
+ * that draws it, and is asked of the recorder once.
+ */
 interface DurationGroup {
   entityIds: string[];
-  uuidByEntity: Map<string, string>;
+  keysByEntity: Map<string, string[]>;
+}
+
+/** Add one chart to the group for its duration. */
+function addChart(groups: Map<number, DurationGroup>, durationMs: number, entityId: string, key: string): void {
+  let group = groups.get(durationMs);
+  if (!group) {
+    group = { entityIds: [], keysByEntity: new Map<string, string[]>() };
+    groups.set(durationMs, group);
+  }
+  const keys = group.keysByEntity.get(entityId);
+  if (keys) {
+    keys.push(key);
+  } else {
+    group.entityIds.push(entityId);
+    group.keysByEntity.set(entityId, [key]);
+  }
 }
 
 async function loadStatisticsHistory(
   hass: HomeAssistant,
   entityIds: string[],
-  uuidByEntity: Map<string, string>,
+  keysByEntity: Map<string, string[]>,
   durationMs: number,
   powerHistory: HistoryMap
 ): Promise<void> {
@@ -40,8 +62,8 @@ async function loadStatisticsHistory(
   });
 
   for (const [entityId, stats] of Object.entries(result)) {
-    const uuid = uuidByEntity.get(entityId);
-    if (!uuid || !stats) continue;
+    const keys = keysByEntity.get(entityId);
+    if (!keys || !stats) continue;
 
     const hist: HistoryPoint[] = [];
     for (const entry of stats) {
@@ -52,11 +74,13 @@ async function loadStatisticsHistory(
       if (time > 0) hist.push({ time, value: val });
     }
 
-    if (hist.length > 0) {
-      const existing = powerHistory.get(uuid) || [];
+    if (hist.length === 0) continue;
+    // Each chart gets its own array: live samples are pushed onto it in place.
+    for (const key of keys) {
+      const existing = powerHistory.get(key) || [];
       const merged = [...hist, ...existing];
       merged.sort((a: HistoryPoint, b: HistoryPoint) => a.time - b.time);
-      powerHistory.set(uuid, merged);
+      powerHistory.set(key, merged);
     }
   }
 }
@@ -64,7 +88,7 @@ async function loadStatisticsHistory(
 async function loadRawHistory(
   hass: HomeAssistant,
   entityIds: string[],
-  uuidByEntity: Map<string, string>,
+  keysByEntity: Map<string, string[]>,
   durationMs: number,
   powerHistory: HistoryMap
 ): Promise<void> {
@@ -81,8 +105,8 @@ async function loadRawHistory(
   const maxPoints = getMaxHistoryPoints(durationMs);
   const minGapMs = getMinGapMs(durationMs);
   for (const [entityId, states] of Object.entries(result)) {
-    const uuid = uuidByEntity.get(entityId);
-    if (!uuid || !states) continue;
+    const keys = keysByEntity.get(entityId);
+    if (!keys || !states) continue;
 
     const hist: HistoryPoint[] = [];
     for (const entry of states) {
@@ -93,10 +117,12 @@ async function loadRawHistory(
       if (time > 0) hist.push({ time, value: val });
     }
 
-    if (hist.length > 0) {
-      const existing = powerHistory.get(uuid) || [];
+    if (hist.length === 0) continue;
+    // Each chart gets its own array: live samples are pushed onto it in place.
+    for (const key of keys) {
+      const existing = powerHistory.get(key) || [];
       const merged = [...hist, ...existing];
-      powerHistory.set(uuid, deduplicateAndTrim(merged, maxPoints, minGapMs));
+      powerHistory.set(key, deduplicateAndTrim(merged, maxPoints, minGapMs));
     }
   }
 }
@@ -109,15 +135,8 @@ export function collectSubDeviceEntityIds(topology: PanelTopology): SubDeviceEnt
   if (!topology.sub_devices) return [];
   const results: SubDeviceEntityRef[] = [];
   for (const [devId, sub] of Object.entries(topology.sub_devices)) {
-    const eidMap: Record<string, string | null> = { power: findSubDevicePowerEntity(sub) };
-    if (sub.type === SUB_DEVICE_TYPE_BESS) {
-      eidMap.soc = findBatteryLevelEntity(sub);
-      eidMap.soe = findBatterySoeEntity(sub);
-    }
-    for (const [role, eid] of Object.entries(eidMap)) {
-      if (eid) {
-        results.push({ entityId: eid, key: `${SUB_DEVICE_KEY_PREFIX}${devId}_${role}`, devId });
-      }
+    for (const { role, entityId } of subDeviceCharts(sub)) {
+      results.push({ entityId, key: `${SUB_DEVICE_KEY_PREFIX}${devId}_${role}`, devId });
     }
   }
   return results;
@@ -151,12 +170,7 @@ export async function loadHistory(
       durationMs = getHistoryDurationMs(config);
     }
 
-    if (!groups.has(durationMs)) {
-      groups.set(durationMs, { entityIds: [], uuidByEntity: new Map<string, string>() });
-    }
-    const group = groups.get(durationMs)!;
-    group.entityIds.push(eid);
-    group.uuidByEntity.set(eid, uuid);
+    addChart(groups, durationMs, eid, uuid);
   }
 
   // Add sub-device entities grouped by their effective horizon
@@ -167,12 +181,7 @@ export async function loadHistory(
     } else {
       durationMs = getHistoryDurationMs(config);
     }
-    if (!groups.has(durationMs)) {
-      groups.set(durationMs, { entityIds: [], uuidByEntity: new Map<string, string>() });
-    }
-    const group = groups.get(durationMs)!;
-    group.entityIds.push(entityId);
-    group.uuidByEntity.set(entityId, key);
+    addChart(groups, durationMs, entityId, key);
   }
 
   // Load each group in parallel
@@ -181,9 +190,9 @@ export async function loadHistory(
     if (group.entityIds.length === 0) continue;
     const useStatistics = durationMs > STATISTICS_PERIOD_THRESHOLD_HOURS * 60 * 60 * 1000;
     if (useStatistics) {
-      promises.push(loadStatisticsHistory(hass, group.entityIds, group.uuidByEntity, durationMs, powerHistory));
+      promises.push(loadStatisticsHistory(hass, group.entityIds, group.keysByEntity, durationMs, powerHistory));
     } else {
-      promises.push(loadRawHistory(hass, group.entityIds, group.uuidByEntity, durationMs, powerHistory));
+      promises.push(loadRawHistory(hass, group.entityIds, group.keysByEntity, durationMs, powerHistory));
     }
   }
   await Promise.all(promises);

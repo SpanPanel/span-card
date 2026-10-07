@@ -4,7 +4,6 @@ const ENTITY_DESCRIPTORS: Record<string, EntityDescriptor> = {
   power: { names: ["power", "battery power"], suffixes: ["_power"] },
   soc: { names: ["battery level", "battery percentage"], suffixes: ["_battery_level", "_battery_percentage"] },
   soe: { names: ["state of energy"], suffixes: ["_soe_kwh"] },
-  capacity: { names: ["nameplate capacity"], suffixes: ["_nameplate_capacity"] },
 };
 
 function findSubDeviceEntity(subDevice: SubDevice, descriptor: EntityDescriptor): string | null {
@@ -28,8 +27,4 @@ export function findBatteryLevelEntity(subDevice: SubDevice): string | null {
 
 export function findBatterySoeEntity(subDevice: SubDevice): string | null {
   return findSubDeviceEntity(subDevice, ENTITY_DESCRIPTORS.soe!);
-}
-
-export function findBatteryCapacityEntity(subDevice: SubDevice): string | null {
-  return findSubDeviceEntity(subDevice, ENTITY_DESCRIPTORS.capacity!);
 }

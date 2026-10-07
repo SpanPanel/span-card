@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { findSubDevicePowerEntity, findBatteryLevelEntity, findBatterySoeEntity, findBatteryCapacityEntity } from "../src/helpers/entity-finder.js";
+import { findSubDevicePowerEntity, findBatteryLevelEntity, findBatterySoeEntity } from "../src/helpers/entity-finder.js";
 import type { SubDevice } from "../src/types.js";
 
 function makeSubDevice(entities: Record<string, { domain: string; original_name?: string; unique_id?: string }>): SubDevice {
@@ -58,14 +58,5 @@ describe("findBatterySoeEntity", () => {
       "sensor.soe": { domain: "sensor", original_name: "State of Energy" },
     });
     expect(findBatterySoeEntity(sub)).toBe("sensor.soe");
-  });
-});
-
-describe("findBatteryCapacityEntity", () => {
-  it("finds nameplate capacity entity", () => {
-    const sub = makeSubDevice({
-      "sensor.cap": { domain: "sensor", original_name: "Nameplate Capacity" },
-    });
-    expect(findBatteryCapacityEntity(sub)).toBe("sensor.cap");
   });
 });

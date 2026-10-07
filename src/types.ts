@@ -50,10 +50,26 @@ export interface SubDeviceEntityInfo {
   unique_id?: string;
 }
 
+/**
+ * What the integration says about a PV sub-device's tile (`span_panel/panel_topology`).
+ * `power_entity_id` is an entity id, not a circuit id, so it survives the
+ * favorites merge, which re-keys circuits. `vendor` and `model` are as
+ * published, `null` where nothing is.
+ */
+export interface SubDeviceSolar {
+  role: "site" | "inverter";
+  vendor: string | null;
+  model: string | null;
+  feed_circuit_id: string | null;
+  power_entity_id: string | null;
+  site_power_entity_id: string | null;
+}
+
 export interface SubDevice {
   name?: string;
   type?: string;
   entities?: Record<string, SubDeviceEntityInfo>;
+  solar?: SubDeviceSolar;
 }
 
 export interface PanelEntities {
@@ -174,6 +190,7 @@ export interface CardConfig {
   show_panel?: boolean;
   show_battery?: boolean;
   show_evse?: boolean;
+  show_solar?: boolean;
   visible_sub_entities?: Record<string, boolean>;
   tab_style?: "text" | "icon";
 }

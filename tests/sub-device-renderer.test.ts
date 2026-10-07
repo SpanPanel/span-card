@@ -1,6 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { buildSubDevicesHTML } from "../src/core/sub-device-renderer.js";
-import type { PanelTopology, HomeAssistant, CardConfig, SubDevice } from "../src/types.js";
+import { buildSubDevicesHTML, type SubDeviceView } from "../src/core/sub-device-renderer.js";
+import { formatPowerHTML } from "../src/helpers/format.js";
+import type { PanelTopology, HomeAssistant, CardConfig, SubDevice, SubDeviceSolar } from "../src/types.js";
+import { BATTERY_CAPACITY, REALISTIC_BESS } from "./realistic-bess.js";
+
+/** The standalone card's view, which shows no favorites. */
+const CARD_VIEW: SubDeviceView = { showFavorites: false };
 
 /**
  * A sub-device earns a tile by having something to draw, not by being a known type.
@@ -47,7 +52,7 @@ const BESS: SubDevice = {
 
 describe("buildSubDevicesHTML", () => {
   it("skips a sub-device with no power reading, charts or visible entities", () => {
-    const html = buildSubDevicesHTML(topologyOf({ dev_mid: MID }), hass, {} as CardConfig);
+    const html = buildSubDevicesHTML(topologyOf({ dev_mid: MID }), hass, {} as CardConfig, CARD_VIEW);
 
     expect(html).toBe("");
   });
@@ -57,13 +62,13 @@ describe("buildSubDevicesHTML", () => {
     // rule were "hide the MID" this would still be blank.
     const config = { visible_sub_entities: { "sensor.panel_mid_grid_state": true } } as unknown as CardConfig;
 
-    const html = buildSubDevicesHTML(topologyOf({ dev_mid: MID }), hass, config);
+    const html = buildSubDevicesHTML(topologyOf({ dev_mid: MID }), hass, config, CARD_VIEW);
 
     expect(html).toContain("Span Panel Microgrid Interconnect");
   });
 
   it("still renders the sub-devices that do have something to draw", () => {
-    const html = buildSubDevicesHTML(topologyOf({ dev_mid: MID, dev_bess: BESS }), hass, {} as CardConfig);
+    const html = buildSubDevicesHTML(topologyOf({ dev_mid: MID, dev_bess: BESS }), hass, {} as CardConfig, CARD_VIEW);
 
     expect(html).toContain("Span Panel Battery");
     expect(html).not.toContain("Microgrid Interconnect");
@@ -71,8 +76,140 @@ describe("buildSubDevicesHTML", () => {
 
   it("returns nothing at all when every sub-device is empty", () => {
     // Rather than an empty wrapper, which would still take vertical space.
-    const html = buildSubDevicesHTML(topologyOf({ dev_mid: MID, dev_other: { ...MID, name: "Something Else" } }), hass, {} as CardConfig);
+    const html = buildSubDevicesHTML(topologyOf({ dev_mid: MID, dev_other: { ...MID, name: "Something Else" } }), hass, {} as CardConfig, CARD_VIEW);
 
     expect(html).toBe("");
+  });
+});
+
+const SITE_TOTAL = "sensor.span_panel_pv_power";
+const CIRCUIT_A = "sensor.span_panel_commissioned_pv_system_power";
+const CIRCUIT_B = "sensor.span_panel_solar_inverter_2_power";
+
+const solarHass = {
+  states: {
+    [SITE_TOTAL]: { state: "5200", attributes: {} },
+    [CIRCUIT_A]: { state: "3100", attributes: {} },
+    [CIRCUIT_B]: { state: "2100", attributes: {} },
+  },
+  services: {},
+  language: "en",
+} as unknown as HomeAssistant;
+
+function block(overrides: Partial<SubDeviceSolar>): SubDeviceSolar {
+  return { role: "inverter", vendor: null, model: null, feed_circuit_id: null, power_entity_id: null, site_power_entity_id: null, ...overrides };
+}
+
+const SITE: SubDevice = {
+  name: "Span Panel Solar",
+  type: "pv",
+  entities: { [SITE_TOTAL]: { domain: "sensor", original_name: "PV Power", unique_id: "span_x_pv_power" } },
+  solar: block({
+    role: "site",
+    vendor: "Enphase",
+    model: "IQ8PLUS-72-2-US",
+    feed_circuit_id: "c36",
+    power_entity_id: CIRCUIT_A,
+    site_power_entity_id: SITE_TOTAL,
+  }),
+};
+const SECOND: SubDevice = {
+  name: "Span Panel Solar Inverter (Solar Inverter 2)",
+  type: "pv",
+  entities: {},
+  solar: block({ vendor: "SolarEdge", model: "SE3800H-US", feed_circuit_id: "c24", power_entity_id: CIRCUIT_B }),
+};
+const UPSTREAM: SubDevice = { name: "Span Panel Solar Inverter (1)", type: "pv", entities: {}, solar: block({ vendor: "SolarEdge" }) };
+
+describe("solar tiles", () => {
+  it("draws the bound inverter's circuit on the Solar tile and always the site total as a row", () => {
+    // PV Power is made visible on purpose: the tile draws it, so it must still not appear as an entity row.
+    const config = { visible_sub_entities: { [SITE_TOTAL]: true } } as unknown as CardConfig;
+    const html = buildSubDevicesHTML(topologyOf({ site: SITE }), solarHass, config, CARD_VIEW);
+
+    expect(html).toContain('<span class="sub-device-type">Solar</span>');
+    expect(html).toContain("Enphase · IQ8PLUS-72-2-US");
+    expect(html).toContain(`<span class="sub-power-value">${formatPowerHTML(3100)}</span>`);
+    expect(html).toContain(`data-site-total-eid="${SITE_TOTAL}">${formatPowerHTML(5200)}`);
+    expect(html).toContain('data-chart-key="sub_site_power"');
+    expect(html).not.toContain(`data-eid="${SITE_TOTAL}"`);
+  });
+
+  it("captions the headline when it is the site total", () => {
+    const site: SubDevice = { ...SITE, solar: block({ role: "site", site_power_entity_id: SITE_TOTAL }) };
+    const html = buildSubDevicesHTML(topologyOf({ site }), solarHass, {} as CardConfig, CARD_VIEW);
+
+    expect(html).toContain('class="sub-power-caption"');
+    expect(html).toContain(`<span class="sub-power-value">${formatPowerHTML(5200)}</span>`);
+    expect(html).not.toContain("data-site-total-eid");
+  });
+
+  it("labels a solar device Solar, block or not", () => {
+    // An integration that predates the block still sends `type: "pv"`; the tile must never read "Sub-device".
+    const legacy: SubDevice = {
+      name: "Span Panel Solar",
+      type: "pv",
+      entities: { [SITE_TOTAL]: { domain: "sensor", original_name: "PV Power", unique_id: "span_x_pv_power" } },
+    };
+    const html = buildSubDevicesHTML(topologyOf({ legacy }), solarHass, {} as CardConfig, CARD_VIEW);
+
+    expect(html).toContain('<span class="sub-device-type">Solar</span>');
+    expect(html).not.toContain("Sub-device");
+  });
+
+  it("gives every other inverter its own tile with its circuit's power", () => {
+    // The inverter comes first in the topology, so the Solar tile leading is the ordering's doing.
+    const html = buildSubDevicesHTML(topologyOf({ second: SECOND, site: SITE }), solarHass, {} as CardConfig, CARD_VIEW);
+
+    expect(html).toContain('<span class="sub-device-type">Solar inverter</span>');
+    expect(html).toContain("SolarEdge · SE3800H-US");
+    expect(html).toContain('data-chart-key="sub_second_power"');
+    expect(html.indexOf('data-subdev="site"')).toBeLessThan(html.indexOf('data-subdev="second"'));
+  });
+
+  it("shows an inverter no circuit feeds with its identity, included in the site total", () => {
+    const html = buildSubDevicesHTML(topologyOf({ upstream: UPSTREAM }), solarHass, {} as CardConfig, CARD_VIEW);
+
+    expect(html).toContain("Span Panel Solar Inverter (1)");
+    expect(html).toContain("SolarEdge");
+    expect(html).toContain("Included in the site total");
+    expect(html).not.toContain("sub-power-value");
+    expect(html).not.toContain("data-chart-key");
+  });
+
+  it("never tells the Solar tile it is included in the site total, even with no reading at all", () => {
+    // Unreachable today -- the integration registers PV Power whenever it sends a site block -- but the
+    // note is about an inverter's output, and the Solar tile is the site total's own tile.
+    const site: SubDevice = { ...SITE, entities: {}, solar: block({ role: "site", vendor: "Enphase" }) };
+    const html = buildSubDevicesHTML(topologyOf({ site }), solarHass, {} as CardConfig, CARD_VIEW);
+
+    expect(html).toContain("Enphase");
+    expect(html).not.toContain("Included in the site total");
+  });
+
+  it("renders an inverter's power without consulting topology.circuits", () => {
+    // The favorites merge re-keys and filters circuits; the tile must not need them.
+    const topology = { sub_devices: { second: SECOND }, circuits: {} } as unknown as PanelTopology;
+    expect(buildSubDevicesHTML(topology, solarHass, {} as CardConfig, CARD_VIEW)).toContain(`<span class="sub-power-value">${formatPowerHTML(2100)}</span>`);
+  });
+
+  it("hides every solar tile when show_solar is off", () => {
+    const html = buildSubDevicesHTML(topologyOf({ site: SITE, second: SECOND }), solarHass, { show_solar: false } as CardConfig, CARD_VIEW);
+    expect(html).toBe("");
+  });
+});
+
+describe("battery tile rows", () => {
+  it("shows Nameplate Capacity as a row once it is chosen, since the tile draws it nowhere else", () => {
+    const batteryHass = {
+      states: { [BATTERY_CAPACITY]: { state: "13.5", attributes: { unit_of_measurement: "kWh" } } },
+      services: {},
+      language: "en",
+    } as unknown as HomeAssistant;
+    const config = { visible_sub_entities: { [BATTERY_CAPACITY]: true } } as unknown as CardConfig;
+
+    const html = buildSubDevicesHTML(topologyOf({ bess: REALISTIC_BESS }), batteryHass, config, CARD_VIEW);
+
+    expect(html).toContain(`data-eid="${BATTERY_CAPACITY}"`);
   });
 });

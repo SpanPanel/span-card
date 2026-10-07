@@ -2,6 +2,11 @@
 
 ## 0.9.5
 
+### Added
+
+- **Each additional solar inverter has its own tile**, with its vendor, model, and the power and chart of the circuit that feeds it.
+- **The editor has a Solar section** for choosing which entities of the Solar device and of each inverter appear on their tiles.
+
 ### Fixed
 
 - **Favorites view blanks after `visibilitychange` restore** — Restored a `_recoverIfNeeded` helper on the panel's visibilitychange handler. It wraps
@@ -23,6 +28,9 @@
   before the device's.
 - **Stopped reading the deprecated `config_entries` device field** — Home Assistant 2026.8 gives each device a single owning entry, `config_entry_id`, and
   removes the `config_entries` list in 2027.8. The card, the dashboard page and the favorites controller now read `config_entry_id`.
+- **The editor lists the entities of every EV charger**, not only the last one.
+- **The breaker chart of a circuit that feeds an EV charger keeps its history**, where it opened empty or stayed blank because the charger's tile charts the
+  same circuit.
 
 ### Changed
 
@@ -30,10 +38,10 @@
   header bar reading "SUB-DEVICE" and a gear icon with no content under it: its only entity is a diagnostic enum, so there was no power reading, no chart, and
   nothing opted into `visible_sub_entities`. `buildSubDevicesHTML` now builds each tile's contents first and skips the tile when all three are empty. Tested on
   emptiness rather than on device type — excluding the MID by name would fix one device and leave the next to rediscover it, and the panel's v1.0 model has more
-  classes coming (sub-enclosures, PV devices, inverters as battery children). It self-corrects too: give the device something chartable, or make one of its
-  entities visible, and the tile returns with no code change. `evseCount` moves to the surviving set as a consequence, so a skipped sub-device cannot shift
-  which charger is the odd one out on its row. Note the card was never blind to the MID — the header's `Grid` field reads `dsm_state`, which on the new data
-  model _is_ the MID's sensed islanding state.
+  classes coming (sub-enclosures, PV devices). It self-corrects too: give the device something chartable, or make one of its entities visible, and the tile
+  returns with no code change. `evseCount` moves to the surviving set as a consequence, so a skipped sub-device cannot shift which charger is the odd one out on
+  its row. Note the card was never blind to the MID — the header's `Grid` field reads `dsm_state`, which on the new data model _is_ the MID's sensed islanding
+  state.
 - **Narrow-viewport list rows fold to a two-row grid** — New `@media (max-width: 520px)` rule switches `.list-row` from flex to grid with `grid-template-areas`
   so the circuit name occupies the whole first row (paired with the expand chevron) and `breaker-badge`, `utilization`, shedding icon, status control, power
   value, and gear drop to a second row. A `1fr` gap column between the status and power slots keeps the relay pill snug against the reading.
@@ -42,6 +50,8 @@
   trigger. The fold uses `display: contents` on `.circuit-header`, `.circuit-info`, `.circuit-controls`, and `.circuit-status` so the leaf elements can be
   placed directly via `grid-area` on the outer grid — name spans the full first row, the second row mirrors the list-row layout (badge, util, shed, status,
   power, gear), and `.chart-container` stays as a full-width third row.
+- **The Solar tile's headline and chart now show the power of the circuit that feeds its inverter**, with the site's total PV power in a row beneath it.
+- **The editor's Battery section offers Meter Power and Nameplate Capacity**, which the battery tile does not otherwise show.
 
 ## 0.9.4
 
