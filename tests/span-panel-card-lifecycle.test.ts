@@ -154,6 +154,34 @@ describe("span-panel-card subscriptions", () => {
     expect(first.unsubscribed).toBe(true);
   });
 
+  it("re-fetches on re-attach once the new subscription's first batch reports the entry loaded", async () => {
+    const connection = new FakeConnection();
+    const card = await mount(connection);
+    const seed = [{ type: null, entry: { entry_id: "entry-1", domain: "span_panel", state: "loaded" } }];
+    // On first attach the first batch only seeds.
+    connection.emit(ENTRY_RELOADS, seed);
+    await flush();
+    expect(mockDiscover).toHaveBeenCalledTimes(1);
+
+    card.remove();
+    document.body.appendChild(card);
+    await flush();
+    connection.emit(ENTRY_RELOADS, seed);
+
+    await vi.waitFor(() => expect(mockDiscover).toHaveBeenCalledTimes(2));
+  });
+
+  it("detaches in setConfig even when no discovery follows", async () => {
+    const connection = new FakeConnection();
+    const card = await mount(connection);
+
+    card.setConfig({ device_id: "" } as CardConfig);
+    await flush();
+
+    expect(connection.live(ENTRY_RELOADS)).toBe(0);
+    expect(connection.live(ENTITY_REGISTRY)).toBe(0);
+  });
+
   it("does not stack subscriptions when the editor preview calls setConfig on a connected card", async () => {
     const connection = new FakeConnection();
     const card = await mount(connection);
