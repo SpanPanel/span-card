@@ -1,8 +1,7 @@
 import { getHistoryDurationMs, getMaxHistoryPoints, getMinGapMs, deduplicateAndTrim, getHorizonDurationMs } from "../helpers/history.js";
 import { getCircuitChartEntity } from "../helpers/chart.js";
-import { findBatteryLevelEntity, findBatterySoeEntity } from "../helpers/entity-finder.js";
-import { resolveSubDevicePower } from "../helpers/sub-device-power.js";
-import { SUB_DEVICE_TYPE_BESS, SUB_DEVICE_KEY_PREFIX, STATISTICS_PERIOD_THRESHOLD_HOURS } from "../constants.js";
+import { subDeviceCharts } from "../helpers/sub-device-power.js";
+import { SUB_DEVICE_KEY_PREFIX, STATISTICS_PERIOD_THRESHOLD_HOURS } from "../constants.js";
 import type { HomeAssistant, PanelTopology, CardConfig, HistoryMap, HistoryPoint, SubDeviceEntityRef } from "../types.js";
 
 interface StatisticsEntry {
@@ -136,15 +135,8 @@ export function collectSubDeviceEntityIds(topology: PanelTopology): SubDeviceEnt
   if (!topology.sub_devices) return [];
   const results: SubDeviceEntityRef[] = [];
   for (const [devId, sub] of Object.entries(topology.sub_devices)) {
-    const eidMap: Record<string, string | null> = { power: resolveSubDevicePower(sub).headlineEid };
-    if (sub.type === SUB_DEVICE_TYPE_BESS) {
-      eidMap.soc = findBatteryLevelEntity(sub);
-      eidMap.soe = findBatterySoeEntity(sub);
-    }
-    for (const [role, eid] of Object.entries(eidMap)) {
-      if (eid) {
-        results.push({ entityId: eid, key: `${SUB_DEVICE_KEY_PREFIX}${devId}_${role}`, devId });
-      }
+    for (const { role, entityId } of subDeviceCharts(sub)) {
+      results.push({ entityId, key: `${SUB_DEVICE_KEY_PREFIX}${devId}_${role}`, devId });
     }
   }
   return results;

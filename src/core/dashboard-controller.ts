@@ -1,6 +1,7 @@
 import { DEFAULT_GRAPH_HORIZON, GRAPH_HORIZONS, INTEGRATION_DOMAIN, LIVE_SAMPLE_INTERVAL_MS } from "../constants.js";
 import { getCircuitChartEntity } from "../helpers/chart.js";
 import { getHorizonDurationMs, getMaxHistoryPoints, getMinGapMs, recordSample } from "../helpers/history.js";
+import { subDeviceCharts } from "../helpers/sub-device-power.js";
 import { loadHistory, collectSubDeviceEntityIds } from "./history-loader.js";
 import { updateCircuitDOM, updateSubDeviceDOM } from "./dom-updater.js";
 import { getEffectiveHorizon, getEffectiveSubDeviceHorizon } from "./graph-settings.js";
@@ -533,6 +534,7 @@ export class DashboardController {
         name: sub.name ?? realSubDevId,
         deviceType: sub.type ?? "",
         entities: sub.entities,
+        hasChart: subDeviceCharts(sub).length > 0,
         graphHorizonInfo,
         showFavorites,
         favoritePanelDeviceId,

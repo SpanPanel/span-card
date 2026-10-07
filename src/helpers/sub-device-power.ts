@@ -49,6 +49,25 @@ export function tileRenderedEntityIds(sub: SubDevice): Set<string> {
   return new Set(ids.filter((eid): eid is string => eid !== null));
 }
 
+/** One chart a tile draws: the role that names its key, `sub_{devId}_{role}`, and the entity it plots. */
+export interface SubDeviceChart {
+  role: string;
+  entityId: string;
+}
+
+/**
+ * The charts a tile draws: its headline's power, and a battery's SoC and SoE.
+ * The history loader loads exactly these, and a tile with none has no graph
+ * horizon to offer.
+ */
+export function subDeviceCharts(sub: SubDevice): SubDeviceChart[] {
+  const charts: { role: string; entityId: string | null }[] = [{ role: "power", entityId: resolveSubDevicePower(sub).headlineEid }];
+  if (sub.type === SUB_DEVICE_TYPE_BESS) {
+    charts.push({ role: "soc", entityId: findBatteryLevelEntity(sub) }, { role: "soe", entityId: findBatterySoeEntity(sub) });
+  }
+  return charts.filter((chart): chart is SubDeviceChart => chart.entityId !== null);
+}
+
 /** An entity's state as watts, or 0 where it has none, as tiles have always read it. */
 export function stateWatts(hass: HomeAssistant, entityId: string): number {
   const state = hass.states[entityId];

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { resolveSubDevicePower, tileRenderedEntityIds } from "../src/helpers/sub-device-power.js";
+import { resolveSubDevicePower, subDeviceCharts, tileRenderedEntityIds } from "../src/helpers/sub-device-power.js";
 import type { SubDevice, SubDeviceSolar } from "../src/types.js";
 import { BATTERY_CAPACITY, BATTERY_LEVEL, BATTERY_POWER, BATTERY_SOE, METER_POWER, REALISTIC_BESS } from "./realistic-bess.js";
 
@@ -69,5 +69,24 @@ describe("tileRenderedEntityIds", () => {
     expect(drawn).toEqual(new Set([BATTERY_POWER, BATTERY_LEVEL, BATTERY_SOE]));
     expect(drawn.has(METER_POWER)).toBe(false);
     expect(drawn.has(BATTERY_CAPACITY)).toBe(false);
+  });
+});
+
+describe("subDeviceCharts", () => {
+  it("is the headline's chart for a solar tile with a reading", () => {
+    const sub = pv(solar({ role: "site", power_entity_id: CIRCUIT, site_power_entity_id: SITE_TOTAL }));
+    expect(subDeviceCharts(sub)).toEqual([{ role: "power", entityId: CIRCUIT }]);
+  });
+
+  it("is nothing for an inverter no circuit feeds", () => {
+    expect(subDeviceCharts(pv(solar({ vendor: "SolarEdge" })))).toEqual([]);
+  });
+
+  it("is a battery's power, SoC and SoE charts", () => {
+    expect(subDeviceCharts(REALISTIC_BESS)).toEqual([
+      { role: "power", entityId: BATTERY_POWER },
+      { role: "soc", entityId: BATTERY_LEVEL },
+      { role: "soe", entityId: BATTERY_SOE },
+    ]);
   });
 });

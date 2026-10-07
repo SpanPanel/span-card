@@ -5,6 +5,7 @@ import { INTEGRATION_DOMAIN, SHEDDING_PRIORITIES, GRAPH_HORIZONS, DEFAULT_GRAPH_
 import { t } from "../i18n.js";
 import { addFavorite, removeFavorite } from "./favorites-store.js";
 import { sortedCircuitsForSection } from "./favorites-sections.js";
+import { subDeviceCharts } from "../helpers/sub-device-power.js";
 import type { SpanSwitch } from "./span-switch.js";
 import type { HomeAssistant, PanelTopology, GraphSettings, CircuitEntities, CircuitGraphOverride, MonitoringPointInfo } from "../types.js";
 import type { ErrorStore } from "./error-store.js";
@@ -80,6 +81,8 @@ interface SubDeviceModeConfig {
   deviceType: string;
   /** Sub-device entity registry map from topology, used to pick a routable entity_id for favoriting. */
   entities?: Record<string, { domain: string }>;
+  /** Whether the tile draws a chart; a tile with none has no graph horizon to set. */
+  hasChart: boolean;
   graphHorizonInfo: GraphHorizonInfo;
   /** Dashboard-only: render the Favorite section on this side panel. */
   showFavorites?: boolean;
@@ -563,6 +566,15 @@ class SpanSidePanel extends HTMLElement {
       const subDevices = Object.entries(topology.sub_devices).sort(([, a], [, b]) => (a.name || "").localeCompare(b.name || ""));
 
       for (const [devId, sub] of subDevices) {
+        // A sub-device with no chart has no horizon to set. Its row stays only
+        // to carry its favorite heart, and is left out where there is none.
+        const hasChart = subDeviceCharts(sub).length > 0;
+        const heart =
+          cfg.showFavorites && cfg.favoritePanelDeviceId
+            ? this._buildSubDeviceFavoriteHeart(sub.entities, cfg.favoriteSubDeviceIds?.has(devId) ?? false)
+            : null;
+        if (!hasChart && !heart) continue;
+
         const row = document.createElement("div");
         row.className = "field-row";
 
@@ -572,9 +584,11 @@ class SpanSidePanel extends HTMLElement {
         nameLabel.style.cssText = "overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1;";
         row.appendChild(nameLabel);
 
-        if (cfg.showFavorites && cfg.favoritePanelDeviceId) {
-          const heart = this._buildSubDeviceFavoriteHeart(sub.entities, cfg.favoriteSubDeviceIds?.has(devId) ?? false);
-          if (heart) row.appendChild(heart);
+        if (heart) row.appendChild(heart);
+
+        if (!hasChart) {
+          subDevSection.appendChild(row);
+          continue;
         }
 
         const subDevData = subDeviceSettings[devId] || { horizon: globalHorizon, has_override: false };
@@ -654,7 +668,8 @@ class SpanSidePanel extends HTMLElement {
         subDevSection.appendChild(row);
       }
 
-      body.appendChild(subDevSection);
+      // The label is the section's first child; any more are rows.
+      if (subDevSection.children.length > 1) body.appendChild(subDevSection);
     }
 
     panel.appendChild(body);
@@ -1036,7 +1051,9 @@ class SpanSidePanel extends HTMLElement {
     if (cfg.showFavorites) {
       this._renderSubDeviceFavoriteSection(body, cfg);
     }
-    this._renderSubDeviceHorizonSection(body, cfg);
+    if (cfg.hasChart) {
+      this._renderSubDeviceHorizonSection(body, cfg);
+    }
   }
 
   private _renderSubDeviceFavoriteSection(body: HTMLDivElement, cfg: SubDeviceModeConfig): void {
