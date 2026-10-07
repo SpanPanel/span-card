@@ -31,6 +31,11 @@
 - **The editor lists the entities of every EV charger**, not only the last one.
 - **The breaker chart of a circuit that feeds an EV charger keeps its history**, where it opened empty or stayed blank because the charger's tile charts the
   same circuit.
+- **A breaker whose switch is unavailable shows its relay state and cannot be toggled**, where it showed Off and sent a command the switch could not take.
+- **A circuit's priority icon and the side panel keep the last known priority while the select is unavailable**, where the icon showed a question mark and the
+  side panel could show the wrong priority.
+- **The card and dashboard pick up a panel's changed controls when the integration reloads or Home Assistant restarts**, without a page refresh.
+- **The card keeps following area changes and the panel's online state after you switch dashboard views**, where both stopped until the page was refreshed.
 
 ### Changed
 
