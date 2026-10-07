@@ -13,7 +13,7 @@ positions.
 - Breaker rating badges
 - Relay on/off status indicators
 - Historical power/current charts per circuit
-- EVSE and BESS sub-device sections
+- EVSE, BESS, Solar and solar inverter sub-device sections
 - Auto-discovers all circuit entities from a single device selection
 
 ## Requirements
@@ -80,8 +80,9 @@ show_solar: true
 ### Solar and Inverter Tiles
 
 Each solar inverter has a tile with its vendor and model, and the power and chart of the circuit that feeds it. The Solar tile is the first inverter's tile,
-with the site's total PV power in a **Site total** row beneath it; on a single-inverter site the two numbers are usually close. An inverter that no panel
-circuit feeds shows its identity and that its output is included in the site total. The editor's Battery section now also offers Meter Power.
+with the site's total PV power in a **Site total** row beneath it; on a single-inverter site the two numbers are usually close. Where no single panel circuit
+feeds the Solar device's inverter, its headline is the site total, captioned **Site total**. An inverter that no panel circuit feeds shows its identity and that
+its output is included in the site total. The editor's Battery section now also offers Meter Power and Nameplate Capacity.
 
 ### Finding Your Device ID
 
@@ -98,12 +99,12 @@ When `history_days` or `history_hours` are set, `history_minutes` defaults to `0
 
 The card reads the following from the SPAN Panel integration:
 
-| Data               | Source                                     |
-| ------------------ | ------------------------------------------ |
-| Panel position     | `tabs` attribute on circuit sensors        |
-| Power (W)          | Circuit power sensor state                 |
-| Breaker rating (A) | Circuit breaker rating sensor state        |
-| Relay on/off       | `relay_state` attribute / switch entity    |
-| Voltage            | `voltage` attribute (120V or 240V)         |
-| Panel size         | `panel_size` attribute on status sensor    |
-| EVSE / BESS        | Sub-devices discovered via `via_device_id` |
+| Data                | Source                                     |
+| ------------------- | ------------------------------------------ |
+| Panel position      | `tabs` attribute on circuit sensors        |
+| Power (W)           | Circuit power sensor state                 |
+| Breaker rating (A)  | Circuit breaker rating sensor state        |
+| Relay on/off        | `relay_state` attribute / switch entity    |
+| Voltage             | `voltage` attribute (120V or 240V)         |
+| Panel size          | `panel_size` attribute on status sensor    |
+| EVSE / BESS / Solar | Sub-devices discovered via `via_device_id` |

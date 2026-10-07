@@ -51,6 +51,7 @@
   placed directly via `grid-area` on the outer grid — name spans the full first row, the second row mirrors the list-row layout (badge, util, shed, status,
   power, gear), and `.chart-container` stays as a full-width third row.
 - **The Solar tile's headline and chart now show the power of the circuit that feeds its inverter**, with the site's total PV power in a row beneath it.
+- **The editor's Battery section offers Meter Power and Nameplate Capacity**, which the battery tile does not otherwise show.
 
 ## 0.9.4
 
