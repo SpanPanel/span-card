@@ -459,6 +459,10 @@ export const CARD_STYLES: string = `
     pointer-events: none;
     cursor: default;
   }
+  /* Locked switches dim every pill to 0.3; an inert one stays dimmer still. */
+  .switches-disabled .toggle-pill.toggle-unavailable {
+    opacity: 0.2;
+  }
 
   .circuit-status {
     display: flex;
