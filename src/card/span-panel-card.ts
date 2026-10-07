@@ -12,6 +12,8 @@ import { DashboardController } from "../core/dashboard-controller.js";
 import { ListViewController } from "../core/list-view-controller.js";
 import { buildTabBarHTML, bindTabBarEvents } from "../core/tab-bar-renderer.js";
 import { subscribeAreaUpdates } from "../core/area-resolver.js";
+import { subscribeEntryReloads } from "../core/entry-reload.js";
+import { coalesceRuns } from "../panel/coalesce.js";
 import { ErrorStore } from "../core/error-store.js";
 import { discoverTopology, discoverEntitiesFallback, panelConfigEntryId } from "./card-discovery.js";
 import { RetryManager } from "../core/retry-manager.js";
@@ -20,7 +22,7 @@ import "../core/side-panel.js";
 import "../core/error-banner.js";
 import "../core/span-icon.js";
 import "../core/span-switch.js";
-import type { HomeAssistant, PanelTopology, PanelDevice, CardConfig } from "../types.js";
+import type { HomeAssistant, PanelTopology, PanelDevice, CardConfig, DiscoveryResult } from "../types.js";
 
 interface SpanSidePanelElement extends HTMLElement {
   hass: HomeAssistant;
@@ -67,14 +69,15 @@ export class SpanPanelCard extends LitElement {
   private readonly _ctrl = new DashboardController();
   private readonly _listCtrl = new ListViewController(this._ctrl);
   private readonly _errorStore = new ErrorStore();
-  private _areaUnsub: (() => void) | null = null;
   /**
-   * Set while a ``subscribeAreaUpdates`` promise is in-flight. If the
-   * element disconnects before the promise resolves we flip this to
-   * ``false`` so the later ``.then`` callback can unsubscribe immediately
-   * instead of leaking the subscription.
+   * Each subscription is held as the promise it was handed, stored synchronously,
+   * and unsubscribed through it -- the pattern `span-panel.ts` uses for its
+   * device-registry subscription. A flag cannot tell one attachment from the next.
    */
-  private _areaSubscribing = false;
+  private _areaSub: Promise<() => void> | null = null;
+  private _reloadSub: Promise<() => Promise<void>> | null = null;
+  /** At most one re-fetch in flight, and at most one more after it. */
+  private readonly _topologyRefresh = coalesceRuns(() => this._refreshTopology());
   private _tabBarCleanup: (() => void) | null = null;
 
   static override styles = unsafeCSS(CARD_STYLES);
@@ -98,16 +101,15 @@ export class SpanPanelCard extends LitElement {
   connectedCallback(): void {
     super.connectedCallback();
     this._ctrl.startIntervals(this._root);
+    // Lovelace detaches and re-attaches a cached card on every view switch. The
+    // card cannot know what it missed meanwhile, so a loaded entry re-fetches once.
+    if (this._discovered) this._attachSubscriptions(true);
   }
 
   disconnectedCallback(): void {
     this._ctrl.stopIntervals();
     this._listCtrl.stop();
-    this._areaSubscribing = false;
-    if (this._areaUnsub) {
-      this._areaUnsub();
-      this._areaUnsub = null;
-    }
+    this._detachSubscriptions();
     if (this._tabBarCleanup) {
       this._tabBarCleanup();
       this._tabBarCleanup = null;
@@ -117,6 +119,7 @@ export class SpanPanelCard extends LitElement {
   }
 
   setConfig(config: CardConfig): void {
+    this._detachSubscriptions();
     this._errorStore.clear();
     this._config = config;
     this._discovered = false;
@@ -236,47 +239,9 @@ export class SpanPanelCard extends LitElement {
     this._discovered = true;
     this._discovering = false;
     this._ctrl.init(this._topology, this._config, this.hass, this._configEntryId);
-
-    // Start watching panel_status binary sensor for online/offline state
-    if (this._topology?.panel_entities?.panel_status) {
-      this._errorStore.watchPanelStatus(this._topology.panel_entities.panel_status);
-      this._errorStore.updateHass(this.hass);
-    }
-
-    // Subscribe to area changes. The subscribe call is async, so guard
-    // against disconnect-before-resolve: if ``_areaSubscribing`` is cleared
-    // (disconnectedCallback), drop the unsubscribe on the floor — we'd
-    // otherwise store it on a detached element and never call it.
-    if (this._topology) {
-      this._areaSubscribing = true;
-      subscribeAreaUpdates(
-        this.hass,
-        () => this._topology,
-        () => {
-          if (this._activeTab === "area" && this._discovered) {
-            this._populateCardContent();
-          }
-        },
-        this._errorStore
-      )
-        .then(unsub => {
-          if (this._areaSubscribing) {
-            this._areaUnsub = unsub;
-          } else {
-            unsub();
-          }
-        })
-        .catch((err: unknown) => {
-          this._areaSubscribing = false;
-          console.warn("SPAN Panel: area subscription failed", err);
-          this._errorStore.add({
-            key: "subscribe:area",
-            level: "warning",
-            message: t("error.areas_failed"),
-            persistent: false,
-          });
-        });
-    }
+    // A card detached during the discovery await attaches nothing;
+    // `connectedCallback` attaches when it returns.
+    if (this.isConnected) this._attachSubscriptions(false);
 
     // Wait for lit to render the card-content div
     await this.updateComplete;
@@ -289,35 +254,117 @@ export class SpanPanelCard extends LitElement {
     });
   }
 
-  private async _discoverTopology(): Promise<void> {
-    if (!this.hass) return;
+  /** Fetch the topology, falling back to entity discovery (a non-admin's card). Throws when both fail. */
+  private async _fetchTopology(): Promise<DiscoveryResult> {
     const retry = new RetryManager(this._errorStore);
     try {
-      const result = await discoverTopology(this.hass, this._config.device_id, retry);
-      this._topology = result.topology;
-      this._panelDevice = result.panelDevice;
-      this._panelSize = result.panelSize;
+      return await discoverTopology(this.hass, this._config.device_id, retry);
     } catch (err) {
       console.error("SPAN Panel: topology fetch failed, falling back to entity discovery", err);
-      try {
-        const result = await discoverEntitiesFallback(this.hass, this._config.device_id, retry);
-        this._topology = result.topology;
-        this._panelDevice = result.panelDevice;
-        this._panelSize = result.panelSize;
-      } catch (fallbackErr) {
-        console.error("SPAN Panel: fallback discovery also failed", fallbackErr);
-        this._errorStore.add({
-          key: "discovery-failed",
-          level: "error",
-          message: t("error.discovery_failed"),
-          persistent: true,
-          retryFn: () => {
-            this._errorStore.remove("discovery-failed");
-            this._startDiscovery();
-          },
-        });
-      }
+      return discoverEntitiesFallback(this.hass, this._config.device_id, retry);
     }
+  }
+
+  private _adoptTopology(result: DiscoveryResult): void {
+    this._topology = result.topology;
+    this._panelDevice = result.panelDevice;
+    this._panelSize = result.panelSize;
+  }
+
+  /** First discovery. Its failure is persistent, with a retry. */
+  private async _discoverTopology(): Promise<void> {
+    if (!this.hass) return;
+    try {
+      this._adoptTopology(await this._fetchTopology());
+    } catch (fallbackErr) {
+      console.error("SPAN Panel: fallback discovery also failed", fallbackErr);
+      this._errorStore.add({
+        key: "discovery-failed",
+        level: "error",
+        message: t("error.discovery_failed"),
+        persistent: true,
+        retryFn: () => {
+          this._errorStore.remove("discovery-failed");
+          this._startDiscovery();
+        },
+      });
+    }
+  }
+
+  /**
+   * Re-fetch after the panel's entry reloads, which is how the integration adds
+   * or removes a circuit's controls. A failure keeps the rendered topology and
+   * says so for a moment; it is not first discovery's persistent failure. Neither
+   * subscription is re-created -- the area one reads the topology through its
+   * getter -- and history, keyed by entity id, is kept.
+   */
+  private async _refreshTopology(): Promise<void> {
+    if (!this.hass || !this._discovered) return;
+    let result: DiscoveryResult | null = null;
+    try {
+      result = await this._fetchTopology();
+    } catch (err) {
+      console.warn("SPAN Panel: topology refresh failed; keeping the current topology", err);
+    }
+    if (!result?.topology) {
+      this._errorStore.add({ key: "refresh:topology", level: "warning", message: t("error.discovery_failed"), persistent: false });
+      return;
+    }
+    this._adoptTopology(result);
+    this._ctrl.init(this._topology, this._config, this.hass, this._configEntryId);
+    this._watchPanelStatus();
+    this._populateCardContent();
+    this._ctrl.updateDOM(this._root);
+  }
+
+  // ── Subscriptions ──────────────────────────────────────────────────────
+
+  /** Subscribe to area changes and entry reloads, and watch the panel status. Detaches first, so attaches never stack. */
+  private _attachSubscriptions(initialIsReseed: boolean): void {
+    this._detachSubscriptions();
+    if (!this.hass) return;
+    this._areaSub = subscribeAreaUpdates(
+      this.hass,
+      () => this._topology,
+      () => {
+        if (this._activeTab === "area" && this._discovered) this._populateCardContent();
+      },
+      this._errorStore
+    ).catch((err: unknown): (() => void) => {
+      console.warn("SPAN Panel: area subscription failed", err);
+      this._errorStore.add({ key: "subscribe:area", level: "warning", message: t("error.areas_failed"), persistent: false });
+      return () => {};
+    });
+    this._reloadSub = subscribeEntryReloads(
+      this.hass,
+      entry => entry.entry_id === this._configEntryId,
+      () => {
+        void this._topologyRefresh();
+      },
+      { initialIsReseed }
+    ).catch((err: unknown): (() => Promise<void>) => {
+      console.warn("SPAN Panel: config entry subscription failed", err);
+      return async () => {};
+    });
+    this._watchPanelStatus();
+  }
+
+  /** The only teardown path: unsubscribe through each held promise, whenever it resolves. */
+  private _detachSubscriptions(): void {
+    const area = this._areaSub;
+    const reload = this._reloadSub;
+    this._areaSub = null;
+    this._reloadSub = null;
+    void area?.then(unsubscribe => unsubscribe());
+    void reload?.then(unsubscribe => unsubscribe());
+  }
+
+  /** `watchPanelStatus` replaces the watch set wholesale and keeps `wasOffline`, so calling it again is safe. */
+  private _watchPanelStatus(): void {
+    const entityId = this._topology?.panel_entities?.panel_status;
+    if (!entityId || !this.hass) return;
+    this._errorStore.watchPanelStatus(entityId);
+    this._errorStore.updateHass(this.hass);
   }
 
   private async _loadHistory(): Promise<void> {
