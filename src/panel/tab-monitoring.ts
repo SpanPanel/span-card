@@ -1,5 +1,6 @@
 import { INTEGRATION_DOMAIN, INPUT_DEBOUNCE_MS, THRESHOLD_DEBOUNCE_MS } from "../constants.js";
 import { escapeHtml } from "../helpers/sanitize.js";
+import { errorText } from "../helpers/error-text.js";
 import { t } from "../i18n.js";
 import type { ErrorStore } from "../core/error-store.js";
 import type { HomeAssistant, MonitoringPointInfo, MonitoringStatusResponse, CallServiceResponse } from "../types.js";
@@ -479,7 +480,8 @@ export class MonitoringTab {
 
     const reportFailure = (target: HTMLElement | null, err: unknown, fallback: string): void => {
       if (!target) return;
-      const message = err instanceof Error ? err.message : fallback;
+      // `null` is a form that failed validation: there is no rejection to report.
+      const message = err === null ? fallback : errorText(err);
       target.textContent = `${t("error.prefix")} ${message}`;
       target.style.color = "var(--error-color, #f44336)";
     };
@@ -695,7 +697,7 @@ export class MonitoringTab {
           }
         } catch (err: unknown) {
           if (testStatus) {
-            const message = err instanceof Error ? err.message : t("error.failed");
+            const message = errorText(err);
             testStatus.textContent = `${t("error.prefix")} ${message}`;
             testStatus.style.color = "var(--error-color, #f44336)";
           }
