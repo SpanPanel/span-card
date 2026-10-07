@@ -1,5 +1,6 @@
 import { INTEGRATION_DOMAIN } from "../constants.js";
 import { escapeHtml } from "../helpers/sanitize.js";
+import { errorText } from "../helpers/error-text.js";
 import { t, tf } from "../i18n.js";
 import {
   appliedSeed,
@@ -96,14 +97,6 @@ function warningText(code: string): string {
   if (code === "total_increasing") return t("adopted.warn_total_increasing");
   if (code === "statistics_removed") return t("adopted.warn_statistics_removed");
   return code;
-}
-
-function errorText(err: unknown): string {
-  if (err instanceof Error) return err.message;
-  if (err && typeof err === "object" && typeof (err as { message?: unknown }).message === "string") {
-    return (err as { message: string }).message;
-  }
-  return String(err);
 }
 
 /**

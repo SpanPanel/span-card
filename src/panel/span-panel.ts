@@ -23,6 +23,7 @@ import { buildHeaderHTML, buildPanelStatsHTML } from "../core/header-renderer.js
 import { updatePanelStatsBlock } from "../core/dom-updater.js";
 import { buildSubDevicesHTML } from "../core/sub-device-renderer.js";
 import { escapeHtml } from "../helpers/sanitize.js";
+import { errorText } from "../helpers/error-text.js";
 import { loadListColumns, saveListColumns } from "../helpers/list-columns.js";
 import { attrSelectorValue } from "../helpers/selector.js";
 import { CARD_STYLES } from "../card/card-styles.js";
@@ -1060,7 +1061,7 @@ export class SpanPanelElement extends LitElement {
           if (superseded()) return;
           const errEl = document.createElement("p");
           errEl.style.color = "var(--error-color)";
-          errEl.textContent = (err as Error).message;
+          errEl.textContent = errorText(err);
           container.appendChild(errEl);
         }
         break;
@@ -1093,7 +1094,7 @@ export class SpanPanelElement extends LitElement {
         } catch (err) {
           const errEl = document.createElement("p");
           errEl.style.color = "var(--error-color)";
-          errEl.textContent = err instanceof Error ? err.message : String(err);
+          errEl.textContent = errorText(err);
           container.appendChild(errEl);
         }
         break;
@@ -1223,7 +1224,7 @@ export class SpanPanelElement extends LitElement {
       if (superseded()) return;
       const errEl = document.createElement("p");
       errEl.style.color = "var(--error-color)";
-      errEl.textContent = (err as Error).message;
+      errEl.textContent = errorText(err);
       container.appendChild(errEl);
     }
   }
@@ -1274,7 +1275,7 @@ export class SpanPanelElement extends LitElement {
         console.warn("SPAN Panel: favorites monitoring render failed", entryId, err);
         const errEl = document.createElement("p");
         errEl.style.color = "var(--error-color)";
-        errEl.textContent = (err as Error).message ?? String(err);
+        errEl.textContent = errorText(err);
         body.appendChild(errEl);
       }
     }

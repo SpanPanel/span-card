@@ -1,6 +1,7 @@
 import type { ErrorStore } from "./error-store.js";
 import type { HomeAssistant } from "../types.js";
 import { t } from "../i18n.js";
+import { errorText } from "../helpers/error-text.js";
 
 const DEFAULT_RETRIES = 3;
 const BACKOFF_BASE_MS = 1000;
@@ -48,7 +49,7 @@ export class RetryManager {
         this._store.remove(errorId);
         return result;
       } catch (err) {
-        const error = err instanceof Error ? err : new Error(String(err));
+        const error = err instanceof Error ? err : new Error(errorText(err));
         this._store.add({
           key: errorId,
           level: "error",
@@ -67,7 +68,7 @@ export class RetryManager {
         this._store.remove(errorId);
         return result;
       } catch (err) {
-        lastError = err instanceof Error ? err : new Error(String(err));
+        lastError = err instanceof Error ? err : new Error(errorText(err));
         if (attempt < maxRetries) {
           const delay = BACKOFF_BASE_MS * Math.pow(2, attempt);
           await sleep(delay);

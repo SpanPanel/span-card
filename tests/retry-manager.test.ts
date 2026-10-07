@@ -239,3 +239,16 @@ describe("RetryManager — panel offline short-circuit", () => {
     expect(hass.callWS).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("RetryManager — Home Assistant's rejection shape", () => {
+  it("reports and throws the message of a { code, message } rejection", async () => {
+    const store = new ErrorStore();
+    const hass = makeHass();
+    vi.mocked(hass.callWS).mockRejectedValue({ code: "unauthorized", message: "Unauthorized" });
+
+    await expect(new RetryManager(store).callWS(hass, { type: "span/get_panel" }, { errorId: "fetch:x", retries: 0 })).rejects.toThrow("Unauthorized");
+
+    expect(store.active.find(e => e.key === "fetch:x")?.message).toBe("Unauthorized");
+    store.dispose();
+  });
+});

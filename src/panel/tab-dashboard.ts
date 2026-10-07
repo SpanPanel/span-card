@@ -1,5 +1,6 @@
 import { discoverTopology } from "../card/card-discovery.js";
 import { escapeHtml } from "../helpers/sanitize.js";
+import { errorText } from "../helpers/error-text.js";
 import { buildHeaderHTML } from "../core/header-renderer.js";
 import { buildGridHTML } from "../core/grid-renderer.js";
 import { buildSubDevicesHTML } from "../core/sub-device-renderer.js";
@@ -65,7 +66,7 @@ export class DashboardTab {
       topology = result.topology;
       panelSize = result.panelSize;
     } catch (err) {
-      container.innerHTML = `<p style="color:var(--error-color);">${escapeHtml((err as Error).message)}</p>`;
+      container.innerHTML = `<p style="color:var(--error-color);">${escapeHtml(errorText(err))}</p>`;
       return;
     }
 
