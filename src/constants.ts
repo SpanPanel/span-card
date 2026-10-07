@@ -30,6 +30,7 @@ export const RELAY_STATE_CLOSED = "CLOSED";
 export const DEVICE_TYPE_PV = "pv";
 export const SUB_DEVICE_TYPE_BESS = "bess";
 export const SUB_DEVICE_TYPE_EVSE = "evse";
+export const SUB_DEVICE_TYPE_PV = "pv";
 export const SUB_DEVICE_KEY_PREFIX = "sub_";
 
 // -- Chart layout constants --
