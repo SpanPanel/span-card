@@ -121,6 +121,9 @@ export const CARD_STYLES: string = `
   .stat-label { font-size: 0.8em; color: var(--secondary-text-color, #999); margin-bottom: 2px; }
   .stat-row { display: flex; align-items: baseline; gap: 2px; }
   .stat-value { font-size: 1.5em; font-weight: 700; color: var(--primary-text-color, #fff); }
+  /* A sum that left out a term with no reading: dimmed, and marked as at least this much. */
+  .stat-value.stat-partial { opacity: 0.7; }
+  .stat-value.stat-partial::after { content: "+"; }
   .stat-unit { font-size: 0.7em; font-weight: 400; color: var(--secondary-text-color, #999); }
 
   .header-right { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; padding-top: 8px; }

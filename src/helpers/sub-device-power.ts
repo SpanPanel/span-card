@@ -1,5 +1,6 @@
 import { SUB_DEVICE_TYPE_BESS } from "../constants.js";
 import { findSubDevicePowerEntity, findBatteryLevelEntity, findBatterySoeEntity } from "./entity-finder.js";
+import { readNumber } from "./read-number.js";
 import type { HomeAssistant, SubDevice } from "../types.js";
 
 export interface SubDevicePower {
@@ -68,8 +69,7 @@ export function subDeviceCharts(sub: SubDevice): SubDeviceChart[] {
   return charts.filter((chart): chart is SubDeviceChart => chart.entityId !== null);
 }
 
-/** An entity's state as watts, or 0 where it has none, as tiles have always read it. */
-export function stateWatts(hass: HomeAssistant, entityId: string): number {
-  const state = hass.states[entityId];
-  return state ? parseFloat(state.state) || 0 : 0;
+/** An entity's state as watts, or null where it has no reading. */
+export function stateWatts(hass: HomeAssistant, entityId: string): number | null {
+  return readNumber(hass.states[entityId]);
 }

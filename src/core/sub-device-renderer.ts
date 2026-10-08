@@ -1,5 +1,6 @@
 import { escapeHtml } from "../helpers/sanitize.js";
 import { formatPowerHTML } from "../helpers/format.js";
+import { readNumber } from "../helpers/read-number.js";
 import { t } from "../i18n.js";
 import { findBatteryLevelEntity, findBatterySoeEntity } from "../helpers/entity-finder.js";
 import { resolveSubDevicePower, tileRenderedEntityIds, stateWatts, type SubDevicePower } from "../helpers/sub-device-power.js";
@@ -187,8 +188,8 @@ export function buildSubEntityHTML(sub: SubDevice, hass: HomeAssistant, config: 
     }
     const rawUnit = (state.attributes.unit_of_measurement as string) || "";
     if (rawUnit === "Wh") {
-      const wh: number = parseFloat(state.state);
-      if (!isNaN(wh)) displayValue = (wh / 1000).toFixed(1) + " kWh";
+      const wh = readNumber(state);
+      if (wh !== null) displayValue = (wh / 1000).toFixed(1) + " kWh";
     }
     entHTML += `
       <div class="sub-entity">

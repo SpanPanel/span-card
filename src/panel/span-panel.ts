@@ -1008,7 +1008,7 @@ export class SpanPanelElement extends LitElement {
     for (const info of this._favoritesPanelStats) {
       const block = container.querySelector(`.panel-stats[data-stats-panel-id="${attrSelectorValue(info.panelDeviceId)}"]`);
       if (!block) continue;
-      updatePanelStatsBlock(block, this.hass, info.topology, config, 0);
+      updatePanelStatsBlock(block, this.hass, info.topology, config, null);
     }
   }
 

@@ -285,7 +285,8 @@ export interface GraphSettings {
 export interface MonitoringPointInfo {
   name?: string;
   monitoring_enabled?: boolean;
-  utilization_pct?: number;
+  /** Null while the circuit has no current reading or no breaker rating. */
+  utilization_pct?: number | null;
   over_threshold_since?: string | null;
   has_override?: boolean;
   continuous_threshold_pct?: number;

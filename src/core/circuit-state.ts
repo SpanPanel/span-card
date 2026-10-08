@@ -1,4 +1,5 @@
-import { RELAY_STATE_CLOSED, SELECTABLE_PRIORITY_KEYS } from "../constants.js";
+import { DEVICE_TYPE_PV, RELAY_STATE_CLOSED, SELECTABLE_PRIORITY_KEYS } from "../constants.js";
+import { readNumber } from "../helpers/read-number.js";
 import { isAlertActive } from "./monitoring-status.js";
 import type { Circuit, HomeAssistant, MonitoringPointInfo } from "../types.js";
 
@@ -14,6 +15,38 @@ export function getCircuitStateClasses(_circuit: Circuit, monitoringInfo: Monito
   if (isProducer) classes.push("circuit-producer");
   if (isAlertActive(monitoringInfo)) classes.push("circuit-alert");
   return classes.join(" ");
+}
+
+/** A circuit's power reading in watts, or null where its sensor has none. */
+export function circuitPowerW(c: Pick<Circuit, "entities">, hass: HomeAssistant): number | null {
+  const entityId = c.entities?.power;
+  return readNumber(entityId ? hass.states[entityId] : undefined);
+}
+
+/** A circuit's current reading in amps, or null where its sensor has none. */
+export function circuitCurrentA(c: Pick<Circuit, "entities">, hass: HomeAssistant): number | null {
+  const entityId = c.entities?.current;
+  return readNumber(entityId ? hass.states[entityId] : undefined);
+}
+
+/** Whether a circuit draws as production: a solar circuit, or one measured feeding power back. An unknown reading is not production. */
+export function readsAsProducer(c: Pick<Circuit, "device_type">, powerW: number | null): boolean {
+  return c.device_type === DEVICE_TYPE_PV || (powerW !== null && powerW < 0);
+}
+
+/**
+ * A circuit's breaker utilization in percent: the monitor's figure, else its
+ * measured current over its breaker rating. Null when neither is known, never 0 %.
+ */
+export function circuitUtilizationPct(
+  c: Pick<Circuit, "entities" | "breaker_rating_a">,
+  hass: HomeAssistant,
+  monitoringInfo: MonitoringPointInfo | null
+): number | null {
+  const monitored = monitoringInfo?.utilization_pct ?? null;
+  if (monitored !== null || !c.breaker_rating_a) return monitored;
+  const amps = circuitCurrentA(c, hass);
+  return amps === null ? null : Math.round((Math.abs(amps) / c.breaker_rating_a) * 1000) / 10;
 }
 
 /**

@@ -62,3 +62,51 @@ describe("updateCollapsedRows", () => {
     expect(marker.style.display).toBe("none");
   });
 });
+
+describe("updateCollapsedRows readings and order", () => {
+  function circuit(slug: string): Circuit {
+    return {
+      name: slug,
+      tabs: [1],
+      entities: { power: `sensor.${slug}_power` },
+      is_user_controllable: false,
+      relay_state: "CLOSED",
+    } as Circuit;
+  }
+
+  const CIRCUITS = { a: circuit("a"), b: circuit("b"), c: circuit("c"), d: circuit("d") };
+  const ORDERED = { circuits: CIRCUITS } as unknown as PanelTopology;
+
+  function listOf(hass: HomeAssistant, order: string[]): HTMLElement {
+    const root = document.createElement("div");
+    const cells = order
+      .map(
+        uuid =>
+          `<div class="list-cell" data-cell-uuid="${uuid}">${buildListRowHTML(uuid, CIRCUITS[uuid as keyof typeof CIRCUITS], hass, CONFIG, null, "unknown", false)}</div>`
+      )
+      .join("");
+    root.innerHTML = `<div class="list-view">${cells}</div>`;
+    return root;
+  }
+
+  function order(root: HTMLElement): string[] {
+    return [...root.querySelectorAll<HTMLElement>(".list-cell")].map(cell => cell.dataset.cellUuid!);
+  }
+
+  it("puts a circuit with an unknown reading after every measured one, a published zero included", () => {
+    const hass = hassWith({ "sensor.a_power": "unknown", "sensor.b_power": "0", "sensor.c_power": "250", "sensor.d_power": "-90" });
+    const root = listOf(hass, ["a", "b", "c", "d"]);
+
+    new ListViewController(new DashboardController()).updateCollapsedRows(root, hass, ORDERED, CONFIG);
+
+    expect(order(root)).toEqual(["c", "d", "b", "a"]);
+  });
+
+  it("shows a reading that becomes unknown as unknown, never 0 W", () => {
+    const root = listOf(hassWith({ "sensor.a_power": "120" }), ["a"]);
+
+    new ListViewController(new DashboardController()).updateCollapsedRows(root, hassWith({ "sensor.a_power": "unavailable" }), ORDERED, CONFIG);
+
+    expect(root.querySelector(".list-power-value")!.textContent!.trim()).toBe("--");
+  });
+});

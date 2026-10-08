@@ -226,8 +226,8 @@ export function buildMonitoringSummaryHTML(status: MonitoringStatus | null): str
   const mains: MonitoringPointInfo[] = Object.values(status.mains ?? {});
   const all: MonitoringPointInfo[] = [...circuits, ...mains];
 
-  const warnings = all.filter(p => p.utilization_pct !== undefined && p.utilization_pct >= 80 && p.utilization_pct < 100).length;
-  const alerts = all.filter(p => p.utilization_pct !== undefined && p.utilization_pct >= 100).length;
+  const warnings = all.filter(p => p.utilization_pct != null && p.utilization_pct >= 80 && p.utilization_pct < 100).length;
+  const alerts = all.filter(p => p.utilization_pct != null && p.utilization_pct >= 100).length;
   const overrides = all.filter(p => p.has_override).length;
 
   return `

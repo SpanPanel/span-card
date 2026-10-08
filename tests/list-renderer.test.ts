@@ -191,3 +191,41 @@ describe("a list row's status control and shedding marker", () => {
     expect(marker!.style.display).toBe("none");
   });
 });
+
+describe("a list row's reading", () => {
+  const circuit = {
+    name: "Kitchen",
+    tabs: [1],
+    relay_state: "CLOSED",
+    is_user_controllable: true,
+    breaker_rating_a: 20,
+    entities: { switch: "switch.k", power: "sensor.k_power", current: "sensor.k_current" },
+  } as unknown as Circuit;
+
+  function row(states: Record<string, { state: string }>, config: CardConfig = mockConfig): HTMLElement {
+    const div = document.createElement("div");
+    div.innerHTML = buildListRowHTML("k", circuit, hassWith(states), config, null, "unknown", false);
+    return div;
+  }
+
+  it("shows an unknown power reading as unknown, never 0 W", () => {
+    const el = row({ "switch.k": { state: "on" }, "sensor.k_power": { state: "unknown" } });
+    expect(el.querySelector(".list-power-value")!.textContent!.trim()).toBe("--");
+  });
+
+  it("keeps a published zero as a reading", () => {
+    const el = row({ "switch.k": { state: "on" }, "sensor.k_power": { state: "0" } });
+    expect(el.querySelector(".list-power-value strong")!.textContent).toBe("0");
+  });
+
+  it("shows an unknown current as unknown, and draws no utilization from it", () => {
+    const el = row({ "switch.k": { state: "on" }, "sensor.k_current": { state: "unavailable" } }, { chart_metric: "current" } as CardConfig);
+    expect(el.querySelector(".list-power-value")!.textContent!.trim()).toBe("--");
+    expect(el.querySelector(".utilization")).toBeNull();
+  });
+
+  it("does not style an unknown reading as production in the expanded chart", () => {
+    const html = buildExpandedChartHTML("k", circuit, hassWith({ "switch.k": { state: "on" }, "sensor.k_power": { state: "unknown" } }), mockConfig, null);
+    expect(html).not.toContain("circuit-producer");
+  });
+});

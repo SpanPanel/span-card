@@ -5,6 +5,7 @@
 ### Fixed
 
 - **Circuits are found whatever their ids look like.**
+- **A reading the panel has not published shows as "--", never 0.**
 
 ## 0.9.5
 

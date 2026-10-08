@@ -1,6 +1,7 @@
 import { DEFAULT_GRAPH_HORIZON, GRAPH_HORIZONS, INTEGRATION_DOMAIN, LIVE_SAMPLE_INTERVAL_MS } from "../constants.js";
 import { getCircuitChartEntity } from "../helpers/chart.js";
 import { getHorizonDurationMs, getMaxHistoryPoints, getMinGapMs, recordSample } from "../helpers/history.js";
+import { readNumber } from "../helpers/read-number.js";
 import { subDeviceCharts } from "../helpers/sub-device-power.js";
 import { loadHistory, collectSubDeviceEntityIds } from "./history-loader.js";
 import { updateCircuitDOM, updateSubDeviceDOM } from "./dom-updater.js";
@@ -279,10 +280,8 @@ export class DashboardController {
 
       const entityId = getCircuitChartEntity(circuit, this._config);
       if (!entityId) continue;
-      const state = this._hass.states[entityId];
-      if (!state) continue;
-      const val = parseFloat(state.state);
-      if (isNaN(val)) continue;
+      const val = readNumber(this._hass.states[entityId]);
+      if (val === null) continue;
 
       const durationMs = getHorizonDurationMs(horizon);
       const maxPoints = getMaxHistoryPoints(durationMs);
@@ -299,10 +298,8 @@ export class DashboardController {
       const horizon = this.subDeviceHorizonMap.get(devId) ?? DEFAULT_GRAPH_HORIZON;
       if (!GRAPH_HORIZONS[horizon]?.useRealtime) continue;
 
-      const state = this._hass.states[entityId];
-      if (!state) continue;
-      const val = parseFloat(state.state);
-      if (isNaN(val)) continue;
+      const val = readNumber(this._hass.states[entityId]);
+      if (val === null) continue;
 
       const durationMs = getHorizonDurationMs(horizon);
       const maxPoints = getMaxHistoryPoints(durationMs);

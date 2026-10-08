@@ -1,10 +1,10 @@
 import { escapeHtml } from "../helpers/sanitize.js";
 import { attrSelectorValue } from "../helpers/selector.js";
-import { formatPowerSigned, formatPowerUnit } from "../helpers/format.js";
+import { formatCircuitCurrentHTML, formatCircuitPowerHTML } from "../helpers/format.js";
 import { getChartMetric } from "../helpers/chart.js";
 import { t } from "../i18n.js";
 import { getCircuitMonitoringInfo } from "./monitoring-status.js";
-import { relayClosed, shedPriorityKey, switchPresence } from "./circuit-state.js";
+import { circuitCurrentA, circuitPowerW, relayClosed, shedPriorityKey, switchPresence } from "./circuit-state.js";
 import { applySheddingIcon, applyTogglePill } from "./circuit-controls.js";
 import { buildSearchBarHTML, buildListRowHTML, buildExpandedChartHTML, buildAreaHeaderHTML } from "./list-renderer.js";
 import { observeFold } from "./truncation-fold.js";
@@ -19,32 +19,28 @@ interface SpanSidePanelElement extends HTMLElement {
 
 interface CircuitSortInfo {
   isOn: boolean;
-  value: number;
+  /** The reading the row shows, current or power by the unit chosen; null where it has none. */
+  value: number | null;
 }
 
 function getCircuitSortInfo(circuit: Circuit, hass: HomeAssistant, config: CardConfig): CircuitSortInfo {
-  const powerEid = circuit.entities?.power;
-  const powerState = powerEid ? hass.states[powerEid] : null;
   const isOn = relayClosed(circuit, hass);
-
   const isCurrentMode = (config.chart_metric || "power") === "current";
-  let value: number;
-  if (isCurrentMode) {
-    const currentEid = circuit.entities?.current;
-    const currentState = currentEid ? hass.states[currentEid] : null;
-    value = currentState ? Math.abs(parseFloat(currentState.state) || 0) : 0;
-  } else {
-    value = powerState ? Math.abs(parseFloat(powerState.state) || 0) : 0;
-  }
+  const value = isCurrentMode ? circuitCurrentA(circuit, hass) : circuitPowerW(circuit, hass);
   return { isOn, value };
 }
 
+/** Circuits that are on first; then the largest reading first, and an unknown reading after every measured one. */
 function compareCircuits(a: Circuit, b: Circuit, hass: HomeAssistant, config: CardConfig): number {
   const infoA = getCircuitSortInfo(a, hass, config);
   const infoB = getCircuitSortInfo(b, hass, config);
   if (infoA.isOn && !infoB.isOn) return -1;
   if (!infoA.isOn && infoB.isOn) return 1;
-  return infoB.value - infoA.value;
+  if (infoA.value === null || infoB.value === null) {
+    if (infoA.value === infoB.value) return 0;
+    return infoA.value === null ? 1 : -1;
+  }
+  return Math.abs(infoB.value) - Math.abs(infoA.value);
 }
 
 function sortCircuitEntries(entries: [string, Circuit][], hass: HomeAssistant, config: CardConfig): [string, Circuit][] {
@@ -314,8 +310,7 @@ export class ListViewController {
   }
 
   updateCollapsedRows(root: Element | ShadowRoot, hass: HomeAssistant, topology: PanelTopology, config: CardConfig): void {
-    const chartMetric = getChartMetric(config);
-    const isCurrentMode = chartMetric.entityRole === "current";
+    const isCurrentMode = getChartMetric(config).entityRole === "current";
 
     const rows = root.querySelectorAll<HTMLElement>(".list-row[data-row-uuid]");
     for (const row of rows) {
@@ -333,12 +328,9 @@ export class ListViewController {
         if (!isOn) {
           powerValueEl.innerHTML = "";
         } else if (isCurrentMode) {
-          powerValueEl.innerHTML = `<strong>${chartMetric.format(value)}</strong><span class="power-unit">A</span>`;
+          powerValueEl.innerHTML = formatCircuitCurrentHTML(value);
         } else {
-          const powerEid = circuit.entities?.power;
-          const powerState = powerEid ? hass.states[powerEid] : null;
-          const powerW = powerState ? parseFloat(powerState.state) || 0 : 0;
-          powerValueEl.innerHTML = `<strong>${formatPowerSigned(powerW)}</strong><span class="power-unit">${formatPowerUnit(powerW)}</span>`;
+          powerValueEl.innerHTML = formatCircuitPowerHTML(value);
         }
       }
 

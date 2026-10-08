@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { buildGridHTML, renderCircuitSlot } from "../src/core/grid-renderer.js";
-import type { Circuit, HomeAssistant, CardConfig, PanelTopology } from "../src/types.js";
+import type { Circuit, HomeAssistant, CardConfig, MonitoringPointInfo, PanelTopology } from "../src/types.js";
 
 const hass = { states: {}, services: {}, language: "en" } as unknown as HomeAssistant;
 
@@ -103,5 +103,58 @@ describe("a breaker's pill on the grid", () => {
     );
     expect(marker).not.toBeNull();
     expect(marker!.style.display).toBe("none");
+  });
+});
+
+const CURRENT = "sensor.kitchen_current";
+const MEASURED = makeCircuit({
+  entities: { switch: SWITCH, power: POWER, current: CURRENT },
+  is_user_controllable: true,
+  relay_state: "CLOSED",
+  breaker_rating_a: 20,
+});
+
+function slotOf(states: Parameters<typeof hassWith>[0], cfg: CardConfig = config, monitoring: MonitoringPointInfo | null = null): HTMLElement {
+  const div = document.createElement("div");
+  div.innerHTML = renderCircuitSlot("kitchen", MEASURED, 1, "2", "single", hassWith(states), cfg, monitoring, "unknown");
+  return div.querySelector(".circuit-slot")!;
+}
+
+describe("a slot's reading on the grid", () => {
+  it("shows an unknown power reading as unknown, never 0 W", () => {
+    const slot = slotOf({ [SWITCH]: { state: "on" }, [POWER]: { state: "unknown" } });
+    expect(slot.querySelector(".power-value")!.textContent!.trim()).toBe("--");
+    expect(slot.querySelector(".power-value")!.innerHTML).not.toContain("0");
+  });
+
+  it("shows an unavailable power reading as unknown", () => {
+    const slot = slotOf({ [SWITCH]: { state: "on" }, [POWER]: { state: "unavailable" } });
+    expect(slot.querySelector(".power-value")!.textContent!.trim()).toBe("--");
+  });
+
+  it("keeps a published zero as a reading", () => {
+    const slot = slotOf({ [SWITCH]: { state: "on" }, [POWER]: { state: "0" } });
+    expect(slot.querySelector(".power-value strong")!.textContent).toBe("0");
+    expect(slot.querySelector(".power-unit")!.textContent).toBe("W");
+  });
+
+  it("does not style an unknown reading as production", () => {
+    const slot = slotOf({ [SWITCH]: { state: "on" }, [POWER]: { state: "unknown" } });
+    expect(slot.classList.contains("circuit-producer")).toBe(false);
+  });
+
+  it("shows an unknown current as unknown, never 0 A", () => {
+    const slot = slotOf({ [SWITCH]: { state: "on" }, [CURRENT]: { state: "unknown" } }, { chart_metric: "current" });
+    expect(slot.querySelector(".power-value")!.textContent!.trim()).toBe("--");
+  });
+
+  it("draws no utilization from an unknown current, never 0 %", () => {
+    const slot = slotOf({ [SWITCH]: { state: "on" }, [CURRENT]: { state: "unknown" } }, config, { utilization_pct: null });
+    expect(slot.querySelector(".utilization")).toBeNull();
+  });
+
+  it("draws utilization from a measured current", () => {
+    const slot = slotOf({ [SWITCH]: { state: "on" }, [CURRENT]: { state: "10" } });
+    expect(slot.querySelector(".utilization")!.textContent).toBe("50%");
   });
 });
