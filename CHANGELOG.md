@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.9.6
+
+### Fixed
+
+- **Circuits are found whatever their ids look like.**
+
 ## 0.9.5
 
 ### Added

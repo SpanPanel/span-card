@@ -132,24 +132,15 @@ export async function discoverEntitiesFallback(hass: HomeAssistant, deviceId: st
     }
     if (!tabs.every(Number.isFinite)) continue;
 
-    const uidParts = ent.unique_id.split("_");
-    let circuitUuid: string | null = null;
-    for (let i = 2; i < uidParts.length - 1; i++) {
-      const part = uidParts[i];
-      if (part !== undefined && part.length >= 16 && /^[a-f0-9]+$/i.test(part)) {
-        circuitUuid = part;
-        break;
-      }
-    }
+    // A circuit's sensors all carry its tabs; its power sensor alone stands for
+    // it. The unique id is `span_{serial}_{circuit id}_power`, and the circuit id
+    // is opaque: whatever lies between the serial and the suffix, `_` included.
+    if (!ent.unique_id.endsWith("_power")) continue;
+    const circuitUuid = ent.unique_id.split("_").slice(2, -1).join("_");
     if (!circuitUuid) continue;
 
     let displayName = (typeof attrs.friendly_name === "string" ? attrs.friendly_name : undefined) ?? ent.entity_id;
-    for (const suffix of [" Power", " Consumed Energy", " Produced Energy"]) {
-      if (displayName.endsWith(suffix)) {
-        displayName = displayName.slice(0, -suffix.length);
-        break;
-      }
-    }
+    if (displayName.endsWith(" Power")) displayName = displayName.slice(0, -" Power".length);
     if (devName && displayName.startsWith(devName + " ")) {
       displayName = displayName.slice(devName.length + 1);
     }
