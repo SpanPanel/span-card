@@ -4,60 +4,35 @@
 
 ### Added
 
+- **The dashboard has an Adopted tab**, where an administrator sets each adopted entity's name, device class, statistics class, display unit and whether it
+  stays under Diagnostics.
 - **Each additional solar inverter has its own tile**, with its vendor, model, and the power and chart of the circuit that feeds it.
 - **The editor has a Solar section** for choosing which entities of the Solar device and of each inverter appear on their tiles.
 
 ### Fixed
 
-- **Favorites view blanks after `visibilitychange` restore** — Restored a `_recoverIfNeeded` helper on the panel's visibilitychange handler. It wraps
-  `_scheduleTabRender` in try/catch **and** verifies `#tab-content` received content; on thrown error or zero child nodes, it makes the initial render and then
-  retries up to three times with 2s / 4s / 6s backoff (four total renders in the worst case). The Favorites render path clears its container before awaiting
-  several async build steps (`FavoritesController.build`, `fetchAndBuildHorizonMaps`, `fetchMergedMonitoringStatus`), and when HA's WebSocket drops mid-render
-  one of those resolved empty or null without throwing, leaving the container blank with no console error. The retry catches the silent bailout. Dashboard (By
-  Panel) avoided the symptom because its simpler render produces an error message on failure instead of bailing quietly. The helper matches the pre-LitElement
-  behaviour removed during the `c4154d2` refactor.
-- **List row `.list-power-value` min-width shrank the name column for no benefit** — Dropped the 70px `min-width` and `text-align: right` on
-  `.list-power-value`. Short readings (`1.3A`) were right-aligned inside a 70px cell, leaving a ~40px empty column between the relay control and the reading
-  that robbed width from the `flex:1 .list-circuit-name`. The value now sizes to content and hugs the preceding relay pill; the freed column flows back into the
-  name.
-- **A card holding a device id from before Home Assistant 2026.8 lost its panel** — That release split every device shared between integrations into one device
-  per integration, each with a new id, so a card configured earlier can hold an id the device list no longer contains. Discovery looked the panel up in that
-  list by the saved id and found nothing, leaving the config entry null — monitoring and entry-scoped service calls went without one — and circuits without an
-  area of their own lost the panel-area fallback. Discovery and the area resolver now take the panel's current device from `panel_device_id` in the topology
-  response (span integration 2.1.2), falling back to the saved id when topology names none, and the card takes its entry from topology's `config_entry_id`
-  before the device's.
-- **Stopped reading the deprecated `config_entries` device field** — Home Assistant 2026.8 gives each device a single owning entry, `config_entry_id`, and
-  removes the `config_entries` list in 2027.8. The card, the dashboard page and the favorites controller now read `config_entry_id`.
+- **The sidebar dashboard opens normally after you have viewed a dashboard with the card**, where it stayed blank until the page was reloaded.
+- **A card configured before Home Assistant 2026.8 finds its panel again** with span integration 2.1.2, where it lost the panel's monitoring and area.
 - **The editor lists the entities of every EV charger**, not only the last one.
 - **The breaker chart of a circuit that feeds an EV charger keeps its history**, where it opened empty or stayed blank because the charger's tile charts the
   same circuit.
 - **A breaker whose switch is unavailable shows its relay state and cannot be toggled**, where it showed Off and sent a command the switch could not take.
 - **A circuit's priority icon and the side panel keep the last known priority while the select is unavailable**, where the icon showed a question mark and the
   side panel could show the wrong priority.
+- **The side panel's breaker switch turns a breaker off**, where it sent a turn-on command and the breaker stayed on.
 - **The card and dashboard pick up a panel's changed controls when the integration reloads or Home Assistant restarts**, without a page refresh.
 - **The card keeps following area changes and the panel's online state after you switch dashboard views**, where both stopped until the page was refreshed.
-- **The side panel's breaker switch turns a breaker off**, where it sent a turn-on command and the breaker stayed on.
 - **Errors from Home Assistant show its message**, where they read "[object Object]".
 
 ### Changed
 
-- **A sub-device with nothing to draw is no longer given a tile** — The Microgrid Interconnect Device, new in the panel's parent/child data model, rendered as a
-  header bar reading "SUB-DEVICE" and a gear icon with no content under it: its only entity is a diagnostic enum, so there was no power reading, no chart, and
-  nothing opted into `visible_sub_entities`. `buildSubDevicesHTML` now builds each tile's contents first and skips the tile when all three are empty. Tested on
-  emptiness rather than on device type — excluding the MID by name would fix one device and leave the next to rediscover it, and the panel's v1.0 model has more
-  classes coming (sub-enclosures, PV devices). It self-corrects too: give the device something chartable, or make one of its entities visible, and the tile
-  returns with no code change. `evseCount` moves to the surviving set as a consequence, so a skipped sub-device cannot shift which charger is the odd one out on
-  its row. Note the card was never blind to the MID — the header's `Grid` field reads `dsm_state`, which on the new data model _is_ the MID's sensed islanding
-  state.
-- **Narrow-viewport list rows fold to a two-row grid** — New `@media (max-width: 520px)` rule switches `.list-row` from flex to grid with `grid-template-areas`
-  so the circuit name occupies the whole first row (paired with the expand chevron) and `breaker-badge`, `utilization`, shedding icon, status control, power
-  value, and gear drop to a second row. A `1fr` gap column between the status and power slots keeps the relay pill snug against the reading.
-- **By Panel breaker cells fold based on grid width, not viewport** — Made `.panel-grid` a size-query container (`container-type: inline-size`) and added an
-  `@container (max-width: 760px)` rule on `.circuit-slot`. Each cell is half the grid's width, so truncation kicks in well before any viewport media query would
-  trigger. The fold uses `display: contents` on `.circuit-header`, `.circuit-info`, `.circuit-controls`, and `.circuit-status` so the leaf elements can be
-  placed directly via `grid-area` on the outer grid — name spans the full first row, the second row mirrors the list-row layout (badge, util, shed, status,
-  power, gear), and `.chart-container` stays as a full-width third row.
-- **The Solar tile's headline and chart now show the power of the circuit that feeds its inverter**, with the site's total PV power in a row beneath it.
+- **When a circuit name would be cut off, list rows fold onto two lines with the name on the first**, all rows together so they stay even, and the dashboard's
+  By Panel breaker cells do the same.
+- **A list row's reading sits beside its relay control** instead of reserving empty space, which leaves the circuit name more room.
+- **A sub-device with nothing to show no longer gets an empty tile.**
+- **Circuits no longer get an orange border and gear for custom monitoring**, which also appeared on circuits with default settings.
+- **The Solar tile's headline and chart show the power of the circuit that feeds its inverter**, when the integration names one, with the site's total PV power
+  in a row beneath it.
 - **The editor's Battery section offers Meter Power and Nameplate Capacity**, which the battery tile does not otherwise show.
 
 ## 0.9.4
