@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { buildExpandedChartHTML, buildListRowHTML } from "../src/core/list-renderer.js";
-import type { Circuit, HomeAssistant, CardConfig } from "../src/types.js";
+import type { Circuit, HomeAssistant, CardConfig, MonitoringPointInfo } from "../src/types.js";
 
 const mockHass = {
   states: {
@@ -202,9 +202,9 @@ describe("a list row's reading", () => {
     entities: { switch: "switch.k", power: "sensor.k_power", current: "sensor.k_current" },
   } as unknown as Circuit;
 
-  function row(states: Record<string, { state: string }>, config: CardConfig = mockConfig): HTMLElement {
+  function row(states: Record<string, { state: string }>, config: CardConfig = mockConfig, monitoring: MonitoringPointInfo | null = null): HTMLElement {
     const div = document.createElement("div");
-    div.innerHTML = buildListRowHTML("k", circuit, hassWith(states), config, null, "unknown", false);
+    div.innerHTML = buildListRowHTML("k", circuit, hassWith(states), config, monitoring, "unknown", false);
     return div;
   }
 
@@ -222,6 +222,18 @@ describe("a list row's reading", () => {
     const el = row({ "switch.k": { state: "on" }, "sensor.k_current": { state: "unavailable" } }, { chart_metric: "current" } as CardConfig);
     expect(el.querySelector(".list-power-value")!.textContent!.trim()).toBe("--");
     expect(el.querySelector(".utilization")).toBeNull();
+  });
+
+  it("draws no utilization beside an unknown current, whatever figure the monitor still holds", () => {
+    for (const held of [0, 45]) {
+      const el = row({ "switch.k": { state: "on" }, "sensor.k_current": { state: "unknown" } }, mockConfig, { utilization_pct: held });
+      expect(el.querySelector(".utilization")).toBeNull();
+    }
+  });
+
+  it("draws the monitor's figure beside a measured current", () => {
+    const el = row({ "switch.k": { state: "on" }, "sensor.k_current": { state: "10" } }, mockConfig, { utilization_pct: 45 });
+    expect(el.querySelector(".utilization")!.textContent).toBe("45%");
   });
 
   it("does not style an unknown reading as production in the expanded chart", () => {

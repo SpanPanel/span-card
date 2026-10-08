@@ -157,4 +157,16 @@ describe("a slot's reading on the grid", () => {
     const slot = slotOf({ [SWITCH]: { state: "on" }, [CURRENT]: { state: "10" } });
     expect(slot.querySelector(".utilization")!.textContent).toBe("50%");
   });
+
+  it("draws no utilization beside an unknown current, whatever figure the monitor still holds", () => {
+    for (const held of [0, 45]) {
+      const slot = slotOf({ [SWITCH]: { state: "on" }, [CURRENT]: { state: "unavailable" } }, config, { utilization_pct: held });
+      expect(slot.querySelector(".utilization")).toBeNull();
+    }
+  });
+
+  it("draws the monitor's figure beside a measured current", () => {
+    const slot = slotOf({ [SWITCH]: { state: "on" }, [CURRENT]: { state: "10" } }, config, { utilization_pct: 45 });
+    expect(slot.querySelector(".utilization")!.textContent).toBe("45%");
+  });
 });
