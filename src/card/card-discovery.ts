@@ -1,7 +1,7 @@
 import { INTEGRATION_DOMAIN } from "../constants.js";
 import { resolveAndAssignAreas } from "../core/area-resolver.js";
 import { RetryManager } from "../core/retry-manager.js";
-import { isPositiveInteger } from "../helpers/layout.js";
+import { isPositiveInteger, positionRange } from "../helpers/layout.js";
 import { t } from "../i18n.js";
 import type { HomeAssistant, PanelTopology, PanelDevice, DiscoveryResult, Circuit, CircuitEntities } from "../types.js";
 
@@ -36,7 +36,8 @@ export async function discoverTopology(hass: HomeAssistant, deviceId: string | u
   const topology = retry ? await retry.callWS<PanelTopology>(hass, topologyMsg, { errorId: "fetch:topology" }) : await hass.callWS<PanelTopology>(topologyMsg);
 
   const panelSize = isPositiveInteger(topology.panel_size) ? topology.panel_size : panelSizeFromCircuits(topology.circuits);
-  if (!panelSize) {
+  // A panel that does not know its size still loads when it reports its positions.
+  if (!positionRange(topology, panelSize)) {
     throw new Error(t("card.topology_error"));
   }
 

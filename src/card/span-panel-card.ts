@@ -19,6 +19,7 @@ import { discoverTopology, discoverEntitiesFallback, panelConfigEntryId } from "
 import { RetryManager } from "../core/retry-manager.js";
 import { errorText } from "../helpers/error-text.js";
 import { deepEqual } from "../helpers/deep-equal.js";
+import { positionRange, positionRowCount, type PositionRange } from "../helpers/layout.js";
 import { sameTopologyStructure } from "../core/topology-structure.js";
 import { CARD_STYLES } from "./card-styles.js";
 import "../core/side-panel.js";
@@ -73,7 +74,8 @@ export class SpanPanelCard extends LitElement {
   @state() private _activeTab: "panel" | "activity" | "area" = "panel";
 
   private _panelDevice: PanelDevice | null = null;
-  private _panelSize = 0;
+  /** The breaker positions the grid draws; null until a topology places one. */
+  private _positions: PositionRange | null = null;
   private _historyLoaded = false;
   private readonly _ctrl = new DashboardController();
   private readonly _listCtrl = new ListViewController(this._ctrl);
@@ -146,7 +148,7 @@ export class SpanPanelCard extends LitElement {
     this._topology = null;
     this._topologySource = null;
     this._panelDevice = null;
-    this._panelSize = 0;
+    this._positions = null;
     this._activeTab = "panel";
     this._ctrl.reset();
     this._ctrl.setConfig(config);
@@ -154,7 +156,7 @@ export class SpanPanelCard extends LitElement {
   }
 
   getCardSize(): number {
-    return Math.ceil(this._panelSize / 2) + 3;
+    return (this._positions ? positionRowCount(this._positions) : 0) + 3;
   }
 
   static getConfigElement(): HTMLElement {
@@ -276,7 +278,7 @@ export class SpanPanelCard extends LitElement {
   private _adoptTopology(result: DiscoveryResult): void {
     this._topology = result.topology;
     this._panelDevice = result.panelDevice;
-    this._panelSize = result.panelSize;
+    this._positions = positionRange(result.topology, result.panelSize);
   }
 
   /**
@@ -424,7 +426,7 @@ export class SpanPanelCard extends LitElement {
 
   private _populateCardContent(): void {
     const container = this._root.querySelector("#card-content");
-    if (!container || !this.hass || !this._topology || !this._panelSize) return;
+    if (!container || !this.hass || !this._topology || !this._positions) return;
 
     // Populate tab bar
     const tabsContainer = this._root.querySelector("#card-tabs");
@@ -454,11 +456,11 @@ export class SpanPanelCard extends LitElement {
     }
 
     if (this._activeTab === "panel") {
-      const totalRows = Math.ceil(this._panelSize / 2);
+      const totalRows = positionRowCount(this._positions);
       const headerHTML = buildHeaderHTML(this._topology, this._config);
       const monitoringStatus = this._ctrl.monitoringCache.status;
       const monitoringSummaryHTML = buildMonitoringSummaryHTML(monitoringStatus);
-      const gridHTML = buildGridHTML(this._topology, totalRows, this.hass, this._config, monitoringStatus);
+      const gridHTML = buildGridHTML(this._topology, this._positions, this.hass, this._config, monitoringStatus);
       const subDevHTML = buildSubDevicesHTML(this._topology, this.hass, this._config, { showFavorites: this._ctrl.showFavorites });
 
       container.innerHTML = `
