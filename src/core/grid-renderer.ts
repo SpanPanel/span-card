@@ -3,6 +3,7 @@ import { formatCircuitCurrentHTML, formatCircuitPowerHTML } from "../helpers/for
 import { t } from "../i18n.js";
 import { tabToRow, tabToCol, classifyDualTab, measuresOutsidePanel, type PositionRange } from "../helpers/layout.js";
 import { getChartMetric } from "../helpers/chart.js";
+import { meterSlots } from "../helpers/shared-meters.js";
 import { getCircuitMonitoringInfo } from "./monitoring-status.js";
 import {
   circuitCurrentA,
@@ -22,6 +23,7 @@ type SlotLayout = "single" | "row-span" | "col-span";
 interface TabMapEntry {
   uuid: string;
   circuit: Circuit;
+  members: readonly Circuit[];
   layout: SlotLayout;
 }
 
@@ -39,14 +41,15 @@ export function buildGridHTML(
   const tabMap = new Map<number, TabMapEntry>();
   const occupiedTabs = new Set<number>();
 
-  for (const [uuid, circuit] of Object.entries(topology.circuits)) {
+  // Circuits that share a meter share a space, and are drawn there as one slot.
+  for (const { uuid, circuit, members } of meterSlots(topology.circuits)) {
     // A meter outside the panel is drawn in the Meters strip, never in a breaker space.
     if (measuresOutsidePanel(circuit)) continue;
     const tabs = circuit.tabs;
     if (!tabs || tabs.length === 0) continue;
     const primaryTab = Math.min(...tabs);
     const layout: SlotLayout = tabs.length === 1 ? "single" : (classifyDualTab(tabs) ?? "single");
-    tabMap.set(primaryTab, { uuid, circuit, layout });
+    tabMap.set(primaryTab, { uuid, circuit, members, layout });
     for (const tab of tabs) occupiedTabs.add(tab);
   }
 
@@ -93,7 +96,18 @@ export function buildGridHTML(
 
     if (leftEntry && leftEntry.layout === "row-span") {
       const { monInfo, sheddingPriority } = lookupMonitoring(leftEntry);
-      gridHTML += renderCircuitSlot(leftEntry.uuid, leftEntry.circuit, gridRow, "2 / 5", "row-span", hass, config, monInfo, sheddingPriority);
+      gridHTML += renderCircuitSlot(
+        leftEntry.uuid,
+        leftEntry.circuit,
+        gridRow,
+        "2 / 5",
+        "row-span",
+        hass,
+        config,
+        monInfo,
+        sheddingPriority,
+        leftEntry.members
+      );
       gridHTML += rightLabel;
       continue;
     }
@@ -101,7 +115,18 @@ export function buildGridHTML(
     if (!rowsToSkipLeft.has(row)) {
       if (leftEntry && (leftEntry.layout === "col-span" || leftEntry.layout === "single")) {
         const { monInfo, sheddingPriority } = lookupMonitoring(leftEntry);
-        gridHTML += renderCircuitSlot(leftEntry.uuid, leftEntry.circuit, gridRow, "2", leftEntry.layout, hass, config, monInfo, sheddingPriority);
+        gridHTML += renderCircuitSlot(
+          leftEntry.uuid,
+          leftEntry.circuit,
+          gridRow,
+          "2",
+          leftEntry.layout,
+          hass,
+          config,
+          monInfo,
+          sheddingPriority,
+          leftEntry.members
+        );
       } else if (!occupiedTabs.has(leftTab) && inRange(leftTab)) {
         gridHTML += renderEmptySlot(gridRow, "2");
       }
@@ -110,7 +135,18 @@ export function buildGridHTML(
     if (!rowsToSkipRight.has(row)) {
       if (rightEntry && (rightEntry.layout === "col-span" || rightEntry.layout === "single")) {
         const { monInfo, sheddingPriority } = lookupMonitoring(rightEntry);
-        gridHTML += renderCircuitSlot(rightEntry.uuid, rightEntry.circuit, gridRow, "4", rightEntry.layout, hass, config, monInfo, sheddingPriority);
+        gridHTML += renderCircuitSlot(
+          rightEntry.uuid,
+          rightEntry.circuit,
+          gridRow,
+          "4",
+          rightEntry.layout,
+          hass,
+          config,
+          monInfo,
+          sheddingPriority,
+          rightEntry.members
+        );
       } else if (!occupiedTabs.has(rightTab) && inRange(rightTab)) {
         gridHTML += renderEmptySlot(gridRow, "4");
       }
@@ -122,7 +158,9 @@ export function buildGridHTML(
 }
 
 /**
- * Render a single circuit breaker slot.
+ * Render a single circuit breaker slot. With more than one member it is the slot
+ * of circuits that share a meter: `circuit` is the one it reads and switches
+ * through, and each member gives its name and rating.
  */
 export function renderCircuitSlot(
   uuid: string,
@@ -134,6 +172,7 @@ export function renderCircuitSlot(
   config: CardConfig,
   monitoringInfo: MonitoringPointInfo | null,
   sheddingPriority: string,
+  members: readonly Circuit[] = [circuit],
   inline = false
 ): string {
   const powerW = circuitPowerW(circuit, hass);
@@ -142,9 +181,9 @@ export function renderCircuitSlot(
   const isOn = relayClosed(circuit, hass);
   const presence = switchPresence(circuit, hass);
 
-  const breakerAmps = circuit.breaker_rating_a;
-  const breakerLabel = breakerAmps ? `${Math.round(breakerAmps)}A` : "";
-  const name = escapeHtml(circuit.name || t("grid.unknown"));
+  const shared = members.length > 1;
+  const breakerLabel = shared ? sharedRatingsLabel(members) : singleRatingLabel(circuit.breaker_rating_a);
+  const name = escapeHtml(members.map(member => member.name || t("grid.unknown")).join(" · "));
 
   const showCurrent = getChartMetric(config).entityRole === "current";
   const valueHTML = showCurrent ? formatCircuitCurrentHTML(circuitCurrentA(circuit, hass)) : formatCircuitPowerHTML(powerW);
@@ -186,7 +225,7 @@ export function renderCircuitSlot(
           <span class="power-value">
             ${valueHTML}
           </span>
-          ${buildTogglePillHTML(isOn, presence)}
+          ${buildTogglePillHTML(isOn, presence, shared && sharesRelay(members))}
         </div>
       </div>
       <div class="circuit-status">
@@ -196,6 +235,22 @@ export function renderCircuitSlot(
       <div class="chart-container"></div>
     </div>
   `;
+}
+
+function singleRatingLabel(amps: number | null | undefined): string {
+  return amps ? `${Math.round(amps)}A` : "";
+}
+
+/** Each member's rating, as "15·10 A"; empty while any is unknown. */
+function sharedRatingsLabel(members: readonly Circuit[]): string {
+  if (members.some(member => !member.breaker_rating_a)) return "";
+  return `${members.map(member => Math.round(member.breaker_rating_a!)).join("·")} A`;
+}
+
+/** Whether every member switches with the same relay, so one toggle switches them all. */
+function sharesRelay(members: readonly Circuit[]): boolean {
+  const relay = members[0]?.shared_relay_group;
+  return !!relay && members.every(member => member.shared_relay_group === relay);
 }
 
 /**

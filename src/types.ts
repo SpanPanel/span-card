@@ -53,6 +53,10 @@ export interface Circuit {
    * power is import-positive, positive while power flows into the panel.
    */
   outside_panel?: boolean;
+  /** The group of circuits that share this circuit's meter, by its key; null when it shares none. */
+  shared_meter_group?: string | null;
+  /** The group of circuits that share this circuit's relay, by its key; null when it shares none. */
+  shared_relay_group?: string | null;
 }
 
 /**

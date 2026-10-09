@@ -3409,16 +3409,16 @@ exports[`the card over capture 'r202639-e' > renders as before > grid 1`] = `
       <div class="chart-container" style="min-height: 100px;"><span-chart style="display: block; width: 100%;"></span-chart></div>
     </div>
   
-    <div class="circuit-slot circuit-producer" style="grid-row: 22; grid-column: 4;" data-uuid="circuit-53">
+    <div class="circuit-slot circuit-producer" style="grid-row: 22; grid-column: 4;" data-uuid="circuit-52">
       <div class="circuit-header">
         <div class="circuit-info">
-          <span class="breaker-badge">15A</span>
+          <span class="breaker-badge">15·15 A</span>
           <span class="utilization utilization-normal">0%</span>
-          <span class="circuit-name">Bedroom / Outlets</span>
+          <span class="circuit-name">Bedroom / Lights · Bedroom / Outlets</span>
         </div>
         <div class="circuit-controls">
           <span class="power-value"><strong>-0.1</strong><span class="power-unit">W</span></span>
-          <div class="toggle-pill toggle-on">
+          <div class="toggle-pill toggle-on toggle-shared" title="Switches every circuit in this space">
     <span class="toggle-label">On</span>
     <span class="toggle-knob"></span>
   </div>
@@ -3430,7 +3430,7 @@ exports[`the card over capture 'r202639-e' > renders as before > grid 1`] = `
     <span-icon class="shedding-icon-secondary" icon="" style="color: #4caf50; --mdc-icon-size: 14px; display: none;"></span-icon>
     <span class="shedding-label" style="color: #4caf50; display: none;"></span>
   </span>
-        <button class="gear-icon circuit-gear" data-uuid="circuit-53" style="color:#555;" title="Configure circuit">
+        <button class="gear-icon circuit-gear" data-uuid="circuit-52" style="color:#555;" title="Configure circuit">
     <span-icon icon="mdi:cog" style="--mdc-icon-size:16px;"></span-icon>
   </button>
       </div>
@@ -3465,16 +3465,16 @@ exports[`the card over capture 'r202639-e' > renders as before > grid 1`] = `
       <div class="chart-container" style="min-height: 100px;"><span-chart style="display: block; width: 100%;"></span-chart></div>
     </div>
   
-    <div class="circuit-slot" style="grid-row: 23; grid-column: 4;" data-uuid="circuit-55">
+    <div class="circuit-slot" style="grid-row: 23; grid-column: 4;" data-uuid="circuit-54">
       <div class="circuit-header">
         <div class="circuit-info">
-          <span class="breaker-badge">20A</span>
+          <span class="breaker-badge">20·20 A</span>
           <span class="utilization utilization-normal">0%</span>
-          <span class="circuit-name">Living room / Lights</span>
+          <span class="circuit-name">Living room / Outlets · Living room / Lights</span>
         </div>
         <div class="circuit-controls">
           <span class="power-value"><strong>0</strong><span class="power-unit">W</span></span>
-          <div class="toggle-pill toggle-on">
+          <div class="toggle-pill toggle-on toggle-shared" title="Switches every circuit in this space">
     <span class="toggle-label">On</span>
     <span class="toggle-knob"></span>
   </div>
@@ -3486,7 +3486,7 @@ exports[`the card over capture 'r202639-e' > renders as before > grid 1`] = `
     <span-icon class="shedding-icon-secondary" icon="" style="color: #4caf50; --mdc-icon-size: 14px; display: none;"></span-icon>
     <span class="shedding-label" style="color: #4caf50; display: none;"></span>
   </span>
-        <button class="gear-icon circuit-gear" data-uuid="circuit-55" style="color:#555;" title="Configure circuit">
+        <button class="gear-icon circuit-gear" data-uuid="circuit-54" style="color:#555;" title="Configure circuit">
     <span-icon icon="mdi:cog" style="--mdc-icon-size:16px;"></span-icon>
   </button>
       </div>
@@ -3521,16 +3521,16 @@ exports[`the card over capture 'r202639-e' > renders as before > grid 1`] = `
       <div class="chart-container" style="min-height: 100px;"><span-chart style="display: block; width: 100%;"></span-chart></div>
     </div>
   
-    <div class="circuit-slot" style="grid-row: 24; grid-column: 4;" data-uuid="circuit-57">
+    <div class="circuit-slot" style="grid-row: 24; grid-column: 4;" data-uuid="circuit-56">
       <div class="circuit-header">
         <div class="circuit-info">
-          <span class="breaker-badge">10A</span>
+          <span class="breaker-badge">15·10 A</span>
           <span class="utilization utilization-normal">0%</span>
-          <span class="circuit-name">Dining room / Lights</span>
+          <span class="circuit-name">Dining room / Outlets · Dining room / Lights</span>
         </div>
         <div class="circuit-controls">
           <span class="power-value"><strong>0</strong><span class="power-unit">W</span></span>
-          <div class="toggle-pill toggle-on">
+          <div class="toggle-pill toggle-on toggle-shared" title="Switches every circuit in this space">
     <span class="toggle-label">On</span>
     <span class="toggle-knob"></span>
   </div>
@@ -3542,7 +3542,7 @@ exports[`the card over capture 'r202639-e' > renders as before > grid 1`] = `
     <span-icon class="shedding-icon-secondary" icon="" style="color: #4caf50; --mdc-icon-size: 14px; display: none;"></span-icon>
     <span class="shedding-label" style="color: #4caf50; display: none;"></span>
   </span>
-        <button class="gear-icon circuit-gear" data-uuid="circuit-57" style="color:#555;" title="Configure circuit">
+        <button class="gear-icon circuit-gear" data-uuid="circuit-56" style="color:#555;" title="Configure circuit">
     <span-icon icon="mdi:cog" style="--mdc-icon-size:16px;"></span-icon>
   </button>
       </div>

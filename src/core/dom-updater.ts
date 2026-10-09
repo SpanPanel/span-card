@@ -14,6 +14,7 @@ import { getHistoryDurationMs, getHorizonDurationMs } from "../helpers/history.j
 import { updateChart } from "../chart/chart-update.js";
 import { attrSelectorValue } from "../helpers/selector.js";
 import { measuresOutsidePanel } from "../helpers/layout.js";
+import { meterSlots } from "../helpers/shared-meters.js";
 import { circuitCurrentA, circuitPowerW, drawsAsOn, readsAsProducer, shedPriorityKey, switchPresence } from "./circuit-state.js";
 import { applySheddingIcon, applyTogglePill } from "./circuit-controls.js";
 import type { HomeAssistant, PanelTopology, CardConfig, HistoryMap, ChartMetricDef } from "../types.js";
@@ -152,9 +153,10 @@ export function updateCircuitDOM(
   const defaultDurationMs = getHistoryDurationMs(config);
 
   // The circuits' consumption: every non-solar circuit with a power sensor, an unknown reading skipped.
-  // A meter outside the panel is no load on it, so it is no term at all.
+  // A meter outside the panel is no load on it, so it is no term at all; circuits that share a meter are one term.
+  const slots = meterSlots(topology.circuits);
   const consumption: (number | null)[] = [];
-  for (const circuit of Object.values(topology.circuits)) {
+  for (const { circuit } of slots) {
     if (!circuit.entities?.power || circuit.device_type === DEVICE_TYPE_PV || measuresOutsidePanel(circuit)) continue;
     const power = circuitPowerW(circuit, hass);
     consumption.push(power === null ? null : Math.abs(power));
@@ -165,7 +167,7 @@ export function updateCircuitDOM(
   const chartMetric: ChartMetricDef = getChartMetric(config);
   const showCurrent = chartMetric.entityRole === "current";
 
-  for (const [uuid, circuit] of Object.entries(topology.circuits)) {
+  for (const { uuid, circuit } of slots) {
     const slot = root.querySelector(`.circuit-slot[data-uuid="${attrSelectorValue(uuid)}"]`);
     if (!slot) continue;
 
