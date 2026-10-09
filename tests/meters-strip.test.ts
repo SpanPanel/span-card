@@ -3,7 +3,7 @@ import { buildGridHTML } from "../src/core/grid-renderer.js";
 import { buildMetersStripHTML, updateMetersDOM } from "../src/core/meters-strip.js";
 import { buildPanelStatsHTML } from "../src/core/header-renderer.js";
 import { updateCircuitDOM } from "../src/core/dom-updater.js";
-import { buildListRowHTML } from "../src/core/list-renderer.js";
+import { buildExpandedChartHTML, buildListRowHTML } from "../src/core/list-renderer.js";
 import { DashboardController } from "../src/core/dashboard-controller.js";
 import { ListViewController } from "../src/core/list-view-controller.js";
 import { positionRange } from "../src/helpers/layout.js";
@@ -225,6 +225,18 @@ describe("a meter outside the panel in the list views", () => {
     new ListViewController(new DashboardController()).updateCollapsedRows(root, HASS, TOPOLOGY, CONFIG);
     expect(row.classList.contains("circuit-off")).toBe(false);
     expect(text(row.querySelector(".list-power-value"))).toBe("50W");
+  });
+
+  it("keeps its expanded chart undimmed through a live update", () => {
+    const root = document.createElement("div");
+    root.innerHTML = buildExpandedChartHTML("meter-a", CIRCUITS["meter-a"], HASS, CONFIG, null);
+    for (const chart of root.querySelectorAll(".chart-container")) chart.remove();
+    const slot = root.querySelector(".circuit-slot")!;
+    expect(slot.classList.contains("circuit-off")).toBe(false);
+
+    updateCircuitDOM(root, HASS, TOPOLOGY, CONFIG, new Map(), undefined);
+
+    expect(slot.classList.contains("circuit-off")).toBe(false);
   });
 });
 

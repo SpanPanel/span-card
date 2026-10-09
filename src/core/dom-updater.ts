@@ -13,7 +13,7 @@ import { resolveSubDevicePower, stateWatts } from "../helpers/sub-device-power.j
 import { getHistoryDurationMs, getHorizonDurationMs } from "../helpers/history.js";
 import { updateChart } from "../chart/chart-update.js";
 import { attrSelectorValue } from "../helpers/selector.js";
-import { circuitCurrentA, circuitPowerW, measuresOutsidePanel, readsAsProducer, relayClosed, shedPriorityKey, switchPresence } from "./circuit-state.js";
+import { circuitCurrentA, circuitPowerW, drawsAsOn, measuresOutsidePanel, readsAsProducer, shedPriorityKey, switchPresence } from "./circuit-state.js";
 import { applySheddingIcon, applyTogglePill } from "./circuit-controls.js";
 import type { HomeAssistant, PanelTopology, CardConfig, HistoryMap, ChartMetricDef } from "../types.js";
 
@@ -171,7 +171,8 @@ export function updateCircuitDOM(
     const powerW = circuitPowerW(circuit, hass);
     const isProducer = readsAsProducer(circuit, powerW);
 
-    const isOn = relayClosed(circuit, hass);
+    // A meter outside the panel has no relay, so its list chart is never dimmed as off.
+    const isOn = drawsAsOn(circuit, hass);
 
     const powerVal = slot.querySelector(".power-value");
     if (powerVal) {
