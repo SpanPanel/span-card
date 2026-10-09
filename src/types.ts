@@ -53,6 +53,15 @@ export interface Circuit {
    * power is import-positive, positive while power flows into the panel.
    */
   outside_panel?: boolean;
+  /**
+   * Whether the circuit is a source of generation: solar, by its device or by the
+   * role the panel reports for it. Absent from a topology that predates it.
+   */
+  is_generation?: boolean;
+  /** The group of circuits that share this circuit's meter, by its key; null when it shares none. */
+  shared_meter_group?: string | null;
+  /** The group of circuits that share this circuit's relay, by its key; null when it shares none. */
+  shared_relay_group?: string | null;
 }
 
 /**
@@ -80,6 +89,8 @@ export interface SubDeviceSolar {
   feed_circuit_id: string | null;
   power_entity_id: string | null;
   site_power_entity_id: string | null;
+  /** `role` where the source is a circuit that reports a solar role, with no inverter published behind it to identify. */
+  identity?: "role";
 }
 
 export interface SubDevice {

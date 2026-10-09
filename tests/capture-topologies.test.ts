@@ -115,12 +115,22 @@ describe.each(CAPTURES)("the card over capture $stem", capture => {
     expect(labels(root)).toEqual(range(topology.first_position!, topology.last_position!));
   });
 
-  it("draws every breaker of its own in the grid and every meter outside it", async () => {
+  it("draws every breaker in the grid and every meter outside it", async () => {
     const root = await render(capture);
     const slots = new Set([...root.querySelectorAll<HTMLElement>(".panel-grid .circuit-slot[data-uuid]")].map(el => el.dataset.uuid));
     for (const [id, circuit] of Object.entries(topology.circuits)) {
-      if (circuit.shared_meter_group) continue;
-      expect(slots.has(id), id).toBe(circuit.outside_panel !== true);
+      // Circuits that share a meter are drawn in the slot of the group's key.
+      const drawnAs = circuit.shared_meter_group ?? id;
+      expect(slots.has(drawnAs), id).toBe(circuit.outside_panel !== true);
+    }
+  });
+
+  it("names every member of a shared space in its one slot", async () => {
+    const root = await render(capture);
+    for (const circuit of Object.values(topology.circuits)) {
+      if (!circuit.shared_meter_group) continue;
+      const slot = root.querySelector(`.panel-grid .circuit-slot[data-uuid="${circuit.shared_meter_group}"] .circuit-name`);
+      expect(slot?.textContent).toContain(circuit.name);
     }
   });
 
@@ -154,5 +164,6 @@ describe.each(CAPTURES)("the card over capture $stem", capture => {
     const root = await render(capture);
     expect(root.querySelector(".panel-stats")!.outerHTML).toMatchSnapshot("header");
     expect(root.querySelector(".panel-grid")!.outerHTML).toMatchSnapshot("grid");
+    expect(root.querySelector(".sub-devices")?.outerHTML ?? null).toMatchSnapshot("sub-devices");
   });
 });

@@ -7,12 +7,17 @@ import { escapeHtml } from "../helpers/sanitize.js";
 import type { SwitchPresence } from "./circuit-state.js";
 import type { SheddingPriorityDef } from "../types.js";
 
-/** The pill for a breaker's switch: none without one, dimmed and inert while it is unavailable. */
-export function buildTogglePillHTML(isOn: boolean, presence: SwitchPresence): string {
+/**
+ * The pill for a breaker's switch: none without one, dimmed and inert while it is
+ * unavailable, and titled as switching the group when circuits share its relay.
+ */
+export function buildTogglePillHTML(isOn: boolean, presence: SwitchPresence, shared = false): string {
   if (presence === "none") return "";
   const classes = ["toggle-pill", isOn ? "toggle-on" : "toggle-off"];
   if (presence === "inert") classes.push("toggle-unavailable");
-  return `<div class="${classes.join(" ")}">
+  if (shared) classes.push("toggle-shared");
+  const title = shared ? ` title="${escapeHtml(t("grid.shared_switch"))}"` : "";
+  return `<div class="${classes.join(" ")}"${title}>
     <span class="toggle-label">${isOn ? t("grid.on") : t("grid.off")}</span>
     <span class="toggle-knob"></span>
   </div>`;

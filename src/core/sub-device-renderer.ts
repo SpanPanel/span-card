@@ -149,13 +149,16 @@ function tileLabel(sub: SubDevice): string {
  */
 export function buildSolarDetailHTML(solar: SubDeviceSolar, power: SubDevicePower, hass: HomeAssistant): string {
   let html = "";
-  const identity: string = [solar.vendor, solar.model].filter((part): part is string => !!part).join(" · ");
+  // eBus connection/feeds-role SOLAR: a source known only by a circuit's role has no vendor or model to show.
+  const identity: string = solar.identity === "role" ? "" : [solar.vendor, solar.model].filter((part): part is string => !!part).join(" · ");
   if (identity) html += `<div class="sub-identity">${escapeHtml(identity)}</div>`;
   if (power.siteTotalEid) {
+    // Held hidden while the site total is unknown, so it never reads 0; the live update shows it once it reads.
+    const watts = stateWatts(hass, power.siteTotalEid);
     html += `
-      <div class="sub-entity">
+      <div class="sub-entity"${watts === null ? " hidden" : ""}>
         <span class="sub-entity-name">${escapeHtml(t("subdevice.site_total"))}:</span>
-        <span class="sub-site-total-value" data-site-total-eid="${escapeHtml(power.siteTotalEid)}">${formatPowerHTML(stateWatts(hass, power.siteTotalEid))}</span>
+        <span class="sub-site-total-value" data-site-total-eid="${escapeHtml(power.siteTotalEid)}">${formatPowerHTML(watts)}</span>
       </div>`;
   }
   if (solar.role === "inverter" && !power.headlineEid) html += `<div class="sub-note">${escapeHtml(t("subdevice.in_site_total"))}</div>`;
