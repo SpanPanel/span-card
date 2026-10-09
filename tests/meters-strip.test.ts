@@ -56,9 +56,9 @@ function wh(state: string): { state: string; attributes: Record<string, unknown>
   return { state, attributes: { unit_of_measurement: "Wh" } };
 }
 
-function strip(topology: PanelTopology, hass: HomeAssistant): HTMLElement {
+function strip(topology: PanelTopology, hass: HomeAssistant, config: CardConfig = CONFIG): HTMLElement {
   const div = document.createElement("div");
-  div.innerHTML = buildMetersStripHTML(topology, hass);
+  div.innerHTML = buildMetersStripHTML(topology, hass, config);
   return div;
 }
 
@@ -108,7 +108,23 @@ describe("the breaker positions", () => {
 
 describe("the Meters strip", () => {
   it("draws nothing when no meter is outside the panel", () => {
-    expect(buildMetersStripHTML(topologyOf({ kitchen: hosted("kitchen", 1) }), IMPORTING)).toBe("");
+    expect(buildMetersStripHTML(topologyOf({ kitchen: hosted("kitchen", 1) }), IMPORTING, CONFIG)).toBe("");
+  });
+
+  it("draws nothing while the panel is hidden, as the grid", () => {
+    expect(buildMetersStripHTML(topologyOf({ "meter-a": meter("meter_a") }), IMPORTING, { ...CONFIG, show_panel: false })).toBe("");
+  });
+
+  it("shows current in amps mode, as the grid does, with the direction its power states", () => {
+    const hass = hassWith({ "sensor.meter_a_power": "850", "sensor.meter_a_current": "3.4" });
+    const el = strip(topologyOf({ "meter-a": meter("meter_a") }), hass, { chart_metric: "current" });
+    expect(text(el.querySelector(".meter-value"))).toBe("3.4A");
+    expect(text(el.querySelector(".meter-direction"))).toBe("importing");
+  });
+
+  it("reads an unknown current in amps mode as unknown, never 0", () => {
+    const hass = hassWith({ "sensor.meter_a_power": "850", "sensor.meter_a_current": "unavailable" });
+    expect(text(strip(topologyOf({ "meter-a": meter("meter_a") }), hass, { chart_metric: "current" }).querySelector(".meter-value"))).toBe("--");
   });
 
   it("shows each meter's name, power with its direction, and energy", () => {
@@ -119,7 +135,7 @@ describe("the Meters strip", () => {
     const tile = tiles[0]!;
     expect(tile.getAttribute("data-meter-uuid")).toBe("meter-a");
     expect(text(tile.querySelector(".meter-name"))).toBe("Meter A");
-    expect(text(tile.querySelector(".meter-power"))).toBe("850W");
+    expect(text(tile.querySelector(".meter-value"))).toBe("850W");
     expect(text(tile.querySelector(".meter-direction"))).toBe("importing");
     expect(text(tile.querySelector(".meter-imported"))).toBe("52.3 kWh imported");
     expect(text(tile.querySelector(".meter-exported"))).toBe("0.8 kWh exported");
@@ -127,13 +143,13 @@ describe("the Meters strip", () => {
 
   it("keeps the import-positive sign: negative power is exporting", () => {
     const el = strip(topologyOf({ "meter-a": meter("meter_a") }), hassWith({ "sensor.meter_a_power": "-340" }));
-    expect(text(el.querySelector(".meter-power"))).toBe("-340W");
+    expect(text(el.querySelector(".meter-value"))).toBe("-340W");
     expect(text(el.querySelector(".meter-direction"))).toBe("exporting");
   });
 
   it("states no direction at zero", () => {
     const el = strip(topologyOf({ "meter-a": meter("meter_a") }), hassWith({ "sensor.meter_a_power": "0" }));
-    expect(text(el.querySelector(".meter-power"))).toBe("0W");
+    expect(text(el.querySelector(".meter-value"))).toBe("0W");
     expect(text(el.querySelector(".meter-direction"))).toBe("");
   });
 
@@ -142,7 +158,7 @@ describe("the Meters strip", () => {
       topologyOf({ "meter-a": meter("meter_a") }),
       hassWith({ "sensor.meter_a_power": "unknown", "sensor.meter_a_consumed_energy": "unavailable" })
     );
-    expect(text(el.querySelector(".meter-power"))).toBe("--");
+    expect(text(el.querySelector(".meter-value"))).toBe("--");
     expect(text(el.querySelector(".meter-direction"))).toBe("");
     expect(text(el.querySelector(".meter-imported"))).toBe("-- imported");
     expect(text(el.querySelector(".meter-exported"))).toBe("-- exported");
@@ -175,10 +191,10 @@ describe("the Meters strip", () => {
     const el = strip(topology, IMPORTING);
     const tile = el.querySelector(".meter-tile");
 
-    updateMetersDOM(el, hassWith({ "sensor.meter_a_power": "-75", "sensor.meter_a_produced_energy": wh("900") }), topology);
+    updateMetersDOM(el, hassWith({ "sensor.meter_a_power": "-75", "sensor.meter_a_produced_energy": wh("900") }), topology, CONFIG);
 
     expect(el.querySelector(".meter-tile")).toBe(tile);
-    expect(text(el.querySelector(".meter-power"))).toBe("-75W");
+    expect(text(el.querySelector(".meter-value"))).toBe("-75W");
     expect(text(el.querySelector(".meter-direction"))).toBe("exporting");
     expect(text(el.querySelector(".meter-imported"))).toBe("-- imported");
     expect(text(el.querySelector(".meter-exported"))).toBe("0.9 kWh exported");
@@ -264,22 +280,32 @@ describe("the card", () => {
     for (const el of mounted.splice(0)) el.remove();
   });
 
-  it("draws the Meters strip above the grid and keeps it current", async () => {
-    const topology = { circuits: { kitchen: hosted("kitchen", 1), "meter-a": meter("meter_a") }, panel_size: 32 };
-    const states = (power: string) =>
-      Object.fromEntries(
-        Object.entries({ "sensor.kitchen_power": "300", "sensor.meter_a_power": power }).map(([entity_id, state]) => [
-          entity_id,
-          { entity_id, state, attributes: {}, last_changed: "", last_updated: "" },
-        ])
-      );
-    const connection = new FakeConnection();
-    const callWS = (async (msg: Record<string, unknown>) => (msg.type === "span_panel/panel_topology" ? topology : [])) as HomeAssistant["callWS"];
-    const card = document.createElement("span-panel-card") as HTMLElement & { setConfig(c: CardConfig): void; hass: HomeAssistant };
-    card.setConfig({ device_id: "panel-1" });
+  type Card = HTMLElement & { setConfig(c: CardConfig): void; hass: HomeAssistant; getCardSize(): number };
+
+  const TOPOLOGY = { circuits: { kitchen: hosted("kitchen", 1), "meter-a": meter("meter_a") }, panel_size: 32 };
+  const callWS = (async (msg: Record<string, unknown>) => (msg.type === "span_panel/panel_topology" ? TOPOLOGY : [])) as HomeAssistant["callWS"];
+  const connection = new FakeConnection();
+
+  function states(power: string): HomeAssistant["states"] {
+    return Object.fromEntries(
+      Object.entries({ "sensor.kitchen_power": "300", "sensor.meter_a_power": power }).map(([entity_id, state]) => [
+        entity_id,
+        { entity_id, state, attributes: {}, last_changed: "", last_updated: "" },
+      ])
+    );
+  }
+
+  function mount(config: CardConfig): Card {
+    const card = document.createElement("span-panel-card") as Card;
+    card.setConfig(config);
     document.body.appendChild(card);
     mounted.push(card);
     card.hass = hassOn(connection, { callWS, states: states("850") });
+    return card;
+  }
+
+  it("draws the Meters strip above the grid and keeps it current", async () => {
+    const card = mount({ device_id: "panel-1" });
 
     await vi.waitFor(() => expect(card.shadowRoot!.querySelector(".meters-strip")).not.toBeNull());
     const content = card.shadowRoot!.querySelector("#card-content")!;
@@ -292,6 +318,19 @@ describe("the card", () => {
 
     card.hass = hassOn(connection, { callWS, states: states("-60") });
     await vi.waitFor(() => expect(text(content.querySelector(".meter-direction"))).toBe("exporting"));
-    expect(text(content.querySelector(".meter-power"))).toBe("-60W");
+    expect(text(content.querySelector(".meter-value"))).toBe("-60W");
+  });
+
+  it("counts the strip in its size: 16 grid rows, the header's 3 and the strip's 2", async () => {
+    const card = mount({ device_id: "panel-1" });
+    await vi.waitFor(() => expect(card.shadowRoot!.querySelector(".meters-strip")).not.toBeNull());
+    expect(card.getCardSize()).toBe(21);
+  });
+
+  it("hides the strip with the panel, and does not count it", async () => {
+    const card = mount({ device_id: "panel-1", show_panel: false });
+    await vi.waitFor(() => expect(card.shadowRoot!.querySelector(".panel-stats")).not.toBeNull());
+    expect(card.shadowRoot!.querySelector(".meters-strip")).toBeNull();
+    expect(card.getCardSize()).toBe(19);
   });
 });

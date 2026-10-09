@@ -377,7 +377,7 @@ export class DashboardController {
     if (!this._hass || !this._topology || !this._config) return;
     updateCircuitDOM(root, this._hass, this._topology, this._config, this.powerHistory, this.horizonMap);
     updateSubDeviceDOM(root, this._hass, this._topology, this._config, this.powerHistory, this.subDeviceHorizonMap);
-    updateMetersDOM(root, this._hass, this._topology);
+    updateMetersDOM(root, this._hass, this._topology, this._config);
   }
 
   async onGraphSettingsChanged(root: DOMRoot): Promise<void> {

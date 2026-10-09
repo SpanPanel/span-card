@@ -92,7 +92,7 @@ export class DashboardTab {
     const monitoringSummaryHTML = buildMonitoringSummaryHTML(monitoringStatus);
     const gridHTML = buildGridHTML(topology!, positions, hass, config, monitoringStatus);
     const subDevHTML = buildSubDevicesHTML(topology!, hass, config, { showFavorites: this._ctrl.showFavorites });
-    const metersHTML = buildMetersStripHTML(topology!, hass);
+    const metersHTML = buildMetersStripHTML(topology!, hass, config);
 
     container.innerHTML = `
       <style>${CARD_STYLES}</style>

@@ -554,8 +554,8 @@ export const CARD_STYLES: string = `
     color: var(--primary-text-color, #e0e0e0);
   }
   .meter-readings { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; font-size: 0.85em; color: var(--secondary-text-color, #999); }
-  .meter-power { font-size: 1.05em; color: var(--primary-text-color, #fff); white-space: nowrap; }
-  .meter-power strong { font-weight: 700; font-size: 1.1em; }
+  .meter-value { font-size: 1.05em; color: var(--primary-text-color, #fff); white-space: nowrap; }
+  .meter-value strong { font-weight: 700; font-size: 1.1em; }
   .meter-direction:empty { display: none; }
 
   .sub-device {
