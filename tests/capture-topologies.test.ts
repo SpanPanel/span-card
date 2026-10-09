@@ -164,5 +164,6 @@ describe.each(CAPTURES)("the card over capture $stem", capture => {
     const root = await render(capture);
     expect(root.querySelector(".panel-stats")!.outerHTML).toMatchSnapshot("header");
     expect(root.querySelector(".panel-grid")!.outerHTML).toMatchSnapshot("grid");
+    expect(root.querySelector(".sub-devices")?.outerHTML ?? null).toMatchSnapshot("sub-devices");
   });
 });
