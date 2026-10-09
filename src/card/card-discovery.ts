@@ -97,6 +97,22 @@ function deviceToPanelDevice(entry: DeviceRegistryEntry | undefined): PanelDevic
 
 // ── Fallback discovery from entity registry ──────────────────────────────────
 
+const POWER_SUFFIX = "_power";
+
+/**
+ * The circuit id in a circuit power sensor's unique id, null for any other
+ * sensor. The unique id is `span_{serial}_{circuit id}_power`, the serial
+ * lower-cased, and the circuit id is opaque: everything between that prefix
+ * and the suffix, `_` included. Where the unique id does not start with the
+ * panel's serial, the serial is taken to be its second `_` segment.
+ */
+function circuitIdOfPowerSensor(uniqueId: string, serial: string): string | null {
+  if (!uniqueId.endsWith(POWER_SUFFIX)) return null;
+  const prefix = `span_${serial.toLowerCase()}_`;
+  const circuitId = serial && uniqueId.startsWith(prefix) ? uniqueId.slice(prefix.length, -POWER_SUFFIX.length) : uniqueId.split("_").slice(2, -1).join("_");
+  return circuitId || null;
+}
+
 export async function discoverEntitiesFallback(hass: HomeAssistant, deviceId: string | undefined, retry?: RetryManager | null): Promise<DiscoveryResult> {
   const devicesMsg = { type: "config/device_registry/list" };
   const entitiesMsg = { type: "config/entity_registry/list" };
@@ -112,6 +128,19 @@ export async function discoverEntitiesFallback(hass: HomeAssistant, deviceId: st
   const subDevices = devices.filter(d => d.via_device_id === deviceId);
   const subDeviceIds = new Set(subDevices.map(d => d.id));
   const subEntities = entities.filter(e => e.device_id !== undefined && subDeviceIds.has(e.device_id));
+
+  let serial = "";
+  if (panelDevice.identifiers) {
+    for (const pair of panelDevice.identifiers) {
+      // Identifier pairs are [domain, value]. Skip malformed shapes rather
+      // than silently indexing past the end.
+      if (!Array.isArray(pair) || pair.length < 2) continue;
+      const [domain, value] = pair;
+      if (domain === INTEGRATION_DOMAIN && typeof value === "string") {
+        serial = value;
+      }
+    }
+  }
 
   const circuits: Record<string, Circuit> = {};
   const devName = panelDevice.name_by_user ?? panelDevice.name ?? "";
@@ -132,24 +161,12 @@ export async function discoverEntitiesFallback(hass: HomeAssistant, deviceId: st
     }
     if (!tabs.every(Number.isFinite)) continue;
 
-    const uidParts = ent.unique_id.split("_");
-    let circuitUuid: string | null = null;
-    for (let i = 2; i < uidParts.length - 1; i++) {
-      const part = uidParts[i];
-      if (part !== undefined && part.length >= 16 && /^[a-f0-9]+$/i.test(part)) {
-        circuitUuid = part;
-        break;
-      }
-    }
+    // A circuit's sensors all carry its tabs; its power sensor alone stands for it.
+    const circuitUuid = circuitIdOfPowerSensor(ent.unique_id, serial);
     if (!circuitUuid) continue;
 
     let displayName = (typeof attrs.friendly_name === "string" ? attrs.friendly_name : undefined) ?? ent.entity_id;
-    for (const suffix of [" Power", " Consumed Energy", " Produced Energy"]) {
-      if (displayName.endsWith(suffix)) {
-        displayName = displayName.slice(0, -suffix.length);
-        break;
-      }
-    }
+    if (displayName.endsWith(" Power")) displayName = displayName.slice(0, -" Power".length);
     if (devName && displayName.startsWith(devName + " ")) {
       displayName = displayName.slice(devName.length + 1);
     }
@@ -174,19 +191,6 @@ export async function discoverEntitiesFallback(hass: HomeAssistant, deviceId: st
       breaker_rating_a: null,
       entities: circuitEntities,
     };
-  }
-
-  let serial = "";
-  if (panelDevice.identifiers) {
-    for (const pair of panelDevice.identifiers) {
-      // Identifier pairs are [domain, value]. Skip malformed shapes rather
-      // than silently indexing past the end.
-      if (!Array.isArray(pair) || pair.length < 2) continue;
-      const [domain, value] = pair;
-      if (domain === INTEGRATION_DOMAIN && typeof value === "string") {
-        serial = value;
-      }
-    }
   }
 
   let panelSize = 0;

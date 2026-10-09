@@ -1,11 +1,19 @@
 import { escapeHtml } from "../helpers/sanitize.js";
-import { formatPowerSigned, formatPowerUnit } from "../helpers/format.js";
+import { formatCircuitCurrentHTML, formatCircuitPowerHTML } from "../helpers/format.js";
 import { t } from "../i18n.js";
 import { tabToRow, tabToCol, classifyDualTab } from "../helpers/layout.js";
 import { getChartMetric } from "../helpers/chart.js";
-import { DEVICE_TYPE_PV } from "../constants.js";
 import { getCircuitMonitoringInfo } from "./monitoring-status.js";
-import { getCircuitStateClasses, relayClosed, shedPriorityKey, switchPresence } from "./circuit-state.js";
+import {
+  circuitCurrentA,
+  circuitPowerW,
+  circuitUtilizationPct,
+  getCircuitStateClasses,
+  readsAsProducer,
+  relayClosed,
+  shedPriorityKey,
+  switchPresence,
+} from "./circuit-state.js";
 import { buildSheddingIconHTML, buildTogglePillHTML } from "./circuit-controls.js";
 import type { PanelTopology, Circuit, HomeAssistant, CardConfig, MonitoringStatus, MonitoringPointInfo } from "../types.js";
 
@@ -117,10 +125,8 @@ export function renderCircuitSlot(
   sheddingPriority: string,
   inline = false
 ): string {
-  const entityId = circuit.entities?.power;
-  const state = entityId ? hass.states[entityId] : null;
-  const powerW = state ? parseFloat(state.state) || 0 : 0;
-  const isProducer = circuit.device_type === DEVICE_TYPE_PV || powerW < 0;
+  const powerW = circuitPowerW(circuit, hass);
+  const isProducer = readsAsProducer(circuit, powerW);
 
   const isOn = relayClosed(circuit, hass);
   const presence = switchPresence(circuit, hass);
@@ -129,17 +135,8 @@ export function renderCircuitSlot(
   const breakerLabel = breakerAmps ? `${Math.round(breakerAmps)}A` : "";
   const name = escapeHtml(circuit.name || t("grid.unknown"));
 
-  const chartMetric = getChartMetric(config);
-  const showCurrent = chartMetric.entityRole === "current";
-  let valueHTML: string;
-  if (showCurrent) {
-    const currentEid = circuit.entities?.current;
-    const currentState = currentEid ? hass.states[currentEid] : null;
-    const amps = currentState ? parseFloat(currentState.state) || 0 : 0;
-    valueHTML = `<strong>${chartMetric.format(amps)}</strong><span class="power-unit">A</span>`;
-  } else {
-    valueHTML = `<strong>${formatPowerSigned(powerW)}</strong><span class="power-unit">${formatPowerUnit(powerW)}</span>`;
-  }
+  const showCurrent = getChartMetric(config).entityRole === "current";
+  const valueHTML = showCurrent ? formatCircuitCurrentHTML(circuitCurrentA(circuit, hass)) : formatCircuitPowerHTML(powerW);
 
   const sheddingHTML = buildSheddingIconHTML(sheddingPriority || "unknown");
 
@@ -152,14 +149,8 @@ export function renderCircuitSlot(
 
   // Utilization — prefer monitoring data, fall back to live current / breaker rating
   let utilizationHTML = "";
-  let utilizationPct = monitoringInfo?.utilization_pct ?? null;
-  if (utilizationPct == null && circuit.breaker_rating_a) {
-    const curEid = circuit.entities?.current;
-    const curState = curEid ? hass.states[curEid] : null;
-    const amps = curState ? Math.abs(parseFloat(curState.state) || 0) : 0;
-    utilizationPct = Math.round((amps / circuit.breaker_rating_a) * 1000) / 10;
-  }
-  if (utilizationPct != null) {
+  const utilizationPct = circuitUtilizationPct(circuit, hass, monitoringInfo);
+  if (utilizationPct !== null) {
     const utilClass = utilizationPct >= 100 ? "utilization-alert" : utilizationPct >= 80 ? "utilization-warning" : "utilization-normal";
     utilizationHTML = `<span class="utilization ${utilClass}">${Math.round(utilizationPct)}%</span>`;
   }

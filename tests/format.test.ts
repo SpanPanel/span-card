@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { formatPowerUnit, formatPowerSigned, formatKw } from "../src/helpers/format.js";
+import { formatPowerUnit, formatPowerSigned, formatKw, formatPowerHTML, formatCircuitPowerHTML, formatCircuitCurrentHTML } from "../src/helpers/format.js";
 
 describe("formatPowerUnit", () => {
   it("returns W for values under 1000", () => {
@@ -52,5 +52,28 @@ describe("formatKw", () => {
 
   it("handles zero", () => {
     expect(formatKw(0)).toBe("0.0");
+  });
+});
+
+describe("formatPowerHTML", () => {
+  it("draws a reading with its unit", () => {
+    expect(formatPowerHTML(1500)).toBe('<strong>1.5</strong> <span class="power-unit">kW</span>');
+    expect(formatPowerHTML(0)).toBe('<strong>0</strong> <span class="power-unit">W</span>');
+  });
+
+  it("draws an unknown reading as unknown, without a unit", () => {
+    expect(formatPowerHTML(null)).toBe("<strong>--</strong>");
+  });
+});
+
+describe("formatCircuitPowerHTML and formatCircuitCurrentHTML", () => {
+  it("draw a reading with its unit", () => {
+    expect(formatCircuitPowerHTML(-250)).toBe('<strong>-250</strong><span class="power-unit">W</span>');
+    expect(formatCircuitCurrentHTML(4.2)).toBe('<strong>4.2</strong><span class="power-unit">A</span>');
+  });
+
+  it("draw an unknown reading as unknown, without a unit", () => {
+    expect(formatCircuitPowerHTML(null)).toBe("<strong>--</strong>");
+    expect(formatCircuitCurrentHTML(null)).toBe("<strong>--</strong>");
   });
 });

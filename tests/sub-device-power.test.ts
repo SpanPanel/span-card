@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { resolveSubDevicePower, subDeviceCharts, tileRenderedEntityIds } from "../src/helpers/sub-device-power.js";
-import type { SubDevice, SubDeviceSolar } from "../src/types.js";
+import { resolveSubDevicePower, stateWatts, subDeviceCharts, tileRenderedEntityIds } from "../src/helpers/sub-device-power.js";
+import type { HomeAssistant, SubDevice, SubDeviceSolar } from "../src/types.js";
 import { BATTERY_CAPACITY, BATTERY_LEVEL, BATTERY_POWER, BATTERY_SOE, METER_POWER, REALISTIC_BESS } from "./realistic-bess.js";
 
 /**
@@ -88,5 +88,25 @@ describe("subDeviceCharts", () => {
       { role: "soc", entityId: BATTERY_LEVEL },
       { role: "soe", entityId: BATTERY_SOE },
     ]);
+  });
+});
+
+describe("stateWatts", () => {
+  function hassWith(states: Record<string, string>): HomeAssistant {
+    const full = Object.fromEntries(
+      Object.entries(states).map(([entity_id, state]) => [entity_id, { entity_id, state, attributes: {}, last_changed: "", last_updated: "" }])
+    );
+    return { states: full, services: {}, language: "en" } as unknown as HomeAssistant;
+  }
+
+  it("reads a published number, zero included", () => {
+    expect(stateWatts(hassWith({ [SITE_TOTAL]: "1250" }), SITE_TOTAL)).toBe(1250);
+    expect(stateWatts(hassWith({ [SITE_TOTAL]: "0" }), SITE_TOTAL)).toBe(0);
+  });
+
+  it("is unknown, never 0, for an unknown, unavailable or missing state", () => {
+    expect(stateWatts(hassWith({ [SITE_TOTAL]: "unknown" }), SITE_TOTAL)).toBeNull();
+    expect(stateWatts(hassWith({ [SITE_TOTAL]: "unavailable" }), SITE_TOTAL)).toBeNull();
+    expect(stateWatts(hassWith({}), SITE_TOTAL)).toBeNull();
   });
 });

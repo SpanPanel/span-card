@@ -6,24 +6,39 @@ import {
   BESS_CHART_COL_HEIGHT,
   EVSE_CHART_HEIGHT,
 } from "../constants.js";
-import { formatPowerSigned, formatPowerUnit, formatPowerHTML, formatKw } from "../helpers/format.js";
+import { formatCircuitCurrentHTML, formatCircuitPowerHTML, formatPowerHTML, formatKw, UNKNOWN_READING } from "../helpers/format.js";
+import { readNumber, sumReadings, type ReadingSum } from "../helpers/read-number.js";
 import { getChartMetric } from "../helpers/chart.js";
 import { resolveSubDevicePower, stateWatts } from "../helpers/sub-device-power.js";
 import { getHistoryDurationMs, getHorizonDurationMs } from "../helpers/history.js";
 import { updateChart } from "../chart/chart-update.js";
 import { attrSelectorValue } from "../helpers/selector.js";
-import { relayClosed, shedPriorityKey, switchPresence } from "./circuit-state.js";
+import { circuitCurrentA, circuitPowerW, readsAsProducer, relayClosed, shedPriorityKey, switchPresence } from "./circuit-state.js";
 import { applySheddingIcon, applyTogglePill } from "./circuit-controls.js";
 import type { HomeAssistant, PanelTopology, CardConfig, HistoryMap, ChartMetricDef } from "../types.js";
 
 // ── Header stats ───────────────────────────────────────────────────────────
 
+/** A header reading in kW, or the unknown mark. */
+function formatKwReading(watts: number | null): string {
+  return watts === null ? UNKNOWN_READING : formatKw(watts);
+}
+
 /**
  * Update a single ``.panel-stats`` block in-place from a specific
  * topology. Shared between the standard panel header (one block rooted
  * at the document) and the Favorites view (multiple per-panel blocks).
+ *
+ * ``siteConsumptionFallback`` is what the Site stat shows while the site
+ * entity has no state object: the circuits' sum, or null for none.
  */
-export function updatePanelStatsBlock(scope: Element, hass: HomeAssistant, topology: PanelTopology, config: CardConfig, siteConsumptionFallback: number): void {
+export function updatePanelStatsBlock(
+  scope: Element,
+  hass: HomeAssistant,
+  topology: PanelTopology,
+  config: CardConfig,
+  siteConsumptionFallback: ReadingSum | null
+): void {
   const isAmpsMode = (config.chart_metric || "power") === "current";
 
   // Site / consumption stat
@@ -33,16 +48,20 @@ export function updatePanelStatsBlock(scope: Element, hass: HomeAssistant, topol
     const siteEid = topology.panel_entities?.site_power;
     const siteState = siteEid ? hass.states[siteEid] : null;
     const amps = siteState ? parseFloat(siteState.attributes?.amperage as string) : NaN;
-    if (consumptionEl) consumptionEl.textContent = Number.isFinite(amps) ? Math.abs(amps).toFixed(1) : "--";
+    if (consumptionEl) {
+      consumptionEl.textContent = Number.isFinite(amps) ? Math.abs(amps).toFixed(1) : UNKNOWN_READING;
+      consumptionEl.classList.remove("stat-partial");
+    }
     if (consumptionUnitEl) consumptionUnitEl.textContent = "A";
   } else {
-    let totalConsumption = siteConsumptionFallback;
+    let site: ReadingSum | null = siteConsumptionFallback;
     const siteEid = topology.panel_entities?.site_power;
-    if (siteEid) {
-      const state = hass.states[siteEid];
-      if (state) totalConsumption = Math.abs(parseFloat(state.state) || 0);
+    const siteState = siteEid ? hass.states[siteEid] : undefined;
+    if (siteState) site = { total: readNumber(siteState), partial: false };
+    if (consumptionEl) {
+      consumptionEl.textContent = formatKwReading(site?.total ?? null);
+      consumptionEl.classList.toggle("stat-partial", site?.partial ?? false);
     }
-    if (consumptionEl) consumptionEl.textContent = formatKw(totalConsumption);
     if (consumptionUnitEl) consumptionUnitEl.textContent = "kW";
   }
 
@@ -54,11 +73,10 @@ export function updatePanelStatsBlock(scope: Element, hass: HomeAssistant, topol
     const upState = upEid ? hass.states[upEid] : null;
     if (isAmpsMode) {
       const amps = upState ? parseFloat(upState.attributes?.amperage as string) : NaN;
-      upstreamEl.textContent = Number.isFinite(amps) ? Math.abs(amps).toFixed(1) : "--";
+      upstreamEl.textContent = Number.isFinite(amps) ? Math.abs(amps).toFixed(1) : UNKNOWN_READING;
       if (upstreamUnitEl) upstreamUnitEl.textContent = "A";
     } else {
-      const w = upState ? Math.abs(parseFloat(upState.state) || 0) : 0;
-      upstreamEl.textContent = formatKw(w);
+      upstreamEl.textContent = formatKwReading(readNumber(upState));
       if (upstreamUnitEl) upstreamUnitEl.textContent = "kW";
     }
   }
@@ -71,11 +89,10 @@ export function updatePanelStatsBlock(scope: Element, hass: HomeAssistant, topol
     const downState = downEid ? hass.states[downEid] : null;
     if (isAmpsMode) {
       const amps = downState ? parseFloat(downState.attributes?.amperage as string) : NaN;
-      downstreamEl.textContent = Number.isFinite(amps) ? Math.abs(amps).toFixed(1) : "--";
+      downstreamEl.textContent = Number.isFinite(amps) ? Math.abs(amps).toFixed(1) : UNKNOWN_READING;
       if (downstreamUnitEl) downstreamUnitEl.textContent = "A";
     } else {
-      const w = downState ? Math.abs(parseFloat(downState.state) || 0) : 0;
-      downstreamEl.textContent = formatKw(w);
+      downstreamEl.textContent = formatKwReading(readNumber(downState));
       if (downstreamUnitEl) downstreamUnitEl.textContent = "kW";
     }
   }
@@ -88,15 +105,10 @@ export function updatePanelStatsBlock(scope: Element, hass: HomeAssistant, topol
     const solarState = solarEid ? hass.states[solarEid] : null;
     if (isAmpsMode) {
       const amps = solarState ? parseFloat(solarState.attributes?.amperage as string) : NaN;
-      solarEl.textContent = Number.isFinite(amps) ? Math.abs(amps).toFixed(1) : "--";
+      solarEl.textContent = Number.isFinite(amps) ? Math.abs(amps).toFixed(1) : UNKNOWN_READING;
       if (solarUnitEl) solarUnitEl.textContent = "A";
     } else {
-      if (solarState) {
-        const w = Math.abs(parseFloat(solarState.state) || 0);
-        solarEl.textContent = formatKw(w);
-      } else {
-        solarEl.textContent = "--";
-      }
+      solarEl.textContent = formatKwReading(readNumber(solarState));
       if (solarUnitEl) solarUnitEl.textContent = "kW";
     }
   }
@@ -105,8 +117,8 @@ export function updatePanelStatsBlock(scope: Element, hass: HomeAssistant, topol
   const batteryEl = scope.querySelector(".stat-battery .stat-value");
   if (batteryEl) {
     const battEid = topology.panel_entities?.battery_level;
-    const battState = battEid ? hass.states[battEid] : null;
-    if (battState) batteryEl.textContent = `${Math.round(parseFloat(battState.state) || 0)}`;
+    const soc = readNumber(battEid ? hass.states[battEid] : undefined);
+    batteryEl.textContent = soc === null ? UNKNOWN_READING : `${Math.round(soc)}`;
   }
 
   // Grid / DSM state
@@ -114,14 +126,14 @@ export function updatePanelStatsBlock(scope: Element, hass: HomeAssistant, topol
   if (gridStateEl) {
     const gridEid = topology.panel_entities?.dsm_state;
     const gridState = gridEid ? hass.states[gridEid] : null;
-    gridStateEl.textContent = gridState ? hass.formatEntityState?.(gridState) || gridState.state : "--";
+    gridStateEl.textContent = gridState ? hass.formatEntityState?.(gridState) || gridState.state : UNKNOWN_READING;
   }
 }
 
-function _updateHeaderStats(root: Element | ShadowRoot, hass: HomeAssistant, topology: PanelTopology, config: CardConfig, totalConsumption: number): void {
+function _updateHeaderStats(root: Element | ShadowRoot, hass: HomeAssistant, topology: PanelTopology, config: CardConfig, circuitsSum: ReadingSum): void {
   const scope = (root as ParentNode).querySelector(".panel-stats") as Element | null;
   if (!scope) return;
-  updatePanelStatsBlock(scope, hass, topology, config, totalConsumption);
+  updatePanelStatsBlock(scope, hass, topology, config, circuitsSum);
 }
 
 // ── Exported updaters ──────────────────────────────────────────────────────
@@ -137,19 +149,16 @@ export function updateCircuitDOM(
   if (!root || !topology || !hass) return;
 
   const defaultDurationMs = getHistoryDurationMs(config);
-  let totalConsumption = 0;
 
-  for (const [, circuit] of Object.entries(topology.circuits)) {
-    const entityId = circuit.entities?.power;
-    if (!entityId) continue;
-    const state = hass.states[entityId];
-    const power = state ? parseFloat(state.state) || 0 : 0;
-    if (circuit.device_type !== DEVICE_TYPE_PV) {
-      totalConsumption += Math.abs(power);
-    }
+  // The circuits' consumption: every non-solar circuit with a power sensor, an unknown reading skipped.
+  const consumption: (number | null)[] = [];
+  for (const circuit of Object.values(topology.circuits)) {
+    if (!circuit.entities?.power || circuit.device_type === DEVICE_TYPE_PV) continue;
+    const power = circuitPowerW(circuit, hass);
+    consumption.push(power === null ? null : Math.abs(power));
   }
 
-  _updateHeaderStats(root, hass, topology, config, totalConsumption);
+  _updateHeaderStats(root, hass, topology, config, sumReadings(consumption));
 
   const chartMetric: ChartMetricDef = getChartMetric(config);
   const showCurrent = chartMetric.entityRole === "current";
@@ -158,23 +167,14 @@ export function updateCircuitDOM(
     const slot = root.querySelector(`.circuit-slot[data-uuid="${attrSelectorValue(uuid)}"]`);
     if (!slot) continue;
 
-    const entityId = circuit.entities?.power;
-    const state = entityId ? hass.states[entityId] : null;
-    const powerW = state ? parseFloat(state.state) || 0 : 0;
-    const isProducer = circuit.device_type === DEVICE_TYPE_PV || powerW < 0;
+    const powerW = circuitPowerW(circuit, hass);
+    const isProducer = readsAsProducer(circuit, powerW);
 
     const isOn = relayClosed(circuit, hass);
 
     const powerVal = slot.querySelector(".power-value");
     if (powerVal) {
-      if (showCurrent) {
-        const currentEid = circuit.entities?.current;
-        const currentState = currentEid ? hass.states[currentEid] : null;
-        const amps = currentState ? parseFloat(currentState.state) || 0 : 0;
-        powerVal.innerHTML = `<strong>${chartMetric.format(amps)}</strong><span class="power-unit">A</span>`;
-      } else {
-        powerVal.innerHTML = `<strong>${formatPowerSigned(powerW)}</strong><span class="power-unit">${formatPowerUnit(powerW)}</span>`;
-      }
+      powerVal.innerHTML = showCurrent ? formatCircuitCurrentHTML(circuitCurrentA(circuit, hass)) : formatCircuitPowerHTML(powerW);
     }
 
     applyTogglePill(slot, isOn, switchPresence(circuit, hass));
@@ -249,8 +249,8 @@ export function updateSubDeviceDOM(
         }
         const rawUnit = (state.attributes.unit_of_measurement as string) || "";
         if (rawUnit === "Wh") {
-          const wh = parseFloat(state.state);
-          if (!isNaN(wh)) displayValue = (wh / 1000).toFixed(1) + " kWh";
+          const wh = readNumber(state);
+          if (wh !== null) displayValue = (wh / 1000).toFixed(1) + " kWh";
         }
         valEl.textContent = displayValue;
       }

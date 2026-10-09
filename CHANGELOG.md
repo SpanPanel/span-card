@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.9.6
+
+### Fixed
+
+- **When the integration cannot report the panel's layout, the card still finds every circuit from its power sensor.**
+- **A reading the panel has not published shows as "--", never 0.**
+
 ## 0.9.5
 
 ### Added

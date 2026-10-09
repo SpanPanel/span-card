@@ -1,4 +1,5 @@
 import { escapeHtml } from "../helpers/sanitize.js";
+import { UNKNOWN_READING } from "../helpers/format.js";
 import { t } from "../i18n.js";
 import { SHEDDING_PRIORITIES } from "../constants.js";
 import type { PanelTopology, CardConfig, SheddingPriorityDef } from "../types.js";
@@ -71,7 +72,7 @@ export function buildPanelStatsHTML(topology: PanelTopology, config: CardConfig,
       <div class="stat stat-consumption">
         <span class="stat-label">${t("header.site")}</span>
         <div class="stat-row">
-          <span class="stat-value">0</span>
+          <span class="stat-value">${UNKNOWN_READING}</span>
           <span class="stat-unit">${isAmpsMode ? "A" : "kW"}</span>
         </div>
       </div>`
@@ -83,7 +84,7 @@ export function buildPanelStatsHTML(topology: PanelTopology, config: CardConfig,
       <div class="stat stat-grid-state">
         <span class="stat-label">${t("header.grid")}</span>
         <div class="stat-row">
-          <span class="stat-value">--</span>
+          <span class="stat-value">${UNKNOWN_READING}</span>
         </div>
       </div>`
           : ""
@@ -94,7 +95,7 @@ export function buildPanelStatsHTML(topology: PanelTopology, config: CardConfig,
       <div class="stat stat-upstream">
         <span class="stat-label">${t("header.upstream")}</span>
         <div class="stat-row">
-          <span class="stat-value">--</span>
+          <span class="stat-value">${UNKNOWN_READING}</span>
           <span class="stat-unit">${isAmpsMode ? "A" : "kW"}</span>
         </div>
       </div>`
@@ -106,7 +107,7 @@ export function buildPanelStatsHTML(topology: PanelTopology, config: CardConfig,
       <div class="stat stat-downstream">
         <span class="stat-label">${t("header.downstream")}</span>
         <div class="stat-row">
-          <span class="stat-value">--</span>
+          <span class="stat-value">${UNKNOWN_READING}</span>
           <span class="stat-unit">${isAmpsMode ? "A" : "kW"}</span>
         </div>
       </div>`
@@ -118,7 +119,7 @@ export function buildPanelStatsHTML(topology: PanelTopology, config: CardConfig,
       <div class="stat stat-solar">
         <span class="stat-label">${t("header.solar")}</span>
         <div class="stat-row">
-          <span class="stat-value">--</span>
+          <span class="stat-value">${UNKNOWN_READING}</span>
           <span class="stat-unit">${isAmpsMode ? "A" : "kW"}</span>
         </div>
       </div>`
@@ -130,7 +131,7 @@ export function buildPanelStatsHTML(topology: PanelTopology, config: CardConfig,
       <div class="stat stat-battery">
         <span class="stat-label">${t("header.battery")}</span>
         <div class="stat-row">
-          <span class="stat-value">&mdash;</span>
+          <span class="stat-value">${UNKNOWN_READING}</span>
           <span class="stat-unit">%</span>
         </div>
       </div>`
