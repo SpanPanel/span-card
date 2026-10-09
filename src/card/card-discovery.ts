@@ -1,6 +1,7 @@
 import { INTEGRATION_DOMAIN } from "../constants.js";
 import { resolveAndAssignAreas } from "../core/area-resolver.js";
 import { RetryManager } from "../core/retry-manager.js";
+import { isPositiveInteger } from "../helpers/layout.js";
 import { t } from "../i18n.js";
 import type { HomeAssistant, PanelTopology, PanelDevice, DiscoveryResult, Circuit, CircuitEntities } from "../types.js";
 
@@ -34,7 +35,7 @@ export async function discoverTopology(hass: HomeAssistant, deviceId: string | u
   const topologyMsg = { type: `${INTEGRATION_DOMAIN}/panel_topology`, device_id: deviceId };
   const topology = retry ? await retry.callWS<PanelTopology>(hass, topologyMsg, { errorId: "fetch:topology" }) : await hass.callWS<PanelTopology>(topologyMsg);
 
-  const panelSize = topology.panel_size ?? panelSizeFromCircuits(topology.circuits);
+  const panelSize = isPositiveInteger(topology.panel_size) ? topology.panel_size : panelSizeFromCircuits(topology.circuits);
   if (!panelSize) {
     throw new Error(t("card.topology_error"));
   }
@@ -196,7 +197,7 @@ export async function discoverEntitiesFallback(hass: HomeAssistant, deviceId: st
   let panelSize = 0;
   for (const ent of allEntities) {
     const state = hass.states[ent.entity_id];
-    if (state && typeof state.attributes.panel_size === "number") {
+    if (state && isPositiveInteger(state.attributes.panel_size)) {
       panelSize = state.attributes.panel_size;
       break;
     }

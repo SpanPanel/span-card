@@ -38,8 +38,9 @@ function sensorsFor(serial: string): Sensor[] {
 /**
  * A registry holding the panel and its circuits' sensors, whose unique ids carry
  * `uidSerial`. The panel device names `deviceSerial`, or no serial when it is null.
+ * The site power sensor carries `siteAttributes`.
  */
-function hassWithRegistry(uidSerial: string = SERIAL, deviceSerial: string | null = uidSerial): HomeAssistant {
+function hassWithRegistry(uidSerial: string = SERIAL, deviceSerial: string | null = uidSerial, siteAttributes: Record<string, unknown> = {}): HomeAssistant {
   const sensors = sensorsFor(uidSerial);
   const sitePower = { entity_id: "sensor.span_panel_site_power", unique_id: `span_${uidSerial.toLowerCase()}_site_power` };
   const callWS = vi.fn(async (msg: { type: string }) => {
@@ -59,7 +60,7 @@ function hassWithRegistry(uidSerial: string = SERIAL, deviceSerial: string | nul
       s.entity_id,
       { entity_id: s.entity_id, state: "1", attributes: { tabs: s.tabs, friendly_name: s.friendly_name }, last_changed: "", last_updated: "" },
     ]),
-    [sitePower.entity_id, { entity_id: sitePower.entity_id, state: "1", attributes: {}, last_changed: "", last_updated: "" }],
+    [sitePower.entity_id, { entity_id: sitePower.entity_id, state: "1", attributes: siteAttributes, last_changed: "", last_updated: "" }],
   ]);
   return { callWS, states, services: {}, language: "en" } as unknown as HomeAssistant;
 }
@@ -96,5 +97,17 @@ describe("discoverEntitiesFallback", () => {
     const { topology } = await discoverEntitiesFallback(hassWithRegistry(SERIAL, null), PANEL_ID);
 
     expect(Object.keys(topology!.circuits).sort()).toEqual(CIRCUIT_IDS);
+  });
+});
+
+describe("the panel size the fallback reads", () => {
+  it("is the panel_size attribute when it is a positive integer", async () => {
+    const { panelSize } = await discoverEntitiesFallback(hassWithRegistry(SERIAL, SERIAL, { panel_size: 32 }), PANEL_ID);
+    expect(panelSize).toBe(32);
+  });
+
+  it.each([0, -2, 12.5, "32"])("falls back to the circuits when the attribute is %s", async size => {
+    const { panelSize } = await discoverEntitiesFallback(hassWithRegistry(SERIAL, SERIAL, { panel_size: size }), PANEL_ID);
+    expect(panelSize).toBe(14);
   });
 });

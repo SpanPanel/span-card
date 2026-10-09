@@ -1,5 +1,14 @@
 import type { DualTabLayout } from "../types.js";
 
+/**
+ * Whether a size or position the topology reports can be laid out. A panel that
+ * does not know its size reports 0, and anything that is not a whole number above
+ * zero is no size at all.
+ */
+export function isPositiveInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value > 0;
+}
+
 export function tabToRow(tab: number): number {
   return Math.ceil(tab / 2);
 }
