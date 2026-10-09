@@ -9,6 +9,7 @@ import {
   circuitPowerW,
   circuitUtilizationPct,
   getCircuitStateClasses,
+  measuresOutsidePanel,
   readsAsProducer,
   relayClosed,
   shedPriorityKey,
@@ -40,6 +41,8 @@ export function buildGridHTML(
   const occupiedTabs = new Set<number>();
 
   for (const [uuid, circuit] of Object.entries(topology.circuits)) {
+    // A meter outside the panel is drawn in the Meters strip, never in a breaker space.
+    if (measuresOutsidePanel(circuit)) continue;
     const tabs = circuit.tabs;
     if (!tabs || tabs.length === 0) continue;
     const primaryTab = Math.min(...tabs);

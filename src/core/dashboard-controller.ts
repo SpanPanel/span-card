@@ -5,6 +5,7 @@ import { readNumber } from "../helpers/read-number.js";
 import { subDeviceCharts } from "../helpers/sub-device-power.js";
 import { loadHistory, collectSubDeviceEntityIds } from "./history-loader.js";
 import { updateCircuitDOM, updateSubDeviceDOM } from "./dom-updater.js";
+import { updateMetersDOM } from "./meters-strip.js";
 import { getEffectiveHorizon, getEffectiveSubDeviceHorizon } from "./graph-settings.js";
 import { MonitoringStatusCache, MonitoringStatusMultiCache, mergeMonitoringStatuses } from "./monitoring-status.js";
 import { GraphSettingsCache } from "./graph-settings.js";
@@ -376,6 +377,7 @@ export class DashboardController {
     if (!this._hass || !this._topology || !this._config) return;
     updateCircuitDOM(root, this._hass, this._topology, this._config, this.powerHistory, this.horizonMap);
     updateSubDeviceDOM(root, this._hass, this._topology, this._config, this.powerHistory, this.subDeviceHorizonMap);
+    updateMetersDOM(root, this._hass, this._topology);
   }
 
   async onGraphSettingsChanged(root: DOMRoot): Promise<void> {

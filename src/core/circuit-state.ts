@@ -17,6 +17,19 @@ export function getCircuitStateClasses(_circuit: Circuit, monitoringInfo: Monito
   return classes.join(" ");
 }
 
+/** Whether the circuit is a meter outside the panel rather than a breaker in it. */
+export function measuresOutsidePanel(c: Pick<Circuit, "outside_panel">): boolean {
+  return c.outside_panel === true;
+}
+
+/**
+ * Whether a circuit is drawn and sorted as on: its relay is closed, or it is a
+ * meter outside the panel, which has no relay to open.
+ */
+export function drawsAsOn(c: CircuitControlFields & Pick<Circuit, "outside_panel">, hass: HomeAssistant): boolean {
+  return measuresOutsidePanel(c) || relayClosed(c, hass);
+}
+
 /** A circuit's power reading in watts, or null where its sensor has none. */
 export function circuitPowerW(c: Pick<Circuit, "entities">, hass: HomeAssistant): number | null {
   const entityId = c.entities?.power;

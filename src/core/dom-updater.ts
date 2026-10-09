@@ -13,7 +13,7 @@ import { resolveSubDevicePower, stateWatts } from "../helpers/sub-device-power.j
 import { getHistoryDurationMs, getHorizonDurationMs } from "../helpers/history.js";
 import { updateChart } from "../chart/chart-update.js";
 import { attrSelectorValue } from "../helpers/selector.js";
-import { circuitCurrentA, circuitPowerW, readsAsProducer, relayClosed, shedPriorityKey, switchPresence } from "./circuit-state.js";
+import { circuitCurrentA, circuitPowerW, measuresOutsidePanel, readsAsProducer, relayClosed, shedPriorityKey, switchPresence } from "./circuit-state.js";
 import { applySheddingIcon, applyTogglePill } from "./circuit-controls.js";
 import type { HomeAssistant, PanelTopology, CardConfig, HistoryMap, ChartMetricDef } from "../types.js";
 
@@ -151,9 +151,10 @@ export function updateCircuitDOM(
   const defaultDurationMs = getHistoryDurationMs(config);
 
   // The circuits' consumption: every non-solar circuit with a power sensor, an unknown reading skipped.
+  // A meter outside the panel is no load on it, so it is no term at all.
   const consumption: (number | null)[] = [];
   for (const circuit of Object.values(topology.circuits)) {
-    if (!circuit.entities?.power || circuit.device_type === DEVICE_TYPE_PV) continue;
+    if (!circuit.entities?.power || circuit.device_type === DEVICE_TYPE_PV || measuresOutsidePanel(circuit)) continue;
     const power = circuitPowerW(circuit, hass);
     consumption.push(power === null ? null : Math.abs(power));
   }

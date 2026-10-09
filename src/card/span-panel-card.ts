@@ -6,6 +6,7 @@ import { escapeHtml } from "../helpers/sanitize.js";
 import { loadListColumns } from "../helpers/list-columns.js";
 import { buildHeaderHTML } from "../core/header-renderer.js";
 import { buildGridHTML } from "../core/grid-renderer.js";
+import { buildMetersStripHTML } from "../core/meters-strip.js";
 import { buildSubDevicesHTML } from "../core/sub-device-renderer.js";
 import { buildMonitoringSummaryHTML } from "../core/monitoring-status.js";
 import { DashboardController } from "../core/dashboard-controller.js";
@@ -462,11 +463,13 @@ export class SpanPanelCard extends LitElement {
       const monitoringSummaryHTML = buildMonitoringSummaryHTML(monitoringStatus);
       const gridHTML = buildGridHTML(this._topology, this._positions, this.hass, this._config, monitoringStatus);
       const subDevHTML = buildSubDevicesHTML(this._topology, this.hass, this._config, { showFavorites: this._ctrl.showFavorites });
+      const metersHTML = buildMetersStripHTML(this._topology, this.hass);
 
       container.innerHTML = `
         ${headerHTML}
         ${monitoringSummaryHTML}
         ${subDevHTML ? `<div class="sub-devices">${subDevHTML}</div>` : ""}
+        ${metersHTML}
         ${this._config.show_panel !== false ? `<div class="panel-grid" style="grid-template-rows: repeat(${totalRows}, auto);">${gridHTML}</div>` : ""}
       `;
 

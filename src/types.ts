@@ -48,6 +48,11 @@ export interface Circuit {
   always_on?: boolean;
   voltage?: number;
   area?: string;
+  /**
+   * A meter outside the panel: it occupies no breaker space and has no relay. Its
+   * power is import-positive, positive while power flows into the panel.
+   */
+  outside_panel?: boolean;
 }
 
 /**
