@@ -1,7 +1,7 @@
 import { escapeHtml } from "../helpers/sanitize.js";
 import { formatCircuitCurrentHTML, formatCircuitPowerHTML } from "../helpers/format.js";
 import { t } from "../i18n.js";
-import { tabToRow, tabToCol, classifyDualTab, type PositionRange } from "../helpers/layout.js";
+import { tabToRow, tabToCol, classifyDualTab, measuresOutsidePanel, type PositionRange } from "../helpers/layout.js";
 import { getChartMetric } from "../helpers/chart.js";
 import { getCircuitMonitoringInfo } from "./monitoring-status.js";
 import {
@@ -40,6 +40,8 @@ export function buildGridHTML(
   const occupiedTabs = new Set<number>();
 
   for (const [uuid, circuit] of Object.entries(topology.circuits)) {
+    // A meter outside the panel is drawn in the Meters strip, never in a breaker space.
+    if (measuresOutsidePanel(circuit)) continue;
     const tabs = circuit.tabs;
     if (!tabs || tabs.length === 0) continue;
     const primaryTab = Math.min(...tabs);

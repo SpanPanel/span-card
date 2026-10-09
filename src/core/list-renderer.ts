@@ -2,15 +2,8 @@ import { escapeHtml } from "../helpers/sanitize.js";
 import { formatCircuitCurrentHTML, formatCircuitPowerHTML } from "../helpers/format.js";
 import { t } from "../i18n.js";
 import { getChartMetric } from "../helpers/chart.js";
-import {
-  circuitCurrentA,
-  circuitPowerW,
-  circuitUtilizationPct,
-  getCircuitStateClasses,
-  readsAsProducer,
-  relayClosed,
-  switchPresence,
-} from "./circuit-state.js";
+import { measuresOutsidePanel } from "../helpers/layout.js";
+import { circuitCurrentA, circuitPowerW, circuitUtilizationPct, drawsAsOn, getCircuitStateClasses, readsAsProducer, switchPresence } from "./circuit-state.js";
 import { buildSheddingIconHTML, buildTogglePillHTML } from "./circuit-controls.js";
 import type { Circuit, HomeAssistant, CardConfig, MonitoringPointInfo } from "../types.js";
 
@@ -55,7 +48,7 @@ export function buildListRowHTML(
   sheddingPriority: string,
   isExpanded: boolean
 ): string {
-  const isOn = relayClosed(circuit, hass);
+  const isOn = drawsAsOn(circuit, hass);
   const presence = switchPresence(circuit, hass);
 
   const breakerAmps = circuit.breaker_rating_a;
@@ -92,8 +85,10 @@ export function buildListRowHTML(
 
   // A switch -- operable, or dimmed and inert while unavailable -- gets the pill,
   // armed by the header's slide-confirm; a circuit with none keeps a static badge.
-  const statusControl =
-    presence === "none"
+  // A meter outside the panel has no relay to be on or off, so it gets neither.
+  const statusControl = measuresOutsidePanel(circuit)
+    ? ""
+    : presence === "none"
       ? `<span class="list-status-badge ${isOn ? "list-status-on" : "list-status-off"}">${isOn ? "ON" : "OFF"}</span>`
       : buildTogglePillHTML(isOn, presence);
 
@@ -132,7 +127,7 @@ export function buildExpandedChartHTML(
 ): string {
   const isProducer = readsAsProducer(circuit, circuitPowerW(circuit, hass));
 
-  const isOn = relayClosed(circuit, hass);
+  const isOn = drawsAsOn(circuit, hass);
 
   const stateClasses = getCircuitStateClasses(circuit, monitoringInfo, isOn, isProducer);
   const safeUuid = escapeHtml(uuid);

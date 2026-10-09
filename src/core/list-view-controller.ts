@@ -4,7 +4,7 @@ import { formatCircuitCurrentHTML, formatCircuitPowerHTML } from "../helpers/for
 import { getChartMetric } from "../helpers/chart.js";
 import { t } from "../i18n.js";
 import { getCircuitMonitoringInfo } from "./monitoring-status.js";
-import { circuitCurrentA, circuitPowerW, relayClosed, shedPriorityKey, switchPresence } from "./circuit-state.js";
+import { circuitCurrentA, circuitPowerW, drawsAsOn, shedPriorityKey, switchPresence } from "./circuit-state.js";
 import { applySheddingIcon, applyTogglePill } from "./circuit-controls.js";
 import { buildSearchBarHTML, buildListRowHTML, buildExpandedChartHTML, buildAreaHeaderHTML } from "./list-renderer.js";
 import { observeFold } from "./truncation-fold.js";
@@ -24,7 +24,7 @@ interface CircuitSortInfo {
 }
 
 function getCircuitSortInfo(circuit: Circuit, hass: HomeAssistant, config: CardConfig): CircuitSortInfo {
-  const isOn = relayClosed(circuit, hass);
+  const isOn = drawsAsOn(circuit, hass);
   const isCurrentMode = (config.chart_metric || "power") === "current";
   const value = isCurrentMode ? circuitCurrentA(circuit, hass) : circuitPowerW(circuit, hass);
   return { isOn, value };

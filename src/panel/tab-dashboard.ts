@@ -5,6 +5,7 @@ import { positionRange, positionRowCount, type PositionRange } from "../helpers/
 import { t } from "../i18n.js";
 import { buildHeaderHTML } from "../core/header-renderer.js";
 import { buildGridHTML } from "../core/grid-renderer.js";
+import { buildMetersStripHTML } from "../core/meters-strip.js";
 import { buildSubDevicesHTML } from "../core/sub-device-renderer.js";
 import { buildMonitoringSummaryHTML } from "../core/monitoring-status.js";
 import { DashboardController } from "../core/dashboard-controller.js";
@@ -91,12 +92,14 @@ export class DashboardTab {
     const monitoringSummaryHTML = buildMonitoringSummaryHTML(monitoringStatus);
     const gridHTML = buildGridHTML(topology!, positions, hass, config, monitoringStatus);
     const subDevHTML = buildSubDevicesHTML(topology!, hass, config, { showFavorites: this._ctrl.showFavorites });
+    const metersHTML = buildMetersStripHTML(topology!, hass, config);
 
     container.innerHTML = `
       <style>${CARD_STYLES}</style>
       ${headerHTML}
       ${monitoringSummaryHTML}
       ${subDevHTML ? `<div class="sub-devices">${subDevHTML}</div>` : ""}
+      ${metersHTML}
       ${
         config.show_panel !== false
           ? `
