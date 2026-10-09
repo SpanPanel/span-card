@@ -1,7 +1,7 @@
 import { escapeHtml } from "../helpers/sanitize.js";
 import { formatCircuitCurrentHTML, formatCircuitPowerHTML } from "../helpers/format.js";
 import { t } from "../i18n.js";
-import { tabToRow, tabToCol, classifyDualTab, type PositionRange } from "../helpers/layout.js";
+import { tabToRow, tabToCol, classifyDualTab, measuresOutsidePanel, type PositionRange } from "../helpers/layout.js";
 import { getChartMetric } from "../helpers/chart.js";
 import { getCircuitMonitoringInfo } from "./monitoring-status.js";
 import {
@@ -9,7 +9,6 @@ import {
   circuitPowerW,
   circuitUtilizationPct,
   getCircuitStateClasses,
-  measuresOutsidePanel,
   readsAsProducer,
   relayClosed,
   shedPriorityKey,

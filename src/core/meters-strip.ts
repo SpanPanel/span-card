@@ -2,7 +2,8 @@ import { escapeHtml } from "../helpers/sanitize.js";
 import { attrSelectorValue } from "../helpers/selector.js";
 import { formatCircuitPowerHTML, formatEnergyReading } from "../helpers/format.js";
 import { t } from "../i18n.js";
-import { circuitPowerW, measuresOutsidePanel } from "./circuit-state.js";
+import { measuresOutsidePanel } from "../helpers/layout.js";
+import { circuitPowerW } from "./circuit-state.js";
 import type { Circuit, HomeAssistant, PanelTopology } from "../types.js";
 
 /** The topology's meters outside the panel, in topology order. */

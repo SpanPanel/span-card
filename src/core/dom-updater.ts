@@ -13,7 +13,8 @@ import { resolveSubDevicePower, stateWatts } from "../helpers/sub-device-power.j
 import { getHistoryDurationMs, getHorizonDurationMs } from "../helpers/history.js";
 import { updateChart } from "../chart/chart-update.js";
 import { attrSelectorValue } from "../helpers/selector.js";
-import { circuitCurrentA, circuitPowerW, drawsAsOn, measuresOutsidePanel, readsAsProducer, shedPriorityKey, switchPresence } from "./circuit-state.js";
+import { measuresOutsidePanel } from "../helpers/layout.js";
+import { circuitCurrentA, circuitPowerW, drawsAsOn, readsAsProducer, shedPriorityKey, switchPresence } from "./circuit-state.js";
 import { applySheddingIcon, applyTogglePill } from "./circuit-controls.js";
 import type { HomeAssistant, PanelTopology, CardConfig, HistoryMap, ChartMetricDef } from "../types.js";
 

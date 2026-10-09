@@ -7,6 +7,7 @@ import { buildExpandedChartHTML, buildListRowHTML } from "../src/core/list-rende
 import { DashboardController } from "../src/core/dashboard-controller.js";
 import { ListViewController } from "../src/core/list-view-controller.js";
 import { positionRange } from "../src/helpers/layout.js";
+import { discoverTopology } from "../src/card/card-discovery.js";
 import "../src/card/span-panel-card.js";
 import { FakeConnection, hassWith as hassOn } from "./fake-connection.js";
 import type { CardConfig, Circuit, HomeAssistant, PanelTopology } from "../src/types.js";
@@ -85,6 +86,23 @@ describe("a meter outside the panel on the grid", () => {
     const div = document.createElement("div");
     div.innerHTML = buildGridHTML(topology, { first: 1, last: 32 }, IMPORTING, CONFIG, null);
     expect(div.querySelector('[data-uuid="meter-a"]')).toBeNull();
+  });
+});
+
+describe("the breaker positions", () => {
+  // A meter outside the panel occupies no breaker space, even if its row names a tab.
+  const WITH_TABBED_METER = { kitchen: hosted("kitchen", 9), "meter-a": { ...meter("meter_a"), tabs: [50] } };
+
+  it("are never widened by a meter outside the panel", () => {
+    const topology = { circuits: { ...WITH_TABBED_METER, office: hosted("office", 24) }, first_position: 9, last_position: 24 } as PanelTopology;
+    expect(positionRange(topology, 16)).toEqual({ first: 9, last: 24 });
+  });
+
+  it("never size the panel from a meter outside it", async () => {
+    const circuits = { ...WITH_TABBED_METER, office: hosted("office", 14) };
+    const callWS = vi.fn(async (msg: { type: string }) => (msg.type === "span_panel/panel_topology" ? { circuits } : []));
+    const { panelSize } = await discoverTopology({ callWS } as unknown as HomeAssistant, "panel-1");
+    expect(panelSize).toBe(14);
   });
 });
 

@@ -1,4 +1,4 @@
-import type { DualTabLayout, PanelTopology } from "../types.js";
+import type { Circuit, DualTabLayout, PanelTopology } from "../types.js";
 
 /**
  * Whether a size or position the topology reports can be laid out. A panel that
@@ -9,6 +9,11 @@ export function isPositiveInteger(value: unknown): value is number {
   return typeof value === "number" && Number.isInteger(value) && value > 0;
 }
 
+/** Whether the circuit is a meter outside the panel, occupying no breaker space, rather than a breaker in it. */
+export function measuresOutsidePanel(c: Pick<Circuit, "outside_panel">): boolean {
+  return c.outside_panel === true;
+}
+
 /** The first and last breaker positions the grid draws, inclusive. */
 export interface PositionRange {
   readonly first: number;
@@ -17,8 +22,9 @@ export interface PositionRange {
 
 /**
  * The breaker positions the grid draws: the range the panel reports, else 1 to
- * `panelSize`, widened to every tab a circuit occupies so that no circuit is
- * dropped. Null when nothing places a breaker.
+ * `panelSize`, widened to every tab a breaker occupies so that no breaker is
+ * dropped. A meter outside the panel occupies none. Null when nothing places
+ * a breaker.
  */
 export function positionRange(topology: PanelTopology | null, panelSize: number): PositionRange | null {
   if (!topology) return null;
@@ -33,7 +39,8 @@ export function positionRange(topology: PanelTopology | null, panelSize: number)
     last = panelSize;
   }
   for (const circuit of Object.values(topology.circuits)) {
-    for (const tab of circuit?.tabs ?? []) {
+    if (!circuit || measuresOutsidePanel(circuit)) continue;
+    for (const tab of circuit.tabs ?? []) {
       if (!isPositiveInteger(tab)) continue;
       first = first === null ? tab : Math.min(first, tab);
       last = last === null ? tab : Math.max(last, tab);

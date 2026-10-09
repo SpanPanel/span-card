@@ -1,4 +1,5 @@
 import { DEVICE_TYPE_PV, RELAY_STATE_CLOSED, SELECTABLE_PRIORITY_KEYS } from "../constants.js";
+import { measuresOutsidePanel } from "../helpers/layout.js";
 import { readNumber } from "../helpers/read-number.js";
 import { isAlertActive } from "./monitoring-status.js";
 import type { Circuit, HomeAssistant, MonitoringPointInfo } from "../types.js";
@@ -15,11 +16,6 @@ export function getCircuitStateClasses(_circuit: Circuit, monitoringInfo: Monito
   if (isProducer) classes.push("circuit-producer");
   if (isAlertActive(monitoringInfo)) classes.push("circuit-alert");
   return classes.join(" ");
-}
-
-/** Whether the circuit is a meter outside the panel rather than a breaker in it. */
-export function measuresOutsidePanel(c: Pick<Circuit, "outside_panel">): boolean {
-  return c.outside_panel === true;
 }
 
 /**

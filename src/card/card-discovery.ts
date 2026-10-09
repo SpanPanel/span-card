@@ -1,7 +1,7 @@
 import { INTEGRATION_DOMAIN } from "../constants.js";
 import { resolveAndAssignAreas } from "../core/area-resolver.js";
 import { RetryManager } from "../core/retry-manager.js";
-import { isPositiveInteger, positionRange } from "../helpers/layout.js";
+import { isPositiveInteger, measuresOutsidePanel, positionRange } from "../helpers/layout.js";
 import { t } from "../i18n.js";
 import type { HomeAssistant, PanelTopology, PanelDevice, DiscoveryResult, Circuit, CircuitEntities } from "../types.js";
 
@@ -61,7 +61,7 @@ export async function discoverTopology(hass: HomeAssistant, deviceId: string | u
 function panelSizeFromCircuits(circuits: Record<string, Circuit>): number {
   let maxTab = 0;
   for (const circuit of Object.values(circuits)) {
-    if (!circuit) continue;
+    if (!circuit || measuresOutsidePanel(circuit)) continue;
     for (const tab of circuit.tabs) {
       if (tab > maxTab) maxTab = tab;
     }

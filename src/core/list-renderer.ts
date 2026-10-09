@@ -2,16 +2,8 @@ import { escapeHtml } from "../helpers/sanitize.js";
 import { formatCircuitCurrentHTML, formatCircuitPowerHTML } from "../helpers/format.js";
 import { t } from "../i18n.js";
 import { getChartMetric } from "../helpers/chart.js";
-import {
-  circuitCurrentA,
-  circuitPowerW,
-  circuitUtilizationPct,
-  drawsAsOn,
-  getCircuitStateClasses,
-  measuresOutsidePanel,
-  readsAsProducer,
-  switchPresence,
-} from "./circuit-state.js";
+import { measuresOutsidePanel } from "../helpers/layout.js";
+import { circuitCurrentA, circuitPowerW, circuitUtilizationPct, drawsAsOn, getCircuitStateClasses, readsAsProducer, switchPresence } from "./circuit-state.js";
 import { buildSheddingIconHTML, buildTogglePillHTML } from "./circuit-controls.js";
 import type { Circuit, HomeAssistant, CardConfig, MonitoringPointInfo } from "../types.js";
 
