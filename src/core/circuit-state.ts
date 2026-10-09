@@ -38,9 +38,17 @@ export function circuitCurrentA(c: Pick<Circuit, "entities">, hass: HomeAssistan
   return readNumber(entityId ? hass.states[entityId] : undefined);
 }
 
-/** Whether a circuit draws as production: a solar circuit, or one measured feeding power back. An unknown reading is not production. */
-export function readsAsProducer(c: Pick<Circuit, "device_type">, powerW: number | null): boolean {
-  return c.device_type === DEVICE_TYPE_PV || (powerW !== null && powerW < 0);
+/**
+ * Whether a circuit is a source of generation: as the topology flags it, else, for
+ * a topology that carries no flag, by its device type.
+ */
+export function isGeneration(c: Pick<Circuit, "device_type" | "is_generation">): boolean {
+  return c.is_generation ?? c.device_type === DEVICE_TYPE_PV;
+}
+
+/** Whether a circuit draws as production: a source of generation, or one measured feeding power back. An unknown reading is not production. */
+export function readsAsProducer(c: Pick<Circuit, "device_type" | "is_generation">, powerW: number | null): boolean {
+  return isGeneration(c) || (powerW !== null && powerW < 0);
 }
 
 /**

@@ -636,6 +636,57 @@ exports[`the card over capture 'main32_r202633' > renders as before > header 1`]
     </div>"
 `;
 
+exports[`the card over capture 'main32_r202633' > renders as before > sub-devices 1`] = `
+"<div class="sub-devices">
+      <div class="sub-device sub-device-bess" data-subdev="nt-0000-panel_bess">
+        <div class="sub-device-header">
+          <span class="sub-device-type">Battery</span>
+          <span class="sub-device-name">Span Panel Battery</span>
+          <span class="sub-power-value"><strong>0</strong> <span class="power-unit">W</span></span>
+          <button class="gear-icon subdevice-gear" data-subdev-id="nt-0000-panel_bess" style="color:#555;" title="Configure device">
+            <span-icon icon="mdi:cog" style="--mdc-icon-size:16px;"></span-icon>
+          </button>
+        </div>
+        
+      <div class="bess-charts">
+        
+          <div class="bess-chart-col">
+            <div class="bess-chart-title">SoC</div>
+            <div class="chart-container" data-chart-key="sub_nt-0000-panel_bess_soc" style="min-height: 120px;"><span-chart style="display: block; width: 100%;"></span-chart></div>
+          </div>
+        
+          <div class="bess-chart-col">
+            <div class="bess-chart-title">SoE</div>
+            <div class="chart-container" data-chart-key="sub_nt-0000-panel_bess_soe" style="min-height: 120px;"><span-chart style="display: block; width: 100%;"></span-chart></div>
+          </div>
+        
+          <div class="bess-chart-col">
+            <div class="bess-chart-title">Power</div>
+            <div class="chart-container" data-chart-key="sub_nt-0000-panel_bess_power" style="min-height: 120px;"><span-chart style="display: block; width: 100%;"></span-chart></div>
+          </div>
+        
+      </div>
+    
+        
+        
+      </div>
+    
+      <div class="sub-device " data-subdev="nt-0000-panel_pv">
+        <div class="sub-device-header">
+          <span class="sub-device-type">Solar</span>
+          <span class="sub-device-name">Span Panel Solar</span>
+          <span class="sub-power-caption">Site total</span><span class="sub-power-value"><strong>0</strong> <span class="power-unit">W</span></span>
+          <button class="gear-icon subdevice-gear" data-subdev-id="nt-0000-panel_pv" style="color:#555;" title="Configure device">
+            <span-icon icon="mdi:cog" style="--mdc-icon-size:16px;"></span-icon>
+          </button>
+        </div>
+        <div class="chart-container" data-chart-key="sub_nt-0000-panel_pv_power" style="min-height: 150px;"><span-chart style="display: block; width: 100%;"></span-chart></div>
+        <div class="sub-identity">Enphase Energy · IQ7PLUS-72-x-ACM-US-y</div>
+        
+      </div>
+    </div>"
+`;
+
 exports[`the card over capture 'main32_r202639' > renders as before > grid 1`] = `
 "<div class="panel-grid" style="grid-template-rows: repeat(16, auto);"><div class="tab-label tab-left" style="grid-row: 1; grid-column: 1;">1</div>
     <div class="circuit-slot circuit-col-span" style="grid-row: 1 / span 2; grid-column: 2;" data-uuid="caff3023f569495b2a36bf9354a8cd38">
@@ -1145,6 +1196,61 @@ exports[`the card over capture 'main32_r202639' > renders as before > header 1`]
     </div>"
 `;
 
+exports[`the card over capture 'main32_r202639' > renders as before > sub-devices 1`] = `
+"<div class="sub-devices">
+      <div class="sub-device sub-device-bess" data-subdev="nt-9874-s7rxt_bess">
+        <div class="sub-device-header">
+          <span class="sub-device-type">Battery</span>
+          <span class="sub-device-name">Span Panel Battery</span>
+          <span class="sub-power-value"><strong>0</strong> <span class="power-unit">W</span></span>
+          <button class="gear-icon subdevice-gear" data-subdev-id="nt-9874-s7rxt_bess" style="color:#555;" title="Configure device">
+            <span-icon icon="mdi:cog" style="--mdc-icon-size:16px;"></span-icon>
+          </button>
+        </div>
+        
+      <div class="bess-charts">
+        
+          <div class="bess-chart-col">
+            <div class="bess-chart-title">SoC</div>
+            <div class="chart-container" data-chart-key="sub_nt-9874-s7rxt_bess_soc" style="min-height: 120px;"><span-chart style="display: block; width: 100%;"></span-chart></div>
+          </div>
+        
+          <div class="bess-chart-col">
+            <div class="bess-chart-title">SoE</div>
+            <div class="chart-container" data-chart-key="sub_nt-9874-s7rxt_bess_soe" style="min-height: 120px;"><span-chart style="display: block; width: 100%;"></span-chart></div>
+          </div>
+        
+          <div class="bess-chart-col">
+            <div class="bess-chart-title">Power</div>
+            <div class="chart-container" data-chart-key="sub_nt-9874-s7rxt_bess_power" style="min-height: 120px;"><span-chart style="display: block; width: 100%;"></span-chart></div>
+          </div>
+        
+      </div>
+    
+        
+        
+      </div>
+    
+      <div class="sub-device " data-subdev="nt-9874-s7rxt_pv">
+        <div class="sub-device-header">
+          <span class="sub-device-type">Solar</span>
+          <span class="sub-device-name">Span Panel Solar</span>
+          <span class="sub-power-value"><strong>1.6</strong> <span class="power-unit">kW</span></span>
+          <button class="gear-icon subdevice-gear" data-subdev-id="nt-9874-s7rxt_pv" style="color:#555;" title="Configure device">
+            <span-icon icon="mdi:cog" style="--mdc-icon-size:16px;"></span-icon>
+          </button>
+        </div>
+        <div class="chart-container" data-chart-key="sub_nt-9874-s7rxt_pv_power" style="min-height: 150px;"><span-chart style="display: block; width: 100%;"></span-chart></div>
+        <div class="sub-identity">Enphase Energy · IQ7PLUS-72-x-US-&amp;</div>
+      <div class="sub-entity">
+        <span class="sub-entity-name">Site total:</span>
+        <span class="sub-site-total-value" data-site-total-eid="sensor.span_panel_solar_pv_power"><strong>1.6</strong> <span class="power-unit">kW</span></span>
+      </div>
+        
+      </div>
+    </div>"
+`;
+
 exports[`the card over capture 'r202639-a' > renders as before > grid 1`] = `
 "<div class="panel-grid" style="grid-template-rows: repeat(2, auto);">
     <div class="circuit-slot" style="grid-row: 1; grid-column: 4;" data-uuid="circuit-3">
@@ -1246,6 +1352,8 @@ exports[`the card over capture 'r202639-a' > renders as before > header 1`] = `
       
     </div>"
 `;
+
+exports[`the card over capture 'r202639-a' > renders as before > sub-devices 1`] = `null`;
 
 exports[`the card over capture 'r202639-b' > renders as before > grid 1`] = `
 "<div class="panel-grid" style="grid-template-rows: repeat(8, auto);"><div class="tab-label tab-left" style="grid-row: 1; grid-column: 1;">9</div>
@@ -1737,6 +1845,8 @@ exports[`the card over capture 'r202639-b' > renders as before > header 1`] = `
     </div>"
 `;
 
+exports[`the card over capture 'r202639-b' > renders as before > sub-devices 1`] = `null`;
+
 exports[`the card over capture 'r202639-c' > renders as before > grid 1`] = `
 "<div class="panel-grid" style="grid-template-rows: repeat(20, auto);"><div class="tab-label tab-left" style="grid-row: 1; grid-column: 1;">9</div>
     <div class="circuit-slot" style="grid-row: 1; grid-column: 2;" data-uuid="circuit-1">
@@ -2055,6 +2165,43 @@ exports[`the card over capture 'r202639-c' > renders as before > header 1`] = `
     </div>"
 `;
 
+exports[`the card over capture 'r202639-c' > renders as before > sub-devices 1`] = `
+"<div class="sub-devices">
+      <div class="sub-device sub-device-bess" data-subdev="xg-7814-15i6h_bess">
+        <div class="sub-device-header">
+          <span class="sub-device-type">Battery</span>
+          <span class="sub-device-name">Span Panel Battery</span>
+          <span class="sub-power-value"><strong>0</strong> <span class="power-unit">W</span></span>
+          <button class="gear-icon subdevice-gear" data-subdev-id="xg-7814-15i6h_bess" style="color:#555;" title="Configure device">
+            <span-icon icon="mdi:cog" style="--mdc-icon-size:16px;"></span-icon>
+          </button>
+        </div>
+        
+      <div class="bess-charts">
+        
+          <div class="bess-chart-col">
+            <div class="bess-chart-title">SoC</div>
+            <div class="chart-container" data-chart-key="sub_xg-7814-15i6h_bess_soc" style="min-height: 120px;"><span-chart style="display: block; width: 100%;"></span-chart></div>
+          </div>
+        
+          <div class="bess-chart-col">
+            <div class="bess-chart-title">SoE</div>
+            <div class="chart-container" data-chart-key="sub_xg-7814-15i6h_bess_soe" style="min-height: 120px;"><span-chart style="display: block; width: 100%;"></span-chart></div>
+          </div>
+        
+          <div class="bess-chart-col">
+            <div class="bess-chart-title">Power</div>
+            <div class="chart-container" data-chart-key="sub_xg-7814-15i6h_bess_power" style="min-height: 120px;"><span-chart style="display: block; width: 100%;"></span-chart></div>
+          </div>
+        
+      </div>
+    
+        
+        
+      </div>
+    </div>"
+`;
+
 exports[`the card over capture 'r202639-d' > renders as before > grid 1`] = `
 "<div class="panel-grid" style="grid-template-rows: repeat(12, auto);"><div class="tab-label tab-left" style="grid-row: 1; grid-column: 1;">1</div>
     <div class="circuit-slot circuit-empty" style="grid-row: 1; grid-column: 2;">
@@ -2342,6 +2489,57 @@ exports[`the card over capture 'r202639-d' > renders as before > header 1`] = `
           <span class="stat-value">--</span>
           <span class="stat-unit">%</span>
         </div>
+      </div>
+    </div>"
+`;
+
+exports[`the card over capture 'r202639-d' > renders as before > sub-devices 1`] = `
+"<div class="sub-devices">
+      <div class="sub-device sub-device-bess" data-subdev="xg-1334-066e8_bess">
+        <div class="sub-device-header">
+          <span class="sub-device-type">Battery</span>
+          <span class="sub-device-name">Span Panel Battery</span>
+          <span class="sub-power-value"><strong>0</strong> <span class="power-unit">W</span></span>
+          <button class="gear-icon subdevice-gear" data-subdev-id="xg-1334-066e8_bess" style="color:#555;" title="Configure device">
+            <span-icon icon="mdi:cog" style="--mdc-icon-size:16px;"></span-icon>
+          </button>
+        </div>
+        
+      <div class="bess-charts">
+        
+          <div class="bess-chart-col">
+            <div class="bess-chart-title">SoC</div>
+            <div class="chart-container" data-chart-key="sub_xg-1334-066e8_bess_soc" style="min-height: 120px;"><span-chart style="display: block; width: 100%;"></span-chart></div>
+          </div>
+        
+          <div class="bess-chart-col">
+            <div class="bess-chart-title">SoE</div>
+            <div class="chart-container" data-chart-key="sub_xg-1334-066e8_bess_soe" style="min-height: 120px;"><span-chart style="display: block; width: 100%;"></span-chart></div>
+          </div>
+        
+          <div class="bess-chart-col">
+            <div class="bess-chart-title">Power</div>
+            <div class="chart-container" data-chart-key="sub_xg-1334-066e8_bess_power" style="min-height: 120px;"><span-chart style="display: block; width: 100%;"></span-chart></div>
+          </div>
+        
+      </div>
+    
+        
+        
+      </div>
+    
+      <div class="sub-device sub-device-full" data-subdev="xg-1334-066e8_evse_dt-5599-00321">
+        <div class="sub-device-header">
+          <span class="sub-device-type">EV Charger</span>
+          <span class="sub-device-name">Span Panel EV Charger (FLEX⁺)</span>
+          <span class="sub-power-value"><strong>9.7</strong> <span class="power-unit">W</span></span>
+          <button class="gear-icon subdevice-gear" data-subdev-id="xg-1334-066e8_evse_dt-5599-00321" style="color:#555;" title="Configure device">
+            <span-icon icon="mdi:cog" style="--mdc-icon-size:16px;"></span-icon>
+          </button>
+        </div>
+        <div class="chart-container" data-chart-key="sub_xg-1334-066e8_evse_dt-5599-00321_power" style="min-height: 150px;"><span-chart style="display: block; width: 100%;"></span-chart></div>
+        
+        
       </div>
     </div>"
 `;
@@ -3586,5 +3784,23 @@ exports[`the card over capture 'r202639-e' > renders as before > header 1`] = `
       </div>
       
       
+    </div>"
+`;
+
+exports[`the card over capture 'r202639-e' > renders as before > sub-devices 1`] = `
+"<div class="sub-devices">
+      <div class="sub-device sub-device-full" data-subdev="xg-6159-74dlx_evse_dt-6692-e9t57">
+        <div class="sub-device-header">
+          <span class="sub-device-type">EV Charger</span>
+          <span class="sub-device-name">Span Panel EV Charger (SPAN Drive)</span>
+          <span class="sub-power-value"><strong>1.3</strong> <span class="power-unit">W</span></span>
+          <button class="gear-icon subdevice-gear" data-subdev-id="xg-6159-74dlx_evse_dt-6692-e9t57" style="color:#555;" title="Configure device">
+            <span-icon icon="mdi:cog" style="--mdc-icon-size:16px;"></span-icon>
+          </button>
+        </div>
+        <div class="chart-container" data-chart-key="sub_xg-6159-74dlx_evse_dt-6692-e9t57_power" style="min-height: 150px;"><span-chart style="display: block; width: 100%;"></span-chart></div>
+        
+        
+      </div>
     </div>"
 `;
