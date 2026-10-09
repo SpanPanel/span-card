@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- spanos3/r202639/03 batch 2: the panel view shows more of this firmware's data.
+
 ## 0.9.6
 
 ### Fixed
