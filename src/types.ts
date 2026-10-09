@@ -102,6 +102,12 @@ export interface PanelTopology {
   serial?: string;
   firmware?: string;
   panel_size?: number;
+  /**
+   * The panel's first and last breaker positions, which need not start at 1. Null
+   * where the panel reports none; absent from an integration that predates them.
+   */
+  first_position?: number | null;
+  last_position?: number | null;
   /** The device id the request carried, echoed as sent. */
   device_id?: string;
   /**

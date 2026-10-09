@@ -66,7 +66,7 @@ function hassWith(states: Record<string, { state: string; attributes?: Record<st
 function grid(circuit: Circuit, states: Parameters<typeof hassWith>[0]): HTMLElement {
   const topology = { circuits: { kitchen: circuit } } as unknown as PanelTopology;
   const div = document.createElement("div");
-  div.innerHTML = buildGridHTML(topology, 1, hassWith(states), config, null);
+  div.innerHTML = buildGridHTML(topology, { first: 1, last: 2 }, hassWith(states), config, null);
   return div;
 }
 

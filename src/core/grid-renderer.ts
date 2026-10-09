@@ -1,7 +1,7 @@
 import { escapeHtml } from "../helpers/sanitize.js";
 import { formatCircuitCurrentHTML, formatCircuitPowerHTML } from "../helpers/format.js";
 import { t } from "../i18n.js";
-import { tabToRow, tabToCol, classifyDualTab } from "../helpers/layout.js";
+import { tabToRow, tabToCol, classifyDualTab, type PositionRange } from "../helpers/layout.js";
 import { getChartMetric } from "../helpers/chart.js";
 import { getCircuitMonitoringInfo } from "./monitoring-status.js";
 import {
@@ -26,11 +26,12 @@ interface TabMapEntry {
 }
 
 /**
- * Build the full grid HTML for the panel breaker grid.
+ * Build the full grid HTML for the panel breaker grid: one row per two positions
+ * across `positions`, labelled with the positions' own numbers.
  */
 export function buildGridHTML(
   topology: PanelTopology,
-  totalRows: number,
+  positions: PositionRange,
   hass: HomeAssistant,
   config: CardConfig,
   monitoringStatus: MonitoringStatus | null
@@ -71,41 +72,49 @@ export function buildGridHTML(
     return { monInfo, sheddingPriority };
   }
 
+  // A row the range starts or ends inside draws only its in-range side.
+  const inRange = (tab: number): boolean => tab >= positions.first && tab <= positions.last;
+  const firstRow = tabToRow(positions.first);
+  const lastRow = tabToRow(positions.last);
+
   let gridHTML = "";
-  for (let row = 1; row <= totalRows; row++) {
+  for (let row = firstRow; row <= lastRow; row++) {
+    const gridRow = row - firstRow + 1;
     const leftTab = row * 2 - 1;
     const rightTab = row * 2;
     const leftEntry = tabMap.get(leftTab);
     const rightEntry = tabMap.get(rightTab);
+    const leftLabel = inRange(leftTab) ? `<div class="tab-label tab-left" style="grid-row: ${gridRow}; grid-column: 1;">${leftTab}</div>` : "";
+    const rightLabel = inRange(rightTab) ? `<div class="tab-label tab-right" style="grid-row: ${gridRow}; grid-column: 5;">${rightTab}</div>` : "";
 
-    gridHTML += `<div class="tab-label tab-left" style="grid-row: ${row}; grid-column: 1;">${leftTab}</div>`;
+    gridHTML += leftLabel;
 
     if (leftEntry && leftEntry.layout === "row-span") {
       const { monInfo, sheddingPriority } = lookupMonitoring(leftEntry);
-      gridHTML += renderCircuitSlot(leftEntry.uuid, leftEntry.circuit, row, "2 / 5", "row-span", hass, config, monInfo, sheddingPriority);
-      gridHTML += `<div class="tab-label tab-right" style="grid-row: ${row}; grid-column: 5;">${rightTab}</div>`;
+      gridHTML += renderCircuitSlot(leftEntry.uuid, leftEntry.circuit, gridRow, "2 / 5", "row-span", hass, config, monInfo, sheddingPriority);
+      gridHTML += rightLabel;
       continue;
     }
 
     if (!rowsToSkipLeft.has(row)) {
       if (leftEntry && (leftEntry.layout === "col-span" || leftEntry.layout === "single")) {
         const { monInfo, sheddingPriority } = lookupMonitoring(leftEntry);
-        gridHTML += renderCircuitSlot(leftEntry.uuid, leftEntry.circuit, row, "2", leftEntry.layout, hass, config, monInfo, sheddingPriority);
-      } else if (!occupiedTabs.has(leftTab)) {
-        gridHTML += renderEmptySlot(row, "2");
+        gridHTML += renderCircuitSlot(leftEntry.uuid, leftEntry.circuit, gridRow, "2", leftEntry.layout, hass, config, monInfo, sheddingPriority);
+      } else if (!occupiedTabs.has(leftTab) && inRange(leftTab)) {
+        gridHTML += renderEmptySlot(gridRow, "2");
       }
     }
 
     if (!rowsToSkipRight.has(row)) {
       if (rightEntry && (rightEntry.layout === "col-span" || rightEntry.layout === "single")) {
         const { monInfo, sheddingPriority } = lookupMonitoring(rightEntry);
-        gridHTML += renderCircuitSlot(rightEntry.uuid, rightEntry.circuit, row, "4", rightEntry.layout, hass, config, monInfo, sheddingPriority);
-      } else if (!occupiedTabs.has(rightTab)) {
-        gridHTML += renderEmptySlot(row, "4");
+        gridHTML += renderCircuitSlot(rightEntry.uuid, rightEntry.circuit, gridRow, "4", rightEntry.layout, hass, config, monInfo, sheddingPriority);
+      } else if (!occupiedTabs.has(rightTab) && inRange(rightTab)) {
+        gridHTML += renderEmptySlot(gridRow, "4");
       }
     }
 
-    gridHTML += `<div class="tab-label tab-right" style="grid-row: ${row}; grid-column: 5;">${rightTab}</div>`;
+    gridHTML += rightLabel;
   }
   return gridHTML;
 }

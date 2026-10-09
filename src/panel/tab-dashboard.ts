@@ -1,6 +1,8 @@
 import { discoverTopology } from "../card/card-discovery.js";
 import { escapeHtml } from "../helpers/sanitize.js";
 import { errorText } from "../helpers/error-text.js";
+import { positionRange, positionRowCount, type PositionRange } from "../helpers/layout.js";
+import { t } from "../i18n.js";
 import { buildHeaderHTML } from "../core/header-renderer.js";
 import { buildGridHTML } from "../core/grid-renderer.js";
 import { buildSubDevicesHTML } from "../core/sub-device-renderer.js";
@@ -67,11 +69,12 @@ export class DashboardTab {
     this._container = container;
     this._ctrl.hass = hass;
 
-    let topology, panelSize;
+    let topology, positions: PositionRange | null;
     try {
       const result = await discoverTopology(hass, deviceId);
       topology = result.topology;
-      panelSize = result.panelSize;
+      positions = positionRange(topology, result.panelSize);
+      if (!positions) throw new Error(t("card.topology_error"));
     } catch (err) {
       container.innerHTML = `<p style="color:var(--error-color);">${escapeHtml(errorText(err))}</p>`;
       return null;
@@ -81,12 +84,12 @@ export class DashboardTab {
     await this._ctrl.monitoringCache.fetch(hass, configEntryId ?? null);
     await this._ctrl.fetchAndBuildHorizonMaps();
 
-    const totalRows = Math.ceil(panelSize / 2);
+    const totalRows = positionRowCount(positions);
     const monitoringStatus = this._ctrl.monitoringCache.status;
 
     const headerHTML = buildHeaderHTML(topology!, config);
     const monitoringSummaryHTML = buildMonitoringSummaryHTML(monitoringStatus);
-    const gridHTML = buildGridHTML(topology!, totalRows, hass, config, monitoringStatus);
+    const gridHTML = buildGridHTML(topology!, positions, hass, config, monitoringStatus);
     const subDevHTML = buildSubDevicesHTML(topology!, hass, config, { showFavorites: this._ctrl.showFavorites });
 
     container.innerHTML = `
