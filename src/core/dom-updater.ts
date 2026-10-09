@@ -1,11 +1,4 @@
-import {
-  BESS_CHART_METRICS,
-  DEVICE_TYPE_PV,
-  CIRCUIT_CHART_HEIGHT,
-  CIRCUIT_COL_SPAN_CHART_HEIGHT,
-  BESS_CHART_COL_HEIGHT,
-  EVSE_CHART_HEIGHT,
-} from "../constants.js";
+import { BESS_CHART_METRICS, CIRCUIT_CHART_HEIGHT, CIRCUIT_COL_SPAN_CHART_HEIGHT, BESS_CHART_COL_HEIGHT, EVSE_CHART_HEIGHT } from "../constants.js";
 import { formatCircuitCurrentHTML, formatCircuitPowerHTML, formatPowerHTML, formatKw, UNKNOWN_READING } from "../helpers/format.js";
 import { readNumber, sumReadings, type ReadingSum } from "../helpers/read-number.js";
 import { getChartMetric } from "../helpers/chart.js";
@@ -14,7 +7,8 @@ import { getHistoryDurationMs, getHorizonDurationMs } from "../helpers/history.j
 import { updateChart } from "../chart/chart-update.js";
 import { attrSelectorValue } from "../helpers/selector.js";
 import { measuresOutsidePanel } from "../helpers/layout.js";
-import { circuitCurrentA, circuitPowerW, drawsAsOn, readsAsProducer, shedPriorityKey, switchPresence } from "./circuit-state.js";
+import { meterSlots } from "../helpers/shared-meters.js";
+import { circuitCurrentA, circuitPowerW, drawsAsOn, isGeneration, readsAsProducer, shedPriorityKey, switchPresence } from "./circuit-state.js";
 import { applySheddingIcon, applyTogglePill } from "./circuit-controls.js";
 import type { HomeAssistant, PanelTopology, CardConfig, HistoryMap, ChartMetricDef } from "../types.js";
 
@@ -151,11 +145,12 @@ export function updateCircuitDOM(
 
   const defaultDurationMs = getHistoryDurationMs(config);
 
-  // The circuits' consumption: every non-solar circuit with a power sensor, an unknown reading skipped.
-  // A meter outside the panel is no load on it, so it is no term at all.
+  // The circuits' consumption: every circuit with a power sensor that is no source of generation, an unknown reading skipped.
+  // A meter outside the panel is no load on it, so it is no term at all; circuits that share a meter are one term.
+  const slots = meterSlots(topology.circuits);
   const consumption: (number | null)[] = [];
-  for (const circuit of Object.values(topology.circuits)) {
-    if (!circuit.entities?.power || circuit.device_type === DEVICE_TYPE_PV || measuresOutsidePanel(circuit)) continue;
+  for (const { circuit } of slots) {
+    if (!circuit.entities?.power || isGeneration(circuit) || measuresOutsidePanel(circuit)) continue;
     const power = circuitPowerW(circuit, hass);
     consumption.push(power === null ? null : Math.abs(power));
   }
@@ -165,7 +160,7 @@ export function updateCircuitDOM(
   const chartMetric: ChartMetricDef = getChartMetric(config);
   const showCurrent = chartMetric.entityRole === "current";
 
-  for (const [uuid, circuit] of Object.entries(topology.circuits)) {
+  for (const { uuid, circuit } of slots) {
     const slot = root.querySelector(`.circuit-slot[data-uuid="${attrSelectorValue(uuid)}"]`);
     if (!slot) continue;
 
@@ -192,7 +187,7 @@ export function updateCircuitDOM(
       const history = powerHistory.get(uuid) || [];
       const h = slot.classList.contains("circuit-col-span") ? CIRCUIT_COL_SPAN_CHART_HEIGHT : CIRCUIT_CHART_HEIGHT;
       const circuitDuration = horizonMap?.has(uuid) ? getHorizonDurationMs(horizonMap.get(uuid)!) : defaultDurationMs;
-      const useLinear = circuit.device_type === DEVICE_TYPE_PV;
+      const useLinear = isGeneration(circuit);
       updateChart(chartContainer, hass, history, circuitDuration, chartMetric, isProducer, h, circuit.breaker_rating_a ?? undefined, useLinear);
     }
   }
@@ -219,8 +214,12 @@ export function updateSubDeviceDOM(
       if (powerEl) powerEl.innerHTML = formatPowerHTML(stateWatts(hass, power.headlineEid));
     }
     if (power.siteTotalEid) {
+      const watts = stateWatts(hass, power.siteTotalEid);
       const totalEl = section.querySelector(".sub-site-total-value");
-      if (totalEl) totalEl.innerHTML = formatPowerHTML(stateWatts(hass, power.siteTotalEid));
+      if (totalEl) totalEl.innerHTML = formatPowerHTML(watts);
+      // An unknown site total is no row, never one reading 0.
+      const rowEl = totalEl?.closest<HTMLElement>(".sub-entity");
+      if (rowEl) rowEl.hidden = watts === null;
     }
 
     const chartContainers = section.querySelectorAll("[data-chart-key]");

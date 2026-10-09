@@ -1,13 +1,23 @@
 import { INTEGRATION_DOMAIN } from "../constants.js";
 import { t } from "../i18n.js";
 import { RetryManager } from "./retry-manager.js";
-import type { HomeAssistant, MonitoringPointInfo, MonitoringStatus } from "../types.js";
+import type { HomeAssistant, MonitoringPointInfo, MonitoringStatus, MonitoringStatusResponse } from "../types.js";
 import type { ErrorStore } from "./error-store.js";
 
 const MONITORING_POLL_INTERVAL_MS = 30_000;
 
 interface CallServiceResponse {
-  response?: MonitoringStatus;
+  response?: MonitoringStatusResponse;
+}
+
+/**
+ * The status a `get_monitoring_status` answer gives, or null when it gives none.
+ * With monitoring off the integration answers `enabled: false` and no points:
+ * that is no monitoring, not monitoring of zero circuits and zero mains.
+ */
+export function monitoringStatusFrom(response: MonitoringStatusResponse | null | undefined): MonitoringStatus | null {
+  if (!response || response.enabled === false) return null;
+  return { circuits: response.circuits, mains: response.mains };
 }
 
 /**
@@ -67,7 +77,7 @@ export class MonitoringStatusCache {
               errorMessage: t("error.monitoring_failed"),
             })
           : await hass.callWS<CallServiceResponse>(msg);
-        const next = resp?.response ?? null;
+        const next = monitoringStatusFrom(resp?.response);
         if (requestGen === this._generation) {
           this._status = next;
           this._lastFetch = Date.now();

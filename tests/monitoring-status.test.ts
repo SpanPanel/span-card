@@ -1,5 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { getCircuitMonitoringInfo, hasCustomOverrides, getUtilizationClass, isAlertActive, mergeMonitoringStatuses } from "../src/core/monitoring-status.js";
+import {
+  getCircuitMonitoringInfo,
+  hasCustomOverrides,
+  getUtilizationClass,
+  isAlertActive,
+  mergeMonitoringStatuses,
+  monitoringStatusFrom,
+} from "../src/core/monitoring-status.js";
 import type { MonitoringPointInfo, MonitoringStatus } from "../src/types.js";
 
 describe("getCircuitMonitoringInfo", () => {
@@ -175,5 +182,18 @@ describe("mergeMonitoringStatuses", () => {
     };
     const merged = mergeMonitoringStatuses([s1, s2]);
     expect(merged?.circuits?.["sensor.a_power"]?.utilization_pct).toBe(99);
+  });
+});
+
+describe("monitoringStatusFrom", () => {
+  it("is no status when monitoring is off", () => {
+    expect(monitoringStatusFrom({ enabled: false })).toBeNull();
+    expect(monitoringStatusFrom(undefined)).toBeNull();
+  });
+
+  it("is the monitored points when monitoring is on", () => {
+    const circuits = { "sensor.circuit_1_power": { utilization_pct: 55 } };
+    const mains = { "sensor.mains_power": { utilization_pct: 20 } };
+    expect(monitoringStatusFrom({ enabled: true, circuits, mains, global_settings: {} })).toEqual({ circuits, mains });
   });
 });
