@@ -59,3 +59,12 @@ describe("MonitoringStatusCache", () => {
     expect(second?.circuits?.c1?.utilization_pct).toBe(10);
   });
 });
+
+describe("MonitoringStatusCache with monitoring off", () => {
+  it("holds no status, rather than a status of no circuits", async () => {
+    const cache = new MonitoringStatusCache();
+    const { hass } = makeHass([{ enabled: false }]);
+    expect(await cache.fetch(hass)).toBeNull();
+    expect(cache.status).toBeNull();
+  });
+});

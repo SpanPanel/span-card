@@ -7,7 +7,7 @@ import { loadHistory, collectSubDeviceEntityIds } from "./history-loader.js";
 import { updateCircuitDOM, updateSubDeviceDOM } from "./dom-updater.js";
 import { updateMetersDOM } from "./meters-strip.js";
 import { getEffectiveHorizon, getEffectiveSubDeviceHorizon } from "./graph-settings.js";
-import { MonitoringStatusCache, MonitoringStatusMultiCache, mergeMonitoringStatuses } from "./monitoring-status.js";
+import { MonitoringStatusCache, MonitoringStatusMultiCache, mergeMonitoringStatuses, monitoringStatusFrom } from "./monitoring-status.js";
 import { GraphSettingsCache } from "./graph-settings.js";
 import { groupFavoritesByPanel } from "./favorites-sections.js";
 import { switchPresence } from "./circuit-state.js";
@@ -632,9 +632,7 @@ export class DashboardController {
             errorMessage: t("error.monitoring_failed"),
           })
         : await this._hass.callWS<{ response?: MonitoringStatusResponse }>(msg);
-      const response = resp?.response;
-      if (!response) return null;
-      return { circuits: response.circuits, mains: response.mains };
+      return monitoringStatusFrom(resp?.response);
     } catch (err) {
       console.warn("SPAN Panel: fresh monitoring status fetch failed", err);
       return null;

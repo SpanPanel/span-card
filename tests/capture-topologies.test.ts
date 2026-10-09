@@ -12,7 +12,7 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import "../src/card/span-panel-card.js";
 import { t } from "../src/i18n.js";
 import type { CardConfig, HomeAssistant, HassEntity, PanelTopology } from "../src/types.js";
-import { FakeConnection, hassWith } from "./fake-connection.js";
+import { FakeConnection, flush, hassWith } from "./fake-connection.js";
 import main32R202633Topology from "./fixtures/topology/main32_r202633.json";
 import main32R202639Topology from "./fixtures/topology/main32_r202639.json";
 import aTopology from "./fixtures/topology/r202639-a.json";
@@ -64,14 +64,19 @@ const MONITORING_OFF = { enabled: false };
 type MountedCard = HTMLElement & { setConfig(c: CardConfig): void; hass: HomeAssistant };
 
 const mounted: HTMLElement[] = [];
+let monitoringAnswers = 0;
 afterEach(() => {
   for (const el of mounted.splice(0)) el.remove();
+  monitoringAnswers = 0;
 });
 
 async function render(capture: Capture): Promise<ShadowRoot> {
   const callWS = (async (msg: Record<string, unknown>) => {
     if (msg.type === "span_panel/panel_topology") return structuredClone(capture.topology);
-    if (msg.type === "call_service" && msg.service === "get_monitoring_status") return { response: MONITORING_OFF };
+    if (msg.type === "call_service" && msg.service === "get_monitoring_status") {
+      monitoringAnswers += 1;
+      return { response: MONITORING_OFF };
+    }
     return [];
   }) as HomeAssistant["callWS"];
   const hass = hassWith(new FakeConnection(), { callWS, states: statesOf(capture.entities) });
@@ -134,6 +139,15 @@ describe.each(CAPTURES)("the card over capture $stem", capture => {
     const root = await render(capture);
     const entityId = topology.panel_entities?.dsm_state;
     expect(statText(root, "stat-grid-state")).toBe(entityId ? (states[entityId]?.state ?? "--") : null);
+  });
+
+  it("shows no monitoring summary while monitoring is off", async () => {
+    const root = await render(capture);
+    await vi.waitFor(() => expect(monitoringAnswers).toBeGreaterThan(0));
+    await flush();
+    // Drawn again, as any tab change or setting change does, now with the answer in hand.
+    root.querySelector<HTMLElement>('#card-tabs [data-tab="panel"]')!.click();
+    expect(root.querySelector(".monitoring-summary")).toBeNull();
   });
 
   it("renders as before", async () => {
