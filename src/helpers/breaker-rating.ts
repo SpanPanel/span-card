@@ -21,15 +21,23 @@ export interface RatingView {
 export function ratingLabelHTML(r: RatingView): string {
   if (!r.amps) return "";
   const label = `${escapeHtml(r.amps)}A`;
-  if (!r.userSet) return label;
-  const title = escapeHtml(r.panelAmps ? tf("rating.user_set_title", { panel: String(r.panelAmps) }) : t("rating.user_set_title_no_panel"));
-  return `${label}<span class="rating-user-set" title="${title}">✎</span>`;
+  return r.userSet ? `${label}${ratingMarkHTML(r.panelAmps)}` : label;
+}
+
+/** The pencil that marks a user-set rating, its tooltip naming the panel's own value (or that it publishes none). */
+export function ratingMarkHTML(panelAmps: number | null | undefined): string {
+  const title = escapeHtml(panelAmps ? tf("rating.user_set_title", { panel: String(panelAmps) }) : t("rating.user_set_title_no_panel"));
+  return `<span class="rating-user-set" title="${title}">✎</span>`;
+}
+
+/** "50 A, set by you (panel: 20 A)": a user-set rating, already formatted, beside the panel's own; plain text. */
+export function userSetSentence(rating: string, panelAmps: number | null | undefined): string {
+  return panelAmps ? tf("rating.user_set", { rating, panel: String(panelAmps) }) : tf("rating.user_set_no_panel", { rating });
 }
 
 /** The rating as a sentence for a side panel or a message; plain text, not escaped. */
 export function ratingSentence(r: RatingView): string {
   if (!r.amps) return t("rating.none");
   if (!r.userSet) return `${r.amps} A`;
-  const rating = String(r.amps);
-  return r.panelAmps ? tf("rating.user_set", { rating, panel: String(r.panelAmps) }) : tf("rating.user_set_no_panel", { rating });
+  return userSetSentence(String(r.amps), r.panelAmps);
 }

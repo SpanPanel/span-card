@@ -329,6 +329,13 @@ export const CARD_STYLES: string = `
     flex-shrink: 0;
   }
 
+  /* The pencil that marks a user-set rating, beside the number inside the badge. */
+  .breaker-badge .rating-user-set {
+    margin-left: 2px;
+    font-weight: 400;
+    cursor: help;
+  }
+
   .circuit-name {
     font-size: 0.9em;
     font-weight: 500;

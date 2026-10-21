@@ -3,7 +3,7 @@ import { buildGridHTML } from "../src/core/grid-renderer.js";
 import { buildPanelStatsHTML } from "../src/core/header-renderer.js";
 import { updateCircuitDOM } from "../src/core/dom-updater.js";
 import { positionRange } from "../src/helpers/layout.js";
-import { meterSlots } from "../src/helpers/shared-meters.js";
+import { meterSlots, slotRatingText } from "../src/helpers/shared-meters.js";
 import { t } from "../src/i18n.js";
 import type { CardConfig, Circuit, HomeAssistant, PanelTopology, SharedMeterGroup } from "../src/types.js";
 
@@ -213,5 +213,64 @@ describe("the site sum", () => {
     // With no site reading the header falls back to the circuits' sum: 1000 + 300 + 500 + 0 W, each pair once.
     updateCircuitDOM(root, hassWith(), topology(), CONFIG, new Map(), undefined, null);
     expect(root.querySelector(".stat-consumption .stat-value")!.textContent).toBe("1.8");
+  });
+});
+
+/** The pair at c-48 with `a` and `b` overlaid on its members. */
+function pair(a: Partial<Circuit>, b: Partial<Circuit>): Record<string, Circuit> {
+  return { ...CIRCUITS, "c-48a": { ...CIRCUITS["c-48a"]!, ...a }, "c-48b": { ...CIRCUITS["c-48b"]!, ...b } };
+}
+
+describe("a shared slot's rating mark", () => {
+  const corrected = { breaker_rating_a: 25, panel_breaker_rating_a: 15, breaker_rating_user_set: true };
+  const plain = { panel_breaker_rating_a: 10, breaker_rating_user_set: false };
+
+  it("is absent while no member is user-set, the label unchanged", () => {
+    const badge = slotAt(gridOf(pair({ panel_breaker_rating_a: 15 }, plain)), "c-48a").querySelector(".breaker-badge")!;
+    expect(badge.innerHTML).toBe("15·10 A");
+  });
+
+  it("marks the slot when any one member is user-set, the tooltip summing the panel's ratings", () => {
+    const badge = slotAt(gridOf(pair(corrected, plain)), "c-48a").querySelector(".breaker-badge")!;
+    expect(badge.firstChild!.textContent).toBe("25·10 A");
+    expect(badge.querySelector(".rating-user-set")!.getAttribute("title")).toBe("Set by you; panel: 25 A");
+  });
+
+  it("names no panel rating when any member's is unpublished", () => {
+    const badge = slotAt(gridOf(pair(corrected, { ...plain, panel_breaker_rating_a: null })), "c-48a").querySelector(".breaker-badge")!;
+    expect(badge.querySelector(".rating-user-set")!.getAttribute("title")).toBe("Set by you; panel: none");
+  });
+
+  it("is drawn on no group but the one with a user-set member", () => {
+    const root = gridOf(pair(corrected, plain));
+    expect(slotAt(root, "c-44a").querySelector(".rating-user-set")).toBeNull();
+    expect(slotAt(root, "c-1").querySelector(".rating-user-set")).toBeNull();
+  });
+});
+
+describe("a shared slot's rating as text", () => {
+  const members = (a: Partial<Circuit>, b: Partial<Circuit>): Circuit[] => [
+    { ...CIRCUITS["c-48a"]!, ...a },
+    { ...CIRCUITS["c-48b"]!, ...b },
+  ];
+
+  it("reads like the grid's label, and as a sentence naming the panel's rating once a member is user-set", () => {
+    expect(slotRatingText(members({}, {}))).toBe("15·10 A");
+    expect(slotRatingText(members({ breaker_rating_user_set: true, panel_breaker_rating_a: 15 }, { panel_breaker_rating_a: 10 }))).toBe(
+      "15·10 A, set by you (panel: 25 A)"
+    );
+    expect(slotRatingText(members({ breaker_rating_user_set: true }, {}))).toBe("15·10 A, set by you (panel: none)");
+  });
+
+  it("is empty while a member's rating is unknown, and a lone circuit reads as a single rating", () => {
+    expect(slotRatingText(members({}, { breaker_rating_a: null }))).toBe("");
+    expect(slotRatingText([CIRCUITS["c-1"]!])).toBe("20A");
+  });
+});
+
+describe("the rating in force for a shared group", () => {
+  it("is what the members' combined rating sums", () => {
+    const circuits = pair({ breaker_rating_a: 30, panel_breaker_rating_a: 15, breaker_rating_user_set: true }, {});
+    expect(meterSlots({ circuits }).find(s => s.uuid === "c-48a")!.circuit.breaker_rating_a).toBe(40);
   });
 });

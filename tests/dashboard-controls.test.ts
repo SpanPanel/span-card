@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { DashboardController } from "../src/core/dashboard-controller.js";
 import "../src/core/side-panel.js";
+import { slotRatingText, type SlotMember } from "../src/helpers/shared-meters.js";
 import type { CardConfig, HomeAssistant, PanelTopology } from "../src/types.js";
 
 const SWITCH = "switch.kitchen_breaker";
@@ -65,5 +66,46 @@ describe("the circuit gear", () => {
 
     expect(open).toHaveBeenCalledWith(expect.objectContaining({ uuid: "kitchen", relay_state: "OPEN", priority: "OFF_GRID", device_type: "circuit" }));
     root.remove();
+  });
+});
+
+describe("the circuit gear's rating subtitle", () => {
+  async function ratingTextFor(circuits: Record<string, Record<string, unknown>>, uuid: string): Promise<unknown> {
+    const topology = { circuits } as unknown as PanelTopology;
+    const ctrl = new DashboardController();
+    ctrl.init(topology, {} as CardConfig, hass({}), "entry-1");
+    const root = document.createElement("div");
+    root.innerHTML = `<button class="gear-icon circuit-gear" data-uuid="${uuid}"></button><span-side-panel></span-side-panel>`;
+    document.body.appendChild(root);
+    const panel = root.querySelector("span-side-panel") as unknown as { open: (config: unknown) => void };
+    const open = vi.spyOn(panel, "open").mockImplementation(() => {});
+    await ctrl.onGearClick({ target: root.querySelector(".gear-icon") } as unknown as Event, root);
+    root.remove();
+    // The side panel words its subtitle from the slot the gear hands it.
+    return slotRatingText((open.mock.calls[0]![0] as { members: SlotMember[] }).members.map(member => member.circuit));
+  }
+
+  const lone = { name: "Hall", tabs: [1], entities: {}, breaker_rating_a: 50, panel_breaker_rating_a: 20, breaker_rating_user_set: true };
+
+  it("names the panel's rating beside a user-set one", async () => {
+    expect(await ratingTextFor({ hall: lone }, "hall")).toBe("50 A, set by you (panel: 20 A)");
+  });
+
+  it("is the plain rating while the panel's stands", async () => {
+    expect(await ratingTextFor({ hall: { ...lone, breaker_rating_a: 20, breaker_rating_user_set: false } }, "hall")).toBe("20A");
+  });
+
+  it("is the slot's label for circuits that share a meter, as the grid draws it", async () => {
+    const member = (name: string, rating: number, panel: number, userSet: boolean) => ({
+      name,
+      tabs: [2],
+      entities: {},
+      shared_meter_group: "a",
+      breaker_rating_a: rating,
+      panel_breaker_rating_a: panel,
+      breaker_rating_user_set: userSet,
+    });
+    const circuits = { a: member("A", 15, 15, false), b: member("B", 25, 10, true) };
+    expect(await ratingTextFor(circuits, "a")).toBe("15·25 A, set by you (panel: 25 A)");
   });
 });

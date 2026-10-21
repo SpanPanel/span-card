@@ -268,3 +268,30 @@ describe("a list row's reading", () => {
     expect(html).not.toContain("circuit-producer");
   });
 });
+
+describe("a list row's breaker rating", () => {
+  const base = {
+    name: "Kitchen",
+    tabs: [1],
+    relay_state: "CLOSED",
+    is_user_controllable: true,
+    breaker_rating_a: 20,
+    entities: { switch: "switch.k", power: "sensor.k_power" },
+  } as unknown as Circuit;
+
+  function badge(circuit: Circuit): HTMLElement {
+    const div = document.createElement("div");
+    div.innerHTML = buildListRowHTML("k", circuit, hassWith({ "switch.k": { state: "on" } }), mockConfig, null, "unknown", false, circuit);
+    return div.querySelector<HTMLElement>(".breaker-badge")!;
+  }
+
+  it("is the panel's rating, unmarked, as before", () => {
+    expect(badge(base).innerHTML).toBe("20A");
+  });
+
+  it("carries the pencil naming the panel's rating when it is the user's", () => {
+    const el = badge({ ...base, breaker_rating_a: 50, panel_breaker_rating_a: 20, breaker_rating_user_set: true });
+    expect(el.firstChild!.textContent).toBe("50A");
+    expect(el.querySelector(".rating-user-set")!.getAttribute("title")).toBe("Set by you; panel: 20 A");
+  });
+});

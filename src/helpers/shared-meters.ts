@@ -1,4 +1,5 @@
 import type { Circuit, PanelTopology } from "../types.js";
+import { ratingLabelHTML, ratingMarkHTML, userSetSentence, type RatingView } from "./breaker-rating.js";
 
 /**
  * What one breaker slot draws: a circuit of its own, or the circuits that share
@@ -106,15 +107,6 @@ export function slotRatingLabel(members: readonly Circuit[]): string {
   return members.length === 1 ? `${text}A` : `${text} A`;
 }
 
-/** The same label for the side panel's subtitle: a circuit alone reads its rating as published. */
-export function slotRatingText(members: readonly Circuit[]): string {
-  if (members.length === 1) {
-    const amps = members[0]!.breaker_rating_a;
-    return amps ? `${amps}A` : "";
-  }
-  return slotRatingLabel(members);
-}
-
 /**
  * The members' ratings summed, or null while any member's is unknown: only for a group the integration publishes no
  * capacity record for, since on a tandem-quad the sum overstates what its heavier leg can carry.
@@ -126,4 +118,43 @@ function combinedRating(members: readonly Circuit[]): number | null {
     total += member.breaker_rating_a;
   }
   return total;
+}
+
+/** The panel's own ratings summed, or null while any member's is unpublished. */
+function combinedPanelRating(members: readonly Circuit[]): number | null {
+  let total = 0;
+  for (const member of members) {
+    if (!member.panel_breaker_rating_a) return null;
+    total += member.panel_breaker_rating_a;
+  }
+  return total;
+}
+
+/** A slot's rating as one view: the combined rating, marked when any member's is the user's. */
+export function slotRatingView(members: readonly Circuit[]): RatingView {
+  return {
+    amps: combinedRating(members),
+    panelAmps: combinedPanelRating(members),
+    userSet: members.some(member => member.breaker_rating_user_set === true),
+  };
+}
+
+/**
+ * A slot's rating as the grid and list draw it: "20A" for a circuit alone, "15·10 A" for circuits that share a meter,
+ * with the user-set pencil after it when any member's rating is the user's. Empty while any rating is unknown.
+ */
+export function slotRatingLabelHTML(members: readonly Circuit[]): string {
+  const view = slotRatingView(members);
+  if (members.length === 1) return ratingLabelHTML({ ...view, amps: view.amps ? Math.round(view.amps) : view.amps });
+  const text = slotAmpsText(members);
+  return text ? `${text} A${view.userSet ? ratingMarkHTML(view.panelAmps) : ""}` : "";
+}
+
+/** The same label as plain text, for the side panel's subtitle: the user-set form names the panel's rating. */
+export function slotRatingText(members: readonly Circuit[]): string {
+  const view = slotRatingView(members);
+  const text = slotAmpsText(members);
+  if (!text) return "";
+  if (view.userSet) return userSetSentence(text, view.panelAmps);
+  return members.length === 1 ? `${text}A` : `${text} A`;
 }
