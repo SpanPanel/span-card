@@ -1350,6 +1350,7 @@ class SpanSidePanel extends HTMLElement {
     const row = document.createElement("div");
     row.className = "field-row";
     row.dataset.role = "breaker-row";
+    row.dataset.uuid = member.uuid;
 
     const labelEl = document.createElement("span");
     labelEl.className = "field-label";
@@ -1372,7 +1373,7 @@ class SpanSidePanel extends HTMLElement {
       this._debounce(`breaker-${member.uuid}`, INPUT_DEBOUNCE_MS, () => {
         const amps = input.valueAsNumber;
         if (!Number.isFinite(amps) || amps < 1) return;
-        this._callBreakerService("set_circuit_breaker_rating", { circuit_id: member.uuid, breaker_rating_a: Math.round(amps) }, cfg);
+        this._callBreakerService("set_circuit_breaker_rating", member.uuid, { breaker_rating_a: Math.round(amps) }, cfg);
       });
     });
 
@@ -1388,16 +1389,22 @@ class SpanSidePanel extends HTMLElement {
       resetBtn.addEventListener("click", () => {
         // A typed value still waiting out its debounce would otherwise set the override again after this clear.
         this._cancelDebounce(`breaker-${member.uuid}`);
-        this._callBreakerService("clear_circuit_breaker_rating", { circuit_id: member.uuid }, cfg);
+        this._callBreakerService("clear_circuit_breaker_rating", member.uuid, {}, cfg);
       });
       row.appendChild(resetBtn);
     }
     return row;
   }
 
-  /** Calls a breaker-rating service; a refusal shows the service's own message, else the generic one. */
-  private _callBreakerService(service: string, data: Record<string, unknown>, cfg: CircuitModeConfig): void {
-    const payload = cfg.configEntryId ? { ...data, config_entry_id: cfg.configEntryId } : data;
+  /**
+   * Calls a breaker-rating service for one member. A refusal shows the service's
+   * own message, else the generic one, and puts that member's row back as it
+   * stands: a refused change fires no event, so nothing else would replace the
+   * value the input still shows.
+   */
+  private _callBreakerService(service: string, uuid: string, data: Record<string, unknown>, cfg: CircuitModeConfig): void {
+    const payload: Record<string, unknown> = { circuit_id: uuid, ...data };
+    if (cfg.configEntryId) payload.config_entry_id = cfg.configEntryId;
     this._callDomainService(service, payload).catch((err: unknown) => {
       console.warn("SPAN Panel: breaker rating update failed", err);
       const detail = errorText(err);
@@ -1407,7 +1414,24 @@ class SpanSidePanel extends HTMLElement {
         message: detail && detail !== "[object Object]" ? detail : t("error.breaker_rating_failed"),
         persistent: false,
       });
+      this._restoreBreakerRow(uuid);
     });
+  }
+
+  /**
+   * Rebuild one member's Breaker row from the config in force now, which a
+   * refresh may have replaced while the call was in flight. Left alone when the
+   * user has typed again since, as that value is still to be sent, and when the
+   * panel has closed or moved to another circuit.
+   */
+  private _restoreBreakerRow(uuid: string): void {
+    const cfg = this._config;
+    const shadow = this.shadowRoot;
+    if (!cfg || !shadow || !this.hasAttribute("open") || cfg.panelMode || cfg.subDeviceMode || cfg.favoritesMode || !cfg.showBreakerRating) return;
+    if (this._debounceTimers[`breaker-${uuid}`]) return;
+    const member = cfg.members?.find(m => m.uuid === uuid);
+    const row = [...shadow.querySelectorAll<HTMLElement>('[data-role="breaker-row"]')].find(r => r.dataset.uuid === uuid);
+    if (member && row) row.replaceWith(this._createBreakerRow(member, cfg));
   }
 
   // ── Graph horizon section ──────────────────────────────────────────

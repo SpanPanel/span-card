@@ -205,6 +205,78 @@ describe("a refused change", () => {
     expect(errors.active.map(e => e.message)).toEqual(["Unable to update breaker rating"]);
   });
 
+  it("puts the rating in force back in the input, beside the message", async () => {
+    const { panel, errors } = open(ONE, { showBreakerRating: true }, async () => {
+      throw { code: "service_validation_error", message: "50 A is above the panel's 40 A service rating" };
+    });
+    type(input(rows(panel)[0]!), "50");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(errors.active).toHaveLength(1);
+    expect(input(rows(panel)[0]!).value).toBe("30");
+    expect(rows(panel)).toHaveLength(1);
+  });
+
+  it("restores only the refused member's row of a shared slot", async () => {
+    const { panel } = open(
+      [
+        { uuid: "c-a", circuit: circuit("Lights", 15, 15) },
+        { uuid: "c-b", circuit: circuit("Outlets", 10, 12, true) },
+      ],
+      { showBreakerRating: true },
+      async () => {
+        throw { message: "refused" };
+      }
+    );
+    const lights = rows(panel)[0]!;
+    input(lights).value = "17";
+    type(input(rows(panel)[1]!), "99");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(rows(panel)[0]).toBe(lights);
+    expect(input(rows(panel)[0]!).value).toBe("17");
+    expect(input(rows(panel)[1]!).value).toBe("12");
+    expect(reset(rows(panel)[1]!)).not.toBeNull();
+  });
+
+  it("restores from the rating in force when the refusal lands, not when the value was typed", async () => {
+    let refuse: (reason: unknown) => void = () => {};
+    const { panel } = open(ONE, { showBreakerRating: true }, () => new Promise((_resolve, reject) => (refuse = reject)));
+    type(input(rows(panel)[0]!), "50");
+    (panel as unknown as { refreshRating(view: unknown): void }).refreshRating({
+      members: [{ uuid: "c-1", circuit: circuit("Oven", 30, 35, true) }],
+      ratingText: "35 A",
+      monitoringInfo: null,
+    });
+    refuse({ message: "refused" });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(input(rows(panel)[0]!).value).toBe("35");
+    expect(reset(rows(panel)[0]!)).not.toBeNull();
+  });
+
+  it("leaves a value typed while the refused one was in flight", async () => {
+    let refuse: (reason: unknown) => void = () => {};
+    const { panel, callWS } = open(ONE, { showBreakerRating: true }, () => new Promise((_resolve, reject) => (refuse = reject)));
+    type(input(rows(panel)[0]!), "50");
+    const el = input(rows(panel)[0]!);
+    el.value = "45";
+    el.dispatchEvent(new Event("input"));
+    refuse({ message: "refused" });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(input(rows(panel)[0]!)).toBe(el);
+    expect(el.value).toBe("45");
+    vi.advanceTimersByTime(600);
+    expect(callWS.mock.calls.map(c => (c[0] as { service_data: { breaker_rating_a?: number } }).service_data.breaker_rating_a)).toEqual([50, 45]);
+  });
+
+  it("does nothing to a panel closed while the call was in flight", async () => {
+    let refuse: (reason: unknown) => void = () => {};
+    const { panel } = open(ONE, { showBreakerRating: true }, () => new Promise((_resolve, reject) => (refuse = reject)));
+    type(input(rows(panel)[0]!), "50");
+    (panel as unknown as { close(): void }).close();
+    refuse({ message: "refused" });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(panel.hasAttribute("open")).toBe(false);
+  });
+
   it("reports a failed reset the same way", async () => {
     const { panel, errors } = open([{ uuid: "c-1", circuit: circuit("Oven", 30, 50, true) }], { showBreakerRating: true }, async () => {
       throw { message: "no such circuit" };
