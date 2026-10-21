@@ -10,6 +10,7 @@ vi.mock("../src/card/card-discovery.js", async importOriginal => ({
 
 import { discoverEntitiesFallback, discoverTopology } from "../src/card/card-discovery.js";
 import { DashboardController } from "../src/core/dashboard-controller.js";
+import { FavoritesController } from "../src/core/favorites-controller.js";
 import { BREAKER_RATING_CHANGED, subscribeBreakerRatingChanges } from "../src/core/rating-events.js";
 import { ErrorStore } from "../src/core/error-store.js";
 import { DashboardTab } from "../src/panel/tab-dashboard.js";
@@ -414,19 +415,27 @@ function device(n: number): PanelDevice {
 
 describe("the sidebar dashboard", () => {
   let rendered: PanelTopology;
+  /** What `get_monitoring_status` answers for the Oven; null answers nothing. */
+  let status: Circuit | null;
   let render: ReturnType<typeof vi.spyOn>;
   let refreshSidePanel: ReturnType<typeof vi.spyOn>;
   let invalidate: ReturnType<typeof vi.spyOn>;
 
-  function panelHass(connection: FakeConnection, isAdmin = true): HomeAssistant {
+  function panelHass(connection: FakeConnection, isAdmin = true, favorites: Record<string, unknown> = {}): HomeAssistant {
     return hassWith(connection, {
       user: { is_admin: isAdmin },
       callWS: (async (msg: Record<string, unknown>) => {
         if (msg.type === "config/device_registry/list") return [device(1), device(2)];
-        if (msg.service === "get_favorites") return { response: { favorites: {} } };
+        if (msg.service === "get_favorites") return { response: { favorites } };
+        if (msg.service === "get_monitoring_status" && status) return monitoringFor(status);
         return {};
       }) as HomeAssistant["callWS"],
     });
+  }
+
+  /** Switch the open view to `tab`, as the tab bar's click handler does. */
+  function showTab(panel: Panel, tab: string): void {
+    (panel as unknown as { _activeTab: string })._activeTab = tab;
   }
 
   async function mount(connection: FakeConnection, isAdmin = true): Promise<Panel> {
@@ -443,6 +452,7 @@ describe("the sidebar dashboard", () => {
     vi.stubGlobal("localStorage", new Storage());
     localStorage.clear();
     rendered = topologyOf(circuit(20, 20));
+    status = null;
     mockDiscover.mockImplementation(async () => ({ topology: rendered, panelDevice: null, panelSize: 32 }));
     render = vi.spyOn(DashboardTab.prototype, "render").mockImplementation(async () => rendered);
     refreshSidePanel = vi.spyOn(DashboardTab.prototype, "refreshSidePanel").mockResolvedValue(undefined);
@@ -480,6 +490,72 @@ describe("the sidebar dashboard", () => {
     await vi.waitFor(() => expect(render.mock.calls.length).toBeGreaterThan(renders));
     expect(invalidate).toHaveBeenCalled();
     expect(refreshSidePanel).toHaveBeenCalledWith("entry-1", rendered);
+  });
+
+  it("redraws the Monitoring tab's rating cell from the new status on an event for its entry", async () => {
+    status = circuit(20, 20);
+    const connection = new FakeConnection();
+    const panel = await mount(connection);
+    showTab(panel, "monitoring");
+    const cell = (): HTMLElement | null => panel.shadowRoot!.querySelector<HTMLElement>(".rating-cell");
+    await vi.waitFor(() => expect(cell()?.textContent).toBe("20A"));
+    expect(cell()!.querySelector(".rating-user-set")).toBeNull();
+
+    status = circuit(20, 50, true);
+    rendered = topologyOf(status);
+    connection.emit(BREAKER_RATING_CHANGED, ratingEvent("entry-1"));
+
+    await vi.waitFor(() => expect(cell()?.querySelector(".rating-user-set")).not.toBeNull());
+    expect(cell()!.textContent).toContain("50A");
+    expect(cell()!.querySelector(".rating-user-set")!.getAttribute("title")).toBe("Set by you; panel: 20 A");
+  });
+
+  it("redraws a circuit panel open on a list tab, in place, on an event for its entry", async () => {
+    status = circuit(20, 20);
+    const connection = new FakeConnection();
+    const panel = await mount(connection);
+    const refreshList = vi.spyOn(DashboardController.prototype, "refreshCircuitSidePanel");
+    showTab(panel, "activity");
+    const content = (): HTMLElement => panel.shadowRoot!.getElementById("tab-content")!;
+    await vi.waitFor(() => expect(content().querySelector('.gear-icon[data-uuid="c-1"]')).not.toBeNull());
+    content().querySelector<HTMLElement>('.gear-icon[data-uuid="c-1"]')!.click();
+    const side = (): HTMLElement & { readonly openCircuit: { uuid: string } | null } =>
+      content().querySelector("span-side-panel") as HTMLElement & { readonly openCircuit: { uuid: string } | null };
+    await vi.waitFor(() => expect(side().openCircuit?.uuid).toBe("c-1"));
+    const subtitle = (): string | null | undefined => side().shadowRoot!.querySelector(".subtitle")?.textContent;
+    expect(subtitle()).not.toContain("set by you");
+
+    status = circuit(20, 50, true);
+    rendered = topologyOf(status);
+    connection.emit(BREAKER_RATING_CHANGED, ratingEvent("entry-1"));
+
+    await vi.waitFor(() => expect(subtitle()).toContain("50 A, set by you (panel: 20 A)"));
+    expect(refreshList).toHaveBeenCalledWith(content(), "entry-1", rendered);
+    expect(refreshSidePanel).not.toHaveBeenCalled();
+    expect(side().openCircuit?.uuid).toBe("c-1");
+  });
+
+  it("hands an event for a favorites panel to the list controller's open circuit panel", async () => {
+    localStorage.setItem("span_panel_selected", "favorites");
+    const build = vi.spyOn(FavoritesController.prototype, "build").mockResolvedValue({
+      topology: { circuits: {}, sub_devices: {}, _favoriteRefs: {} },
+      entryIds: ["entry-1"],
+      perPanelStats: [{ panelDeviceId: "panel-1", panelName: "Panel 1", topology: rendered }],
+    } as unknown as Awaited<ReturnType<FavoritesController["build"]>>);
+    const refreshList = vi.spyOn(DashboardController.prototype, "refreshCircuitSidePanel").mockResolvedValue(undefined);
+    const connection = new FakeConnection();
+    const panel = document.createElement("span-panel") as Panel;
+    panel.hass = panelHass(connection, true, { "panel-1": { circuits: ["c-1"], sub_devices: [] } });
+    document.body.appendChild(panel);
+    mounted.push(panel);
+    await vi.waitFor(() => expect(build).toHaveBeenCalled());
+    await flush();
+    rendered = topologyOf(circuit(20, 50, true));
+
+    connection.emit(BREAKER_RATING_CHANGED, ratingEvent("entry-1"));
+
+    await vi.waitFor(() => expect(refreshList).toHaveBeenCalledWith(panel.shadowRoot!.getElementById("tab-content"), "entry-1", rendered));
+    expect(refreshSidePanel).not.toHaveBeenCalled();
   });
 
   it("does nothing for an event on a panel it is not showing", async () => {
