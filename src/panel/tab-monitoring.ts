@@ -69,10 +69,11 @@ function thresholdCell(entityId: string, field: string, value: number | undefine
 
 /**
  * The rating a point is judged against, with the user-set mark; "no rating" for a
- * point with none, which the monitor skips. The mains reports it is never user-set.
+ * point with none, which the monitor skips. The mains has no override, so it is never marked.
  */
-function ratingCell(info: MonitoringPointInfo): string {
-  const label = ratingLabelHTML(monitoringRatingView(info));
+function ratingCell(info: MonitoringPointInfo, isMains: boolean): string {
+  const view = monitoringRatingView(info);
+  const label = ratingLabelHTML({ ...view, userSet: !isMains && view.userSet });
   const content = label || `<span style="color:var(--secondary-text-color);">${escapeHtml(t("monitoringRating.none"))}</span>`;
   return `<td class="rating-cell" style="padding:6px 4px;white-space:nowrap;">${content}</td>`;
 }
@@ -176,7 +177,7 @@ export class MonitoringTab {
                 <span>${name}</span>
               </label>
             </td>
-            ${ratingCell(info)}
+            ${ratingCell(info, false)}
             ${thresholdCell(eid, "continuous_threshold_pct", info.continuous_threshold_pct, "%", "circuit")}
             ${thresholdCell(eid, "spike_threshold_pct", info.spike_threshold_pct, "%", "circuit")}
             ${thresholdCell(eid, "window_duration_m", info.window_duration_m, "m", "circuit")}
@@ -213,7 +214,7 @@ export class MonitoringTab {
                 <span>${name}</span>
               </label>
             </td>
-            ${ratingCell(info)}
+            ${ratingCell(info, true)}
             ${thresholdCell(eid, "continuous_threshold_pct", info.continuous_threshold_pct, "%", "mains")}
             ${thresholdCell(eid, "spike_threshold_pct", info.spike_threshold_pct, "%", "mains")}
             ${thresholdCell(eid, "window_duration_m", info.window_duration_m, "m", "mains")}

@@ -286,12 +286,13 @@ describe("the Monitoring tab's rating cell", () => {
   it("marks a user-set rating, naming the panel's, and leaves the mains unmarked", async () => {
     const container = await render({
       circuits: { "sensor.a": { name: "Oven", breaker_rating_a: 20, monitoring_rating_a: 50, monitoring_rating_user_set: true } },
-      mains: { "sensor.m": { name: "Mains L1", breaker_rating_a: 200, monitoring_rating_a: 200, monitoring_rating_user_set: false } },
+      mains: { "sensor.m": { name: "Mains L1", breaker_rating_a: 200, monitoring_rating_a: 150, monitoring_rating_user_set: true } },
     });
     const [mains, oven] = cells(container);
 
     expect(oven!.querySelector(".rating-user-set")!.getAttribute("title")).toBe("Set by you; panel: 20 A");
     expect(oven!.textContent).toContain("50A");
+    expect(mains!.textContent).toBe("150A");
     expect(mains!.querySelector(".rating-user-set")).toBeNull();
   });
 
@@ -325,8 +326,9 @@ function cardTopology(c: Circuit): PanelTopology {
 describe("the standalone card", () => {
   let monitoringCalls = 0;
 
-  function hassFor(connection: FakeConnection): HomeAssistant {
+  function hassFor(connection: FakeConnection, states: HomeAssistant["states"] = {}): HomeAssistant {
     return hassWith(connection, {
+      states,
       callWS: (async (msg: Record<string, unknown>) => {
         if (msg.service === "get_monitoring_status") monitoringCalls += 1;
         if (msg.type === "config/device_registry/list") return [];
@@ -335,12 +337,12 @@ describe("the standalone card", () => {
     });
   }
 
-  async function mount(connection: FakeConnection): Promise<Card> {
+  async function mount(connection: FakeConnection, states: HomeAssistant["states"] = {}): Promise<Card> {
     const card = document.createElement("span-panel-card") as Card;
     card.setConfig({ device_id: "panel-1" } as CardConfig);
     document.body.appendChild(card);
     mounted.push(card);
-    card.hass = hassFor(connection);
+    card.hass = hassFor(connection, states);
     await vi.waitFor(() => expect(connection.subscriptions.length).toBeGreaterThan(0));
     await flush();
     return card;
@@ -358,22 +360,27 @@ describe("the standalone card", () => {
     mockFallback.mockReset();
   });
 
-  it("re-fetches topology and monitoring, and redraws the rating, on an event for its entry", async () => {
+  it("re-fetches topology and monitoring, and redraws what is judged against the monitoring rating, on an event for its entry", async () => {
+    // A measured 10 A: utilization is 10 A over the monitoring rating, the breaker label the panel's rating.
+    const withCurrent = (c: Circuit): Circuit => ({ ...c, entities: { power: "sensor.oven_power", current: "sensor.oven_current" } });
+    mockDiscover.mockImplementation(async () => ({ topology: cardTopology(withCurrent(circuit(20, 20))), panelDevice: null, panelSize: 32 }));
     const connection = new FakeConnection();
-    const card = await mount(connection);
-    expect(card.shadowRoot!.textContent).toContain("20A");
-    expect(card.shadowRoot!.querySelector(".rating-user-set")).toBeNull();
+    const card = await mount(connection, { "sensor.oven_current": { entity_id: "sensor.oven_current", state: "10", attributes: {} } });
+    const utilization = (): string | undefined => card.shadowRoot!.querySelector(".utilization")?.textContent?.trim();
+    const badge = (): HTMLElement | null => card.shadowRoot!.querySelector<HTMLElement>(".breaker-badge");
+    expect(utilization()).toBe("50%");
+    expect(badge()!.innerHTML).toBe("20A");
     const fetches = mockDiscover.mock.calls.length;
     const status = monitoringCalls;
-    mockDiscover.mockImplementation(async () => ({ topology: cardTopology(circuit(20, 50, true)), panelDevice: null, panelSize: 32 }));
+    mockDiscover.mockImplementation(async () => ({ topology: cardTopology(withCurrent(circuit(20, 50, true))), panelDevice: null, panelSize: 32 }));
 
     connection.emit(MONITORING_RATING_CHANGED, ratingEvent(ENTRY, ["oven"]));
 
     await vi.waitFor(() => expect(mockDiscover.mock.calls.length).toBeGreaterThan(fetches));
     await vi.waitFor(() => expect(monitoringCalls).toBeGreaterThan(status));
+    await vi.waitFor(() => expect(utilization()).toBe("20%"));
     // The grid's label is the panel's rating, unmarked, whatever the user sets for monitoring.
-    expect(card.shadowRoot!.textContent).toContain("20A");
-    expect(card.shadowRoot!.textContent).not.toContain("50A");
+    expect(badge()!.innerHTML).toBe("20A");
     expect(card.shadowRoot!.querySelector(".rating-user-set")).toBeNull();
   });
 
@@ -526,6 +533,8 @@ describe("the sidebar dashboard", () => {
     const connection = new FakeConnection();
     const panel = await mount(connection);
     const refreshList = vi.spyOn(DashboardController.prototype, "refreshCircuitSidePanel");
+    // The list tabs leave the Monitoring section off; turn it on so its "Judged against" line is on screen.
+    (panel as unknown as { _listDashCtrl: { showMonitoring: boolean } })._listDashCtrl.showMonitoring = true;
     showTab(panel, "activity");
     const content = (): HTMLElement => panel.shadowRoot!.getElementById("tab-content")!;
     await vi.waitFor(() => expect(content().querySelector('.gear-icon[data-uuid="c-1"]')).not.toBeNull());
@@ -535,6 +544,8 @@ describe("the sidebar dashboard", () => {
     await vi.waitFor(() => expect(side().openCircuit?.uuid).toBe("c-1"));
     const subtitle = (): string | null | undefined => side().shadowRoot!.querySelector(".subtitle")?.textContent;
     expect(subtitle()).toBe("20A \u00b7 240V \u00b7 Tabs [1]");
+    const before = side().shadowRoot!.querySelector('[data-role="judged-against"]')?.textContent;
+    expect(before).toBe("Judged against: 20 A");
 
     status = circuit(20, 50, true);
     rendered = topologyOf(status);
@@ -542,6 +553,8 @@ describe("the sidebar dashboard", () => {
 
     await vi.waitFor(() => expect(refreshList).toHaveBeenCalledWith(content(), "entry-1", rendered));
     // The subtitle is the panel's rating, which a monitoring rating does not change.
+    const judgedLine = (): string | undefined => side().shadowRoot!.querySelector('[data-role="judged-against"]')?.textContent ?? undefined;
+    await vi.waitFor(() => expect(judgedLine()).toBe("Judged against: 50 A, set by you (panel: 20 A)"));
     expect(subtitle()).toBe("20A \u00b7 240V \u00b7 Tabs [1]");
     expect(refreshSidePanel).not.toHaveBeenCalled();
     expect(side().openCircuit?.uuid).toBe("c-1");
