@@ -435,12 +435,15 @@ describe("the sidebar dashboard", () => {
   let rendered: PanelTopology;
   /** What `get_monitoring_status` answers for the Oven; null answers nothing. */
   let status: Circuit | null;
+  /** The entity states Home Assistant holds. */
+  let states: HomeAssistant["states"];
   let render: ReturnType<typeof vi.spyOn>;
   let refreshSidePanel: ReturnType<typeof vi.spyOn>;
   let invalidate: ReturnType<typeof vi.spyOn>;
 
   function panelHass(connection: FakeConnection, isAdmin = true, favorites: Record<string, unknown> = {}): HomeAssistant {
     return hassWith(connection, {
+      states,
       user: { is_admin: isAdmin },
       callWS: (async (msg: Record<string, unknown>) => {
         if (msg.type === "config/device_registry/list") return [device(1), device(2)];
@@ -471,6 +474,7 @@ describe("the sidebar dashboard", () => {
     localStorage.clear();
     rendered = topologyOf(circuit(20, 20));
     status = null;
+    states = {};
     mockDiscover.mockImplementation(async () => ({ topology: rendered, panelDevice: null, panelSize: 32 }));
     render = vi.spyOn(DashboardTab.prototype, "render").mockImplementation(async () => rendered);
     refreshSidePanel = vi.spyOn(DashboardTab.prototype, "refreshSidePanel").mockResolvedValue(undefined);
@@ -528,13 +532,33 @@ describe("the sidebar dashboard", () => {
     expect(cell()!.querySelector(".rating-user-set")!.getAttribute("title")).toBe("Set by you; panel: 20 A");
   });
 
-  it("redraws a circuit panel open on a list tab, in place, on an event for its entry", async () => {
+  it("redraws a list row's utilization against the new monitoring rating, its breaker label staying the panel's", async () => {
+    // A measured 10 A with no monitor figure: the row's utilization is 10 A over the monitoring rating.
+    const withCurrent = (c: Circuit): Circuit => ({ ...c, entities: { power: "sensor.oven_power", current: "sensor.oven_current" } });
+    states = { "sensor.oven_current": { entity_id: "sensor.oven_current", state: "10", attributes: {} } };
+    rendered = topologyOf(withCurrent(circuit(20, 20)));
+    const connection = new FakeConnection();
+    const panel = await mount(connection);
+    showTab(panel, "activity");
+    const content = (): HTMLElement => panel.shadowRoot!.getElementById("tab-content")!;
+    const utilization = (): string | undefined => content().querySelector(".utilization")?.textContent?.trim();
+    const badge = (): HTMLElement | null => content().querySelector<HTMLElement>(".breaker-badge");
+    await vi.waitFor(() => expect(utilization()).toBe("50%"));
+    expect(badge()!.innerHTML).toBe("20A");
+
+    rendered = topologyOf(withCurrent(circuit(20, 50, true)));
+    connection.emit(MONITORING_RATING_CHANGED, ratingEvent("entry-1"));
+
+    await vi.waitFor(() => expect(utilization()).toBe("20%"));
+    expect(badge()!.innerHTML).toBe("20A");
+    expect(content().querySelector(".rating-user-set")).toBeNull();
+  });
+
+  it("hands a rating event to the list controller's open circuit panel, whose subtitle stays the panel's rating", async () => {
     status = circuit(20, 20);
     const connection = new FakeConnection();
     const panel = await mount(connection);
     const refreshList = vi.spyOn(DashboardController.prototype, "refreshCircuitSidePanel");
-    // The list tabs leave the Monitoring section off; turn it on so its "Judged against" line is on screen.
-    (panel as unknown as { _listDashCtrl: { showMonitoring: boolean } })._listDashCtrl.showMonitoring = true;
     showTab(panel, "activity");
     const content = (): HTMLElement => panel.shadowRoot!.getElementById("tab-content")!;
     await vi.waitFor(() => expect(content().querySelector('.gear-icon[data-uuid="c-1"]')).not.toBeNull());
@@ -544,17 +568,12 @@ describe("the sidebar dashboard", () => {
     await vi.waitFor(() => expect(side().openCircuit?.uuid).toBe("c-1"));
     const subtitle = (): string | null | undefined => side().shadowRoot!.querySelector(".subtitle")?.textContent;
     expect(subtitle()).toBe("20A \u00b7 240V \u00b7 Tabs [1]");
-    const before = side().shadowRoot!.querySelector('[data-role="judged-against"]')?.textContent;
-    expect(before).toBe("Judged against: 20 A");
 
     status = circuit(20, 50, true);
     rendered = topologyOf(status);
     connection.emit(MONITORING_RATING_CHANGED, ratingEvent("entry-1"));
 
     await vi.waitFor(() => expect(refreshList).toHaveBeenCalledWith(content(), "entry-1", rendered));
-    // The subtitle is the panel's rating, which a monitoring rating does not change.
-    const judgedLine = (): string | undefined => side().shadowRoot!.querySelector('[data-role="judged-against"]')?.textContent ?? undefined;
-    await vi.waitFor(() => expect(judgedLine()).toBe("Judged against: 50 A, set by you (panel: 20 A)"));
     expect(subtitle()).toBe("20A \u00b7 240V \u00b7 Tabs [1]");
     expect(refreshSidePanel).not.toHaveBeenCalled();
     expect(side().openCircuit?.uuid).toBe("c-1");
