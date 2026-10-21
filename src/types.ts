@@ -37,7 +37,12 @@ export interface Circuit {
   name: string;
   tabs: number[];
   entities: CircuitEntities;
+  /** The rating in force: the user's correction where one applies, else the panel's. */
   breaker_rating_a?: number | null;
+  /** The rating the panel publishes; null when it publishes none. */
+  panel_breaker_rating_a?: number | null;
+  /** True when `breaker_rating_a` is the user's correction. */
+  breaker_rating_user_set?: boolean;
   device_type?: string;
   relay_state?: string;
   relay_state_target?: string;
@@ -325,6 +330,12 @@ export interface MonitoringPointInfo {
    * circuit's own id. Absent from an integration that predates it.
    */
   point_id?: string;
+  /** The rating in force; null when neither the panel nor the user gives one. */
+  breaker_rating_a?: number | null;
+  /** The rating the panel publishes; null when it publishes none. */
+  panel_breaker_rating_a?: number | null;
+  /** True when `breaker_rating_a` is the user's correction. */
+  breaker_rating_user_set?: boolean;
   monitoring_enabled?: boolean;
   /** Null while the circuit has no current reading or no breaker rating. */
   utilization_pct?: number | null;
