@@ -111,6 +111,8 @@ export class SpanPanelElement extends LitElement {
   private _reloadSub: Promise<() => Promise<void>> | null = null;
   /** One breaker-rating subscription per panel entry, each held as the promise it was handed. */
   private readonly _ratingSubs = new Map<string, Promise<() => void>>();
+  /** Per panel, the rating refresh: a burst of events is one fetch in flight and at most one trailing, which sees the last change. */
+  private readonly _ratingRefreshes = new Map<string, () => Promise<void>>();
   /**
    * The topology the current view rendered, by panel device id. An entry reload
    * re-renders the view only when its panel's topology changed structure since.
@@ -653,7 +655,8 @@ export class SpanPanelElement extends LitElement {
    */
   private _syncRatingSubscriptions(): void {
     const hass = this.hass;
-    if (!hass?.connection || hass.user?.is_admin === false) return;
+    // A panel-list refresh that lands after a detach must not subscribe: nothing would remove it.
+    if (!this.isConnected || !hass?.connection || hass.user?.is_admin === false) return;
     const wanted = new Set<string>();
     for (const panel of this._panels) {
       if (panel.id !== FAVORITES_PANEL_ID && panel.config_entry_id) wanted.add(panel.config_entry_id);
@@ -698,7 +701,13 @@ export class SpanPanelElement extends LitElement {
     const shown = this._isFavoritesView ? this._renderedTopologies.has(panel.id) : panel.id === this._selectedPanelId;
     // The Adopted tab renders rows of its own, and an open editor keeps what the user typed.
     if (!shown || (!this._isFavoritesView && this._activeTab === "adopted")) return;
-    void this._renderIfRestructured(panel.id, topology => this._refreshOpenSidePanel(entryId, topology));
+    let refresh = this._ratingRefreshes.get(panel.id);
+    if (!refresh) {
+      const panelId = panel.id;
+      refresh = coalesceRuns(() => this._renderIfRestructured(panelId, topology => this._refreshOpenSidePanel(entryId, topology)));
+      this._ratingRefreshes.set(panelId, refresh);
+    }
+    void refresh();
   }
 
   private async _refreshOpenSidePanel(entryId: string, topology: PanelTopology): Promise<void> {

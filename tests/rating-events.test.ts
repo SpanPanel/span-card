@@ -501,12 +501,66 @@ describe("the sidebar dashboard", () => {
     const connection = new FakeConnection();
     await mount(connection);
     const renders = render.mock.calls.length;
+    const fetches = mockDiscover.mock.calls.length;
 
     connection.emit(BREAKER_RATING_CHANGED, ratingEvent("entry-1"));
+    // The handler ran: it dropped the cache and re-fetched the topology, found it unchanged.
+    await vi.waitFor(() => expect(mockDiscover.mock.calls.length).toBeGreaterThan(fetches));
+    expect(invalidate).toHaveBeenCalled();
     await flush();
     await flush();
 
     expect(render.mock.calls.length).toBe(renders);
+  });
+
+  it("answers a burst of events with one fetch in flight and one trailing, and shows the last answer", async () => {
+    const connection = new FakeConnection();
+    await mount(connection);
+    await flush();
+    const fetches = mockDiscover.mock.calls.length;
+    const gates: Array<(t: PanelTopology) => void> = [];
+    mockDiscover.mockImplementation(() => new Promise(resolve => gates.push(topology => resolve({ topology, panelDevice: null, panelSize: 32 }))));
+
+    for (let i = 0; i < 5; i += 1) connection.emit(BREAKER_RATING_CHANGED, ratingEvent("entry-1"));
+    await flush();
+    expect(mockDiscover.mock.calls.length).toBe(fetches + 1);
+
+    const stale = topologyOf(circuit(20, 40, true));
+    gates[0]!(stale);
+    await vi.waitFor(() => expect(mockDiscover.mock.calls.length).toBe(fetches + 2));
+    const last = topologyOf(circuit(20, 50, true));
+    gates[1]!(last);
+    await vi.waitFor(() => expect(refreshSidePanel).toHaveBeenLastCalledWith("entry-1", last));
+    await flush();
+
+    expect(mockDiscover.mock.calls.length).toBe(fetches + 2);
+  });
+
+  it("subscribes nothing when the panel list resolves after the element was detached", async () => {
+    const connection = new FakeConnection();
+    const panel = await mount(connection);
+    let release: () => void = () => {};
+    const gate = new Promise<void>(resolve => (release = resolve));
+    const hass = panelHass(connection);
+    panel.hass = {
+      ...hass,
+      callWS: (async (msg: Record<string, unknown>) => {
+        if (msg.type === "config/device_registry/list") {
+          await gate;
+          return [device(1), device(2), device(3)];
+        }
+        return hass.callWS(msg);
+      }) as HomeAssistant["callWS"],
+    };
+    connection.emit("device_registry_updated", {});
+    await flush();
+
+    panel.remove();
+    release();
+    await flush();
+    await flush();
+
+    expect(connection.live(BREAKER_RATING_CHANGED)).toBe(0);
   });
 
   it("unsubscribes from every entry when detached", async () => {
