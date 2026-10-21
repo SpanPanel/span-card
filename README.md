@@ -84,18 +84,25 @@ with the site's total PV power in a **Site total** row beneath it; on a single-i
 feeds the Solar device's inverter, its headline is the site total, captioned **Site total**. An inverter that no panel circuit feeds shows its identity and that
 its output is included in the site total. The editor's Battery section now also offers Meter Power and Nameplate Capacity.
 
-### Breaker Rating
+### Monitoring Rating
 
-Where the panel reports the wrong rating for a circuit, as it can for a tandem breaker, an administrator can correct it. Open a circuit's gear in the sidebar
-dashboard: its **Breaker Rating** section shows the panel's own rating and a field holding the rating in force. Type the rating that applies and it is saved
-after a short pause; **Reset to panel rating** returns to the panel's value. A circuit that shares a meter with others lists each member, so each can be
-corrected on its own. The section is not part of the Lovelace card or the list tabs, which show the corrected rating but do not edit it.
+Where the panel reports a rating that is not what a circuit can carry, as it can for a tandem breaker, an administrator can set the rating that current
+monitoring judges the circuit against. Open a circuit's gear in the sidebar dashboard and turn **Monitoring** on: the **Monitoring rating** field sits at the
+top of the Monitoring section, above the Global/Custom choice, and shows the panel's own rating beside the rating in force. Type the rating that applies and it
+is saved after a short pause; **Reset to panel rating** returns to the panel's value. The rating is not a threshold: it is shown in both Global and Custom mode,
+and choosing Global or resetting thresholds leaves it alone. It is hidden while monitoring is off for that circuit, and the value you set applies again when you
+turn monitoring back on. A circuit that shares a meter with others lists each member, so each can be set on its own. The field is not part of the Lovelace card
+or the list tabs, which show the panel's rating and do not edit it.
+
+The most current the measured wire can carry is the right value; for a tandem in one space, add its breakers. For a circuit that spans several spaces the panel
+does not publish which leg it measures, so the section shows a caution, once for the circuit, that a rating set there may hide a real overload and that turning
+monitoring off for the circuit is the safer choice.
 
 A rating you set carries a pencil mark wherever the card shows what monitoring judges against, with a tooltip naming the panel's rating, for example "Set by
-you; panel: 20 A". The Monitoring tab has a Rating column, and a circuit's Monitoring section says what it is "Judged against", so you can see the rating that
-utilization and alerts use. The breaker labels on the grid, list and side panel keep showing the panel's own rating. A circuit with no rating shows "no rating".
-Every open view redraws when a rating changes, whether you changed it here, in another browser or from a service call, and a field you were typing in shows the
-rating the integration holds, not the value you typed.
+you; panel: 20 A". The Monitoring tab has a Rating column, and a circuit's Monitoring section says what it is "Judged against", beside the field, so you can see
+the rating that utilization and alerts use. The breaker labels on the grid, list and side panel keep showing the panel's own rating. A circuit with no rating
+shows "no rating". Every open view redraws when a rating changes, whether you changed it here, in another browser or from a service call, and a field you were
+typing in shows the rating the integration holds, not the value you typed.
 
 ### Finding Your Device ID
 

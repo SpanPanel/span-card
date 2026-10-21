@@ -159,16 +159,15 @@ async function openOven(initial: Circuit): Promise<OpenPanel> {
   const panel = root.querySelector("span-side-panel") as SidePanel;
   const ctrl = new DashboardController();
   ctrl.showMonitoring = true;
-  ctrl.showBreakerRating = true;
   ctrl.init(topologyOf(initial), {} as CardConfig, hass, ENTRY);
   await ctrl.onGearClick({ target: root.querySelector(".gear-icon") } as unknown as Event, root);
   return { root, panel, ctrl, callWS, setStatus: c => (status = monitoringFor(c)) };
 }
 
-const section = (p: SidePanel): HTMLElement | null => p.shadowRoot!.querySelector<HTMLElement>('[data-role="breaker-section"]');
-const input = (p: SidePanel): HTMLInputElement => p.shadowRoot!.querySelector<HTMLInputElement>('[data-role="breaker-input"]')!;
+const section = (p: SidePanel): HTMLElement | null => p.shadowRoot!.querySelector<HTMLElement>('[data-role="rating-section"]');
+const input = (p: SidePanel): HTMLInputElement => p.shadowRoot!.querySelector<HTMLInputElement>('[data-role="rating-input"]')!;
 const judged = (p: SidePanel): string | undefined => p.shadowRoot!.querySelector('[data-role="judged-against"]')?.textContent ?? undefined;
-const reset = (p: SidePanel): HTMLElement | null => p.shadowRoot!.querySelector<HTMLElement>('[data-role="breaker-reset"]');
+const reset = (p: SidePanel): HTMLElement | null => p.shadowRoot!.querySelector<HTMLElement>('[data-role="rating-reset"]');
 
 describe("the Monitoring section's judged-against line", () => {
   it("names the rating the point is judged against, with the user-set form naming the panel's", async () => {
@@ -188,7 +187,7 @@ describe("refreshCircuitSidePanel", () => {
     for (const el of mounted.splice(0)) el.remove();
   });
 
-  it("rebuilds the Breaker section from the integration's answer, dropping what was typed", async () => {
+  it("rebuilds the monitoring rating editor from the integration's answer, dropping what was typed", async () => {
     const open = await openOven(circuit(20, 20));
     expect(reset(open.panel)).toBeNull();
     input(open.panel).value = "45";
@@ -201,7 +200,7 @@ describe("refreshCircuitSidePanel", () => {
     expect(section(open.panel)).not.toBe(before);
     expect(input(open.panel).value).toBe("50");
     expect(reset(open.panel)).not.toBeNull();
-    expect(open.panel.shadowRoot!.querySelector('[data-role="breaker-panel-rating"]')!.textContent).toContain("20");
+    expect(open.panel.shadowRoot!.querySelector('[data-role="rating-panel-rating"]')!.textContent).toContain("20");
     expect(judged(open.panel)).toBe("Judged against: 50 A, set by you (panel: 20 A)");
     // The subtitle is the panel's rating, which a monitoring rating does not change.
     expect(open.panel.shadowRoot!.querySelector(".subtitle")!.textContent).toBe("20A \u00b7 240V \u00b7 Tabs [1]");

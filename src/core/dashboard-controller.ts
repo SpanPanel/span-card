@@ -111,7 +111,6 @@ export class DashboardController {
   } | null = null;
 
   private _showMonitoring = false;
-  private _showBreakerRating = false;
   private _updateInterval: ReturnType<typeof setInterval> | null = null;
   private _recorderRefreshInterval: ReturnType<typeof setInterval> | null = null;
   private _resizeObserver: ResizeObserver | null = null;
@@ -136,10 +135,6 @@ export class DashboardController {
 
   set showMonitoring(val: boolean) {
     this._showMonitoring = val;
-  }
-
-  set showBreakerRating(val: boolean) {
-    this._showBreakerRating = val;
   }
 
   init(topology: PanelTopology | null, config: CardConfig, hass: HomeAssistant | null, configEntryId: string | null): void {
@@ -554,7 +549,6 @@ export class DashboardController {
           device_type: circuit.device_type,
           monitoringInfo,
           showMonitoring: this._showMonitoring,
-          showBreakerRating: this._showBreakerRating,
           graphHorizonInfo,
           showFavorites: this.showFavorites,
           favoritePanelDeviceId,

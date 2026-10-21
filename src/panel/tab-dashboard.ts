@@ -67,7 +67,6 @@ export class DashboardTab {
     this.stop();
     this._ctrl.reset();
     this._ctrl.showMonitoring = true;
-    this._ctrl.showBreakerRating = true;
     this._container = container;
     this._ctrl.hass = hass;
 

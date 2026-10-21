@@ -5,7 +5,7 @@ import { INTEGRATION_DOMAIN, SHEDDING_PRIORITIES, SELECTABLE_PRIORITY_KEYS, GRAP
 import { t, tf } from "../i18n.js";
 import { monitoringRatingView, ratingSentence } from "../helpers/monitoring-rating.js";
 import { errorText } from "../helpers/error-text.js";
-import { occupiedSpaces, slotRatingText, type SlotMember } from "../helpers/shared-meters.js";
+import { occupiedSpaces, slotRatingText, spansSeveralSpaces, type SlotMember } from "../helpers/shared-meters.js";
 import { addFavorite, removeFavorite } from "./favorites-store.js";
 import { sortedCircuitsForSection } from "./favorites-sections.js";
 import { subDeviceCharts } from "../helpers/sub-device-power.js";
@@ -72,8 +72,6 @@ export type CircuitModeConfig = CircuitControlFields & {
   capacityA: number | null;
   monitoringInfo: MonitoringPointInfo | null;
   showMonitoring?: boolean;
-  /** Dashboard-only: render the Breaker section, where a circuit's breaker rating is corrected. */
-  showBreakerRating?: boolean;
   graphHorizonInfo: GraphHorizonInfo;
   /** Dashboard-only: render the Favorite section on this side panel. */
   showFavorites?: boolean;
@@ -421,11 +419,11 @@ class SpanSidePanel extends HTMLElement {
 
   /**
    * Redraw what a rating change touches in the open circuit panel, from the
-   * integration's answer: the Breaker section (so its inputs show the effective
-   * rating, not what was typed, and the reset button follows the new state), the
-   * subtitle and the "judged against" line. Nothing else is rebuilt, so a threshold
-   * the user is typing keeps its value. A breaker value still waiting out its
-   * debounce is dropped with the input it came from.
+   * integration's answer: the monitoring rating editor in the Monitoring section (so
+   * its inputs show the rating in force, not what was typed, and the reset button
+   * follows the new state), the subtitle and the "judged against" line. Nothing else
+   * is rebuilt, so a threshold the user is typing keeps its value. A rating value
+   * still waiting out its debounce is dropped with the input it came from.
    */
   refreshRating(view: CircuitRatingView): void {
     const cfg = this._config;
@@ -436,23 +434,21 @@ class SpanSidePanel extends HTMLElement {
     this._config = next;
 
     for (const key of Object.keys(this._debounceTimers)) {
-      if (key.startsWith("breaker-")) this._cancelDebounce(key);
+      if (key.startsWith("rating-")) this._cancelDebounce(key);
     }
 
     const subtitle = shadow.querySelector(".subtitle");
     if (subtitle) subtitle.textContent = this._circuitSubtitle(next);
 
-    if (next.showBreakerRating) {
-      const body = shadow.querySelector(".panel-body");
-      const current = shadow.querySelector('[data-role="breaker-section"]');
-      const section = this._buildBreakerSection(next);
-      if (current && section) current.replaceWith(section);
-      else if (current) current.remove();
-      else if (section && body) body.insertBefore(section, shadow.querySelector('[data-role="horizon-section"]'));
-    }
-
     const judged = shadow.querySelector('[data-role="judged-against"]');
-    if (judged) judged.textContent = this._judgedAgainstText(next.monitoringInfo);
+    if (judged) {
+      judged.textContent = this._judgedAgainstText(next.monitoringInfo);
+      const current = shadow.querySelector('[data-role="rating-section"]');
+      const editor = this._buildRatingEditor(next);
+      if (current && editor) current.replaceWith(editor);
+      else if (current) current.remove();
+      else if (editor) judged.after(editor);
+    }
   }
 
   close(): void {
@@ -902,9 +898,6 @@ class SpanSidePanel extends HTMLElement {
       this._renderFavoriteSection(body, cfg);
     }
     this._renderSheddingSection(body, cfg);
-    if (cfg.showBreakerRating) {
-      this._renderBreakerSection(body, cfg);
-    }
     this._renderGraphHorizonSection(body, cfg);
     if (cfg.showMonitoring) {
       this._renderMonitoringSection(body, cfg);
@@ -1324,32 +1317,53 @@ class SpanSidePanel extends HTMLElement {
     this._applySheddingSelect(selectEl, cfg);
   }
 
-  // ── Breaker rating section ──────────────────────────────────────────
+  // ── Monitoring rating editor (inside the Monitoring section) ────────
 
-  private _renderBreakerSection(body: HTMLDivElement, cfg: CircuitModeConfig): void {
-    const section = this._buildBreakerSection(cfg);
-    if (section) body.appendChild(section);
-  }
-
-  /** The Breaker section, or null when no member has a panel rating to correct. */
-  private _buildBreakerSection(cfg: CircuitModeConfig): HTMLDivElement | null {
-    const rated = (cfg.members ?? []).filter(member => member.circuit.breaker_rating_a != null);
+  /**
+   * The monitoring rating editor, or null when no member has a panel rating to
+   * judge against. It is not a threshold: it sits in the Monitoring details above
+   * the Global/Custom choice, and neither that choice nor the threshold reset touches it.
+   */
+  private _buildRatingEditor(cfg: CircuitModeConfig): HTMLDivElement | null {
+    const members = cfg.members ?? [];
+    const rated = members.filter(member => member.circuit.breaker_rating_a != null);
     if (rated.length === 0) return null;
 
     const section = document.createElement("div");
-    section.className = "section";
-    section.dataset.role = "breaker-section";
-    section.innerHTML = `<div class="section-label">${escapeHtml(t("sidepanel.breaker_rating"))}</div>`;
+    section.dataset.role = "rating-section";
+    section.style.marginBottom = "8px";
+
+    const label = document.createElement("div");
+    label.className = "section-label";
+    label.textContent = t("monitoringRating.title");
+    section.appendChild(label);
+
+    const guidance = document.createElement("div");
+    guidance.className = "field-label";
+    guidance.dataset.role = "rating-guidance";
+    guidance.textContent = t("monitoringRating.guidance");
+    section.appendChild(guidance);
+
     for (const member of rated) {
-      section.appendChild(this._createBreakerRow(member, cfg));
+      section.appendChild(this._createRatingRow(member, cfg));
+    }
+
+    // One caution for the slot, not one per member.
+    if (spansSeveralSpaces(members)) {
+      const caution = document.createElement("div");
+      caution.className = "field-label";
+      caution.dataset.role = "rating-caution";
+      caution.setAttribute("role", "note");
+      caution.textContent = t("monitoringRating.multi_space_caution");
+      section.appendChild(caution);
     }
     return section;
   }
 
-  private _createBreakerRow(member: SlotMember, cfg: CircuitModeConfig): HTMLDivElement {
+  private _createRatingRow(member: SlotMember, cfg: CircuitModeConfig): HTMLDivElement {
     const row = document.createElement("div");
     row.className = "field-row";
-    row.dataset.role = "breaker-row";
+    row.dataset.role = "rating-row";
     row.dataset.uuid = member.uuid;
 
     const labelEl = document.createElement("span");
@@ -1358,8 +1372,8 @@ class SpanSidePanel extends HTMLElement {
 
     const panelEl = document.createElement("span");
     panelEl.className = "field-label";
-    panelEl.dataset.role = "breaker-panel-rating";
-    panelEl.textContent = tf("sidepanel.breaker_panel_rating", { panel: String(member.circuit.breaker_rating_a) });
+    panelEl.dataset.role = "rating-panel-rating";
+    panelEl.textContent = tf("monitoringRating.panel_rating", { panel: String(member.circuit.breaker_rating_a) });
 
     const input = document.createElement("input");
     input.type = "number";
@@ -1367,13 +1381,13 @@ class SpanSidePanel extends HTMLElement {
     input.step = "1";
     input.value = member.circuit.monitoring_rating_a ? String(member.circuit.monitoring_rating_a) : "";
     input.setAttribute("aria-label", member.circuit.name);
-    input.dataset.role = "breaker-input";
+    input.dataset.role = "rating-input";
 
     input.addEventListener("input", () => {
-      this._debounce(`breaker-${member.uuid}`, INPUT_DEBOUNCE_MS, () => {
+      this._debounce(`rating-${member.uuid}`, INPUT_DEBOUNCE_MS, () => {
         const amps = input.valueAsNumber;
         if (!Number.isFinite(amps) || amps < 1) return;
-        this._callBreakerService("set_circuit_monitoring_rating", member.uuid, { monitoring_rating_a: Math.round(amps) }, cfg);
+        this._callRatingService("set_circuit_monitoring_rating", member.uuid, { monitoring_rating_a: Math.round(amps) }, cfg);
       });
     });
 
@@ -1384,12 +1398,12 @@ class SpanSidePanel extends HTMLElement {
     if (member.circuit.monitoring_rating_user_set === true) {
       const resetBtn = document.createElement("button");
       resetBtn.type = "button";
-      resetBtn.dataset.role = "breaker-reset";
-      resetBtn.textContent = t("sidepanel.breaker_reset");
+      resetBtn.dataset.role = "rating-reset";
+      resetBtn.textContent = t("monitoringRating.reset");
       resetBtn.addEventListener("click", () => {
         // A typed value still waiting out its debounce would otherwise set the override again after this clear.
-        this._cancelDebounce(`breaker-${member.uuid}`);
-        this._callBreakerService("clear_circuit_monitoring_rating", member.uuid, {}, cfg);
+        this._cancelDebounce(`rating-${member.uuid}`);
+        this._callRatingService("clear_circuit_monitoring_rating", member.uuid, {}, cfg);
       });
       row.appendChild(resetBtn);
     }
@@ -1397,41 +1411,41 @@ class SpanSidePanel extends HTMLElement {
   }
 
   /**
-   * Calls a breaker-rating service for one member. A refusal shows the service's
+   * Calls a monitoring-rating service for one member. A refusal shows the service's
    * own message, else the generic one, and puts that member's row back as it
    * stands: a refused change fires no event, so nothing else would replace the
    * value the input still shows.
    */
-  private _callBreakerService(service: string, uuid: string, data: Record<string, unknown>, cfg: CircuitModeConfig): void {
+  private _callRatingService(service: string, uuid: string, data: Record<string, unknown>, cfg: CircuitModeConfig): void {
     const payload: Record<string, unknown> = { circuit_id: uuid, ...data };
     if (cfg.configEntryId) payload.config_entry_id = cfg.configEntryId;
     this._callDomainService(service, payload).catch((err: unknown) => {
-      console.warn("SPAN Panel: breaker rating update failed", err);
+      console.warn("SPAN Panel: monitoring rating update failed", err);
       const detail = errorText(err);
       this.errorStore?.add({
-        key: "service:breaker-rating",
+        key: "service:monitoring-rating",
         level: "error",
-        message: detail && detail !== "[object Object]" ? detail : t("error.breaker_rating_failed"),
+        message: detail && detail !== "[object Object]" ? detail : t("error.monitoring_rating_failed"),
         persistent: false,
       });
-      this._restoreBreakerRow(uuid);
+      this._restoreRatingRow(uuid);
     });
   }
 
   /**
-   * Rebuild one member's Breaker row from the config in force now, which a
+   * Rebuild one member's rating row from the config in force now, which a
    * refresh may have replaced while the call was in flight. Left alone when the
    * user has typed again since, as that value is still to be sent, and when the
    * panel has closed or moved to another circuit.
    */
-  private _restoreBreakerRow(uuid: string): void {
+  private _restoreRatingRow(uuid: string): void {
     const cfg = this._config;
     const shadow = this.shadowRoot;
-    if (!cfg || !shadow || !this.hasAttribute("open") || cfg.panelMode || cfg.subDeviceMode || cfg.favoritesMode || !cfg.showBreakerRating) return;
-    if (this._debounceTimers[`breaker-${uuid}`]) return;
+    if (!cfg || !shadow || !this.hasAttribute("open") || cfg.panelMode || cfg.subDeviceMode || cfg.favoritesMode || !cfg.showMonitoring) return;
+    if (this._debounceTimers[`rating-${uuid}`]) return;
     const member = cfg.members?.find(m => m.uuid === uuid);
-    const row = [...shadow.querySelectorAll<HTMLElement>('[data-role="breaker-row"]')].find(r => r.dataset.uuid === uuid);
-    if (member && row) row.replaceWith(this._createBreakerRow(member, cfg));
+    const row = [...shadow.querySelectorAll<HTMLElement>('[data-role="rating-row"]')].find(r => r.dataset.uuid === uuid);
+    if (member && row) row.replaceWith(this._createRatingRow(member, cfg));
   }
 
   // ── Graph horizon section ──────────────────────────────────────────
@@ -1575,6 +1589,10 @@ class SpanSidePanel extends HTMLElement {
     judged.style.marginBottom = "8px";
     judged.textContent = this._judgedAgainstText(info);
     detailsWrap.appendChild(judged);
+
+    // The monitoring rating editor: above Global/Custom, shown in both modes, hidden with the details.
+    const ratingEditor = this._buildRatingEditor(cfg);
+    if (ratingEditor) detailsWrap.appendChild(ratingEditor);
 
     // Global / Custom radio
     const radioGroup = document.createElement("div");

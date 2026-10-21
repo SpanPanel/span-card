@@ -26,6 +26,15 @@ export interface SlotMember {
   readonly circuit: Circuit;
 }
 
+/**
+ * Whether a slot occupies more than one space (tab): a circuit whose own tabs span
+ * several, or members that sit in different ones. Tandem breakers sharing one space
+ * do not. A rating set on such a slot may be judged against the wrong leg.
+ */
+export function spansSeveralSpaces(members: readonly SlotMember[]): boolean {
+  return new Set(members.flatMap(member => member.circuit.tabs)).size > 1;
+}
+
 /** A slot's circuits, each with its id. */
 export function slotMembers(slot: MeterSlot): SlotMember[] {
   return slot.members.map((circuit, i) => ({ uuid: slot.memberIds[i]!, circuit }));
