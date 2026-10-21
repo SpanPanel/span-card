@@ -141,10 +141,12 @@ describe("the rating input", () => {
   });
 
   it("does not show the typed value as the rating in force", () => {
-    const { panel } = open(ONE);
+    const { panel } = open([{ uuid: "c-1", circuit: circuit("Oven", 30, 25, true) }]);
     type(input(rows(panel)[0]!), "50");
-    expect(panel.shadowRoot!.querySelector(".panel-header")?.textContent ?? "").not.toContain("50");
-    expect(rows(panel)[0]!.textContent).toContain("30 A");
+    const shown = panel.shadowRoot!.querySelector(".panel")!.textContent;
+    expect(shown).toContain("Oven");
+    expect(shown).not.toContain("50");
+    expect(panel.shadowRoot!.querySelector('[data-role="breaker-panel-rating"]')!.textContent).toBe("Panel: 30 A");
   });
 });
 
@@ -156,6 +158,17 @@ describe("the reset", () => {
     ]);
     expect(reset(rows(panel)[0]!)).toBeNull();
     expect(reset(rows(panel)[1]!)).not.toBeNull();
+  });
+
+  it("cancels a typed value still waiting out its debounce", () => {
+    const { panel, callWS } = open([{ uuid: "c-1", circuit: circuit("Oven", 30, 25, true) }]);
+    const el = input(rows(panel)[0]!);
+    el.value = "50";
+    el.dispatchEvent(new Event("input"));
+    reset(rows(panel)[0]!)!.click();
+    vi.advanceTimersByTime(600);
+    expect(callWS).toHaveBeenCalledTimes(1);
+    expect(callWS.mock.calls[0]![0]).toMatchObject({ service: "clear_circuit_breaker_rating" });
   });
 
   it("clears the correction of its own circuit", () => {

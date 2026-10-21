@@ -1329,6 +1329,8 @@ class SpanSidePanel extends HTMLElement {
       resetBtn.dataset.role = "breaker-reset";
       resetBtn.textContent = t("sidepanel.breaker_reset");
       resetBtn.addEventListener("click", () => {
+        // A typed value still waiting out its debounce would otherwise set the override again after this clear.
+        this._cancelDebounce(`breaker-${member.uuid}`);
         this._callBreakerService("clear_circuit_breaker_rating", { circuit_id: member.uuid }, cfg);
       });
       row.appendChild(resetBtn);
@@ -1724,6 +1726,13 @@ class SpanSidePanel extends HTMLElement {
   }
 
   // ── Debounce ────────────────────────────────────────────────────────
+
+  private _cancelDebounce(key: string): void {
+    if (this._debounceTimers[key]) {
+      clearTimeout(this._debounceTimers[key]);
+      delete this._debounceTimers[key];
+    }
+  }
 
   private _debounce(key: string, ms: number, fn: () => void): void {
     if (this._debounceTimers[key]) {
