@@ -3,6 +3,7 @@ import { escapeHtml } from "../helpers/sanitize.js";
 import { loadListColumns, saveListColumns } from "../helpers/list-columns.js";
 import { INTEGRATION_DOMAIN, SHEDDING_PRIORITIES, SELECTABLE_PRIORITY_KEYS, GRAPH_HORIZONS, DEFAULT_GRAPH_HORIZON, INPUT_DEBOUNCE_MS } from "../constants.js";
 import { t, tf } from "../i18n.js";
+import { errorText } from "../helpers/error-text.js";
 import { occupiedSpaces, slotRatingText, type SlotMember } from "../helpers/shared-meters.js";
 import { addFavorite, removeFavorite } from "./favorites-store.js";
 import { sortedCircuitsForSection } from "./favorites-sections.js";
@@ -63,6 +64,8 @@ export type CircuitModeConfig = CircuitControlFields & {
   capacityA: number | null;
   monitoringInfo: MonitoringPointInfo | null;
   showMonitoring?: boolean;
+  /** Dashboard-only: render the Breaker section, where a circuit's breaker rating is corrected. */
+  showBreakerRating?: boolean;
   graphHorizonInfo: GraphHorizonInfo;
   /** Dashboard-only: render the Favorite section on this side panel. */
   showFavorites?: boolean;
@@ -848,6 +851,9 @@ class SpanSidePanel extends HTMLElement {
       this._renderFavoriteSection(body, cfg);
     }
     this._renderSheddingSection(body, cfg);
+    if (cfg.showBreakerRating) {
+      this._renderBreakerSection(body, cfg);
+    }
     this._renderGraphHorizonSection(body, cfg);
     if (cfg.showMonitoring) {
       this._renderMonitoringSection(body, cfg);
@@ -1265,6 +1271,84 @@ class SpanSidePanel extends HTMLElement {
     // Once attached: happy-dom re-runs selectedness when the select is connected,
     // which would choose the first option over an unknown priority.
     this._applySheddingSelect(selectEl, cfg);
+  }
+
+  // ── Breaker rating section ──────────────────────────────────────────
+
+  private _renderBreakerSection(body: HTMLDivElement, cfg: CircuitModeConfig): void {
+    const rated = (cfg.members ?? []).filter(member => member.circuit.panel_breaker_rating_a != null);
+    if (rated.length === 0) return;
+
+    const section = document.createElement("div");
+    section.className = "section";
+    section.dataset.role = "breaker-section";
+    section.innerHTML = `<div class="section-label">${escapeHtml(t("sidepanel.breaker_rating"))}</div>`;
+    for (const member of rated) {
+      section.appendChild(this._createBreakerRow(member, cfg));
+    }
+    body.appendChild(section);
+  }
+
+  private _createBreakerRow(member: SlotMember, cfg: CircuitModeConfig): HTMLDivElement {
+    const row = document.createElement("div");
+    row.className = "field-row";
+    row.dataset.role = "breaker-row";
+
+    const labelEl = document.createElement("span");
+    labelEl.className = "field-label";
+    labelEl.textContent = member.circuit.name;
+
+    const panelEl = document.createElement("span");
+    panelEl.className = "field-label";
+    panelEl.dataset.role = "breaker-panel-rating";
+    panelEl.textContent = tf("sidepanel.breaker_panel_rating", { panel: String(member.circuit.panel_breaker_rating_a) });
+
+    const input = document.createElement("input");
+    input.type = "number";
+    input.min = "1";
+    input.step = "1";
+    input.value = member.circuit.breaker_rating_a ? String(member.circuit.breaker_rating_a) : "";
+    input.setAttribute("aria-label", member.circuit.name);
+    input.dataset.role = "breaker-input";
+
+    input.addEventListener("input", () => {
+      this._debounce(`breaker-${member.uuid}`, INPUT_DEBOUNCE_MS, () => {
+        const amps = input.valueAsNumber;
+        if (!Number.isFinite(amps) || amps < 1) return;
+        this._callBreakerService("set_circuit_breaker_rating", { circuit_id: member.uuid, breaker_rating_a: Math.round(amps) }, cfg);
+      });
+    });
+
+    row.appendChild(labelEl);
+    row.appendChild(panelEl);
+    row.appendChild(input);
+
+    if (member.circuit.breaker_rating_user_set === true) {
+      const resetBtn = document.createElement("button");
+      resetBtn.type = "button";
+      resetBtn.dataset.role = "breaker-reset";
+      resetBtn.textContent = t("sidepanel.breaker_reset");
+      resetBtn.addEventListener("click", () => {
+        this._callBreakerService("clear_circuit_breaker_rating", { circuit_id: member.uuid }, cfg);
+      });
+      row.appendChild(resetBtn);
+    }
+    return row;
+  }
+
+  /** Calls a breaker-rating service; a refusal shows the service's own message, else the generic one. */
+  private _callBreakerService(service: string, data: Record<string, unknown>, cfg: CircuitModeConfig): void {
+    const payload = cfg.configEntryId ? { ...data, config_entry_id: cfg.configEntryId } : data;
+    this._callDomainService(service, payload).catch((err: unknown) => {
+      console.warn("SPAN Panel: breaker rating update failed", err);
+      const detail = errorText(err);
+      this.errorStore?.add({
+        key: "service:breaker-rating",
+        level: "error",
+        message: detail && detail !== "[object Object]" ? detail : t("error.breaker_rating_failed"),
+        persistent: false,
+      });
+    });
   }
 
   // ── Graph horizon section ──────────────────────────────────────────
