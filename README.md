@@ -10,7 +10,7 @@ positions.
 - Two-column grid matching the physical panel layout (odd tabs left, even tabs right)
 - 240V circuits span both columns
 - Live power readings with utilization bar
-- Breaker rating badges
+- Breaker rating badges, marked where you have corrected the panel's rating
 - Relay on/off status indicators
 - Historical power/current charts per circuit
 - EVSE, BESS, Solar and solar inverter sub-device sections
@@ -83,6 +83,18 @@ Each solar inverter has a tile with its vendor and model, and the power and char
 with the site's total PV power in a **Site total** row beneath it; on a single-inverter site the two numbers are usually close. Where no single panel circuit
 feeds the Solar device's inverter, its headline is the site total, captioned **Site total**. An inverter that no panel circuit feeds shows its identity and that
 its output is included in the site total. The editor's Battery section now also offers Meter Power and Nameplate Capacity.
+
+### Breaker Rating
+
+Where the panel reports the wrong rating for a circuit, as it can for a tandem breaker, an administrator can correct it. Open a circuit's gear in the sidebar
+dashboard: its **Breaker Rating** section shows the panel's own rating and a field holding the rating in force. Type the rating that applies and it is saved
+after a short pause; **Reset to panel rating** returns to the panel's value. A circuit that shares a meter with others lists each member, so each can be
+corrected on its own. The section is not part of the Lovelace card or the list tabs, which show the corrected rating but do not edit it.
+
+A corrected rating carries a pencil mark wherever the card shows a rating, with a tooltip naming the panel's rating, for example "Set by you; panel: 20 A". The
+Monitoring tab has a Rating column, and a circuit's Monitoring section says what it is "Judged against", so you can see the rating that utilization and alerts
+use. A circuit with no rating shows "no rating". Every open view redraws when a rating changes, whether you changed it here, in another browser or from a
+service call, and a field you were typing in shows the rating the integration holds, not the value you typed.
 
 ### Finding Your Device ID
 

@@ -2,6 +2,7 @@ import { INTEGRATION_DOMAIN, INPUT_DEBOUNCE_MS, THRESHOLD_DEBOUNCE_MS } from "..
 import { escapeHtml } from "../helpers/sanitize.js";
 import { errorText } from "../helpers/error-text.js";
 import { t } from "../i18n.js";
+import { ratingLabelHTML } from "../helpers/breaker-rating.js";
 import type { ErrorStore } from "../core/error-store.js";
 import type { HomeAssistant, MonitoringPointInfo, MonitoringStatusResponse, CallServiceResponse } from "../types.js";
 
@@ -64,6 +65,20 @@ function thresholdCell(entityId: string, field: string, value: number | undefine
            value="${value ?? ""}" min="1" max="${field === "window_duration_m" || field === "cooldown_duration_m" ? 180 : 200}"
            style="${CELL_INPUT_STYLE}"><span style="font-size:0.75em;color:var(--secondary-text-color);">${unit}</span>
   </td>`;
+}
+
+/**
+ * The rating a point is judged against, with the user-set mark; "no rating" for a
+ * point with none, which the monitor skips. The mains has no override, so it is never marked.
+ */
+function ratingCell(info: MonitoringPointInfo, isMains: boolean): string {
+  const label = ratingLabelHTML({
+    amps: info.breaker_rating_a,
+    panelAmps: info.panel_breaker_rating_a,
+    userSet: !isMains && info.breaker_rating_user_set === true,
+  });
+  const content = label || `<span style="color:var(--secondary-text-color);">${escapeHtml(t("rating.none"))}</span>`;
+  return `<td class="rating-cell" style="padding:6px 4px;white-space:nowrap;">${content}</td>`;
 }
 
 export class MonitoringTab {
@@ -165,6 +180,7 @@ export class MonitoringTab {
                 <span>${name}</span>
               </label>
             </td>
+            ${ratingCell(info, false)}
             ${thresholdCell(eid, "continuous_threshold_pct", info.continuous_threshold_pct, "%", "circuit")}
             ${thresholdCell(eid, "spike_threshold_pct", info.spike_threshold_pct, "%", "circuit")}
             ${thresholdCell(eid, "window_duration_m", info.window_duration_m, "m", "circuit")}
@@ -201,6 +217,7 @@ export class MonitoringTab {
                 <span>${name}</span>
               </label>
             </td>
+            ${ratingCell(info, true)}
             ${thresholdCell(eid, "continuous_threshold_pct", info.continuous_threshold_pct, "%", "mains")}
             ${thresholdCell(eid, "spike_threshold_pct", info.spike_threshold_pct, "%", "mains")}
             ${thresholdCell(eid, "window_duration_m", info.window_duration_m, "m", "mains")}
@@ -391,6 +408,7 @@ export class MonitoringTab {
           <thead>
             <tr style="text-align:left;border-bottom:1px solid var(--divider-color);">
               <th style="padding:6px 8px;">${t("monitoring.col.name")}</th>
+              <th style="padding:6px 8px;">${t("monitoring.rating")}</th>
               <th style="padding:6px 8px;">${t("monitoring.col.continuous")}</th>
               <th style="padding:6px 8px;">${t("monitoring.col.spike")}</th>
               <th style="padding:6px 8px;">${t("monitoring.col.window")}</th>
@@ -400,7 +418,7 @@ export class MonitoringTab {
           </thead>
           <tbody>
             <tr style="border-bottom:1px solid var(--divider-color,#333);">
-              <td style="padding:6px 8px;" colspan="5">
+              <td style="padding:6px 8px;" colspan="6">
                 <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
                   <input type="checkbox" id="toggle-all-circuits"
                          ${allEnabled ? "checked" : ""}

@@ -3,6 +3,7 @@ import { escapeHtml } from "../helpers/sanitize.js";
 import { loadListColumns, saveListColumns } from "../helpers/list-columns.js";
 import { INTEGRATION_DOMAIN, SHEDDING_PRIORITIES, SELECTABLE_PRIORITY_KEYS, GRAPH_HORIZONS, DEFAULT_GRAPH_HORIZON, INPUT_DEBOUNCE_MS } from "../constants.js";
 import { t, tf } from "../i18n.js";
+import { ratingSentence } from "../helpers/breaker-rating.js";
 import { errorText } from "../helpers/error-text.js";
 import { occupiedSpaces, slotRatingText, type SlotMember } from "../helpers/shared-meters.js";
 import { addFavorite, removeFavorite } from "./favorites-store.js";
@@ -47,6 +48,13 @@ interface PanelModeConfig {
   favoriteSubDeviceIds?: Set<string>;
   /** Override config entry id used for cross-panel service routing (favorites). */
   configEntryId?: string | null;
+}
+
+/** What a rating change redraws in an open circuit side panel: the slot's members, its subtitle text, and the monitoring point it is judged as. */
+export interface CircuitRatingView {
+  members: readonly SlotMember[];
+  capacityA: number | null;
+  monitoringInfo: MonitoringPointInfo | null;
 }
 
 export type CircuitModeConfig = CircuitControlFields & {
@@ -402,6 +410,49 @@ class SpanSidePanel extends HTMLElement {
     // which sidebar variant is open (e.g. to defer tab re-renders while
     // a favorites-mode sidebar is live).
     this.setAttribute("data-mode", this._modeFor(config));
+  }
+
+  /** The circuit this side panel is open on, with the config entry its services target; null when closed or in another mode. */
+  get openCircuit(): { uuid: string; configEntryId: string | null } | null {
+    const cfg = this._config;
+    if (!cfg || !this.hasAttribute("open") || cfg.panelMode || cfg.subDeviceMode || cfg.favoritesMode) return null;
+    return { uuid: cfg.uuid, configEntryId: cfg.configEntryId ?? null };
+  }
+
+  /**
+   * Redraw what a rating change touches in the open circuit panel, from the
+   * integration's answer: the Breaker section (so its inputs show the effective
+   * rating, not what was typed, and the reset button follows the new state), the
+   * subtitle and the "judged against" line. Nothing else is rebuilt, so a threshold
+   * the user is typing keeps its value. A breaker value still waiting out its
+   * debounce is dropped with the input it came from.
+   */
+  refreshRating(view: CircuitRatingView): void {
+    const cfg = this._config;
+    const shadow = this.shadowRoot;
+    if (!cfg || !shadow || !this.hasAttribute("open") || cfg.panelMode || cfg.subDeviceMode || cfg.favoritesMode) return;
+
+    const next: CircuitModeConfig = { ...cfg, members: view.members, capacityA: view.capacityA, monitoringInfo: view.monitoringInfo };
+    this._config = next;
+
+    for (const key of Object.keys(this._debounceTimers)) {
+      if (key.startsWith("breaker-")) this._cancelDebounce(key);
+    }
+
+    const subtitle = shadow.querySelector(".subtitle");
+    if (subtitle) subtitle.textContent = this._circuitSubtitle(next);
+
+    if (next.showBreakerRating) {
+      const body = shadow.querySelector(".panel-body");
+      const current = shadow.querySelector('[data-role="breaker-section"]');
+      const section = this._buildBreakerSection(next);
+      if (current && section) current.replaceWith(section);
+      else if (current) current.remove();
+      else if (section && body) body.insertBefore(section, shadow.querySelector('[data-role="horizon-section"]'));
+    }
+
+    const judged = shadow.querySelector('[data-role="judged-against"]');
+    if (judged) judged.textContent = this._judgedAgainstText(next.monitoringInfo);
   }
 
   close(): void {
@@ -1276,8 +1327,14 @@ class SpanSidePanel extends HTMLElement {
   // ── Breaker rating section ──────────────────────────────────────────
 
   private _renderBreakerSection(body: HTMLDivElement, cfg: CircuitModeConfig): void {
+    const section = this._buildBreakerSection(cfg);
+    if (section) body.appendChild(section);
+  }
+
+  /** The Breaker section, or null when no member has a panel rating to correct. */
+  private _buildBreakerSection(cfg: CircuitModeConfig): HTMLDivElement | null {
     const rated = (cfg.members ?? []).filter(member => member.circuit.panel_breaker_rating_a != null);
-    if (rated.length === 0) return;
+    if (rated.length === 0) return null;
 
     const section = document.createElement("div");
     section.className = "section";
@@ -1286,7 +1343,7 @@ class SpanSidePanel extends HTMLElement {
     for (const member of rated) {
       section.appendChild(this._createBreakerRow(member, cfg));
     }
-    body.appendChild(section);
+    return section;
   }
 
   private _createBreakerRow(member: SlotMember, cfg: CircuitModeConfig): HTMLDivElement {
@@ -1358,6 +1415,7 @@ class SpanSidePanel extends HTMLElement {
   private _renderGraphHorizonSection(body: HTMLDivElement, cfg: CircuitModeConfig): void {
     const section = document.createElement("div");
     section.className = "section";
+    section.dataset.role = "horizon-section";
 
     const sectionLabel = document.createElement("div");
     sectionLabel.className = "section-label";
@@ -1448,6 +1506,12 @@ class SpanSidePanel extends HTMLElement {
 
   // ── Monitoring section ──────────────────────────────────────────────
 
+  /** "Judged against: 50 A, set by you (panel: 20 A)", or "no rating" when the point has none. */
+  private _judgedAgainstText(info: MonitoringPointInfo | null): string {
+    const rating = ratingSentence({ amps: info?.breaker_rating_a, panelAmps: info?.panel_breaker_rating_a, userSet: info?.breaker_rating_user_set });
+    return tf("sidepanel.judged_against", { rating });
+  }
+
   private _renderMonitoringSection(body: HTMLDivElement, cfg: CircuitModeConfig): void {
     const section = document.createElement("div");
     section.className = "section";
@@ -1479,6 +1543,14 @@ class SpanSidePanel extends HTMLElement {
     section.appendChild(detailsWrap);
 
     const hasCustom = info?.has_override === true;
+
+    // The rating the monitor judges this point against; textContent, so the text needs no escaping.
+    const judged = document.createElement("div");
+    judged.className = "field-label";
+    judged.dataset.role = "judged-against";
+    judged.style.marginBottom = "8px";
+    judged.textContent = this._judgedAgainstText(info);
+    detailsWrap.appendChild(judged);
 
     // Global / Custom radio
     const radioGroup = document.createElement("div");

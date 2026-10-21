@@ -14,6 +14,7 @@ import { ListViewController } from "../core/list-view-controller.js";
 import { buildTabBarHTML, bindTabBarEvents } from "../core/tab-bar-renderer.js";
 import { subscribeAreaUpdates } from "../core/area-resolver.js";
 import { subscribeEntryReloads } from "../core/entry-reload.js";
+import { subscribeBreakerRatingChanges } from "../core/rating-events.js";
 import { coalesceRuns, makeRenderToken } from "../panel/coalesce.js";
 import { ErrorStore } from "../core/error-store.js";
 import { discoverTopology, discoverEntitiesFallback, panelConfigEntryId } from "./card-discovery.js";
@@ -88,6 +89,7 @@ export class SpanPanelCard extends LitElement {
    */
   private _areaSub: Promise<() => void> | null = null;
   private _reloadSub: Promise<() => Promise<void>> | null = null;
+  private _ratingSub: Promise<() => void> | null = null;
   /** Set by first discovery; a refresh asks the same source. */
   private _topologySource: TopologySource | null = null;
   /** At most one re-fetch in flight, and at most one more after it. */
@@ -389,17 +391,45 @@ export class SpanPanelCard extends LitElement {
       console.warn("SPAN Panel: config entry subscription failed", err);
       return async () => {};
     });
+    // Only `panel_topology` carries a rating, and only an administrator can read it or hear this event.
+    const entryId = this._configEntryId;
+    if (this._topologySource === "panel_topology" && entryId) {
+      this._ratingSub = subscribeBreakerRatingChanges(this.hass, entryId, () => {
+        void this._onRatingChanged();
+      }).catch((err: unknown): (() => void) => {
+        console.warn("SPAN Panel: breaker rating subscription failed", err);
+        return () => {};
+      });
+    }
     this._watchPanelStatus();
+  }
+
+  /**
+   * A breaker rating changed on this panel: redraw from the integration's answer.
+   * The monitoring status is fetched first, so the re-render the coalesced topology
+   * refresh makes (a rating is part of the structure it compares) reads the new rating,
+   * then an open circuit panel has its rating-bearing parts rebuilt.
+   */
+  private async _onRatingChanged(): Promise<void> {
+    if (!this.hass || !this._discovered) return;
+    this._ctrl.monitoringCache.invalidate();
+    await this._ctrl.monitoringCache.fetch(this.hass, this._configEntryId);
+    await this._topologyRefresh();
+    const entryId = this._configEntryId;
+    if (this._topology && entryId) await this._ctrl.refreshCircuitSidePanel(this._root, entryId, this._topology);
   }
 
   /** The only teardown path: unsubscribe through each held promise, whenever it resolves. */
   private _detachSubscriptions(): void {
     const area = this._areaSub;
     const reload = this._reloadSub;
+    const rating = this._ratingSub;
     this._areaSub = null;
     this._reloadSub = null;
+    this._ratingSub = null;
     void area?.then(unsubscribe => unsubscribe());
     void reload?.then(unsubscribe => unsubscribe());
+    void rating?.then(unsubscribe => unsubscribe());
   }
 
   /** `watchPanelStatus` replaces the watch set wholesale and keeps `wasOffline`, so calling it again is safe. */

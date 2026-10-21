@@ -17,7 +17,7 @@ export interface HomeAssistant {
   callWS: <T = unknown>(msg: Record<string, unknown>) => Promise<T>;
   formatEntityState?: (entity: HassEntity) => string;
   connection?: {
-    subscribeEvents: (callback: () => void, event: string) => Promise<() => void>;
+    subscribeEvents: <T = unknown>(callback: (event: T) => void, event: string) => Promise<() => void>;
     /** home-assistant-js-websocket's: replays the subscription on reconnect, and the unsubscribe stays valid. */
     subscribeMessage: <T>(callback: (message: T) => void, subscribeMessage: Record<string, unknown>) => Promise<() => Promise<void>>;
   };

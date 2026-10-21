@@ -13,8 +13,18 @@ import { GraphSettingsCache } from "./graph-settings.js";
 import { groupFavoritesByPanel } from "./favorites-sections.js";
 import { switchPresence } from "./circuit-state.js";
 import type { FavoritesPanelInfo, FavoritesPanelGroup } from "./favorites-sections.js";
-import type { CircuitModeConfig, FavoritesPanelSection, SidePanelConfig } from "./side-panel.js";
-import type { CardConfig, FavoriteRef, GraphSettings, HistoryMap, HomeAssistant, MonitoringStatus, MonitoringStatusResponse, PanelTopology } from "../types.js";
+import type { CircuitModeConfig, CircuitRatingView, FavoritesPanelSection, SidePanelConfig } from "./side-panel.js";
+import type {
+  CardConfig,
+  Circuit,
+  FavoriteRef,
+  GraphSettings,
+  HistoryMap,
+  HomeAssistant,
+  MonitoringStatus,
+  MonitoringStatusResponse,
+  PanelTopology,
+} from "../types.js";
 import type { ErrorStore } from "./error-store.js";
 import { RetryManager } from "./retry-manager.js";
 import { t } from "../i18n.js";
@@ -30,6 +40,19 @@ interface SpanSidePanelElement extends HTMLElement {
   hass: HomeAssistant;
   errorStore: ErrorStore | null;
   open(config: SidePanelConfig): void;
+  readonly openCircuit: { uuid: string; configEntryId: string | null } | null;
+  refreshRating(view: CircuitRatingView): void;
+}
+
+/**
+ * What a circuit's side panel shows of the slot it is drawn in: every member, each with its own id, and for circuits
+ * that share a meter the group's capacity. A circuit in no slot stands alone as `circuitId`.
+ */
+function slotView(slot: MeterSlot | undefined, circuitId: string, circuit: Circuit): Pick<CircuitRatingView, "members" | "capacityA"> {
+  return {
+    members: slot ? slotMembers(slot) : [{ uuid: circuitId, circuit }],
+    capacityA: slot && slot.members.length > 1 ? (slot.circuit.breaker_rating_a ?? null) : null,
+  };
 }
 
 /**
@@ -523,8 +546,7 @@ export class DashboardController {
           uuid: realUuid,
           name: circuit.name,
           entities: circuit.entities,
-          members: slot ? slotMembers(slot) : [{ uuid: realUuid, circuit }],
-          capacityA: slot && slot.members.length > 1 ? (slot.circuit.breaker_rating_a ?? null) : null,
+          ...slotView(slot, realUuid, circuit),
           is_user_controllable: circuit.is_user_controllable,
           always_on: circuit.always_on,
           relay_state: circuit.relay_state,
@@ -591,6 +613,29 @@ export class DashboardController {
     const own = ref?.kind === "circuit" ? this._perPanelInfo.get(ref.panelDeviceId)?.topology : undefined;
     if (own && ref) return slotsByMember(meterSlots(own)).get(ref.targetId);
     return this._topology ? slotsByMember(meterSlots(this._topology)).get(uuid) : undefined;
+  }
+
+  /**
+   * Redraw the circuit side panel left open in `root` after a rating change on
+   * `entryId`, from `topology` (fetched after the change) and a monitoring status
+   * fetched uncached. Does nothing when no circuit panel is open, when it belongs to
+   * another entry, or when the circuit is no longer in the topology.
+   */
+  async refreshCircuitSidePanel(root: ParentNode, entryId: string, topology: PanelTopology): Promise<void> {
+    const sidePanel = root.querySelector("span-side-panel") as SpanSidePanelElement | null;
+    const open = sidePanel?.openCircuit;
+    if (!sidePanel || !open || open.configEntryId !== entryId) return;
+
+    // The open panel is keyed by the circuit's own id, and `topology` is its own panel's.
+    const circuit = topology.circuits[open.uuid];
+    if (!circuit) return;
+    const status = await this._fetchMonitoringStatusFresh(entryId);
+    // The panel may have been closed or reopened on another circuit while the status was fetched.
+    if (sidePanel.openCircuit?.uuid !== open.uuid) return;
+
+    const monitoringEntity = circuit.entities?.current ?? circuit.entities?.power;
+    const monitoringInfo = monitoringEntity ? (status?.circuits?.[monitoringEntity] ?? null) : null;
+    sidePanel.refreshRating({ ...slotView(slotsByMember(meterSlots(topology)).get(open.uuid), open.uuid, circuit), monitoringInfo });
   }
 
   /**
