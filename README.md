@@ -10,7 +10,7 @@ positions.
 - Two-column grid matching the physical panel layout (odd tabs left, even tabs right)
 - 240V circuits span both columns
 - Live power readings with utilization bar
-- Breaker rating badges, marked where you have corrected the panel's rating
+- Breaker rating badges, showing the panel's rating
 - Relay on/off status indicators
 - Historical power/current charts per circuit
 - EVSE, BESS, Solar and solar inverter sub-device sections
@@ -91,10 +91,11 @@ dashboard: its **Breaker Rating** section shows the panel's own rating and a fie
 after a short pause; **Reset to panel rating** returns to the panel's value. A circuit that shares a meter with others lists each member, so each can be
 corrected on its own. The section is not part of the Lovelace card or the list tabs, which show the corrected rating but do not edit it.
 
-A corrected rating carries a pencil mark wherever the card shows a rating, with a tooltip naming the panel's rating, for example "Set by you; panel: 20 A". The
-Monitoring tab has a Rating column, and a circuit's Monitoring section says what it is "Judged against", so you can see the rating that utilization and alerts
-use. A circuit with no rating shows "no rating". Every open view redraws when a rating changes, whether you changed it here, in another browser or from a
-service call, and a field you were typing in shows the rating the integration holds, not the value you typed.
+A rating you set carries a pencil mark wherever the card shows what monitoring judges against, with a tooltip naming the panel's rating, for example "Set by
+you; panel: 20 A". The Monitoring tab has a Rating column, and a circuit's Monitoring section says what it is "Judged against", so you can see the rating that
+utilization and alerts use. The breaker labels on the grid, list and side panel keep showing the panel's own rating. A circuit with no rating shows "no rating".
+Every open view redraws when a rating changes, whether you changed it here, in another browser or from a service call, and a field you were typing in shows the
+rating the integration holds, not the value you typed.
 
 ### Finding Your Device ID
 

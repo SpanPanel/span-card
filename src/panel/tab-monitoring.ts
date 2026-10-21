@@ -2,7 +2,7 @@ import { INTEGRATION_DOMAIN, INPUT_DEBOUNCE_MS, THRESHOLD_DEBOUNCE_MS } from "..
 import { escapeHtml } from "../helpers/sanitize.js";
 import { errorText } from "../helpers/error-text.js";
 import { t } from "../i18n.js";
-import { ratingLabelHTML } from "../helpers/breaker-rating.js";
+import { monitoringRatingView, ratingLabelHTML } from "../helpers/monitoring-rating.js";
 import type { ErrorStore } from "../core/error-store.js";
 import type { HomeAssistant, MonitoringPointInfo, MonitoringStatusResponse, CallServiceResponse } from "../types.js";
 
@@ -69,15 +69,11 @@ function thresholdCell(entityId: string, field: string, value: number | undefine
 
 /**
  * The rating a point is judged against, with the user-set mark; "no rating" for a
- * point with none, which the monitor skips. The mains has no override, so it is never marked.
+ * point with none, which the monitor skips. The mains reports it is never user-set.
  */
-function ratingCell(info: MonitoringPointInfo, isMains: boolean): string {
-  const label = ratingLabelHTML({
-    amps: info.breaker_rating_a,
-    panelAmps: info.panel_breaker_rating_a,
-    userSet: !isMains && info.breaker_rating_user_set === true,
-  });
-  const content = label || `<span style="color:var(--secondary-text-color);">${escapeHtml(t("rating.none"))}</span>`;
+function ratingCell(info: MonitoringPointInfo): string {
+  const label = ratingLabelHTML(monitoringRatingView(info));
+  const content = label || `<span style="color:var(--secondary-text-color);">${escapeHtml(t("monitoringRating.none"))}</span>`;
   return `<td class="rating-cell" style="padding:6px 4px;white-space:nowrap;">${content}</td>`;
 }
 
@@ -180,7 +176,7 @@ export class MonitoringTab {
                 <span>${name}</span>
               </label>
             </td>
-            ${ratingCell(info, false)}
+            ${ratingCell(info)}
             ${thresholdCell(eid, "continuous_threshold_pct", info.continuous_threshold_pct, "%", "circuit")}
             ${thresholdCell(eid, "spike_threshold_pct", info.spike_threshold_pct, "%", "circuit")}
             ${thresholdCell(eid, "window_duration_m", info.window_duration_m, "m", "circuit")}
@@ -217,7 +213,7 @@ export class MonitoringTab {
                 <span>${name}</span>
               </label>
             </td>
-            ${ratingCell(info, true)}
+            ${ratingCell(info)}
             ${thresholdCell(eid, "continuous_threshold_pct", info.continuous_threshold_pct, "%", "mains")}
             ${thresholdCell(eid, "spike_threshold_pct", info.spike_threshold_pct, "%", "mains")}
             ${thresholdCell(eid, "window_duration_m", info.window_duration_m, "m", "mains")}

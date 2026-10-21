@@ -14,7 +14,7 @@ import { ListViewController } from "../core/list-view-controller.js";
 import { buildTabBarHTML, bindTabBarEvents } from "../core/tab-bar-renderer.js";
 import { subscribeAreaUpdates } from "../core/area-resolver.js";
 import { subscribeEntryReloads } from "../core/entry-reload.js";
-import { subscribeBreakerRatingChanges } from "../core/rating-events.js";
+import { subscribeMonitoringRatingChanges } from "../core/rating-events.js";
 import { coalesceRuns, makeRenderToken } from "../panel/coalesce.js";
 import { ErrorStore } from "../core/error-store.js";
 import { discoverTopology, discoverEntitiesFallback, panelConfigEntryId } from "./card-discovery.js";
@@ -394,7 +394,7 @@ export class SpanPanelCard extends LitElement {
     // Only `panel_topology` carries a rating, and only an administrator can read it or hear this event.
     const entryId = this._configEntryId;
     if (this._topologySource === "panel_topology" && entryId) {
-      this._ratingSub = subscribeBreakerRatingChanges(this.hass, entryId, () => {
+      this._ratingSub = subscribeMonitoringRatingChanges(this.hass, entryId, () => {
         void this._onRatingChanged();
       }).catch((err: unknown): (() => void) => {
         console.warn("SPAN Panel: breaker rating subscription failed", err);

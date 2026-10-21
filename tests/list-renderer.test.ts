@@ -289,9 +289,9 @@ describe("a list row's breaker rating", () => {
     expect(badge(base).innerHTML).toBe("20A");
   });
 
-  it("carries the pencil naming the panel's rating when it is the user's", () => {
-    const el = badge({ ...base, breaker_rating_a: 50, panel_breaker_rating_a: 20, breaker_rating_user_set: true });
-    expect(el.firstChild!.textContent).toBe("50A");
-    expect(el.querySelector(".rating-user-set")!.getAttribute("title")).toBe("Set by you; panel: 20 A");
+  it("is still the panel's rating, unmarked, when the user sets a monitoring rating", () => {
+    const el = badge({ ...base, monitoring_rating_a: 50, monitoring_rating_user_set: true });
+    expect(el.innerHTML).toBe("20A");
+    expect(el.querySelector(".rating-user-set")).toBeNull();
   });
 });

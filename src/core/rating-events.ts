@@ -1,7 +1,7 @@
 import type { HomeAssistant } from "../types.js";
 
-/** The bus event the integration fires on every set, clear and reconcile that changes a breaker-rating correction. */
-export const BREAKER_RATING_CHANGED = "span_panel_breaker_rating_changed";
+/** The bus event the integration fires on every set, clear and reconcile that changes a monitoring rating. */
+export const MONITORING_RATING_CHANGED = "span_panel_monitoring_rating_changed";
 
 /** The config entry a rating event names, or null for an event that carries none. */
 function eventEntryId(event: unknown): string | null {
@@ -12,10 +12,10 @@ function eventEntryId(event: unknown): string | null {
 }
 
 /**
- * Call `onChange` whenever a breaker rating changes on the given config entry.
+ * Call `onChange` whenever a monitoring rating changes on the given config entry.
  *
  * Every card view reads ratings from a topology fetched on render, so without this
- * a correction made elsewhere (another browser, Developer Tools, a reconcile) would
+ * a monitoring rating made elsewhere (another browser, Developer Tools, a reconcile) would
  * leave it showing the old rating. An event for another entry is ignored: two panels
  * can publish the same circuit id, and each keeps its own corrections.
  *
@@ -23,10 +23,10 @@ function eventEntryId(event: unknown): string | null {
  * being admin-only; a caller whose topology came from the entity fallback should not
  * subscribe. Resolves to the unsubscribe function.
  */
-export async function subscribeBreakerRatingChanges(hass: HomeAssistant, configEntryId: string, onChange: () => void): Promise<() => void> {
+export async function subscribeMonitoringRatingChanges(hass: HomeAssistant, configEntryId: string, onChange: () => void): Promise<() => void> {
   const connection = hass.connection;
   if (!connection) return () => {};
   return connection.subscribeEvents<unknown>(event => {
     if (eventEntryId(event) === configEntryId) onChange();
-  }, BREAKER_RATING_CHANGED);
+  }, MONITORING_RATING_CHANGED);
 }

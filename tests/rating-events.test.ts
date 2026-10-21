@@ -11,7 +11,7 @@ vi.mock("../src/card/card-discovery.js", async importOriginal => ({
 import { discoverEntitiesFallback, discoverTopology } from "../src/card/card-discovery.js";
 import { DashboardController } from "../src/core/dashboard-controller.js";
 import { FavoritesController } from "../src/core/favorites-controller.js";
-import { BREAKER_RATING_CHANGED, subscribeBreakerRatingChanges } from "../src/core/rating-events.js";
+import { MONITORING_RATING_CHANGED, subscribeMonitoringRatingChanges } from "../src/core/rating-events.js";
 import { ErrorStore } from "../src/core/error-store.js";
 import { DashboardTab } from "../src/panel/tab-dashboard.js";
 import { MonitoringTab } from "../src/panel/tab-monitoring.js";
@@ -24,16 +24,24 @@ const mockDiscover = vi.mocked(discoverTopology);
 const mockFallback = vi.mocked(discoverEntitiesFallback);
 
 function ratingEvent(entryId: string, circuitIds: string[] = ["c-1"]): unknown {
-  return { event_type: BREAKER_RATING_CHANGED, data: { config_entry_id: entryId, circuit_ids: circuitIds } };
+  return { event_type: MONITORING_RATING_CHANGED, data: { config_entry_id: entryId, circuit_ids: circuitIds } };
 }
 
-describe("subscribeBreakerRatingChanges", () => {
+describe("subscribeMonitoringRatingChanges", () => {
+  it("listens for the integration's monitoring-rating event", async () => {
+    const connection = new FakeConnection();
+    await subscribeMonitoringRatingChanges(hassWith(connection), "entry-1", vi.fn());
+
+    expect(MONITORING_RATING_CHANGED).toBe("span_panel_monitoring_rating_changed");
+    expect(connection.live("span_panel_monitoring_rating_changed")).toBe(1);
+  });
+
   it("calls back for an event on its own entry", async () => {
     const connection = new FakeConnection();
     const onChange = vi.fn();
-    await subscribeBreakerRatingChanges(hassWith(connection), "entry-1", onChange);
+    await subscribeMonitoringRatingChanges(hassWith(connection), "entry-1", onChange);
 
-    connection.emit(BREAKER_RATING_CHANGED, ratingEvent("entry-1"));
+    connection.emit(MONITORING_RATING_CHANGED, ratingEvent("entry-1"));
 
     expect(onChange).toHaveBeenCalledTimes(1);
   });
@@ -41,9 +49,9 @@ describe("subscribeBreakerRatingChanges", () => {
   it("ignores an event for another entry, even for the same circuit id", async () => {
     const connection = new FakeConnection();
     const onChange = vi.fn();
-    await subscribeBreakerRatingChanges(hassWith(connection), "entry-1", onChange);
+    await subscribeMonitoringRatingChanges(hassWith(connection), "entry-1", onChange);
 
-    connection.emit(BREAKER_RATING_CHANGED, ratingEvent("entry-2", ["c-1"]));
+    connection.emit(MONITORING_RATING_CHANGED, ratingEvent("entry-2", ["c-1"]));
 
     expect(onChange).not.toHaveBeenCalled();
   });
@@ -53,9 +61,9 @@ describe("subscribeBreakerRatingChanges", () => {
     async event => {
       const connection = new FakeConnection();
       const onChange = vi.fn();
-      await subscribeBreakerRatingChanges(hassWith(connection), "entry-1", onChange);
+      await subscribeMonitoringRatingChanges(hassWith(connection), "entry-1", onChange);
 
-      connection.emit(BREAKER_RATING_CHANGED, event);
+      connection.emit(MONITORING_RATING_CHANGED, event);
 
       expect(onChange).not.toHaveBeenCalled();
     }
@@ -64,19 +72,19 @@ describe("subscribeBreakerRatingChanges", () => {
   it("stops calling back once unsubscribed", async () => {
     const connection = new FakeConnection();
     const onChange = vi.fn();
-    const unsubscribe = await subscribeBreakerRatingChanges(hassWith(connection), "entry-1", onChange);
-    expect(connection.live(BREAKER_RATING_CHANGED)).toBe(1);
+    const unsubscribe = await subscribeMonitoringRatingChanges(hassWith(connection), "entry-1", onChange);
+    expect(connection.live(MONITORING_RATING_CHANGED)).toBe(1);
 
     unsubscribe();
 
-    expect(connection.live(BREAKER_RATING_CHANGED)).toBe(0);
-    connection.emit(BREAKER_RATING_CHANGED, ratingEvent("entry-1"));
+    expect(connection.live(MONITORING_RATING_CHANGED)).toBe(0);
+    connection.emit(MONITORING_RATING_CHANGED, ratingEvent("entry-1"));
     expect(onChange).not.toHaveBeenCalled();
   });
 
   it("subscribes to nothing, and returns a no-op, without a connection", async () => {
     const hass = { states: {}, services: {}, language: "en" } as unknown as HomeAssistant;
-    const unsubscribe = await subscribeBreakerRatingChanges(hass, "entry-1", vi.fn());
+    const unsubscribe = await subscribeMonitoringRatingChanges(hass, "entry-1", vi.fn());
     expect(() => unsubscribe()).not.toThrow();
   });
 });
@@ -98,9 +106,9 @@ function circuit(panel: number | null, effective: number | null, userSet = false
     tabs: [1],
     entities: { power: "sensor.oven_power" },
     voltage: 240,
-    breaker_rating_a: effective,
-    panel_breaker_rating_a: panel,
-    breaker_rating_user_set: userSet,
+    breaker_rating_a: panel,
+    monitoring_rating_a: effective,
+    monitoring_rating_user_set: userSet,
   };
 }
 
@@ -116,8 +124,8 @@ function monitoringFor(c: Circuit): Record<string, unknown> {
         "sensor.oven_power": {
           name: "Oven",
           breaker_rating_a: c.breaker_rating_a,
-          panel_breaker_rating_a: c.panel_breaker_rating_a,
-          breaker_rating_user_set: c.breaker_rating_user_set,
+          monitoring_rating_a: c.monitoring_rating_a,
+          monitoring_rating_user_set: c.monitoring_rating_user_set,
           monitoring_enabled: true,
         },
       },
@@ -195,7 +203,8 @@ describe("refreshCircuitSidePanel", () => {
     expect(reset(open.panel)).not.toBeNull();
     expect(open.panel.shadowRoot!.querySelector('[data-role="breaker-panel-rating"]')!.textContent).toContain("20");
     expect(judged(open.panel)).toBe("Judged against: 50 A, set by you (panel: 20 A)");
-    expect(open.panel.shadowRoot!.querySelector(".subtitle")!.textContent).toContain("50 A, set by you (panel: 20 A)");
+    // The subtitle is the panel's rating, which a monitoring rating does not change.
+    expect(open.panel.shadowRoot!.querySelector(".subtitle")!.textContent).toBe("20A \u00b7 240V \u00b7 Tabs [1]");
   });
 
   it("drops the reset button when a clear returns the circuit to the panel's rating", async () => {
@@ -266,8 +275,8 @@ describe("the Monitoring tab's rating cell", () => {
 
   it("heads the column and shows a rating per row", async () => {
     const container = await render({
-      circuits: { "sensor.a": { name: "Oven", breaker_rating_a: 30, panel_breaker_rating_a: 30, breaker_rating_user_set: false } },
-      mains: { "sensor.m": { name: "Mains L1", breaker_rating_a: 200, panel_breaker_rating_a: 200, breaker_rating_user_set: false } },
+      circuits: { "sensor.a": { name: "Oven", breaker_rating_a: 30, monitoring_rating_a: 30, monitoring_rating_user_set: false } },
+      mains: { "sensor.m": { name: "Mains L1", breaker_rating_a: 200, monitoring_rating_a: 200, monitoring_rating_user_set: false } },
     });
 
     expect(container.querySelector("thead")!.textContent).toContain("Rating");
@@ -276,8 +285,8 @@ describe("the Monitoring tab's rating cell", () => {
 
   it("marks a user-set rating, naming the panel's, and leaves the mains unmarked", async () => {
     const container = await render({
-      circuits: { "sensor.a": { name: "Oven", breaker_rating_a: 50, panel_breaker_rating_a: 20, breaker_rating_user_set: true } },
-      mains: { "sensor.m": { name: "Mains L1", breaker_rating_a: 200, panel_breaker_rating_a: 200, breaker_rating_user_set: false } },
+      circuits: { "sensor.a": { name: "Oven", breaker_rating_a: 20, monitoring_rating_a: 50, monitoring_rating_user_set: true } },
+      mains: { "sensor.m": { name: "Mains L1", breaker_rating_a: 200, monitoring_rating_a: 200, monitoring_rating_user_set: false } },
     });
     const [mains, oven] = cells(container);
 
@@ -287,13 +296,13 @@ describe("the Monitoring tab's rating cell", () => {
   });
 
   it("says there is no rating for a point with none", async () => {
-    const container = await render({ circuits: { "sensor.a": { name: "Meter", breaker_rating_a: null, panel_breaker_rating_a: null } } });
+    const container = await render({ circuits: { "sensor.a": { name: "Meter", breaker_rating_a: null, monitoring_rating_a: null } } });
 
     expect(cells(container).map(c => c.textContent)).toEqual(["no rating"]);
   });
 
   it("escapes a hostile point name beside the new cell", async () => {
-    const container = await render({ circuits: { "sensor.a": { name: "<img src=x>", breaker_rating_a: 15 } } });
+    const container = await render({ circuits: { "sensor.a": { name: "<img src=x>", breaker_rating_a: 15, monitoring_rating_a: 15 } } });
 
     expect(container.querySelector("img")).toBeNull();
     expect(cells(container)).toHaveLength(1);
@@ -358,12 +367,14 @@ describe("the standalone card", () => {
     const status = monitoringCalls;
     mockDiscover.mockImplementation(async () => ({ topology: cardTopology(circuit(20, 50, true)), panelDevice: null, panelSize: 32 }));
 
-    connection.emit(BREAKER_RATING_CHANGED, ratingEvent(ENTRY, ["oven"]));
+    connection.emit(MONITORING_RATING_CHANGED, ratingEvent(ENTRY, ["oven"]));
 
-    await vi.waitFor(() => expect(card.shadowRoot!.querySelector(".rating-user-set")).not.toBeNull());
-    expect(card.shadowRoot!.textContent).toContain("50A");
-    expect(mockDiscover.mock.calls.length).toBeGreaterThan(fetches);
-    expect(monitoringCalls).toBeGreaterThan(status);
+    await vi.waitFor(() => expect(mockDiscover.mock.calls.length).toBeGreaterThan(fetches));
+    await vi.waitFor(() => expect(monitoringCalls).toBeGreaterThan(status));
+    // The grid's label is the panel's rating, unmarked, whatever the user sets for monitoring.
+    expect(card.shadowRoot!.textContent).toContain("20A");
+    expect(card.shadowRoot!.textContent).not.toContain("50A");
+    expect(card.shadowRoot!.querySelector(".rating-user-set")).toBeNull();
   });
 
   it("does nothing on an event for another entry", async () => {
@@ -372,7 +383,7 @@ describe("the standalone card", () => {
     const fetches = mockDiscover.mock.calls.length;
     const status = monitoringCalls;
 
-    connection.emit(BREAKER_RATING_CHANGED, ratingEvent("entry-2", ["oven"]));
+    connection.emit(MONITORING_RATING_CHANGED, ratingEvent("entry-2", ["oven"]));
     await flush();
 
     expect(mockDiscover.mock.calls.length).toBe(fetches);
@@ -383,15 +394,15 @@ describe("the standalone card", () => {
   it("unsubscribes when it is detached, and subscribes again on re-attach", async () => {
     const connection = new FakeConnection();
     const card = await mount(connection);
-    expect(connection.live(BREAKER_RATING_CHANGED)).toBe(1);
+    expect(connection.live(MONITORING_RATING_CHANGED)).toBe(1);
 
     card.remove();
     await flush();
-    expect(connection.live(BREAKER_RATING_CHANGED)).toBe(0);
+    expect(connection.live(MONITORING_RATING_CHANGED)).toBe(0);
 
     document.body.appendChild(card);
     await flush();
-    expect(connection.live(BREAKER_RATING_CHANGED)).toBe(1);
+    expect(connection.live(MONITORING_RATING_CHANGED)).toBe(1);
   });
 
   it("does not subscribe when its topology came from the entity fallback", async () => {
@@ -401,7 +412,7 @@ describe("the standalone card", () => {
 
     await mount(connection);
 
-    expect(connection.subscriptions.filter(s => s.key === BREAKER_RATING_CHANGED)).toHaveLength(0);
+    expect(connection.subscriptions.filter(s => s.key === MONITORING_RATING_CHANGED)).toHaveLength(0);
   });
 });
 
@@ -469,14 +480,14 @@ describe("the sidebar dashboard", () => {
     const connection = new FakeConnection();
     await mount(connection);
 
-    expect(connection.live(BREAKER_RATING_CHANGED)).toBe(2);
+    expect(connection.live(MONITORING_RATING_CHANGED)).toBe(2);
   });
 
   it("subscribes nothing for a non-administrator", async () => {
     const connection = new FakeConnection();
     await mount(connection, false);
 
-    expect(connection.subscriptions.filter(s => s.key === BREAKER_RATING_CHANGED)).toHaveLength(0);
+    expect(connection.subscriptions.filter(s => s.key === MONITORING_RATING_CHANGED)).toHaveLength(0);
   });
 
   it("re-renders the shown panel, with fresh monitoring, on an event for its entry", async () => {
@@ -485,7 +496,7 @@ describe("the sidebar dashboard", () => {
     const renders = render.mock.calls.length;
     rendered = topologyOf(circuit(20, 50, true));
 
-    connection.emit(BREAKER_RATING_CHANGED, ratingEvent("entry-1"));
+    connection.emit(MONITORING_RATING_CHANGED, ratingEvent("entry-1"));
 
     await vi.waitFor(() => expect(render.mock.calls.length).toBeGreaterThan(renders));
     expect(invalidate).toHaveBeenCalled();
@@ -503,7 +514,7 @@ describe("the sidebar dashboard", () => {
 
     status = circuit(20, 50, true);
     rendered = topologyOf(status);
-    connection.emit(BREAKER_RATING_CHANGED, ratingEvent("entry-1"));
+    connection.emit(MONITORING_RATING_CHANGED, ratingEvent("entry-1"));
 
     await vi.waitFor(() => expect(cell()?.querySelector(".rating-user-set")).not.toBeNull());
     expect(cell()!.textContent).toContain("50A");
@@ -523,14 +534,15 @@ describe("the sidebar dashboard", () => {
       content().querySelector("span-side-panel") as HTMLElement & { readonly openCircuit: { uuid: string } | null };
     await vi.waitFor(() => expect(side().openCircuit?.uuid).toBe("c-1"));
     const subtitle = (): string | null | undefined => side().shadowRoot!.querySelector(".subtitle")?.textContent;
-    expect(subtitle()).not.toContain("set by you");
+    expect(subtitle()).toBe("20A \u00b7 240V \u00b7 Tabs [1]");
 
     status = circuit(20, 50, true);
     rendered = topologyOf(status);
-    connection.emit(BREAKER_RATING_CHANGED, ratingEvent("entry-1"));
+    connection.emit(MONITORING_RATING_CHANGED, ratingEvent("entry-1"));
 
-    await vi.waitFor(() => expect(subtitle()).toContain("50 A, set by you (panel: 20 A)"));
-    expect(refreshList).toHaveBeenCalledWith(content(), "entry-1", rendered);
+    await vi.waitFor(() => expect(refreshList).toHaveBeenCalledWith(content(), "entry-1", rendered));
+    // The subtitle is the panel's rating, which a monitoring rating does not change.
+    expect(subtitle()).toBe("20A \u00b7 240V \u00b7 Tabs [1]");
     expect(refreshSidePanel).not.toHaveBeenCalled();
     expect(side().openCircuit?.uuid).toBe("c-1");
   });
@@ -552,7 +564,7 @@ describe("the sidebar dashboard", () => {
     await flush();
     rendered = topologyOf(circuit(20, 50, true));
 
-    connection.emit(BREAKER_RATING_CHANGED, ratingEvent("entry-1"));
+    connection.emit(MONITORING_RATING_CHANGED, ratingEvent("entry-1"));
 
     await vi.waitFor(() => expect(refreshList).toHaveBeenCalledWith(panel.shadowRoot!.getElementById("tab-content"), "entry-1", rendered));
     expect(refreshSidePanel).not.toHaveBeenCalled();
@@ -565,7 +577,7 @@ describe("the sidebar dashboard", () => {
     const fetches = mockDiscover.mock.calls.length;
     rendered = topologyOf(circuit(20, 50, true));
 
-    connection.emit(BREAKER_RATING_CHANGED, ratingEvent("entry-2"));
+    connection.emit(MONITORING_RATING_CHANGED, ratingEvent("entry-2"));
     await flush();
 
     expect(render.mock.calls.length).toBe(renders);
@@ -579,7 +591,7 @@ describe("the sidebar dashboard", () => {
     const renders = render.mock.calls.length;
     const fetches = mockDiscover.mock.calls.length;
 
-    connection.emit(BREAKER_RATING_CHANGED, ratingEvent("entry-1"));
+    connection.emit(MONITORING_RATING_CHANGED, ratingEvent("entry-1"));
     // The handler ran: it dropped the cache and re-fetched the topology, found it unchanged.
     await vi.waitFor(() => expect(mockDiscover.mock.calls.length).toBeGreaterThan(fetches));
     expect(invalidate).toHaveBeenCalled();
@@ -597,7 +609,7 @@ describe("the sidebar dashboard", () => {
     const gates: Array<(t: PanelTopology) => void> = [];
     mockDiscover.mockImplementation(() => new Promise(resolve => gates.push(topology => resolve({ topology, panelDevice: null, panelSize: 32 }))));
 
-    for (let i = 0; i < 5; i += 1) connection.emit(BREAKER_RATING_CHANGED, ratingEvent("entry-1"));
+    for (let i = 0; i < 5; i += 1) connection.emit(MONITORING_RATING_CHANGED, ratingEvent("entry-1"));
     await flush();
     expect(mockDiscover.mock.calls.length).toBe(fetches + 1);
 
@@ -636,7 +648,7 @@ describe("the sidebar dashboard", () => {
     await flush();
     await flush();
 
-    expect(connection.live(BREAKER_RATING_CHANGED)).toBe(0);
+    expect(connection.live(MONITORING_RATING_CHANGED)).toBe(0);
   });
 
   it("unsubscribes from every entry when detached", async () => {
@@ -646,6 +658,6 @@ describe("the sidebar dashboard", () => {
     panel.remove();
     await flush();
 
-    expect(connection.live(BREAKER_RATING_CHANGED)).toBe(0);
+    expect(connection.live(MONITORING_RATING_CHANGED)).toBe(0);
   });
 });

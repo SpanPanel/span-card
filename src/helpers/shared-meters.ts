@@ -1,5 +1,4 @@
 import type { Circuit, PanelTopology } from "../types.js";
-import { ratingLabelHTML, ratingMarkHTML, userSetSentence, type RatingView } from "./breaker-rating.js";
 
 /**
  * What one breaker slot draws: a circuit of its own, or the circuits that share
@@ -10,8 +9,9 @@ export interface MeterSlot {
   /** The circuit the slot reads and switches through: the group's key when that is a member, else its first. */
   readonly uuid: string;
   /**
-   * That circuit, carrying the group's rating as the integration reports it in `shared_meter_groups`, which is what
-   * the group is judged against, and every space its members occupy, which is where the group is drawn.
+   * That circuit, carrying the group's panel rating as the integration reports it in `shared_meter_groups` and its
+   * combined monitoring rating, the monitoring one being what the group is judged against, and every space its members
+   * occupy, which is where the group is drawn.
    */
   readonly circuit: Circuit;
   /** Every circuit drawn in the slot, in topology order. */
@@ -37,12 +37,14 @@ export function slotsByMember(slots: readonly MeterSlot[]): Map<string, MeterSlo
 }
 
 /**
- * A circuit as current monitoring judges it: itself, carrying the rating of the slot it is drawn in, which for a
- * member of a shared meter is the group's capacity, since every member reads the one meter. Its name, spaces and
+ * A circuit as current monitoring judges it: itself, carrying the ratings of the slot it is drawn in, which for a
+ * member of a shared meter are the group's capacities, since every member reads the one meter. Its name, spaces and
  * entities stay its own. A circuit with no slot is judged as it is.
  */
 export function judgedAs(circuit: Circuit, slot: MeterSlot | undefined): Circuit {
-  return slot ? { ...circuit, breaker_rating_a: slot.circuit.breaker_rating_a } : circuit;
+  if (!slot) return circuit;
+  const { breaker_rating_a, monitoring_rating_a, monitoring_rating_user_set } = slot.circuit;
+  return { ...circuit, breaker_rating_a, monitoring_rating_a, monitoring_rating_user_set };
 }
 
 /**
@@ -74,7 +76,18 @@ export function meterSlots(topology: Pick<PanelTopology, "circuits" | "shared_me
       const rated = topology.shared_meter_groups?.[key];
       slots.push({
         uuid: throughId,
-        circuit: { ...through, tabs: occupiedSpaces(members), breaker_rating_a: rated ? rated.breaker_rating_a : combinedRating(members) },
+        circuit: {
+          ...through,
+          tabs: occupiedSpaces(members),
+          breaker_rating_a: rated ? rated.breaker_rating_a : combinedRating(members),
+          // Only where the members carry one: an integration that predates monitoring ratings gives none to combine.
+          ...(members.some(member => member.monitoring_rating_a !== undefined)
+            ? {
+                monitoring_rating_a: combinedMonitoringRating(members),
+                monitoring_rating_user_set: members.some(member => member.monitoring_rating_user_set === true),
+              }
+            : {}),
+        },
         members,
         memberIds: group.map(([id]) => id),
       });
@@ -99,7 +112,8 @@ function slotAmpsText(members: readonly Circuit[]): string {
 
 /**
  * A slot's breaker label as the grid and list draw it: "20A" for a circuit alone, "15·10 A" for circuits that
- * share a meter. It is each breaker's own rating, never the group's capacity; empty while any rating is unknown.
+ * share a meter. It is each breaker's own rating as the panel publishes it, never the group's capacity nor a
+ * monitoring rating; empty while any rating is unknown.
  */
 export function slotRatingLabel(members: readonly Circuit[]): string {
   const text = slotAmpsText(members);
@@ -120,41 +134,21 @@ function combinedRating(members: readonly Circuit[]): number | null {
   return total;
 }
 
-/** The panel's own ratings summed, or null while any member's is unpublished. */
-function combinedPanelRating(members: readonly Circuit[]): number | null {
+/** The members' monitoring ratings summed, which is what a group is judged against; null while any member has none. */
+function combinedMonitoringRating(members: readonly Circuit[]): number | null {
   let total = 0;
   for (const member of members) {
-    if (!member.panel_breaker_rating_a) return null;
-    total += member.panel_breaker_rating_a;
+    if (!member.monitoring_rating_a) return null;
+    total += member.monitoring_rating_a;
   }
   return total;
 }
 
-/** A slot's rating as one view: the combined rating, marked when any member's is the user's. */
-export function slotRatingView(members: readonly Circuit[]): RatingView {
-  return {
-    amps: combinedRating(members),
-    panelAmps: combinedPanelRating(members),
-    userSet: members.some(member => member.breaker_rating_user_set === true),
-  };
-}
-
-/**
- * A slot's rating as the grid and list draw it: "20A" for a circuit alone, "15·10 A" for circuits that share a meter,
- * with the user-set pencil after it when any member's rating is the user's. Empty while any rating is unknown.
- */
-export function slotRatingLabelHTML(members: readonly Circuit[]): string {
-  const view = slotRatingView(members);
-  if (members.length === 1) return ratingLabelHTML({ ...view, amps: view.amps ? Math.round(view.amps) : view.amps });
-  const text = slotAmpsText(members);
-  return text ? `${text} A${view.userSet ? ratingMarkHTML(view.panelAmps) : ""}` : "";
-}
-
-/** The same label as plain text, for the side panel's subtitle: the user-set form names the panel's rating. */
+/** The same label for the side panel's subtitle: a circuit alone reads its rating as published. */
 export function slotRatingText(members: readonly Circuit[]): string {
-  const view = slotRatingView(members);
-  const text = slotAmpsText(members);
-  if (!text) return "";
-  if (view.userSet) return userSetSentence(text, view.panelAmps);
-  return members.length === 1 ? `${text}A` : `${text} A`;
+  if (members.length === 1) {
+    const amps = members[0]!.breaker_rating_a;
+    return amps ? `${amps}A` : "";
+  }
+  return slotRatingLabel(members);
 }

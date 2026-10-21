@@ -7,6 +7,7 @@ import { getHistoryDurationMs, getHorizonDurationMs } from "../helpers/history.j
 import { updateChart } from "../chart/chart-update.js";
 import { attrSelectorValue } from "../helpers/selector.js";
 import { measuresOutsidePanel } from "../helpers/layout.js";
+import { judgedRatingA } from "../helpers/monitoring-rating.js";
 import { judgedAs, meterSlots, slotMembers } from "../helpers/shared-meters.js";
 import { circuitCurrentA, circuitPowerW, drawsAsOn, isGeneration, readsAsProducer, shedPriorityKey, switchPresence } from "./circuit-state.js";
 import { applySheddingIcon, applyTogglePill } from "./circuit-controls.js";
@@ -227,7 +228,7 @@ function updateCircuitSlot(slot: Element, uuid: string, circuit: Circuit, contex
     const circuitDuration = horizonMap?.has(uuid) ? getHorizonDurationMs(horizonMap.get(uuid)!) : defaultDurationMs;
     const useLinear = isGeneration(circuit);
     // Limit lines at the point's own thresholds of the rating it is judged against.
-    const ratingA = circuit.breaker_rating_a;
+    const ratingA = judgedRatingA(circuit);
     const limit = ratingA ? { ratingA, ...pointThresholds(circuitMonitoringInfo(monitoringStatus, circuit)) } : undefined;
     updateChart(chartContainer, hass, history, circuitDuration, chartMetric, isProducer, h, limit, useLinear);
   }

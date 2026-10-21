@@ -3,7 +3,7 @@ import { formatCircuitCurrentHTML, formatCircuitPowerHTML } from "../helpers/for
 import { t } from "../i18n.js";
 import { tabToRow, tabToCol, classifyDualTab, measuresOutsidePanel, type PositionRange } from "../helpers/layout.js";
 import { getChartMetric } from "../helpers/chart.js";
-import { meterSlots, slotRatingLabelHTML } from "../helpers/shared-meters.js";
+import { meterSlots, slotRatingLabel } from "../helpers/shared-meters.js";
 import { getCircuitMonitoringInfo, utilizationClass } from "./monitoring-status.js";
 import {
   circuitCurrentA,
@@ -182,7 +182,7 @@ export function renderCircuitSlot(
   const presence = switchPresence(circuit, hass);
 
   const shared = members.length > 1;
-  const breakerLabel = slotRatingLabelHTML(members);
+  const breakerLabel = slotRatingLabel(members);
   const name = escapeHtml(members.map(member => member.name || t("grid.unknown")).join(" · "));
 
   const showCurrent = getChartMetric(config).entityRole === "current";

@@ -3,7 +3,7 @@ import { formatCircuitCurrentHTML, formatCircuitPowerHTML } from "../helpers/for
 import { t } from "../i18n.js";
 import { getChartMetric } from "../helpers/chart.js";
 import { measuresOutsidePanel } from "../helpers/layout.js";
-import { slotRatingLabelHTML } from "../helpers/shared-meters.js";
+import { slotRatingLabel } from "../helpers/shared-meters.js";
 import { circuitCurrentA, circuitPowerW, circuitUtilizationPct, drawsAsOn, getCircuitStateClasses, readsAsProducer, switchPresence } from "./circuit-state.js";
 import { buildSheddingIconHTML, buildTogglePillHTML } from "./circuit-controls.js";
 import { utilizationClass } from "./monitoring-status.js";
@@ -52,12 +52,12 @@ export function buildListRowHTML(
   monitoringInfo: MonitoringPointInfo | null,
   sheddingPriority: string,
   isExpanded: boolean,
-  judged: Pick<Circuit, "entities" | "breaker_rating_a">
+  judged: Pick<Circuit, "entities" | "breaker_rating_a" | "monitoring_rating_a">
 ): string {
   const isOn = drawsAsOn(circuit, hass);
   const presence = switchPresence(circuit, hass);
 
-  const breakerLabel = slotRatingLabelHTML([circuit]);
+  const breakerLabel = slotRatingLabel([circuit]);
   const name = escapeHtml(circuit.name || t("grid.unknown"));
 
   // Power / current value

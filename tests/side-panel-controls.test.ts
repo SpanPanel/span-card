@@ -109,16 +109,16 @@ describe("the side panel's relay switch", () => {
 });
 
 describe("the side panel's subtitle", () => {
-  it("shows the slot's rating text, plain or naming the panel's rating", () => {
-    const userSet = { ...KITCHEN, breaker_rating_a: 50, panel_breaker_rating_a: 20, breaker_rating_user_set: true };
+  it("shows the panel's ratings, unmarked, whatever monitoring judges against", () => {
+    const userSet = { ...KITCHEN, monitoring_rating_a: 50, monitoring_rating_user_set: true };
     const pair = [
-      { ...KITCHEN, breaker_rating_a: 15, panel_breaker_rating_a: 15, breaker_rating_user_set: false },
-      { ...KITCHEN, name: "Kitchen 2", breaker_rating_a: 10, panel_breaker_rating_a: 10, breaker_rating_user_set: true },
+      { ...KITCHEN, breaker_rating_a: 15, monitoring_rating_a: 15, monitoring_rating_user_set: false },
+      { ...KITCHEN, name: "Kitchen 2", breaker_rating_a: 10, monitoring_rating_a: 25, monitoring_rating_user_set: true },
     ];
     const cases: [readonly Circuit[], string][] = [
       [[KITCHEN], "20A"],
-      [[userSet], "50 A, set by you (panel: 20 A)"],
-      [pair, "15·10 A, set by you (panel: 25 A)"],
+      [[userSet], "20A"],
+      [pair, "15·10 A"],
     ];
     for (const [slot, text] of cases) {
       const panel = openFor({ [SWITCH]: "on", [SELECT]: "never" }, undefined, undefined, slot);

@@ -48,6 +48,20 @@ const CAPTURES: Capture[] = [
   { stem: "r202639-e", topology: eTopology as PanelTopology, entities: eEntities },
 ];
 
+/**
+ * The topology as the integration answers now. The captures predate the monitoring rating, so each
+ * circuit is given what the integration reports when the user has set nothing: it judges against the
+ * panel's own rating. Nothing else in the capture is touched.
+ */
+function withMonitoringRatings(topology: PanelTopology): PanelTopology {
+  const copy = structuredClone(topology);
+  for (const circuit of Object.values(copy.circuits)) {
+    circuit.monitoring_rating_a = circuit.breaker_rating_a ?? null;
+    circuit.monitoring_rating_user_set = false;
+  }
+  return copy;
+}
+
 /** The states Home Assistant holds for the capture: every entity that is not disabled. */
 function statesOf(entities: ExpectedEntities): Record<string, HassEntity> {
   const states: Record<string, HassEntity> = {};
@@ -72,7 +86,7 @@ afterEach(() => {
 
 async function render(capture: Capture): Promise<ShadowRoot> {
   const callWS = (async (msg: Record<string, unknown>) => {
-    if (msg.type === "span_panel/panel_topology") return structuredClone(capture.topology);
+    if (msg.type === "span_panel/panel_topology") return withMonitoringRatings(capture.topology);
     if (msg.type === "call_service" && msg.service === "get_monitoring_status") {
       monitoringAnswers += 1;
       return { response: MONITORING_OFF };

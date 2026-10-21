@@ -113,6 +113,7 @@ const MEASURED = makeCircuit({
   is_user_controllable: true,
   relay_state: "CLOSED",
   breaker_rating_a: 20,
+  monitoring_rating_a: 20,
 });
 
 function slotOf(states: Parameters<typeof hassWith>[0], cfg: CardConfig = config, monitoring: MonitoringPointInfo | null = null): HTMLElement {
@@ -207,33 +208,28 @@ describe("a slot's breaker rating on the grid", () => {
   const states = { [SWITCH]: { state: "on" } };
   const badge = (c: Circuit): HTMLElement => grid(c, states).querySelector<HTMLElement>(".breaker-badge")!;
 
-  it("draws the panel's rating unmarked, as before", () => {
-    const el = badge({ ...MEASURED, panel_breaker_rating_a: 20, breaker_rating_user_set: false });
+  it("draws the panel's rating, as before the monitoring rating existed", () => {
+    const el = badge({ ...MEASURED, breaker_rating_a: 20 });
     expect(el.innerHTML).toBe("20A");
     expect(el.querySelector(".rating-user-set")).toBeNull();
   });
 
-  it("draws the user's rating with the pencil, its tooltip naming the panel's", () => {
-    const el = badge({ ...MEASURED, breaker_rating_a: 50, panel_breaker_rating_a: 20, breaker_rating_user_set: true });
-    expect(el.firstChild!.textContent).toBe("50A");
-    expect(el.querySelector(".rating-user-set")!.getAttribute("title")).toBe("Set by you; panel: 20 A");
-  });
-
-  it("names no panel rating when the panel publishes none", () => {
-    const el = badge({ ...MEASURED, breaker_rating_a: 50, panel_breaker_rating_a: null, breaker_rating_user_set: true });
-    expect(el.querySelector(".rating-user-set")!.getAttribute("title")).toBe("Set by you; panel: none");
+  it("draws the panel's rating, unmarked, when the user sets a monitoring rating", () => {
+    const el = badge({ ...MEASURED, breaker_rating_a: 20, monitoring_rating_a: 50, monitoring_rating_user_set: true });
+    expect(el.innerHTML).toBe("20A");
+    expect(el.querySelector(".rating-user-set")).toBeNull();
   });
 });
 
-describe("the rating in force on the grid", () => {
+describe("the monitoring rating on the grid", () => {
   it("is what utilization falls back to when the monitor has no figure", () => {
-    const circuit = { ...MEASURED, breaker_rating_a: 50, panel_breaker_rating_a: 20, breaker_rating_user_set: true };
+    const circuit = { ...MEASURED, breaker_rating_a: 20, monitoring_rating_a: 50, monitoring_rating_user_set: true };
     const slot = grid(circuit, { [SWITCH]: { state: "on" }, [CURRENT]: { state: "10" } }).querySelector(".circuit-slot")!;
     expect(slot.querySelector(".utilization")!.textContent).toBe("20%");
   });
 
   it("is where the current chart draws its limit line", () => {
-    const circuit = { ...MEASURED, breaker_rating_a: 50, panel_breaker_rating_a: 20, breaker_rating_user_set: true };
+    const circuit = { ...MEASURED, breaker_rating_a: 20, monitoring_rating_a: 50, monitoring_rating_user_set: true };
     const topology = { circuits: { kitchen: circuit } } as unknown as PanelTopology;
     const hass = hassWith({ [SWITCH]: { state: "on" }, [CURRENT]: { state: "10" } });
     const root = document.createElement("div");

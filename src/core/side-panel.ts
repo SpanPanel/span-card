@@ -3,7 +3,7 @@ import { escapeHtml } from "../helpers/sanitize.js";
 import { loadListColumns, saveListColumns } from "../helpers/list-columns.js";
 import { INTEGRATION_DOMAIN, SHEDDING_PRIORITIES, SELECTABLE_PRIORITY_KEYS, GRAPH_HORIZONS, DEFAULT_GRAPH_HORIZON, INPUT_DEBOUNCE_MS } from "../constants.js";
 import { t, tf } from "../i18n.js";
-import { ratingSentence } from "../helpers/breaker-rating.js";
+import { monitoringRatingView, ratingSentence } from "../helpers/monitoring-rating.js";
 import { errorText } from "../helpers/error-text.js";
 import { occupiedSpaces, slotRatingText, type SlotMember } from "../helpers/shared-meters.js";
 import { addFavorite, removeFavorite } from "./favorites-store.js";
@@ -1333,7 +1333,7 @@ class SpanSidePanel extends HTMLElement {
 
   /** The Breaker section, or null when no member has a panel rating to correct. */
   private _buildBreakerSection(cfg: CircuitModeConfig): HTMLDivElement | null {
-    const rated = (cfg.members ?? []).filter(member => member.circuit.panel_breaker_rating_a != null);
+    const rated = (cfg.members ?? []).filter(member => member.circuit.breaker_rating_a != null);
     if (rated.length === 0) return null;
 
     const section = document.createElement("div");
@@ -1359,13 +1359,13 @@ class SpanSidePanel extends HTMLElement {
     const panelEl = document.createElement("span");
     panelEl.className = "field-label";
     panelEl.dataset.role = "breaker-panel-rating";
-    panelEl.textContent = tf("sidepanel.breaker_panel_rating", { panel: String(member.circuit.panel_breaker_rating_a) });
+    panelEl.textContent = tf("sidepanel.breaker_panel_rating", { panel: String(member.circuit.breaker_rating_a) });
 
     const input = document.createElement("input");
     input.type = "number";
     input.min = "1";
     input.step = "1";
-    input.value = member.circuit.breaker_rating_a ? String(member.circuit.breaker_rating_a) : "";
+    input.value = member.circuit.monitoring_rating_a ? String(member.circuit.monitoring_rating_a) : "";
     input.setAttribute("aria-label", member.circuit.name);
     input.dataset.role = "breaker-input";
 
@@ -1373,7 +1373,7 @@ class SpanSidePanel extends HTMLElement {
       this._debounce(`breaker-${member.uuid}`, INPUT_DEBOUNCE_MS, () => {
         const amps = input.valueAsNumber;
         if (!Number.isFinite(amps) || amps < 1) return;
-        this._callBreakerService("set_circuit_breaker_rating", member.uuid, { breaker_rating_a: Math.round(amps) }, cfg);
+        this._callBreakerService("set_circuit_monitoring_rating", member.uuid, { monitoring_rating_a: Math.round(amps) }, cfg);
       });
     });
 
@@ -1381,7 +1381,7 @@ class SpanSidePanel extends HTMLElement {
     row.appendChild(panelEl);
     row.appendChild(input);
 
-    if (member.circuit.breaker_rating_user_set === true) {
+    if (member.circuit.monitoring_rating_user_set === true) {
       const resetBtn = document.createElement("button");
       resetBtn.type = "button";
       resetBtn.dataset.role = "breaker-reset";
@@ -1389,7 +1389,7 @@ class SpanSidePanel extends HTMLElement {
       resetBtn.addEventListener("click", () => {
         // A typed value still waiting out its debounce would otherwise set the override again after this clear.
         this._cancelDebounce(`breaker-${member.uuid}`);
-        this._callBreakerService("clear_circuit_breaker_rating", member.uuid, {}, cfg);
+        this._callBreakerService("clear_circuit_monitoring_rating", member.uuid, {}, cfg);
       });
       row.appendChild(resetBtn);
     }
@@ -1532,7 +1532,7 @@ class SpanSidePanel extends HTMLElement {
 
   /** "Judged against: 50 A, set by you (panel: 20 A)", or "no rating" when the point has none. */
   private _judgedAgainstText(info: MonitoringPointInfo | null): string {
-    const rating = ratingSentence({ amps: info?.breaker_rating_a, panelAmps: info?.panel_breaker_rating_a, userSet: info?.breaker_rating_user_set });
+    const rating = ratingSentence(monitoringRatingView(info));
     return tf("sidepanel.judged_against", { rating });
   }
 

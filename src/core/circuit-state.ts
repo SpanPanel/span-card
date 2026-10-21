@@ -1,4 +1,5 @@
 import { DEVICE_TYPE_PV, RELAY_STATE_CLOSED, SELECTABLE_PRIORITY_KEYS } from "../constants.js";
+import { judgedRatingA } from "../helpers/monitoring-rating.js";
 import { measuresOutsidePanel } from "../helpers/layout.js";
 import { readNumber } from "../helpers/read-number.js";
 import { isAlertActive } from "./monitoring-status.js";
@@ -53,22 +54,23 @@ export function readsAsProducer(c: Pick<Circuit, "device_type" | "is_generation"
 
 /**
  * A circuit's breaker utilization in percent: the monitor's figure, else its
- * measured current over its breaker rating. Null when neither is known, never 0 %.
+ * measured current over the rating it is judged against (`judgedRatingA`). Null when neither is known, never 0 %.
  *
  * A circuit whose current sensor has no reading has no utilization, whatever
  * the monitor says: the monitor can report 0 % before its first reading, and
  * keeps its last figure after the sensor goes unavailable.
  */
 export function circuitUtilizationPct(
-  c: Pick<Circuit, "entities" | "breaker_rating_a">,
+  c: Pick<Circuit, "entities" | "breaker_rating_a" | "monitoring_rating_a">,
   hass: HomeAssistant,
   monitoringInfo: MonitoringPointInfo | null
 ): number | null {
   const amps = circuitCurrentA(c, hass);
   if (c.entities?.current && amps === null) return null;
   const monitored = monitoringInfo?.utilization_pct ?? null;
-  if (monitored !== null || amps === null || !c.breaker_rating_a) return monitored;
-  return Math.round((Math.abs(amps) / c.breaker_rating_a) * 1000) / 10;
+  const rating = judgedRatingA(c);
+  if (monitored !== null || amps === null || !rating) return monitored;
+  return Math.round((Math.abs(amps) / rating) * 1000) / 10;
 }
 
 /**

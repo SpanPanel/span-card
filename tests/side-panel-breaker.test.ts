@@ -19,7 +19,7 @@ afterEach(() => {
 beforeEach(() => vi.useFakeTimers());
 
 function circuit(name: string, panel: number | null, effective: number | null, userSet = false): Circuit {
-  return { name, tabs: [1], entities: {}, breaker_rating_a: effective, panel_breaker_rating_a: panel, breaker_rating_user_set: userSet };
+  return { name, tabs: [1], entities: {}, breaker_rating_a: panel, monitoring_rating_a: effective, monitoring_rating_user_set: userSet };
 }
 
 interface Opened {
@@ -110,8 +110,8 @@ describe("the rating input", () => {
     expect(callWS).toHaveBeenCalledWith({
       type: "call_service",
       domain: "span_panel",
-      service: "set_circuit_breaker_rating",
-      service_data: { circuit_id: "c-b", breaker_rating_a: 13, config_entry_id: "entry-1" },
+      service: "set_circuit_monitoring_rating",
+      service_data: { circuit_id: "c-b", monitoring_rating_a: 13, config_entry_id: "entry-1" },
     });
   });
 
@@ -125,7 +125,7 @@ describe("the rating input", () => {
     el.dispatchEvent(new Event("input"));
     vi.advanceTimersByTime(600);
     expect(callWS).toHaveBeenCalledTimes(1);
-    expect(callWS.mock.calls[0]![0]).toMatchObject({ service_data: { breaker_rating_a: 40 } });
+    expect(callWS.mock.calls[0]![0]).toMatchObject({ service_data: { monitoring_rating_a: 40 } });
   });
 
   it.each(["", "abc", "0", "-5", "0.5", "0.99"])("sends nothing for %j", value => {
@@ -168,7 +168,7 @@ describe("the reset", () => {
     reset(rows(panel)[0]!)!.click();
     vi.advanceTimersByTime(600);
     expect(callWS).toHaveBeenCalledTimes(1);
-    expect(callWS.mock.calls[0]![0]).toMatchObject({ service: "clear_circuit_breaker_rating" });
+    expect(callWS.mock.calls[0]![0]).toMatchObject({ service: "clear_circuit_monitoring_rating" });
   });
 
   it("clears the correction of its own circuit", () => {
@@ -180,7 +180,7 @@ describe("the reset", () => {
     expect(callWS).toHaveBeenCalledWith({
       type: "call_service",
       domain: "span_panel",
-      service: "clear_circuit_breaker_rating",
+      service: "clear_circuit_monitoring_rating",
       service_data: { circuit_id: "c-b", config_entry_id: "entry-1" },
     });
   });
@@ -264,7 +264,7 @@ describe("a refused change", () => {
     expect(input(rows(panel)[0]!)).toBe(el);
     expect(el.value).toBe("45");
     vi.advanceTimersByTime(600);
-    expect(callWS.mock.calls.map(c => (c[0] as { service_data: { breaker_rating_a?: number } }).service_data.breaker_rating_a)).toEqual([50, 45]);
+    expect(callWS.mock.calls.map(c => (c[0] as { service_data: { monitoring_rating_a?: number } }).service_data.monitoring_rating_a)).toEqual([50, 45]);
   });
 
   it("does nothing to a panel closed while the call was in flight", async () => {

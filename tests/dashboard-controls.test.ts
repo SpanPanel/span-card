@@ -85,27 +85,31 @@ describe("the circuit gear's rating subtitle", () => {
     return slotRatingText((open.mock.calls[0]![0] as { members: SlotMember[] }).members.map(member => member.circuit));
   }
 
-  const lone = { name: "Hall", tabs: [1], entities: {}, breaker_rating_a: 50, panel_breaker_rating_a: 20, breaker_rating_user_set: true };
+  const lone = { name: "Hall", tabs: [1], entities: {}, breaker_rating_a: 20, monitoring_rating_a: 50, monitoring_rating_user_set: true };
 
-  it("names the panel's rating beside a user-set one", async () => {
-    expect(await ratingTextFor({ hall: lone }, "hall")).toBe("50 A, set by you (panel: 20 A)");
+  it("is the panel's rating, unmarked, beside a user-set monitoring rating", async () => {
+    expect(await ratingTextFor({ hall: lone }, "hall")).toBe("20A");
   });
 
-  it("is the plain rating while the panel's stands", async () => {
-    expect(await ratingTextFor({ hall: { ...lone, breaker_rating_a: 20, breaker_rating_user_set: false } }, "hall")).toBe("20A");
+  it("is the plain rating while the monitoring rating is the panel's", async () => {
+    expect(await ratingTextFor({ hall: { ...lone, monitoring_rating_a: 20, monitoring_rating_user_set: false } }, "hall")).toBe("20A");
   });
 
-  it("is the slot's label for circuits that share a meter, as the grid draws it", async () => {
-    const member = (name: string, rating: number, panel: number, userSet: boolean) => ({
+  it('is empty, never "undefinedA", for a circuit with no rating', async () => {
+    expect(await ratingTextFor({ hall: { name: "Hall", tabs: [1], entities: {} } }, "hall")).toBe("");
+  });
+
+  it("is the slot's label for circuits that share a meter, as the grid draws it, unmarked", async () => {
+    const member = (name: string, rating: number, monitoring: number, userSet: boolean) => ({
       name,
       tabs: [2],
       entities: {},
       shared_meter_group: "a",
       breaker_rating_a: rating,
-      panel_breaker_rating_a: panel,
-      breaker_rating_user_set: userSet,
+      monitoring_rating_a: monitoring,
+      monitoring_rating_user_set: userSet,
     });
-    const circuits = { a: member("A", 15, 15, false), b: member("B", 25, 10, true) };
-    expect(await ratingTextFor(circuits, "a")).toBe("15·25 A, set by you (panel: 25 A)");
+    const circuits = { a: member("A", 15, 15, false), b: member("B", 10, 25, true) };
+    expect(await ratingTextFor(circuits, "a")).toBe("15·10 A");
   });
 });

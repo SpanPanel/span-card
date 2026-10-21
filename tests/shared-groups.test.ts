@@ -16,6 +16,8 @@ function circuit(slug: string, name: string, tab: number, rating: number, group:
     name,
     tabs: [tab],
     breaker_rating_a: rating,
+    monitoring_rating_a: rating,
+    monitoring_rating_user_set: false,
     relay_state: "CLOSED",
     is_user_controllable: true,
     shared_meter_group: group,
@@ -221,30 +223,18 @@ function pair(a: Partial<Circuit>, b: Partial<Circuit>): Record<string, Circuit>
   return { ...CIRCUITS, "c-48a": { ...CIRCUITS["c-48a"]!, ...a }, "c-48b": { ...CIRCUITS["c-48b"]!, ...b } };
 }
 
-describe("a shared slot's rating mark", () => {
-  const corrected = { breaker_rating_a: 25, panel_breaker_rating_a: 15, breaker_rating_user_set: true };
-  const plain = { panel_breaker_rating_a: 10, breaker_rating_user_set: false };
+describe("a shared slot's breaker label", () => {
+  const corrected = { monitoring_rating_a: 25, monitoring_rating_user_set: true };
 
-  it("is absent while no member is user-set, the label unchanged", () => {
-    const badge = slotAt(gridOf(pair({ panel_breaker_rating_a: 15 }, plain)), "c-48a").querySelector(".breaker-badge")!;
+  it("reads each panel rating, as before the monitoring rating existed", () => {
+    const badge = slotAt(gridOf(pair({}, {})), "c-48a").querySelector(".breaker-badge")!;
     expect(badge.innerHTML).toBe("15·10 A");
   });
 
-  it("marks the slot when any one member is user-set, the tooltip summing the panel's ratings", () => {
-    const badge = slotAt(gridOf(pair(corrected, plain)), "c-48a").querySelector(".breaker-badge")!;
-    expect(badge.firstChild!.textContent).toBe("25·10 A");
-    expect(badge.querySelector(".rating-user-set")!.getAttribute("title")).toBe("Set by you; panel: 25 A");
-  });
-
-  it("names no panel rating when any member's is unpublished", () => {
-    const badge = slotAt(gridOf(pair(corrected, { ...plain, panel_breaker_rating_a: null })), "c-48a").querySelector(".breaker-badge")!;
-    expect(badge.querySelector(".rating-user-set")!.getAttribute("title")).toBe("Set by you; panel: none");
-  });
-
-  it("is drawn on no group but the one with a user-set member", () => {
-    const root = gridOf(pair(corrected, plain));
-    expect(slotAt(root, "c-44a").querySelector(".rating-user-set")).toBeNull();
-    expect(slotAt(root, "c-1").querySelector(".rating-user-set")).toBeNull();
+  it("stays the panel's ratings, unmarked, when a member has a monitoring rating", () => {
+    const badge = slotAt(gridOf(pair(corrected, {})), "c-48a").querySelector(".breaker-badge")!;
+    expect(badge.innerHTML).toBe("15·10 A");
+    expect(badge.querySelector(".rating-user-set")).toBeNull();
   });
 });
 
@@ -254,12 +244,9 @@ describe("a shared slot's rating as text", () => {
     { ...CIRCUITS["c-48b"]!, ...b },
   ];
 
-  it("reads like the grid's label, and as a sentence naming the panel's rating once a member is user-set", () => {
+  it("reads like the grid's label, whatever monitoring rating a member has", () => {
     expect(slotRatingText(members({}, {}))).toBe("15·10 A");
-    expect(slotRatingText(members({ breaker_rating_user_set: true, panel_breaker_rating_a: 15 }, { panel_breaker_rating_a: 10 }))).toBe(
-      "15·10 A, set by you (panel: 25 A)"
-    );
-    expect(slotRatingText(members({ breaker_rating_user_set: true }, {}))).toBe("15·10 A, set by you (panel: none)");
+    expect(slotRatingText(members({ monitoring_rating_a: 40, monitoring_rating_user_set: true }, {}))).toBe("15·10 A");
   });
 
   it("is empty while a member's rating is unknown, and a lone circuit reads as a single rating", () => {
@@ -268,9 +255,23 @@ describe("a shared slot's rating as text", () => {
   });
 });
 
-describe("the rating in force for a shared group", () => {
-  it("is what the members' combined rating sums", () => {
-    const circuits = pair({ breaker_rating_a: 30, panel_breaker_rating_a: 15, breaker_rating_user_set: true }, {});
-    expect(meterSlots({ circuits }).find(s => s.uuid === "c-48a")!.circuit.breaker_rating_a).toBe(40);
+describe("a shared group's combined ratings", () => {
+  it("sums the panel's ratings for the breaker label, unmarked by a monitoring rating", () => {
+    const circuits = pair({ monitoring_rating_a: 30, monitoring_rating_user_set: true }, {});
+    expect(meterSlots({ circuits }).find(s => s.uuid === "c-48a")!.circuit.breaker_rating_a).toBe(25);
+  });
+
+  it("sums the monitoring ratings for monitoring, marked when any member's is the user's", () => {
+    const circuits = pair({ monitoring_rating_a: 30, monitoring_rating_user_set: true }, { monitoring_rating_a: 10, monitoring_rating_user_set: false });
+    const slot = meterSlots({ circuits }).find(s => s.uuid === "c-48a")!.circuit;
+    expect(slot.monitoring_rating_a).toBe(40);
+    expect(slot.monitoring_rating_user_set).toBe(true);
+  });
+
+  it("has no monitoring rating while any member has none", () => {
+    const circuits = pair({ monitoring_rating_a: 30 }, { monitoring_rating_a: null });
+    const slot = meterSlots({ circuits }).find(s => s.uuid === "c-48a")!.circuit;
+    expect(slot.monitoring_rating_a).toBeNull();
+    expect(slot.monitoring_rating_user_set).toBe(false);
   });
 });

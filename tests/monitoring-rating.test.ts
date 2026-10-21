@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from "vitest";
-import { ratingLabelHTML, ratingSentence, type RatingView } from "../src/helpers/breaker-rating.js";
+import { monitoringRatingView, ratingLabelHTML, ratingSentence, type RatingView } from "../src/helpers/monitoring-rating.js";
 import { setLanguage, tf } from "../src/i18n.js";
 
 afterEach(() => setLanguage("en"));
@@ -62,10 +62,25 @@ describe("ratingSentence", () => {
 describe("rating strings", () => {
   it.each(["en", "es", "fr", "ja", "pt"])("%s has every key with its placeholders", lang => {
     setLanguage(lang);
-    expect(tf("rating.user_set", { rating: "R1", panel: "P1" })).toMatch(/R1[\s\S]*P1/);
-    expect(tf("rating.user_set_title", { panel: "P1" })).toContain("P1");
-    expect(tf("rating.user_set_no_panel", { rating: "R1" })).toContain("R1");
-    expect(tf("rating.user_set_title_no_panel", {})).not.toBe("rating.user_set_title_no_panel");
-    expect(tf("rating.none", {})).not.toBe("rating.none");
+    expect(tf("monitoringRating.user_set", { rating: "R1", panel: "P1" })).toMatch(/R1[\s\S]*P1/);
+    expect(tf("monitoringRating.user_set_title", { panel: "P1" })).toContain("P1");
+    expect(tf("monitoringRating.user_set_no_panel", { rating: "R1" })).toContain("R1");
+    expect(tf("monitoringRating.user_set_title_no_panel", {})).not.toBe("monitoringRating.user_set_title_no_panel");
+    expect(tf("monitoringRating.none", {})).not.toBe("monitoringRating.none");
+  });
+});
+
+describe("monitoringRatingView", () => {
+  it("judges against the monitoring rating and names the panel's beside a user-set one", () => {
+    const view = monitoringRatingView({ breaker_rating_a: 20, monitoring_rating_a: 50, monitoring_rating_user_set: true });
+    expect(view).toEqual({ amps: 50, panelAmps: 20, userSet: true });
+    expect(ratingLabelHTML(view)).toContain("50A");
+    expect(ratingSentence(view)).toBe("50 A, set by you (panel: 20 A)");
+  });
+
+  it("is unmarked while the monitoring rating is the panel's, and absent when nothing is judged", () => {
+    expect(monitoringRatingView({ breaker_rating_a: 20, monitoring_rating_a: 20, monitoring_rating_user_set: false }).userSet).toBe(false);
+    expect(monitoringRatingView({ breaker_rating_a: 20, monitoring_rating_a: null }).amps).toBeNull();
+    expect(monitoringRatingView(undefined)).toEqual({ amps: undefined, panelAmps: undefined, userSet: false });
   });
 });
