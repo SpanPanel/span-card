@@ -232,6 +232,51 @@ describe("refreshCircuitSidePanel", () => {
     expect(input(open.panel).value).toBe("20");
   });
 
+  it("puts the rebuilt editor where the old one was: after the judged-against line, above the Global/Custom choice", async () => {
+    const open = await openOven(circuit(20, 20));
+
+    const after = circuit(20, 50, true);
+    open.setStatus(after);
+    await open.ctrl.refreshCircuitSidePanel(open.root, ENTRY, topologyOf(after));
+
+    const editor = section(open.panel)!;
+    expect(editor.previousElementSibling?.getAttribute("data-role")).toBe("judged-against");
+    expect(editor.nextElementSibling?.classList.contains("radio-group")).toBe(true);
+  });
+
+  it("keeps a threshold value being typed, and still sends it, across a rebuild", async () => {
+    const open = await openOven(circuit(20, 20));
+    const sent = vi.spyOn(open.panel as unknown as { _callDomainService: (s: string, d: Record<string, unknown>) => Promise<unknown> }, "_callDomainService");
+    const threshold = (): HTMLInputElement => open.panel.shadowRoot!.querySelector<HTMLInputElement>('[data-role="threshold-continuous"]')!;
+    const typing = threshold();
+    typing.value = "65";
+    typing.dispatchEvent(new Event("input"));
+
+    const after = circuit(20, 50, true);
+    open.setStatus(after);
+    await open.ctrl.refreshCircuitSidePanel(open.root, ENTRY, topologyOf(after));
+    vi.advanceTimersByTime(1000);
+
+    expect(threshold()).toBe(typing);
+    expect(threshold().value).toBe("65");
+    expect(sent).toHaveBeenCalledWith("set_circuit_threshold", expect.objectContaining({ continuous_threshold_pct: 65 }));
+  });
+
+  it("adds the editor, in its place, when a circuit first has a panel rating to judge against", async () => {
+    const open = await openOven(circuit(null, null));
+    expect(section(open.panel)).toBeNull();
+
+    const after = circuit(20, 20);
+    open.setStatus(after);
+    await open.ctrl.refreshCircuitSidePanel(open.root, ENTRY, topologyOf(after));
+
+    const editor = section(open.panel)!;
+    expect(editor).not.toBeNull();
+    expect(input(open.panel).value).toBe("20");
+    expect(editor.previousElementSibling?.getAttribute("data-role")).toBe("judged-against");
+    expect(editor.nextElementSibling?.classList.contains("radio-group")).toBe(true);
+  });
+
   it("leaves a panel open for another entry alone", async () => {
     const open = await openOven(circuit(20, 20));
     const before = section(open.panel);
