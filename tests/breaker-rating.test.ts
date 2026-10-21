@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from "vitest";
-import { ratingLabelHTML, ratingSentence } from "../src/helpers/breaker-rating.js";
+import { ratingLabelHTML, ratingSentence, type RatingView } from "../src/helpers/breaker-rating.js";
 import { setLanguage, tf } from "../src/i18n.js";
 
 afterEach(() => setLanguage("en"));
@@ -24,11 +24,19 @@ describe("ratingLabelHTML", () => {
     expect(ratingLabelHTML({ amps: 30, panelAmps: null, userSet: true })).toContain('title="Set by you; panel: none"');
   });
 
-  it("localizes the title and keeps it inside its attribute", () => {
+  it("localizes the title", () => {
     setLanguage("fr");
     const html = ratingLabelHTML({ amps: 50, panelAmps: 20, userSet: true });
-    expect(html).toContain('title="Défini par vous');
-    expect(html).not.toMatch(/title="[^"]*"[^>]*"/);
+    expect(html).toContain('title="D\u00e9fini par vous');
+  });
+
+  it("escapes hostile text arriving in a websocket payload so it cannot leave the title attribute", () => {
+    const payload = '{"amps": 50, "panelAmps": "\\"><img src=x onerror=1>", "userSet": true}';
+    const view: RatingView = JSON.parse(payload);
+    const html = ratingLabelHTML(view);
+    expect(html).toContain("&quot;&gt;&lt;img src=x onerror=1&gt;");
+    expect(html).not.toContain('"><');
+    expect(html).not.toContain("<img");
   });
 });
 
