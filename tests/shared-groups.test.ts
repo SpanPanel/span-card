@@ -224,7 +224,7 @@ function pair(a: Partial<Circuit>, b: Partial<Circuit>): Record<string, Circuit>
 }
 
 describe("a shared slot's breaker label", () => {
-  const corrected = { monitoring_rating_a: 25, monitoring_rating_user_set: true };
+  const userSet = { monitoring_rating_a: 25, monitoring_rating_user_set: true };
 
   it("reads each panel rating, as before the monitoring rating existed", () => {
     const badge = slotAt(gridOf(pair({}, {})), "c-48a").querySelector(".breaker-badge")!;
@@ -232,7 +232,7 @@ describe("a shared slot's breaker label", () => {
   });
 
   it("stays the panel's ratings, unmarked, when a member has a monitoring rating", () => {
-    const badge = slotAt(gridOf(pair(corrected, {})), "c-48a").querySelector(".breaker-badge")!;
+    const badge = slotAt(gridOf(pair(userSet, {})), "c-48a").querySelector(".breaker-badge")!;
     expect(badge.innerHTML).toBe("15·10 A");
     expect(badge.querySelector(".rating-user-set")).toBeNull();
   });

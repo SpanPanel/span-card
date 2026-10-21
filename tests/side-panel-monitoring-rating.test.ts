@@ -18,8 +18,8 @@ afterEach(() => {
 });
 beforeEach(() => vi.useFakeTimers());
 
-function circuit(name: string, panel: number | null, effective: number | null, userSet = false, tabs: number[] = [1]): Circuit {
-  return { name, tabs, entities: {}, breaker_rating_a: panel, monitoring_rating_a: effective, monitoring_rating_user_set: userSet };
+function circuit(name: string, panel: number | null, monitoring: number | null, userSet = false, tabs: number[] = [1]): Circuit {
+  return { name, tabs, entities: {}, breaker_rating_a: panel, monitoring_rating_a: monitoring, monitoring_rating_user_set: userSet };
 }
 
 interface Opened {
@@ -289,7 +289,7 @@ describe("the reset", () => {
     expect(callWS.mock.calls[0]![0]).toMatchObject({ service: "clear_circuit_monitoring_rating" });
   });
 
-  it("clears the correction of its own circuit", () => {
+  it("clears the monitoring rating of its own circuit", () => {
     const { panel, callWS } = open([
       { uuid: "c-a", circuit: circuit("Lights", 15, 15) },
       { uuid: "c-b", circuit: circuit("Outlets", 10, 12, true) },

@@ -50,7 +50,7 @@ describe("ratingSentence", () => {
     expect(ratingSentence({ amps: 20, panelAmps: 20 })).toBe("20 A");
   });
 
-  it("gives the correction and the panel's value when user-set", () => {
+  it("gives the monitoring rating and the panel's value when user-set", () => {
     expect(ratingSentence({ amps: 50, panelAmps: 20, userSet: true })).toBe("50 A, set by you (panel: 20 A)");
   });
 

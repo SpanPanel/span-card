@@ -1401,7 +1401,7 @@ class SpanSidePanel extends HTMLElement {
       resetBtn.dataset.role = "rating-reset";
       resetBtn.textContent = t("monitoringRating.reset");
       resetBtn.addEventListener("click", () => {
-        // A typed value still waiting out its debounce would otherwise set the override again after this clear.
+        // A typed value still waiting out its debounce would otherwise set the monitoring rating again after this clear.
         this._cancelDebounce(`rating-${member.uuid}`);
         this._callRatingService("clear_circuit_monitoring_rating", member.uuid, {}, cfg);
       });

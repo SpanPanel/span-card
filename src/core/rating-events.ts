@@ -17,7 +17,7 @@ function eventEntryId(event: unknown): string | null {
  * Every card view reads ratings from a topology fetched on render, so without this
  * a monitoring rating made elsewhere (another browser, Developer Tools, a reconcile) would
  * leave it showing the old rating. An event for another entry is ignored: two panels
- * can publish the same circuit id, and each keeps its own corrections.
+ * can publish the same circuit id, and each keeps its own monitoring ratings.
  *
  * Only administrators may subscribe to this event, which matches `panel_topology`
  * being admin-only; a caller whose topology came from the entity fallback should not

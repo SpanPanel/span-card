@@ -671,7 +671,7 @@ export class SpanPanelElement extends LitElement {
       this._ratingSubs.set(
         entryId,
         subscribeMonitoringRatingChanges(hass, entryId, () => this._onRatingChanged(entryId)).catch((err: unknown): (() => void) => {
-          console.warn("SPAN Panel: breaker rating subscription failed", err);
+          console.warn("SPAN Panel: monitoring rating subscription failed", err);
           return () => {};
         })
       );

@@ -69,7 +69,7 @@ function thresholdCell(entityId: string, field: string, value: number | undefine
 
 /**
  * The rating a point is judged against, with the user-set mark; "no rating" for a
- * point with none, which the monitor skips. The mains has no override, so it is never marked.
+ * point with none, which the monitor skips. The mains has no monitoring rating, so it is never marked.
  */
 function ratingCell(info: MonitoringPointInfo, isMains: boolean): string {
   const view = monitoringRatingView(info);

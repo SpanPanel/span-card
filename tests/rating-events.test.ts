@@ -100,14 +100,14 @@ type SidePanel = HTMLElement & {
 
 const ENTRY = "entry-1";
 
-function circuit(panel: number | null, effective: number | null, userSet = false): Circuit {
+function circuit(panel: number | null, monitoring: number | null, userSet = false): Circuit {
   return {
     name: "Oven",
     tabs: [1],
     entities: { power: "sensor.oven_power" },
     voltage: 240,
     breaker_rating_a: panel,
-    monitoring_rating_a: effective,
+    monitoring_rating_a: monitoring,
     monitoring_rating_user_set: userSet,
   };
 }
