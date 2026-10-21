@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { buildGridHTML, renderCircuitSlot } from "../src/core/grid-renderer.js";
 import { updateCircuitDOM } from "../src/core/dom-updater.js";
-import type { Circuit, HomeAssistant, CardConfig, MonitoringPointInfo, PanelTopology } from "../src/types.js";
+import type { Circuit, HomeAssistant, CardConfig, MonitoringPointInfo, MonitoringStatus, PanelTopology } from "../src/types.js";
 
 const hass = { states: {}, services: {}, language: "en" } as unknown as HomeAssistant;
 
@@ -222,23 +222,41 @@ describe("a slot's breaker rating on the grid", () => {
 });
 
 describe("the monitoring rating on the grid", () => {
-  it("is what utilization falls back to when the monitor has no figure", () => {
-    const circuit = { ...MEASURED, breaker_rating_a: 20, monitoring_rating_a: 50, monitoring_rating_user_set: true };
-    const slot = grid(circuit, { [SWITCH]: { state: "on" }, [CURRENT]: { state: "10" } }).querySelector(".circuit-slot")!;
-    expect(slot.querySelector(".utilization")!.textContent).toBe("20%");
+  const circuit = { ...MEASURED, breaker_rating_a: 20, monitoring_rating_a: 50, monitoring_rating_user_set: true };
+  const states = { [SWITCH]: { state: "on" }, [CURRENT]: { state: "10" } };
+  /** The circuit's status entry: monitored or not, and no figure of the monitor's own. */
+  const status = (monitoring_enabled: boolean): MonitoringStatus => ({ circuits: { [CURRENT]: { monitoring_enabled, utilization_pct: null } } });
+  // Monitoring on for the circuit; off for it; disabled for the panel, which answers no status.
+  const CASES: [string, MonitoringStatus | null, number][] = [
+    ["while the circuit's monitoring is on, the monitoring rating", status(true), 50],
+    ["while the circuit's monitoring is off, the panel's rating", status(false), 20],
+    ["while monitoring is disabled, the panel's rating", null, 20],
+  ];
+
+  function rendered(monitoringStatus: MonitoringStatus | null): { root: HTMLElement; topology: PanelTopology; hass: HomeAssistant; cfg: CardConfig } {
+    const topology = { circuits: { kitchen: circuit } } as unknown as PanelTopology;
+    const hass = hassWith(states);
+    const cfg: CardConfig = { chart_metric: "current" };
+    const root = document.createElement("div");
+    root.innerHTML = buildGridHTML(topology, { first: 1, last: 2 }, hass, cfg, monitoringStatus);
+    return { root, topology, hass, cfg };
+  }
+
+  it.each(CASES)("is what utilization falls back to when the monitor has no figure: %s", (_case, monitoringStatus, rating) => {
+    const { root } = rendered(monitoringStatus);
+    expect(root.querySelector(".circuit-slot .utilization")!.textContent).toBe(`${(10 / rating) * 100}%`);
   });
 
-  it("is where the current chart draws its limit line", () => {
-    const circuit = { ...MEASURED, breaker_rating_a: 20, monitoring_rating_a: 50, monitoring_rating_user_set: true };
-    const topology = { circuits: { kitchen: circuit } } as unknown as PanelTopology;
-    const hass = hassWith({ [SWITCH]: { state: "on" }, [CURRENT]: { state: "10" } });
-    const root = document.createElement("div");
-    const cfg: CardConfig = { chart_metric: "current" };
-    root.innerHTML = buildGridHTML(topology, { first: 1, last: 2 }, hass, cfg, null);
-    updateCircuitDOM(root, hass, topology, cfg, new Map(), undefined, null);
-    const chart = root.querySelector(".chart-container span-chart") as unknown as { data: { data: [number, number][] }[] };
-    const limits = chart.data.flatMap(series => series.data.map(point => point[1]));
-    expect(limits).toContain(50);
-    expect(limits).not.toContain(20);
+  it.each(CASES)("is where the current chart draws its limit line: %s", (_case, monitoringStatus, rating) => {
+    const { root, topology, hass, cfg } = rendered(monitoringStatus);
+    updateCircuitDOM(root, hass, topology, cfg, new Map(), undefined, monitoringStatus);
+    expect(chartLimits(root)).toContain(rating);
+    expect(chartLimits(root)).not.toContain(rating === 50 ? 20 : 50);
   });
 });
+
+/** Every value the slot's chart draws, its limit lines among them. */
+function chartLimits(root: HTMLElement): number[] {
+  const chart = root.querySelector(".chart-container span-chart") as unknown as { data: { data: [number, number][] }[] };
+  return chart.data.flatMap(series => series.data.map(point => point[1]));
+}

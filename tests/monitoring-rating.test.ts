@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from "vitest";
-import { monitoringRatingView, ratingLabelHTML, ratingSentence, type RatingView } from "../src/helpers/monitoring-rating.js";
+import { limitRatingA, monitoringRatingView, ratingLabelHTML, ratingSentence, type RatingView } from "../src/helpers/monitoring-rating.js";
 import { setLanguage, tf } from "../src/i18n.js";
 
 afterEach(() => setLanguage("en"));
@@ -82,5 +82,26 @@ describe("monitoringRatingView", () => {
     expect(monitoringRatingView({ breaker_rating_a: 20, monitoring_rating_a: 20, monitoring_rating_user_set: false }).userSet).toBe(false);
     expect(monitoringRatingView({ breaker_rating_a: 20, monitoring_rating_a: null }).amps).toBeNull();
     expect(monitoringRatingView(undefined)).toEqual({ amps: undefined, panelAmps: undefined, userSet: false });
+  });
+});
+
+describe("limitRatingA", () => {
+  const circuit = { breaker_rating_a: 20, monitoring_rating_a: 50 };
+
+  it("is the monitoring rating while the circuit's monitoring is on", () => {
+    expect(limitRatingA(circuit, { monitoring_enabled: true })).toBe(50);
+  });
+
+  it("is the panel's rating while the circuit's monitoring is off", () => {
+    expect(limitRatingA(circuit, { monitoring_enabled: false })).toBe(20);
+  });
+
+  it("is the panel's rating while monitoring is disabled, so the circuit has no status", () => {
+    expect(limitRatingA(circuit, null)).toBe(20);
+  });
+
+  it("is null where the reading it takes is null", () => {
+    expect(limitRatingA({ breaker_rating_a: 20, monitoring_rating_a: null }, { monitoring_enabled: true })).toBeNull();
+    expect(limitRatingA({ breaker_rating_a: null, monitoring_rating_a: 50 }, null)).toBeNull();
   });
 });

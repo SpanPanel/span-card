@@ -116,12 +116,13 @@ function topologyOf(c: Circuit, entryId = ENTRY): PanelTopology {
   return { circuits: { "c-1": c }, panel_size: 32, panel_device_id: "panel-1", config_entry_id: entryId } as unknown as PanelTopology;
 }
 
+/** A `get_monitoring_status` answer with the circuit monitored, keyed as the integration keys it: its current sensor, else its power sensor. */
 function monitoringFor(c: Circuit): Record<string, unknown> {
   return {
     response: {
       enabled: true,
       circuits: {
-        "sensor.oven_power": {
+        [c.entities.current ?? c.entities.power!]: {
           name: "Oven",
           breaker_rating_a: c.breaker_rating_a,
           monitoring_rating_a: c.monitoring_rating_a,
@@ -324,12 +325,17 @@ function cardTopology(c: Circuit): PanelTopology {
 
 describe("the standalone card", () => {
   let monitoringCalls = 0;
+  /** What `get_monitoring_status` answers for the Oven; null answers nothing. */
+  let cardStatus: Circuit | null = null;
 
   function hassFor(connection: FakeConnection, states: HomeAssistant["states"] = {}): HomeAssistant {
     return hassWith(connection, {
       states,
       callWS: (async (msg: Record<string, unknown>) => {
-        if (msg.service === "get_monitoring_status") monitoringCalls += 1;
+        if (msg.service === "get_monitoring_status") {
+          monitoringCalls += 1;
+          if (cardStatus) return monitoringFor(cardStatus);
+        }
         if (msg.type === "config/device_registry/list") return [];
         return {};
       }) as HomeAssistant["callWS"],
@@ -349,6 +355,7 @@ describe("the standalone card", () => {
 
   beforeEach(() => {
     monitoringCalls = 0;
+    cardStatus = null;
     mockDiscover.mockImplementation(async () => ({ topology: cardTopology(circuit(20, 20)), panelDevice: null, panelSize: 32 }));
     mockFallback.mockRejectedValue(new Error("no fallback"));
   });
@@ -362,6 +369,7 @@ describe("the standalone card", () => {
   it("re-fetches topology and monitoring, and redraws what is judged against the monitoring rating, on an event for its entry", async () => {
     // A measured 10 A: utilization is 10 A over the monitoring rating, the breaker label the panel's rating.
     const withCurrent = (c: Circuit): Circuit => ({ ...c, entities: { power: "sensor.oven_power", current: "sensor.oven_current" } });
+    cardStatus = withCurrent(circuit(20, 20));
     mockDiscover.mockImplementation(async () => ({ topology: cardTopology(withCurrent(circuit(20, 20))), panelDevice: null, panelSize: 32 }));
     const connection = new FakeConnection();
     const card = await mount(connection, { "sensor.oven_current": { entity_id: "sensor.oven_current", state: "10", attributes: {} } });
@@ -371,6 +379,7 @@ describe("the standalone card", () => {
     expect(badge()!.innerHTML).toBe("20A");
     const fetches = mockDiscover.mock.calls.length;
     const status = monitoringCalls;
+    cardStatus = withCurrent(circuit(20, 50, true));
     mockDiscover.mockImplementation(async () => ({ topology: cardTopology(withCurrent(circuit(20, 50, true))), panelDevice: null, panelSize: 32 }));
 
     connection.emit(MONITORING_RATING_CHANGED, ratingEvent(ENTRY, ["oven"]));
@@ -535,7 +544,8 @@ describe("the sidebar dashboard", () => {
     // A measured 10 A with no monitor figure: the row's utilization is 10 A over the monitoring rating.
     const withCurrent = (c: Circuit): Circuit => ({ ...c, entities: { power: "sensor.oven_power", current: "sensor.oven_current" } });
     states = { "sensor.oven_current": { entity_id: "sensor.oven_current", state: "10", attributes: {} } };
-    rendered = topologyOf(withCurrent(circuit(20, 20)));
+    status = withCurrent(circuit(20, 20));
+    rendered = topologyOf(status);
     const connection = new FakeConnection();
     const panel = await mount(connection);
     showTab(panel, "activity");
@@ -545,7 +555,8 @@ describe("the sidebar dashboard", () => {
     await vi.waitFor(() => expect(utilization()).toBe("50%"));
     expect(badge()!.innerHTML).toBe("20A");
 
-    rendered = topologyOf(withCurrent(circuit(20, 50, true)));
+    status = withCurrent(circuit(20, 50, true));
+    rendered = topologyOf(status);
     connection.emit(MONITORING_RATING_CHANGED, ratingEvent("entry-1"));
 
     await vi.waitFor(() => expect(utilization()).toBe("20%"));

@@ -8,7 +8,13 @@ import { loadHistory, collectSubDeviceEntityIds } from "./history-loader.js";
 import { updateCircuitDOM, updateSubDeviceDOM } from "./dom-updater.js";
 import { updateMetersDOM } from "./meters-strip.js";
 import { getEffectiveHorizon, getEffectiveSubDeviceHorizon } from "./graph-settings.js";
-import { MonitoringStatusCache, MonitoringStatusMultiCache, mergeMonitoringStatuses, monitoringStatusFrom } from "./monitoring-status.js";
+import {
+  MonitoringStatusCache,
+  MonitoringStatusMultiCache,
+  circuitMonitoringInfo,
+  mergeMonitoringStatuses,
+  monitoringStatusFrom,
+} from "./monitoring-status.js";
 import { GraphSettingsCache } from "./graph-settings.js";
 import { groupFavoritesByPanel } from "./favorites-sections.js";
 import { switchPresence } from "./circuit-state.js";
@@ -520,8 +526,7 @@ export class DashboardController {
           monitoringStatus = this.monitoringCache.status;
         }
 
-        const monitoringEntity = circuit.entities?.current ?? circuit.entities?.power;
-        const monitoringInfo = monitoringEntity ? (monitoringStatus?.circuits?.[monitoringEntity] ?? null) : null;
+        const monitoringInfo = circuitMonitoringInfo(monitoringStatus, circuit);
 
         const globalHorizon = graphSettings?.global_horizon ?? DEFAULT_GRAPH_HORIZON;
         const circuitOverride = graphSettings?.circuits?.[realUuid];
@@ -627,8 +632,7 @@ export class DashboardController {
     // The panel may have been closed or reopened on another circuit while the status was fetched.
     if (sidePanel.openCircuit?.uuid !== open.uuid) return;
 
-    const monitoringEntity = circuit.entities?.current ?? circuit.entities?.power;
-    const monitoringInfo = monitoringEntity ? (status?.circuits?.[monitoringEntity] ?? null) : null;
+    const monitoringInfo = circuitMonitoringInfo(status, circuit);
     sidePanel.refreshRating({ ...slotView(slotsByMember(meterSlots(topology)).get(open.uuid), open.uuid, circuit), monitoringInfo });
   }
 

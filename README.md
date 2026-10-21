@@ -100,9 +100,10 @@ monitoring off for the circuit is the safer choice.
 
 A rating you set carries a pencil mark wherever the card shows what monitoring judges against, with a tooltip naming the panel's rating, for example "Set by
 you; panel: 20 A". The Monitoring tab has a Rating column, and a circuit's Monitoring section says what it is "Judged against", beside the field, so you can see
-the rating that utilization and alerts use. The breaker labels on the grid, list and side panel keep showing the panel's own rating. A circuit with no rating
-shows "no rating". Every open view redraws when a rating changes, whether you changed it here, in another browser or from a service call, and a field you were
-typing in shows the rating the integration holds, not the value you typed.
+the rating that utilization and alerts use. The breaker labels on the grid, list and side panel keep showing the panel's own rating. The current chart's limit
+line, and the utilization the card works out when the monitor has no figure, use the rating you set only while that circuit's monitoring is on; with it off, or
+monitoring disabled, they use the panel's rating. A circuit with no rating shows "no rating". Every open view redraws when a rating changes, whether you changed
+it here, in another browser or from a service call, and a field you were typing in shows the rating the integration holds, not the value you typed.
 
 ### Finding Your Device ID
 

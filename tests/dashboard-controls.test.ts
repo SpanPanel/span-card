@@ -113,3 +113,79 @@ describe("the circuit gear's rating subtitle", () => {
     expect(await ratingTextFor(circuits, "a")).toBe("15·10 A");
   });
 });
+
+describe("the chart limit line on each update", () => {
+  const CURRENT = "sensor.kitchen_current";
+  const CIRCUIT = {
+    name: "Kitchen",
+    tabs: [2],
+    entities: { power: "sensor.kitchen_power", current: CURRENT },
+    breaker_rating_a: 20,
+    monitoring_rating_a: 50,
+    monitoring_rating_user_set: true,
+  };
+  const CFG: CardConfig = { chart_metric: "current" };
+
+  /** A hass whose `get_monitoring_status` answers the circuit's monitoring as on or off. */
+  function monitoredHass(monitoringEnabled: boolean): HomeAssistant {
+    const response = { enabled: true, circuits: { [CURRENT]: { monitoring_enabled: monitoringEnabled, utilization_pct: null } }, mains: {} };
+    return { states: {}, services: {}, language: "en", callService: vi.fn(), callWS: vi.fn(async () => ({ response })) } as unknown as HomeAssistant;
+  }
+
+  function limitsAfterUpdate(ctrl: DashboardController, topology: PanelTopology): number[] {
+    const root = document.createElement("div");
+    root.innerHTML = Object.keys(topology.circuits)
+      .map(uuid => `<div class="circuit-slot" data-uuid="${uuid}"><div class="chart-container"></div></div>`)
+      .join("");
+    ctrl.updateDOM(root);
+    const chart = root.querySelector(".chart-container span-chart") as unknown as { data: { data: [number, number][] }[] };
+    return chart.data.flatMap(series => series.data.map(point => point[1]));
+  }
+
+  it.each([
+    [true, 50],
+    [false, 20],
+  ])("reads the panel's monitoring status (monitoring on: %s)", async (monitoringEnabled, rating) => {
+    const topology = { circuits: { kitchen: CIRCUIT } } as unknown as PanelTopology;
+    const hassObj = monitoredHass(monitoringEnabled);
+    const ctrl = new DashboardController();
+    ctrl.init(topology, CFG, hassObj, "entry-1");
+    await ctrl.monitoringCache.fetch(hassObj, "entry-1");
+
+    expect(limitsAfterUpdate(ctrl, topology)).toContain(rating);
+  });
+
+  it("reads the Favorites view's merged monitoring status", async () => {
+    const topology = { circuits: { "panel-1|kitchen": CIRCUIT } } as unknown as PanelTopology;
+    const hassObj = monitoredHass(true);
+    const ctrl = new DashboardController();
+    ctrl.init(topology, CFG, hassObj, "entry-1");
+    ctrl.setFavoriteRefs({ "panel-1|kitchen": { panelDeviceId: "panel-1", kind: "circuit", targetId: "kitchen", configEntryId: "entry-1" } });
+    await ctrl.fetchMergedMonitoringStatus(["entry-1"]);
+
+    expect(limitsAfterUpdate(ctrl, topology)).toContain(50);
+  });
+
+  it("forgets the Favorites view's status when it leaves the view, so a later visit starts from none", async () => {
+    const topology = { circuits: { "panel-1|kitchen": CIRCUIT } } as unknown as PanelTopology;
+    const refs = { "panel-1|kitchen": { panelDeviceId: "panel-1", kind: "circuit" as const, targetId: "kitchen", configEntryId: "entry-1" } };
+    const ctrl = new DashboardController();
+    ctrl.init(topology, CFG, monitoredHass(true), "entry-1");
+    ctrl.setFavoriteRefs(refs);
+    await ctrl.fetchMergedMonitoringStatus(["entry-1"]);
+
+    ctrl.clearFavoriteRefs();
+    ctrl.setFavoriteRefs(refs);
+
+    expect(ctrl.monitoringStatus).toBeNull();
+    expect(limitsAfterUpdate(ctrl, topology)).toContain(20);
+  });
+
+  it("reads the panel's rating before any monitoring status is known", () => {
+    const topology = { circuits: { kitchen: CIRCUIT } } as unknown as PanelTopology;
+    const ctrl = new DashboardController();
+    ctrl.init(topology, CFG, monitoredHass(true), "entry-1");
+
+    expect(limitsAfterUpdate(ctrl, topology)).toContain(20);
+  });
+});

@@ -4,7 +4,7 @@ import { t } from "../i18n.js";
 import { tabToRow, tabToCol, classifyDualTab, measuresOutsidePanel, type PositionRange } from "../helpers/layout.js";
 import { getChartMetric } from "../helpers/chart.js";
 import { meterSlots, slotRatingLabel } from "../helpers/shared-meters.js";
-import { getCircuitMonitoringInfo, utilizationClass } from "./monitoring-status.js";
+import { circuitMonitoringInfo, utilizationClass } from "./monitoring-status.js";
 import {
   circuitCurrentA,
   circuitPowerW,
@@ -71,8 +71,7 @@ export function buildGridHTML(
     monInfo: MonitoringPointInfo | null;
     sheddingPriority: string;
   } {
-    const circuitEntityId = entry.circuit.entities?.current ?? entry.circuit.entities?.power;
-    const monInfo = monitoringStatus ? getCircuitMonitoringInfo(monitoringStatus, circuitEntityId ?? "") : null;
+    const monInfo = circuitMonitoringInfo(monitoringStatus, entry.circuit);
     const sheddingPriority = shedPriorityKey(entry.circuit, hass);
     return { monInfo, sheddingPriority };
   }

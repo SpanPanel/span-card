@@ -7,11 +7,11 @@ import { getHistoryDurationMs, getHorizonDurationMs } from "../helpers/history.j
 import { updateChart } from "../chart/chart-update.js";
 import { attrSelectorValue } from "../helpers/selector.js";
 import { measuresOutsidePanel } from "../helpers/layout.js";
-import { judgedRatingA } from "../helpers/monitoring-rating.js";
 import { judgedAs, meterSlots, slotMembers } from "../helpers/shared-meters.js";
 import { circuitCurrentA, circuitPowerW, drawsAsOn, isGeneration, readsAsProducer, shedPriorityKey, switchPresence } from "./circuit-state.js";
 import { applySheddingIcon, applyTogglePill } from "./circuit-controls.js";
 import { circuitMonitoringInfo, pointThresholds } from "./monitoring-status.js";
+import { limitRatingA } from "../helpers/monitoring-rating.js";
 import type { HomeAssistant, PanelTopology, CardConfig, HistoryMap, ChartMetricDef, Circuit, MonitoringStatus } from "../types.js";
 
 // ── Header stats ───────────────────────────────────────────────────────────
@@ -139,7 +139,8 @@ function _updateHeaderStats(root: Element | ShadowRoot, hass: HomeAssistant, top
  * Refresh every circuit slot's readings, controls and chart in place.
  * `monitoringStatus` is the status the view draws from, null while monitoring
  * is disabled or not yet known: a chart's limit lines are drawn at each point's
- * own thresholds from it.
+ * own thresholds of the rating `limitRatingA` gives, the circuit's monitoring
+ * rating only while the circuit is monitored.
  */
 export function updateCircuitDOM(
   root: Element | ShadowRoot,
@@ -227,9 +228,10 @@ function updateCircuitSlot(slot: Element, uuid: string, circuit: Circuit, contex
     const h = slot.classList.contains("circuit-col-span") ? CIRCUIT_COL_SPAN_CHART_HEIGHT : CIRCUIT_CHART_HEIGHT;
     const circuitDuration = horizonMap?.has(uuid) ? getHorizonDurationMs(horizonMap.get(uuid)!) : defaultDurationMs;
     const useLinear = isGeneration(circuit);
-    // Limit lines at the point's own thresholds of the rating it is judged against.
-    const ratingA = judgedRatingA(circuit);
-    const limit = ratingA ? { ratingA, ...pointThresholds(circuitMonitoringInfo(monitoringStatus, circuit)) } : undefined;
+    // Limit lines at the point's own thresholds of the rating it is judged against while monitored.
+    const info = circuitMonitoringInfo(monitoringStatus, circuit);
+    const ratingA = limitRatingA(circuit, info);
+    const limit = ratingA ? { ratingA, ...pointThresholds(info) } : undefined;
     updateChart(chartContainer, hass, history, circuitDuration, chartMetric, isProducer, h, limit, useLinear);
   }
 }

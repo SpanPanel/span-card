@@ -28,6 +28,23 @@ export function judgedRatingA(circuit: Pick<Circuit, "breaker_rating_a" | "monit
 export type MonitoringRatingFields = Pick<Circuit | MonitoringPointInfo, "breaker_rating_a" | "monitoring_rating_a" | "monitoring_rating_user_set">;
 
 /**
+ * The rating a circuit's chart limit line and utilization fallback read: its
+ * monitoring rating while the circuit is monitored, else the panel's breaker
+ * rating. A monitoring rating means nothing while monitoring is off for the
+ * circuit, or disabled for the panel, which then reports no status for it; the
+ * side panel hides its editor then for the same reason. A status not yet
+ * fetched counts as none: the panel's rating is the fact until monitoring is
+ * known to judge by another.
+ */
+export function limitRatingA(
+  circuit: Pick<Circuit, "breaker_rating_a" | "monitoring_rating_a">,
+  monitoringInfo: Pick<MonitoringPointInfo, "monitoring_enabled"> | null
+): number | null {
+  const monitored = monitoringInfo !== null && monitoringInfo.monitoring_enabled !== false;
+  return monitored ? judgedRatingA(circuit) : (circuit.breaker_rating_a ?? null);
+}
+
+/**
  * What a monitoring display shows for a circuit or point: the monitoring rating,
  * marked when the user set it, with the panel's own rating for the mark to name.
  */
