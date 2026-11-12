@@ -1,5 +1,12 @@
 import { describe, it, expect, afterEach } from "vitest";
-import { judgedAgainstSentence, limitRatingA, monitoringRatingView, ratingLabelHTML, type RatingView } from "../src/helpers/monitoring-rating.js";
+import {
+  judgedAgainstSentence,
+  limitRatingA,
+  monitoringRatingView,
+  ratingLabelHTML,
+  thresholdWarning,
+  type RatingView,
+} from "../src/helpers/monitoring-rating.js";
 import { setLanguage, t, tf } from "../src/i18n.js";
 
 afterEach(() => setLanguage("en"));
@@ -90,6 +97,38 @@ describe("monitoringRatingView", () => {
     expect(monitoringRatingView({ breaker_rating_a: 20, monitoring_rating_a: 20, monitoring_rating_user_set: false }).userSet).toBe(false);
     expect(monitoringRatingView({ breaker_rating_a: 20, monitoring_rating_a: null }).amps).toBeNull();
     expect(monitoringRatingView(undefined)).toEqual({ amps: undefined, panelAmps: undefined, userSet: false, packageRatings: null });
+  });
+});
+
+describe("thresholdWarning", () => {
+  const GLOBALS = { continuous_threshold_pct: 80, spike_threshold_pct: 100 };
+  const COPY = [20, 20];
+
+  it("is nothing without a copy, or with every threshold at 100% or below", () => {
+    expect(thresholdWarning(null, { continuous_threshold_pct: 160 }, GLOBALS)).toBeNull();
+    expect(thresholdWarning(COPY, { continuous_threshold_pct: 100, spike_threshold_pct: 100 }, GLOBALS)).toBeNull();
+    expect(thresholdWarning(COPY, null, GLOBALS)).toBeNull();
+  });
+
+  it("is the circuit's own where a threshold above 100% differs from the global one", () => {
+    expect(thresholdWarning(COPY, { has_override: true, continuous_threshold_pct: 160, spike_threshold_pct: 100 }, GLOBALS)).toBe("own");
+  });
+
+  it("is the global one where every threshold above 100% equals the global one, an override or not", () => {
+    const globals = { continuous_threshold_pct: 160, spike_threshold_pct: 200 };
+    expect(thresholdWarning(COPY, { has_override: false, continuous_threshold_pct: 160, spike_threshold_pct: 200 }, globals)).toBe("global");
+    expect(thresholdWarning(COPY, { has_override: true, continuous_threshold_pct: 160, spike_threshold_pct: 200 }, globals)).toBe("global");
+  });
+
+  it("is the circuit's own where one is and the global one another, above 100% both", () => {
+    expect(thresholdWarning(COPY, { has_override: true, continuous_threshold_pct: 160, spike_threshold_pct: 200 }, { continuous_threshold_pct: 160 })).toBe(
+      "own"
+    );
+  });
+
+  it("takes the override's presence where the global thresholds are not known", () => {
+    expect(thresholdWarning(COPY, { has_override: true, continuous_threshold_pct: 160 }, null)).toBe("own");
+    expect(thresholdWarning(COPY, { has_override: false, continuous_threshold_pct: 160 }, null)).toBe("global");
   });
 });
 

@@ -555,6 +555,7 @@ export class DashboardController {
           priority: circuit.priority,
           device_type: circuit.device_type,
           monitoringInfo,
+          monitoringGlobals: monitoringStatus?.global_settings ?? null,
           showMonitoring: this._showMonitoring,
           monitoringRatingOffered: ownTopology?.monitoring_rating_offered === true,
           graphHorizonInfo,
@@ -639,7 +640,7 @@ export class DashboardController {
     if (sidePanel.openCircuit?.uuid !== open.uuid) return;
 
     const monitoringInfo = circuitMonitoringInfo(status, circuit);
-    sidePanel.refreshRating({ ...slotView(slot, open.uuid, circuit), monitoringInfo });
+    sidePanel.refreshRating({ ...slotView(slot, open.uuid, circuit), monitoringInfo, monitoringGlobals: status?.global_settings ?? null });
   }
 
   /**

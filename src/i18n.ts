@@ -238,6 +238,8 @@ const translations: Record<string, Record<string, string>> = {
       "This circuit spans more than one space. The panel reports the average of its legs, so one leg can carry more than its breaker while the reading stays under the rating, and no ratings copied from the SPAN app can show it. Turning monitoring off for this circuit is the safer choice.",
     "monitoringRating.threshold_warning":
       "This circuit's custom thresholds are above 100%. With the copied ratings they now apply to both breakers together, which can let a real overload pass.",
+    "monitoringRating.threshold_warning_global":
+      "The global thresholds this circuit uses are above 100%. With the copied ratings they now apply to both breakers together, which can let a real overload pass; change them under {settings} on the {tab} tab.",
     "monitoringRating.use_global_thresholds": "Use global thresholds",
     "error.package_ratings_failed": "Unable to update the ratings copied from the SPAN app",
     "sidepanel.judged_against": "Judged against: {rating}",
@@ -512,6 +514,8 @@ const translations: Record<string, Record<string, string>> = {
       "Este circuito ocupa varios espacios. El panel informa el promedio de sus fases, por lo que una fase puede llevar m\u00e1s corriente que su interruptor mientras la lectura queda por debajo del calibre, y ning\u00fan calibre copiado de la app de SPAN puede mostrarlo. Desactivar el monitoreo de este circuito es la opci\u00f3n m\u00e1s segura.",
     "monitoringRating.threshold_warning":
       "Los umbrales personalizados de este circuito superan el 100 %. Con los calibres copiados se aplican ahora a ambos interruptores juntos, lo que puede dejar pasar una sobrecarga real.",
+    "monitoringRating.threshold_warning_global":
+      "Los umbrales globales que usa este circuito superan el 100 %. Con los calibres copiados se aplican ahora a ambos interruptores juntos, lo que puede dejar pasar una sobrecarga real; c\u00e1mbielos en {settings}, en la pesta\u00f1a {tab}.",
     "monitoringRating.use_global_thresholds": "Usar los umbrales globales",
     "error.package_ratings_failed": "No se pudieron actualizar los calibres copiados de la app de SPAN",
     "sidepanel.judged_against": "Evaluado seg\u00fan: {rating}",
@@ -777,6 +781,8 @@ const translations: Record<string, Record<string, string>> = {
       "Ce circuit occupe plusieurs emplacements. Le panneau indique la moyenne de ses phases ; une phase peut donc d\u00e9passer son disjoncteur alors que la mesure reste sous le calibre, et aucun calibre copi\u00e9 depuis l'application SPAN ne peut le montrer. D\u00e9sactiver la surveillance de ce circuit est le choix le plus s\u00fbr.",
     "monitoringRating.threshold_warning":
       "Les seuils personnalis\u00e9s de ce circuit d\u00e9passent 100 %. Avec les calibres copi\u00e9s, ils s'appliquent d\u00e9sormais aux deux disjoncteurs ensemble, ce qui peut laisser passer une vraie surcharge.",
+    "monitoringRating.threshold_warning_global":
+      "Les seuils globaux qu'utilise ce circuit d\u00e9passent 100 %. Avec les calibres copi\u00e9s, ils s'appliquent d\u00e9sormais aux deux disjoncteurs ensemble, ce qui peut laisser passer une vraie surcharge ; modifiez-les dans {settings}, onglet {tab}.",
     "monitoringRating.use_global_thresholds": "Utiliser les seuils globaux",
     "error.package_ratings_failed": "Impossible de mettre \u00e0 jour les calibres copi\u00e9s depuis l'application SPAN",
     "sidepanel.judged_against": "\u00c9valu\u00e9 selon : {rating}",
@@ -1054,6 +1060,8 @@ const translations: Record<string, Record<string, string>> = {
       "\u3053\u306e\u56de\u8def\u306f\u8907\u6570\u306e\u30b9\u30da\u30fc\u30b9\u306b\u307e\u305f\u304c\u3063\u3066\u3044\u307e\u3059\u3002\u30d1\u30cd\u30eb\u306f\u5404\u7dda\u306e\u5e73\u5747\u5024\u3092\u5831\u544a\u3059\u308b\u305f\u3081\u3001\u6e2c\u5b9a\u5024\u304c\u5b9a\u683c\u3092\u4e0b\u56de\u3063\u3066\u3044\u3066\u3082\u3001\u4e00\u65b9\u306e\u7dda\u304c\u30d6\u30ec\u30fc\u30ab\u30fc\u306e\u5b9a\u683c\u3092\u8d85\u3048\u308b\u3053\u3068\u304c\u3042\u308a\u3001SPAN \u30a2\u30d7\u30ea\u304b\u3089\u30b3\u30d4\u30fc\u3057\u305f\u5b9a\u683c\u3067\u306f\u305d\u308c\u3092\u793a\u305b\u307e\u305b\u3093\u3002\u3053\u306e\u56de\u8def\u306e\u30e2\u30cb\u30bf\u30ea\u30f3\u30b0\u3092\u30aa\u30d5\u306b\u3059\u308b\u306e\u304c\u3088\u308a\u5b89\u5168\u3067\u3059\u3002",
     "monitoringRating.threshold_warning":
       "\u3053\u306e\u56de\u8def\u306e\u30ab\u30b9\u30bf\u30e0\u3057\u304d\u3044\u5024\u306f 100% \u3092\u8d85\u3048\u3066\u3044\u307e\u3059\u3002\u30b3\u30d4\u30fc\u3057\u305f\u5b9a\u683c\u306b\u3088\u308a\u3001\u3057\u304d\u3044\u5024\u306f\u4e21\u65b9\u306e\u30d6\u30ec\u30fc\u30ab\u30fc\u306e\u5408\u8a08\u306b\u9069\u7528\u3055\u308c\u308b\u3088\u3046\u306b\u306a\u3063\u305f\u305f\u3081\u3001\u5b9f\u969b\u306e\u904e\u8ca0\u8377\u3092\u898b\u9003\u3059\u304a\u305d\u308c\u304c\u3042\u308a\u307e\u3059\u3002",
+    "monitoringRating.threshold_warning_global":
+      "\u3053\u306e\u56de\u8def\u304c\u4f7f\u7528\u3059\u308b\u30b0\u30ed\u30fc\u30d0\u30eb\u3057\u304d\u3044\u5024\u306f 100% \u3092\u8d85\u3048\u3066\u3044\u307e\u3059\u3002\u30b3\u30d4\u30fc\u3057\u305f\u5b9a\u683c\u306b\u3088\u308a\u3001\u3057\u304d\u3044\u5024\u306f\u4e21\u65b9\u306e\u30d6\u30ec\u30fc\u30ab\u30fc\u306e\u5408\u8a08\u306b\u9069\u7528\u3055\u308c\u308b\u3088\u3046\u306b\u306a\u3063\u305f\u305f\u3081\u3001\u5b9f\u969b\u306e\u904e\u8ca0\u8377\u3092\u898b\u9003\u3059\u304a\u305d\u308c\u304c\u3042\u308a\u307e\u3059\u3002{tab} \u30bf\u30d6\u306e {settings} \u3067\u5909\u66f4\u3057\u3066\u304f\u3060\u3055\u3044\u3002",
     "monitoringRating.use_global_thresholds": "\u30b0\u30ed\u30fc\u30d0\u30eb\u3057\u304d\u3044\u5024\u3092\u4f7f\u7528",
     "error.package_ratings_failed":
       "SPAN \u30a2\u30d7\u30ea\u304b\u3089\u30b3\u30d4\u30fc\u3057\u305f\u5b9a\u683c\u306e\u66f4\u65b0\u306b\u5931\u6557\u3057\u307e\u3057\u305f",
@@ -1323,6 +1331,8 @@ const translations: Record<string, Record<string, string>> = {
       "Este circuito ocupa v\u00e1rios espa\u00e7os. O painel informa a m\u00e9dia das suas fases, ent\u00e3o uma fase pode passar da capacidade do seu disjuntor enquanto a leitura fica abaixo da corrente nominal, e nenhuma corrente nominal copiada do app SPAN consegue mostrar isso. Desativar o monitoramento deste circuito \u00e9 a escolha mais segura.",
     "monitoringRating.threshold_warning":
       "Os limites personalizados deste circuito passam de 100%. Com as correntes nominais copiadas, eles agora se aplicam aos dois disjuntores juntos, o que pode deixar passar uma sobrecarga real.",
+    "monitoringRating.threshold_warning_global":
+      "Os limites globais que este circuito usa passam de 100%. Com as correntes nominais copiadas, eles agora se aplicam aos dois disjuntores juntos, o que pode deixar passar uma sobrecarga real; altere-os em {settings}, na aba {tab}.",
     "monitoringRating.use_global_thresholds": "Usar os limites globais",
     "error.package_ratings_failed": "N\u00e3o foi poss\u00edvel atualizar as correntes nominais copiadas do app SPAN",
     "sidepanel.judged_against": "Avaliado com base em: {rating}",

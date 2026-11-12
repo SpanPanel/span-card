@@ -313,6 +313,18 @@ describe("refreshCircuitSidePanel", () => {
     expect(editor.nextElementSibling?.classList.contains("radio-group")).toBe(true);
   });
 
+  it("hands the open panel the global thresholds of the status it re-reads", async () => {
+    const open = await openOven(circuit(20, 20));
+    const globals = { continuous_threshold_pct: 150, spike_threshold_pct: 200 };
+    open.callWS.mockImplementation(async (msg: Record<string, unknown>) =>
+      msg.service === "get_monitoring_status" ? { response: { ...(monitoringFor(circuit(20, 20)).response as object), global_settings: globals } } : {}
+    );
+
+    await open.ctrl.refreshCircuitSidePanel(open.root, ENTRY, topologyOf(circuit(20, 20)));
+
+    expect((open.panel as unknown as { ratingsState: { monitoringGlobals: unknown } }).ratingsState.monitoringGlobals).toEqual(globals);
+  });
+
   it("leaves the open panel alone for an event that names other circuits only", async () => {
     const open = await openOven(circuit(20, 20));
     const before = section(open.panel);

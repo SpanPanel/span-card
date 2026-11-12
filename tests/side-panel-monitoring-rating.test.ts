@@ -555,17 +555,27 @@ describe("a refused change", () => {
   });
 });
 
-describe("custom thresholds above 100% under a copy", () => {
+describe("thresholds above 100% under a copy", () => {
+  const GLOBALS = { continuous_threshold_pct: 80, spike_threshold_pct: 100 };
   const ABOVE = { monitoring_enabled: true, has_override: true, continuous_threshold_pct: 160, spike_threshold_pct: 200 };
+  const OWN = { monitoringInfo: ABOVE, monitoringGlobals: GLOBALS };
+  const OWN_TEXT =
+    "This circuit's custom thresholds are above 100%. With the copied ratings they now apply to both breakers together, which can let a real overload pass.";
+  const GLOBAL_TEXT =
+    "The global thresholds this circuit uses are above 100%. With the copied ratings they now apply to both breakers together, which can let a real " +
+    "overload pass; change them under Global Settings on the Monitoring tab.";
   const warning = (p: SidePanel): HTMLElement | null => p.shadowRoot!.querySelector<HTMLElement>('[data-role="rating-threshold-warning"]');
   const useGlobal = (p: SidePanel): HTMLElement | null => p.shadowRoot!.querySelector<HTMLElement>('[data-role="rating-threshold-reset"]');
+  const choose = (p: SidePanel, mode: "global" | "custom"): void => {
+    const radio = p.shadowRoot!.querySelector<HTMLInputElement>(`input[name="monitoring-mode"][value="${mode}"]`)!;
+    radio.checked = true;
+    radio.dispatchEvent(new Event("change"));
+  };
 
-  it("are warned of, since they now apply to both breakers together", () => {
-    const { panel } = open(COPIED, { monitoringInfo: ABOVE });
+  it("are the circuit's own where they differ from the global ones: warned of, with a reset to the global thresholds", () => {
+    const { panel } = open(COPIED, OWN);
     expect(warning(panel)!.getAttribute("role")).toBe("note");
-    expect(warning(panel)!.textContent).toContain(
-      "This circuit's custom thresholds are above 100%. With the copied ratings they now apply to both breakers together, which can let a real overload pass."
-    );
+    expect(warning(panel)!.textContent).toContain(OWN_TEXT);
     expect(useGlobal(panel)!.textContent).toBe("Use global thresholds");
     expect(editor(panel)!.contains(warning(panel))).toBe(true);
   });
@@ -574,30 +584,90 @@ describe("custom thresholds above 100% under a copy", () => {
     ["the continuous threshold alone", { continuous_threshold_pct: 160, spike_threshold_pct: 100 }],
     ["the spike threshold alone", { continuous_threshold_pct: 80, spike_threshold_pct: 200 }],
   ])("are warned of for %s", (_label, thresholds) => {
-    expect(warning(open(COPIED, { monitoringInfo: { monitoring_enabled: true, has_override: true, ...thresholds } }).panel)).not.toBeNull();
+    const shown = open(COPIED, { monitoringInfo: { monitoring_enabled: true, has_override: true, ...thresholds }, monitoringGlobals: GLOBALS });
+    expect(useGlobal(shown.panel)).not.toBeNull();
+  });
+
+  it("are the global ones where they equal them: warned of, pointing to the global settings, with no reset", () => {
+    const { panel } = open(COPIED, {
+      monitoringInfo: { ...ABOVE, has_override: false },
+      monitoringGlobals: { continuous_threshold_pct: 160, spike_threshold_pct: 200 },
+    });
+    expect(warning(panel)!.textContent).toBe(GLOBAL_TEXT);
+    expect(useGlobal(panel)).toBeNull();
+  });
+
+  it("are the global ones where only the circuit's window or cooldown is its own", () => {
+    const { panel } = open(COPIED, { monitoringInfo: ABOVE, monitoringGlobals: { continuous_threshold_pct: 160, spike_threshold_pct: 200 } });
+    expect(warning(panel)!.textContent).toBe(GLOBAL_TEXT);
+    expect(useGlobal(panel)).toBeNull();
+  });
+
+  it("are the circuit's own, where the global ones are not known, only while it has an override", () => {
+    expect(useGlobal(open(COPIED, { monitoringInfo: ABOVE, monitoringGlobals: null }).panel)).not.toBeNull();
+    const global = open(COPIED, { monitoringInfo: { ...ABOVE, has_override: false }, monitoringGlobals: null });
+    expect(warning(global.panel)!.textContent).toBe(GLOBAL_TEXT);
   });
 
   it("are warned of for a copy waiting on a value not yet arrived, which applies once it does", () => {
     const waiting = [{ uuid: "c-1", circuit: circuit("Oven", 20, [20, 30], [1], false) }];
-    expect(warning(open(waiting, { monitoringInfo: ABOVE }).panel)).not.toBeNull();
+    expect(warning(open(waiting, OWN).panel)).not.toBeNull();
   });
 
   it("are not warned of with no copy, where they are the circuit's own business", () => {
-    expect(warning(open(OVEN, { monitoringInfo: ABOVE }).panel)).toBeNull();
+    expect(warning(open(OVEN, OWN).panel)).toBeNull();
   });
 
   it("are not warned of at 100% or below", () => {
     const within = { monitoring_enabled: true, has_override: true, continuous_threshold_pct: 80, spike_threshold_pct: 100 };
-    expect(warning(open(COPIED, { monitoringInfo: within }).panel)).toBeNull();
+    expect(warning(open(COPIED, { monitoringInfo: within, monitoringGlobals: GLOBALS }).panel)).toBeNull();
   });
 
-  it("are not the circuit's when they are the global ones, which the warning does not judge", () => {
-    expect(warning(open(COPIED, { monitoringInfo: { ...ABOVE, has_override: false } }).panel)).toBeNull();
+  it("go when Global is chosen and the global thresholds are within 100%", async () => {
+    const { panel } = open(COPIED, OWN);
+    choose(panel, "global");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(warning(panel)).toBeNull();
+  });
+
+  it("turn into the pointer to the global settings when Global is chosen and those are above 100%", async () => {
+    const { panel } = open(COPIED, { monitoringInfo: ABOVE, monitoringGlobals: { continuous_threshold_pct: 150, spike_threshold_pct: 200 } });
+    choose(panel, "global");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(warning(panel)!.textContent).toBe(GLOBAL_TEXT);
+    expect(useGlobal(panel)).toBeNull();
+  });
+
+  it("appear as soon as a custom threshold saved goes above 100%, and go as soon as one comes back", async () => {
+    const { panel } = open(COPIED, { monitoringInfo: { monitoring_enabled: true, has_override: true, ...GLOBALS }, monitoringGlobals: GLOBALS });
+    const continuous = panel.shadowRoot!.querySelector<HTMLInputElement>('[data-role="threshold-continuous"]')!;
+    expect(warning(panel)).toBeNull();
+
+    continuous.value = "160";
+    continuous.dispatchEvent(new Event("input"));
+    await vi.advanceTimersByTimeAsync(600);
+    expect(useGlobal(panel)).not.toBeNull();
+
+    continuous.value = "90";
+    continuous.dispatchEvent(new Event("input"));
+    await vi.advanceTimersByTimeAsync(600);
+    expect(warning(panel)).toBeNull();
+  });
+
+  it("are kept when a custom threshold fails to save", async () => {
+    const { panel } = open(COPIED, OWN, async () => {
+      throw { message: "refused" };
+    });
+    const continuous = panel.shadowRoot!.querySelector<HTMLInputElement>('[data-role="threshold-continuous"]')!;
+    continuous.value = "90";
+    continuous.dispatchEvent(new Event("input"));
+    await vi.advanceTimersByTimeAsync(600);
+    expect(useGlobal(panel)).not.toBeNull();
   });
 
   it("are reset to the global thresholds in one click, as choosing Global does, the warning going once that succeeds", async () => {
     let clear: () => void = () => {};
-    const { panel, callWS } = open(COPIED, { monitoringInfo: ABOVE }, () => new Promise<undefined>(resolve => (clear = () => resolve(undefined))));
+    const { panel, callWS } = open(COPIED, OWN, () => new Promise<undefined>(resolve => (clear = () => resolve(undefined))));
     useGlobal(panel)!.focus();
     useGlobal(panel)!.click();
     expect(callWS.mock.calls.map(c => c[0])).toEqual([
@@ -618,7 +688,7 @@ describe("custom thresholds above 100% under a copy", () => {
   });
 
   it("are kept, with the warning, when the reset fails, the Custom choice and its fields put back", async () => {
-    const { panel, errors } = open(COPIED, { monitoringInfo: ABOVE }, async () => {
+    const { panel, errors } = open(COPIED, OWN, async () => {
       throw { message: "refused" };
     });
     useGlobal(panel)!.click();
@@ -632,7 +702,7 @@ describe("custom thresholds above 100% under a copy", () => {
   });
 
   it("are left as they are by the copy itself: setting the package calls no threshold service", () => {
-    const { panel, callWS } = open(OVEN, { monitoringInfo: ABOVE });
+    const { panel, callWS } = open(OVEN, OWN);
     type(input(panel), "20");
     expect(callWS.mock.calls.map(c => (c[0] as { service: string }).service)).toEqual(["set_circuit_package_ratings"]);
   });
@@ -648,22 +718,18 @@ describe("the gear", () => {
     },
   } as unknown as PanelTopology;
 
-  type Opened = { showMonitoring?: boolean; monitoringRatingOffered?: boolean; members?: { uuid: string }[] };
+  type Opened = { showMonitoring?: boolean; monitoringRatingOffered?: boolean; monitoringGlobals?: unknown; members?: { uuid: string }[] };
 
   async function opened(
     uuid: string,
     show: boolean,
     topology: PanelTopology = TOPOLOGY,
-    setUp: (ctrl: DashboardController) => void = () => {}
+    setUp: (ctrl: DashboardController) => void = () => {},
+    callWS: CallWS = async () => undefined
   ): Promise<Opened> {
     const ctrl = new DashboardController();
     ctrl.showMonitoring = show;
-    ctrl.init(
-      topology,
-      {} as CardConfig,
-      hass(async () => undefined),
-      "entry-1"
-    );
+    ctrl.init(topology, {} as CardConfig, hass(callWS), "entry-1");
     setUp(ctrl);
     const root = document.createElement("div");
     root.innerHTML = `<button class="gear-icon circuit-gear" data-uuid="${uuid}"></button><span-side-panel></span-side-panel>`;
@@ -674,6 +740,18 @@ describe("the gear", () => {
     root.remove();
     return spy.mock.calls[0]![0] as Opened;
   }
+
+  it("passes on the panel's global thresholds from the monitoring status the circuit's own came from", async () => {
+    const globals = { continuous_threshold_pct: 150, spike_threshold_pct: 200 };
+    const cfg = await opened(
+      "c-m",
+      true,
+      TOPOLOGY,
+      () => {},
+      async msg => (msg.service === "get_monitoring_status" ? { response: { enabled: true, circuits: {}, global_settings: globals } } : undefined)
+    );
+    expect(cfg.monitoringGlobals).toEqual(globals);
+  });
 
   it("is not asked to show the Monitoring section, and so the editor, in the standalone card", async () => {
     expect((await opened("c-m", false)).showMonitoring).toBe(false);

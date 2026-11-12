@@ -393,6 +393,8 @@ export interface CallServiceResponse {
 export interface MonitoringStatus {
   circuits?: Record<string, MonitoringPointInfo>;
   mains?: Record<string, MonitoringPointInfo>;
+  /** The panel's global settings, from one panel's answer; absent where statuses of several panels are merged. */
+  global_settings?: MonitoringGlobalSettings;
 }
 
 // -- Graph horizon preset --

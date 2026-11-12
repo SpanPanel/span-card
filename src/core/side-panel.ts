@@ -64,6 +64,8 @@ export interface CircuitRatingView {
   members: readonly SlotMember[];
   capacityA: number | null;
   monitoringInfo: MonitoringPointInfo | null;
+  /** The panel's global thresholds, from the status `monitoringInfo` came from; null where not known. */
+  monitoringGlobals: MonitoringGlobalSettings | null;
 }
 
 export type CircuitModeConfig = CircuitControlFields & {
@@ -447,7 +449,13 @@ class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
     const shadow = this.shadowRoot;
     if (!cfg || !shadow || !this.hasAttribute("open") || cfg.panelMode || cfg.subDeviceMode || cfg.favoritesMode) return;
 
-    const next: CircuitModeConfig = { ...cfg, members: view.members, capacityA: view.capacityA, monitoringInfo: view.monitoringInfo };
+    const next: CircuitModeConfig = {
+      ...cfg,
+      members: view.members,
+      capacityA: view.capacityA,
+      monitoringInfo: view.monitoringInfo,
+      monitoringGlobals: view.monitoringGlobals,
+    };
     this._config = next;
 
     const subtitle = shadow.querySelector(".subtitle");
@@ -1391,7 +1399,13 @@ class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
       }
       return false;
     }
-    this._thresholdsChanged(cfg, { has_override: false });
+    // The circuit now takes the global thresholds, where they are known.
+    const globals = this._config === cfg ? (cfg.monitoringGlobals ?? null) : null;
+    this._thresholdsChanged(cfg.uuid, {
+      has_override: false,
+      continuous_threshold_pct: globals?.continuous_threshold_pct,
+      spike_threshold_pct: globals?.spike_threshold_pct,
+    });
     return true;
   }
 
@@ -1413,14 +1427,15 @@ class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
   }
 
   /**
-   * Fold a threshold change the integration accepted into the open circuit's
-   * monitoring, so what reads it, the editor's warning, follows at once. Ignored
-   * where the panel has since closed or moved to another circuit.
+   * Fold a threshold change the integration accepted for circuit `uuid` into the
+   * open circuit's monitoring, so what reads it, the editor's warning, follows at
+   * once rather than at the next refresh. Ignored where the panel has since closed
+   * or moved to another circuit.
    */
-  private _thresholdsChanged(cfg: CircuitModeConfig, change: Partial<MonitoringPointInfo>): void {
-    if (this._config !== cfg || !this.hasAttribute("open")) return;
-    const next: CircuitModeConfig = { ...cfg, monitoringInfo: { ...(cfg.monitoringInfo ?? {}), ...change } };
-    this._config = next;
+  private _thresholdsChanged(uuid: string, change: Partial<MonitoringPointInfo>): void {
+    const cfg = this._config;
+    if (!cfg || cfg.panelMode || cfg.subDeviceMode || cfg.favoritesMode || cfg.uuid !== uuid || !this.hasAttribute("open")) return;
+    this._config = { ...cfg, monitoringInfo: { ...(cfg.monitoringInfo ?? {}), ...change } };
     const judged = this.shadowRoot?.querySelector('[data-role="judged-against"]');
     if (judged) this._ratingsEditor.sync(judged);
   }
@@ -1663,21 +1678,38 @@ class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
           cooldown_duration_m: cooldownM ? Number(cooldownM.value) : undefined,
         };
         if (cfg.configEntryId) data.config_entry_id = cfg.configEntryId;
-        this._callDomainService("set_circuit_threshold", data).catch((err: Error) => {
-          console.warn("SPAN Panel: monitoring update failed", err);
-          this.errorStore?.add({
-            key: "service:monitoring",
-            level: "error",
-            message: t("error.threshold_failed"),
-            persistent: false,
-          });
-        });
+        this._saveThresholds(cfg.uuid, data);
       });
     });
 
     row.appendChild(labelEl);
     row.appendChild(input);
     return row;
+  }
+
+  /**
+   * Save the circuit's custom thresholds. Once the integration accepts them, the
+   * open circuit's monitoring reads them, so what depends on them, the package
+   * ratings editor's warning, follows without waiting for a refresh.
+   */
+  private _saveThresholds(uuid: string, data: Record<string, unknown>): void {
+    this._callDomainService("set_circuit_threshold", data).then(
+      () => {
+        const change: Partial<MonitoringPointInfo> = { has_override: true };
+        if (typeof data.continuous_threshold_pct === "number") change.continuous_threshold_pct = data.continuous_threshold_pct;
+        if (typeof data.spike_threshold_pct === "number") change.spike_threshold_pct = data.spike_threshold_pct;
+        this._thresholdsChanged(uuid, change);
+      },
+      (err: unknown) => {
+        console.warn("SPAN Panel: monitoring update failed", err);
+        this.errorStore?.add({
+          key: "service:monitoring",
+          level: "error",
+          message: t("error.threshold_failed"),
+          persistent: false,
+        });
+      }
+    );
   }
 
   private _createDurationRow(
@@ -1731,15 +1763,7 @@ class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
             window_duration_m: windowM ? Number(windowM.value) : undefined,
           };
           if (cfg.configEntryId) data.config_entry_id = cfg.configEntryId;
-          this._callDomainService("set_circuit_threshold", data).catch((err: Error) => {
-            console.warn("SPAN Panel: monitoring update failed", err);
-            this.errorStore?.add({
-              key: "service:monitoring",
-              level: "error",
-              message: t("error.threshold_failed"),
-              persistent: false,
-            });
-          });
+          this._saveThresholds(cfg.uuid, data);
         });
       });
     }

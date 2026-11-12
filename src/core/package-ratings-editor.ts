@@ -1,6 +1,7 @@
 // src/core/package-ratings-editor.ts
 import { t, tf } from "../i18n.js";
 import { occupiedSpaces, type SlotMember } from "../helpers/shared-meters.js";
+import { thresholdWarning, type ThresholdWarning } from "../helpers/monitoring-rating.js";
 import type { MonitoringGlobalSettings, MonitoringPointInfo } from "../types.js";
 
 /** What the editor draws from: the slot a circuit side panel is open on, and its monitoring. */
@@ -336,36 +337,39 @@ export class PackageRatingsEditor {
   // ── The threshold warning ───────────────────────────────────────────
 
   /**
-   * A warning, with a reset to the global thresholds, where a copied package is
-   * stored and the circuit's own thresholds exceed 100%. Thresholds are
-   * percentages of the rating a circuit is judged against, so ones raised to quiet
-   * a tandem's alerts now apply to both breakers together, which can let a real
-   * overload pass. The copy changes no threshold itself; the user chooses.
+   * A warning where a copied package is stored and the thresholds the circuit is
+   * judged by exceed 100% (`thresholdWarning`): for its own, with a reset to the
+   * global thresholds; for the global ones, pointing to the global settings,
+   * which a reset here would not change. The copy changes no threshold itself;
+   * the user chooses. Re-read on every sync, so it follows a threshold change.
    */
   private _syncWarning(section: HTMLDivElement, member: SlotMember): void {
     const region = section.querySelector<HTMLElement>('[data-role="rating-warning-region"]');
     if (!region) return;
-    const info = this._host.ratingsState?.monitoringInfo ?? null;
-    const wanted =
-      storedOther(member) !== null && info?.has_override === true && ((info.continuous_threshold_pct ?? 0) > 100 || (info.spike_threshold_pct ?? 0) > 100);
+    const state = this._host.ratingsState;
+    const wanted = thresholdWarning(member.circuit.package_ratings_a, state?.monitoringInfo, state?.monitoringGlobals);
     const current = region.querySelector<HTMLElement>('[data-role="rating-threshold-warning"]');
-    if (wanted && !current) region.appendChild(this._buildWarning());
-    else if (!wanted && current) {
-      const hadFocus = focusWithin(current);
-      current.remove();
-      if (hadFocus) this._host.focusAfterRatingsEditor();
-    }
+    if (current && current.dataset.kind === wanted) return;
+    const hadFocus = focusWithin(current);
+    current?.remove();
+    if (wanted) region.appendChild(this._buildWarning(wanted));
+    if (hadFocus) this._host.focusAfterRatingsEditor();
   }
 
-  private _buildWarning(): HTMLDivElement {
+  private _buildWarning(kind: ThresholdWarning): HTMLDivElement {
     const warning = document.createElement("div");
     warning.className = "field-label rating-warning";
     warning.dataset.role = "rating-threshold-warning";
+    warning.dataset.kind = kind;
     warning.setAttribute("role", "note");
 
     const text = document.createElement("span");
-    text.textContent = t("monitoringRating.threshold_warning");
+    text.textContent =
+      kind === "own"
+        ? t("monitoringRating.threshold_warning")
+        : tf("monitoringRating.threshold_warning_global", { settings: t("monitoring.global_settings"), tab: t("tab.monitoring") });
     warning.appendChild(text);
+    if (kind === "global") return warning;
 
     const useGlobal = document.createElement("button");
     useGlobal.type = "button";

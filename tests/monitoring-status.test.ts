@@ -193,10 +193,19 @@ describe("monitoringStatusFrom", () => {
     expect(monitoringStatusFrom(undefined)).toBeNull();
   });
 
-  it("is the monitored points when monitoring is on", () => {
+  it("is the monitored points and the global settings when monitoring is on", () => {
     const circuits = { "sensor.circuit_1_power": { utilization_pct: 55 } };
     const mains = { "sensor.mains_power": { utilization_pct: 20 } };
-    expect(monitoringStatusFrom({ enabled: true, circuits, mains, global_settings: {} })).toEqual({ circuits, mains });
+    const global_settings = { continuous_threshold_pct: 80, spike_threshold_pct: 100 };
+    expect(monitoringStatusFrom({ enabled: true, circuits, mains, global_settings })).toEqual({ circuits, mains, global_settings });
+  });
+
+  it("merges panels' points but no one panel's global settings, which differ by panel", () => {
+    const merged = mergeMonitoringStatuses([
+      { circuits: {}, mains: {}, global_settings: { continuous_threshold_pct: 80 } },
+      { circuits: {}, mains: {}, global_settings: { continuous_threshold_pct: 150 } },
+    ]);
+    expect(merged).toEqual({ circuits: {}, mains: {} });
   });
 });
 

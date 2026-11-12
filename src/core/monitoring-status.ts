@@ -17,7 +17,9 @@ interface CallServiceResponse {
  */
 export function monitoringStatusFrom(response: MonitoringStatusResponse | null | undefined): MonitoringStatus | null {
   if (!response || response.enabled === false) return null;
-  return { circuits: response.circuits, mains: response.mains };
+  const status: MonitoringStatus = { circuits: response.circuits, mains: response.mains };
+  if (response.global_settings) status.global_settings = response.global_settings;
+  return status;
 }
 
 /**
