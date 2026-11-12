@@ -17,7 +17,7 @@ import { DashboardController } from "../core/dashboard-controller.js";
 import { buildTabBarHTML } from "../core/tab-bar-renderer.js";
 import { subscribeAreaUpdates } from "../core/area-resolver.js";
 import { subscribeEntryReloads } from "../core/entry-reload.js";
-import { subscribePackageRatingChanges } from "../core/rating-events.js";
+import { mergeCircuitIds, subscribePackageRatingChanges } from "../core/rating-events.js";
 import { sameTopologyStructure } from "../core/topology-structure.js";
 import { discoverTopology } from "../card/card-discovery.js";
 import { RetryManager } from "../core/retry-manager.js";
@@ -113,6 +113,8 @@ export class SpanPanelElement extends LitElement {
   private readonly _ratingSubs = new Map<string, Promise<() => void>>();
   /** Per panel, the rating refresh: a burst of events is one fetch in flight and at most one trailing, which sees the last change. */
   private readonly _ratingRefreshes = new Map<string, () => Promise<void>>();
+  /** Per panel, the circuits the rating events since its last refresh named; null when one named none. */
+  private readonly _ratingChangedIds = new Map<string, ReadonlySet<string> | null>();
   /**
    * The topology the current view rendered, by panel device id. An entry reload
    * re-renders the view only when its panel's topology changed structure since.
@@ -670,7 +672,7 @@ export class SpanPanelElement extends LitElement {
       if (this._ratingSubs.has(entryId)) continue;
       this._ratingSubs.set(
         entryId,
-        subscribePackageRatingChanges(hass, entryId, () => this._onRatingChanged(entryId)).catch((err: unknown): (() => void) => {
+        subscribePackageRatingChanges(hass, entryId, circuitIds => this._onRatingChanged(entryId, circuitIds)).catch((err: unknown): (() => void) => {
           console.warn("SPAN Panel: monitoring rating subscription failed", err);
           return () => {};
         })
@@ -689,10 +691,11 @@ export class SpanPanelElement extends LitElement {
    * from the integration's answer: the monitoring caches are dropped, the topology
    * is re-fetched through the same check an entry reload uses (a rating is part of
    * the structure it compares, so a changed one re-renders the view), and an open
-   * circuit panel has its rating-bearing parts rebuilt in place. A re-render waits
-   * for an open side panel to close, as any deferred render does.
+   * circuit panel has its rating-bearing parts rebuilt in place where the events
+   * since the last refresh name a circuit it draws. A re-render waits for an open
+   * side panel to close, as any deferred render does.
    */
-  private _onRatingChanged(entryId: string): void {
+  private _onRatingChanged(entryId: string, circuitIds: ReadonlySet<string> | null): void {
     const panel = this._panels.find(p => p.id !== FAVORITES_PANEL_ID && p.config_entry_id === entryId);
     if (!panel) return;
     this._dashboardTab.invalidateMonitoring();
@@ -701,22 +704,35 @@ export class SpanPanelElement extends LitElement {
     const shown = this._isFavoritesView ? this._renderedTopologies.has(panel.id) : panel.id === this._selectedPanelId;
     // The Adopted tab renders rows of its own, and an open editor keeps what the user typed.
     if (!shown || (!this._isFavoritesView && this._activeTab === "adopted")) return;
+    const pending = this._ratingChangedIds.has(panel.id) ? (this._ratingChangedIds.get(panel.id) ?? null) : new Set<string>();
+    this._ratingChangedIds.set(panel.id, mergeCircuitIds(pending, circuitIds));
     let refresh = this._ratingRefreshes.get(panel.id);
     if (!refresh) {
       const panelId = panel.id;
-      refresh = coalesceRuns(() => this._renderIfRestructured(panelId, topology => this._refreshOpenSidePanel(entryId, topology)));
+      // A run answers the events before it started; one arriving during it is the follow-up's.
+      refresh = coalesceRuns(() => {
+        const named = this._takeRatingChangedIds(panelId);
+        return this._renderIfRestructured(panelId, topology => this._refreshOpenSidePanel(entryId, topology, named));
+      });
       this._ratingRefreshes.set(panelId, refresh);
     }
     void refresh();
   }
 
-  private async _refreshOpenSidePanel(entryId: string, topology: PanelTopology): Promise<void> {
+  /** The circuits the rating events for `panelId` named since its last refresh, which this refresh now answers. */
+  private _takeRatingChangedIds(panelId: string): ReadonlySet<string> | null {
+    const named = this._ratingChangedIds.has(panelId) ? (this._ratingChangedIds.get(panelId) ?? null) : null;
+    this._ratingChangedIds.delete(panelId);
+    return named;
+  }
+
+  private async _refreshOpenSidePanel(entryId: string, topology: PanelTopology, circuitIds: ReadonlySet<string> | null): Promise<void> {
     const container = this._root.getElementById("tab-content");
     if (!container) return;
     if (this._activeTab === "dashboard" && !this._isFavoritesView) {
-      await this._dashboardTab.refreshSidePanel(entryId, topology);
+      await this._dashboardTab.refreshSidePanel(entryId, topology, circuitIds);
     } else {
-      await this._listDashCtrl.refreshCircuitSidePanel(container, entryId, topology);
+      await this._listDashCtrl.refreshCircuitSidePanel(container, entryId, topology, circuitIds);
     }
   }
 

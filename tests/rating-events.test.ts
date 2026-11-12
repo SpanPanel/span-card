@@ -46,6 +46,26 @@ describe("subscribePackageRatingChanges", () => {
     expect(onChange).toHaveBeenCalledTimes(1);
   });
 
+  it("hands the callback the circuits the event names", async () => {
+    const connection = new FakeConnection();
+    const onChange = vi.fn();
+    await subscribePackageRatingChanges(hassWith(connection), "entry-1", onChange);
+
+    connection.emit(PACKAGE_RATINGS_CHANGED, ratingEvent("entry-1", ["c-1", "c-2"]));
+
+    expect(onChange).toHaveBeenCalledWith(new Set(["c-1", "c-2"]));
+  });
+
+  it.each([[{}], [{ circuit_ids: "c-1" }], [{ circuit_ids: [1] }]])("hands it null, any circuit, for an event that names none %j", async extra => {
+    const connection = new FakeConnection();
+    const onChange = vi.fn();
+    await subscribePackageRatingChanges(hassWith(connection), "entry-1", onChange);
+
+    connection.emit(PACKAGE_RATINGS_CHANGED, { event_type: PACKAGE_RATINGS_CHANGED, data: { config_entry_id: "entry-1", ...extra } });
+
+    expect(onChange).toHaveBeenCalledWith(null);
+  });
+
   it("ignores an event for another entry, even for the same circuit id", async () => {
     const connection = new FakeConnection();
     const onChange = vi.fn();
@@ -284,6 +304,28 @@ describe("refreshCircuitSidePanel", () => {
     expect(input(open.panel).value).toBe("");
     expect(editor.previousElementSibling?.getAttribute("data-role")).toBe("judged-against");
     expect(editor.nextElementSibling?.classList.contains("radio-group")).toBe(true);
+  });
+
+  it("leaves the open panel alone for an event that names other circuits only", async () => {
+    const open = await openOven(circuit(20, 20));
+    const before = section(open.panel);
+    open.callWS.mockClear();
+
+    await open.ctrl.refreshCircuitSidePanel(open.root, ENTRY, topologyOf(circuit(20, 50, true)), new Set(["c-9"]));
+
+    expect(section(open.panel)).toBe(before);
+    expect(judged(open.panel)).toBe("Judged against: 20 A");
+    expect(open.callWS).not.toHaveBeenCalled();
+  });
+
+  it("redraws the open panel for an event that names its circuit", async () => {
+    const open = await openOven(circuit(20, 20));
+    const after = circuit(20, 50, true);
+    open.setStatus(after);
+
+    await open.ctrl.refreshCircuitSidePanel(open.root, ENTRY, topologyOf(after), new Set(["c-9", "c-1"]));
+
+    expect(judged(open.panel)).toBe("Judged against 50 A: 20-30 from your SPAN app (the panel publishes 20 A)");
   });
 
   it("leaves a panel open for another entry alone", async () => {
@@ -575,7 +617,7 @@ describe("the sidebar dashboard", () => {
 
     await vi.waitFor(() => expect(render.mock.calls.length).toBeGreaterThan(renders));
     expect(invalidate).toHaveBeenCalled();
-    expect(refreshSidePanel).toHaveBeenCalledWith("entry-1", rendered);
+    expect(refreshSidePanel).toHaveBeenCalledWith("entry-1", rendered, new Set(["c-1"]));
   });
 
   it("redraws the Monitoring tab's rating cell from the new status on an event for its entry", async () => {
@@ -639,7 +681,7 @@ describe("the sidebar dashboard", () => {
     rendered = topologyOf(status);
     connection.emit(PACKAGE_RATINGS_CHANGED, ratingEvent("entry-1"));
 
-    await vi.waitFor(() => expect(refreshList).toHaveBeenCalledWith(content(), "entry-1", rendered));
+    await vi.waitFor(() => expect(refreshList).toHaveBeenCalledWith(content(), "entry-1", rendered, new Set(["c-1"])));
     expect(subtitle()).toBe("20A \u00b7 240V \u00b7 Tabs [1]");
     expect(refreshSidePanel).not.toHaveBeenCalled();
     expect(side().openCircuit?.uuid).toBe("c-1");
@@ -664,7 +706,7 @@ describe("the sidebar dashboard", () => {
 
     connection.emit(PACKAGE_RATINGS_CHANGED, ratingEvent("entry-1"));
 
-    await vi.waitFor(() => expect(refreshList).toHaveBeenCalledWith(panel.shadowRoot!.getElementById("tab-content"), "entry-1", rendered));
+    await vi.waitFor(() => expect(refreshList).toHaveBeenCalledWith(panel.shadowRoot!.getElementById("tab-content"), "entry-1", rendered, new Set(["c-1"])));
     expect(refreshSidePanel).not.toHaveBeenCalled();
   });
 
@@ -716,7 +758,7 @@ describe("the sidebar dashboard", () => {
     await vi.waitFor(() => expect(mockDiscover.mock.calls.length).toBe(fetches + 2));
     const last = topologyOf(circuit(20, 50, true));
     gates[1]!(last);
-    await vi.waitFor(() => expect(refreshSidePanel).toHaveBeenLastCalledWith("entry-1", last));
+    await vi.waitFor(() => expect(refreshSidePanel).toHaveBeenLastCalledWith("entry-1", last, new Set(["c-1"])));
     await flush();
 
     expect(mockDiscover.mock.calls.length).toBe(fetches + 2);

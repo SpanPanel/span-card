@@ -161,9 +161,9 @@ export class DashboardTab {
     this._ctrl.monitoringCache.invalidate();
   }
 
-  /** Redraw the circuit side panel left open in this tab after a rating change on `entryId`. */
-  async refreshSidePanel(entryId: string, topology: PanelTopology): Promise<void> {
-    if (this._container) await this._ctrl.refreshCircuitSidePanel(this._container, entryId, topology);
+  /** Redraw the circuit side panel left open in this tab after a rating change on `entryId` naming `circuitIds` (null for any). */
+  async refreshSidePanel(entryId: string, topology: PanelTopology, circuitIds: ReadonlySet<string> | null = null): Promise<void> {
+    if (this._container) await this._ctrl.refreshCircuitSidePanel(this._container, entryId, topology, circuitIds);
   }
 
   stop(): void {

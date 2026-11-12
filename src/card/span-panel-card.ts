@@ -407,16 +407,15 @@ export class SpanPanelCard extends LitElement {
   /**
    * A breaker rating changed on this panel: redraw from the integration's answer.
    * The monitoring status is fetched first, so the re-render the coalesced topology
-   * refresh makes (a rating is part of the structure it compares) reads the new rating,
-   * then an open circuit panel has its rating-bearing parts rebuilt.
+   * refresh makes (a rating is part of the structure it compares) reads the new rating.
+   * The card's circuit panel shows no Monitoring section, and its subtitle reads the
+   * panel's ratings, which a copied package does not change, so it has nothing to redraw.
    */
   private async _onRatingChanged(): Promise<void> {
     if (!this.hass || !this._discovered) return;
     this._ctrl.monitoringCache.invalidate();
     await this._ctrl.monitoringCache.fetch(this.hass, this._configEntryId);
     await this._topologyRefresh();
-    const entryId = this._configEntryId;
-    if (this._topology && entryId) await this._ctrl.refreshCircuitSidePanel(this._root, entryId, this._topology);
   }
 
   /** The only teardown path: unsubscribe through each held promise, whenever it resolves. */

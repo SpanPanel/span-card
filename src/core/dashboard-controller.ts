@@ -621,9 +621,10 @@ export class DashboardController {
    * Redraw the circuit side panel left open in `root` after a rating change on
    * `entryId`, from `topology` (fetched after the change) and a monitoring status
    * fetched uncached. Does nothing when no circuit panel is open, when it belongs to
-   * another entry, or when the circuit is no longer in the topology.
+   * another entry, when the circuit is no longer in the topology, or when the change
+   * names circuits (`circuitIds`, null for any) none of which is drawn in its slot.
    */
-  async refreshCircuitSidePanel(root: ParentNode, entryId: string, topology: PanelTopology): Promise<void> {
+  async refreshCircuitSidePanel(root: ParentNode, entryId: string, topology: PanelTopology, circuitIds: ReadonlySet<string> | null = null): Promise<void> {
     const sidePanel = root.querySelector("span-side-panel") as SpanSidePanelElement | null;
     const open = sidePanel?.openCircuit;
     if (!sidePanel || !open || open.configEntryId !== entryId) return;
@@ -631,12 +632,14 @@ export class DashboardController {
     // The open panel is keyed by the circuit's own id, and `topology` is its own panel's.
     const circuit = topology.circuits[open.uuid];
     if (!circuit) return;
+    const slot = slotsByMember(meterSlots(topology)).get(open.uuid);
+    if (circuitIds && !(slot?.memberIds ?? [open.uuid]).some(id => circuitIds.has(id))) return;
     const status = await this._fetchMonitoringStatusFresh(entryId);
     // The panel may have been closed or reopened on another circuit while the status was fetched.
     if (sidePanel.openCircuit?.uuid !== open.uuid) return;
 
     const monitoringInfo = circuitMonitoringInfo(status, circuit);
-    sidePanel.refreshRating({ ...slotView(slotsByMember(meterSlots(topology)).get(open.uuid), open.uuid, circuit), monitoringInfo });
+    sidePanel.refreshRating({ ...slotView(slot, open.uuid, circuit), monitoringInfo });
   }
 
   /**
