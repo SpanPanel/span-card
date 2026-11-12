@@ -211,7 +211,7 @@ describe("the site sum", () => {
     const root = document.createElement("div");
     root.innerHTML = buildPanelStatsHTML(topology(), CONFIG) + grid().innerHTML;
     // With no site reading the header falls back to the circuits' sum: 1000 + 300 + 500 + 0 W, each pair once.
-    updateCircuitDOM(root, hassWith(), topology(), CONFIG, new Map(), undefined);
+    updateCircuitDOM(root, hassWith(), topology(), CONFIG, new Map(), undefined, null);
     expect(root.querySelector(".stat-consumption .stat-value")!.textContent).toBe("1.8");
   });
 });

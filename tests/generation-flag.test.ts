@@ -54,7 +54,7 @@ describe("a flagged circuit on the grid and in the circuits' sum", () => {
   it("is no load in the site sum", () => {
     const root = document.createElement("div");
     root.innerHTML = buildPanelStatsHTML(topology, CONFIG) + buildGridHTML(topology, positionRange(topology, 2)!, hass, CONFIG, null);
-    updateCircuitDOM(root, hass, topology, CONFIG, new Map(), undefined);
+    updateCircuitDOM(root, hass, topology, CONFIG, new Map(), undefined, null);
     expect(root.querySelector(".stat-consumption .stat-value")!.textContent).toBe("0.3");
   });
 });

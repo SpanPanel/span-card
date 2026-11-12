@@ -1,7 +1,7 @@
 import { INTEGRATION_DOMAIN } from "../constants.js";
 import { t } from "../i18n.js";
 import { RetryManager } from "./retry-manager.js";
-import type { HomeAssistant, MonitoringPointInfo, MonitoringStatus, MonitoringStatusResponse } from "../types.js";
+import type { Circuit, HomeAssistant, MonitoringPointInfo, MonitoringStatus, MonitoringStatusResponse } from "../types.js";
 import type { ErrorStore } from "./error-store.js";
 
 const MONITORING_POLL_INTERVAL_MS = 30_000;
@@ -200,6 +200,14 @@ export function getCircuitMonitoringInfo(status: MonitoringStatus | null, entity
 }
 
 /**
+ * A circuit's monitoring status entry, which is keyed by the circuit's current
+ * sensor, else its power sensor. Null where the status has none for it.
+ */
+export function circuitMonitoringInfo(status: MonitoringStatus | null, circuit: Pick<Circuit, "entities">): MonitoringPointInfo | null {
+  return getCircuitMonitoringInfo(status, circuit.entities?.current ?? circuit.entities?.power ?? "");
+}
+
+/**
  * Check if a monitored point has custom (non-global) overrides.
  */
 export function hasCustomOverrides(monitoringInfo: MonitoringPointInfo | null): boolean {
@@ -217,16 +225,35 @@ export type UtilizationLevel = "normal" | "warning" | "alert";
 const FALLBACK_CONTINUOUS_THRESHOLD_PCT = 80;
 const FALLBACK_SPIKE_THRESHOLD_PCT = 100;
 
+/** A point's monitoring thresholds, in percent of the rating it is judged against. */
+export interface PointThresholds {
+  /** At or above this, the point is a warning, and sustained, a continuous-overload alert. */
+  readonly continuousPct: number;
+  /** At or above this, the point is an alert. */
+  readonly spikePct: number;
+}
+
 /**
- * A point's utilization level against its own monitoring thresholds, as `get_monitoring_status` reports them: the
- * point's override, else the global setting. A warning at or above the continuous threshold and an alert at or above the
- * spike threshold, as the monitor judges them, so a point set above 100 % is not an alert below its thresholds. 80 %
- * and 100 % stand in only where there is no monitoring info, such as with monitoring off, where the utilization comes
- * from the breaker rating.
+ * The thresholds a point is judged at: its own, as `get_monitoring_status` reports them (the point's override, else
+ * the global setting). 80 % and 100 % stand in only where there is no monitoring info, such as with monitoring off,
+ * where the utilization comes from the breaker rating.
+ */
+export function pointThresholds(monitoringInfo: MonitoringPointInfo | null): PointThresholds {
+  return {
+    continuousPct: monitoringInfo?.continuous_threshold_pct ?? FALLBACK_CONTINUOUS_THRESHOLD_PCT,
+    spikePct: monitoringInfo?.spike_threshold_pct ?? FALLBACK_SPIKE_THRESHOLD_PCT,
+  };
+}
+
+/**
+ * A point's utilization level against its own thresholds (`pointThresholds`): a warning at or above the continuous
+ * threshold and an alert at or above the spike threshold, as the monitor judges them, so a point set above 100 % is
+ * not an alert below its thresholds.
  */
 export function utilizationLevel(pct: number, monitoringInfo: MonitoringPointInfo | null): UtilizationLevel {
-  if (pct >= (monitoringInfo?.spike_threshold_pct ?? FALLBACK_SPIKE_THRESHOLD_PCT)) return "alert";
-  if (pct >= (monitoringInfo?.continuous_threshold_pct ?? FALLBACK_CONTINUOUS_THRESHOLD_PCT)) return "warning";
+  const { continuousPct, spikePct } = pointThresholds(monitoringInfo);
+  if (pct >= spikePct) return "alert";
+  if (pct >= continuousPct) return "warning";
   return "normal";
 }
 

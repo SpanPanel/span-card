@@ -10,7 +10,8 @@ import { measuresOutsidePanel } from "../helpers/layout.js";
 import { judgedAs, meterSlots, slotMembers } from "../helpers/shared-meters.js";
 import { circuitCurrentA, circuitPowerW, drawsAsOn, isGeneration, readsAsProducer, shedPriorityKey, switchPresence } from "./circuit-state.js";
 import { applySheddingIcon, applyTogglePill } from "./circuit-controls.js";
-import type { HomeAssistant, PanelTopology, CardConfig, HistoryMap, ChartMetricDef, Circuit } from "../types.js";
+import { circuitMonitoringInfo, pointThresholds } from "./monitoring-status.js";
+import type { HomeAssistant, PanelTopology, CardConfig, HistoryMap, ChartMetricDef, Circuit, MonitoringStatus } from "../types.js";
 
 // ── Header stats ───────────────────────────────────────────────────────────
 
@@ -133,13 +134,20 @@ function _updateHeaderStats(root: Element | ShadowRoot, hass: HomeAssistant, top
 
 // ── Exported updaters ──────────────────────────────────────────────────────
 
+/**
+ * Refresh every circuit slot's readings, controls and chart in place.
+ * `monitoringStatus` is the status the view draws from, null while monitoring
+ * is disabled or not yet known: a chart's limit lines are drawn at each point's
+ * own thresholds from it.
+ */
 export function updateCircuitDOM(
   root: Element | ShadowRoot,
   hass: HomeAssistant,
   topology: PanelTopology,
   config: CardConfig,
   powerHistory: HistoryMap,
-  horizonMap: Map<string, string> | undefined
+  horizonMap: Map<string, string> | undefined,
+  monitoringStatus: MonitoringStatus | null
 ): void {
   if (!root || !topology || !hass) return;
 
@@ -163,6 +171,7 @@ export function updateCircuitDOM(
     horizonMap,
     defaultDurationMs,
     chartMetric: getChartMetric(config),
+    monitoringStatus,
   };
   for (const meterSlot of slots) {
     // The grid draws a slot once, under the slot's own id; a list draws a row for every member, and a chart under each
@@ -183,6 +192,7 @@ interface SlotUpdateContext {
   readonly horizonMap: Map<string, string> | undefined;
   readonly defaultDurationMs: number;
   readonly chartMetric: ChartMetricDef;
+  readonly monitoringStatus: MonitoringStatus | null;
 }
 
 /**
@@ -191,7 +201,7 @@ interface SlotUpdateContext {
  * own history and horizon.
  */
 function updateCircuitSlot(slot: Element, uuid: string, circuit: Circuit, context: SlotUpdateContext): void {
-  const { hass, powerHistory, horizonMap, defaultDurationMs, chartMetric } = context;
+  const { hass, powerHistory, horizonMap, defaultDurationMs, chartMetric, monitoringStatus } = context;
   const powerW = circuitPowerW(circuit, hass);
   const isProducer = readsAsProducer(circuit, powerW);
 
@@ -216,7 +226,10 @@ function updateCircuitSlot(slot: Element, uuid: string, circuit: Circuit, contex
     const h = slot.classList.contains("circuit-col-span") ? CIRCUIT_COL_SPAN_CHART_HEIGHT : CIRCUIT_CHART_HEIGHT;
     const circuitDuration = horizonMap?.has(uuid) ? getHorizonDurationMs(horizonMap.get(uuid)!) : defaultDurationMs;
     const useLinear = isGeneration(circuit);
-    updateChart(chartContainer, hass, history, circuitDuration, chartMetric, isProducer, h, circuit.breaker_rating_a ?? undefined, useLinear);
+    // Limit lines at the point's own thresholds of the rating it is judged against.
+    const ratingA = circuit.breaker_rating_a;
+    const limit = ratingA ? { ratingA, ...pointThresholds(circuitMonitoringInfo(monitoringStatus, circuit)) } : undefined;
+    updateChart(chartContainer, hass, history, circuitDuration, chartMetric, isProducer, h, limit, useLinear);
   }
 }
 

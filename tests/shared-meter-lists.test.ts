@@ -8,7 +8,7 @@ import { ListViewController } from "../src/core/list-view-controller.js";
 import { buildExpandedChartHTML } from "../src/core/list-renderer.js";
 import { updateCircuitDOM } from "../src/core/dom-updater.js";
 import { meterSlots } from "../src/helpers/shared-meters.js";
-import type { CardConfig, Circuit, HomeAssistant, PanelTopology } from "../src/types.js";
+import type { CardConfig, Circuit, HomeAssistant, MonitoringStatus, PanelTopology } from "../src/types.js";
 
 const mockUpdateChart = vi.mocked(updateChart);
 const POWER = { chart_metric: "power" } as CardConfig;
@@ -29,8 +29,8 @@ function member(slug: string, name: string, rating: number): Circuit {
 const TANDEM: Record<string, Circuit> = { "t-a": member("lights", "Lights", 15), "t-b": member("outlets", "Outlets", 10) };
 const RECORD = { members: ["t-a", "t-b"], breaker_rating_a: 25 };
 
-/** Both members report the one meter's 20 A. */
-function hass(): HomeAssistant {
+/** Both members report the one meter's 20 A; `status` is what `get_monitoring_status` answers. */
+function hass(status: unknown = { enabled: false }): HomeAssistant {
   const states: Record<string, string> = {
     "sensor.lights_power": "2400",
     "sensor.outlets_power": "2400",
@@ -40,7 +40,7 @@ function hass(): HomeAssistant {
   const full = Object.fromEntries(
     Object.entries(states).map(([entity_id, state]) => [entity_id, { entity_id, state, attributes: {}, last_changed: "", last_updated: "" }])
   );
-  return { states: full, services: {}, language: "en" } as unknown as HomeAssistant;
+  return { states: full, services: {}, language: "en", callWS: async () => ({ response: status }) } as unknown as HomeAssistant;
 }
 
 /** The By Activity list as the dashboard draws it, with monitoring off. */
@@ -82,10 +82,10 @@ describe("a circuit favorited without the others that share its meter", () => {
     const root = document.createElement("div");
     root.innerHTML = buildExpandedChartHTML("t-b", TANDEM["t-b"]!, hass(), AMPS, null);
 
-    updateCircuitDOM(root, hass(), LONE, AMPS, new Map(), undefined);
+    updateCircuitDOM(root, hass(), LONE, AMPS, new Map(), undefined, null);
 
     expect(mockUpdateChart).toHaveBeenCalledTimes(1);
-    expect(mockUpdateChart.mock.calls[0]![7]).toBe(25);
+    expect(mockUpdateChart.mock.calls[0]![7]).toEqual({ ratingA: 25, continuousPct: 80, spikePct: 100 });
   });
 });
 
@@ -110,20 +110,67 @@ describe("an expanded list row of a circuit that shares a meter", () => {
   it("draws its chart for a member other than the group's key, from its own history, limited at the group's capacity", () => {
     const root = expanded("t-b");
 
-    updateCircuitDOM(root, hass(), GROUPED, AMPS, HISTORY, undefined);
+    updateCircuitDOM(root, hass(), GROUPED, AMPS, HISTORY, undefined, null);
 
     expect(mockUpdateChart).toHaveBeenCalledTimes(1);
     const [container, , history, , , , , limit] = mockUpdateChart.mock.calls[0]!;
     expect(container).toBe(chartOf(root, "t-b"));
     expect(history).toBe(HISTORY.get("t-b"));
-    expect(limit).toBe(25);
+    expect(limit).toEqual({ ratingA: 25, continuousPct: 80, spikePct: 100 });
   });
 
   it("draws one chart for every expanded member", () => {
     const root = expanded("t-a", "t-b");
 
-    updateCircuitDOM(root, hass(), GROUPED, AMPS, HISTORY, undefined);
+    updateCircuitDOM(root, hass(), GROUPED, AMPS, HISTORY, undefined, null);
 
     expect(mockUpdateChart.mock.calls.map(call => call[0])).toEqual([chartOf(root, "t-a"), chartOf(root, "t-b")]);
+  });
+});
+
+describe("a shared meter's chart limit lines", () => {
+  const GROUPED = { circuits: TANDEM, shared_meter_groups: { "t-a": RECORD } } as PanelTopology;
+  /** The tandem judged at 160 % and 200 %, as the #260 user set it: each member's entry carries the group's thresholds. */
+  const POINT = { continuous_threshold_pct: 160, spike_threshold_pct: 200, utilization_pct: 80 };
+  const STATUS: MonitoringStatus = { circuits: { "sensor.lights_current": POINT, "sensor.outlets_current": POINT }, mains: {} };
+  const JUDGED = { ratingA: 25, continuousPct: 160, spikePct: 200 };
+
+  function expandedMember(): HTMLElement {
+    const root = document.createElement("div");
+    root.innerHTML = buildExpandedChartHTML("t-b", TANDEM["t-b"]!, hass(), AMPS, null);
+    return root;
+  }
+
+  it("are drawn at the point's own thresholds of the group's capacity", () => {
+    updateCircuitDOM(expandedMember(), hass(), GROUPED, AMPS, new Map(), undefined, STATUS);
+    expect(mockUpdateChart.mock.calls[0]![7]).toEqual(JUDGED);
+  });
+
+  it("fall back to 80 % and 100 % only with no monitoring info", () => {
+    updateCircuitDOM(expandedMember(), hass(), GROUPED, AMPS, new Map(), undefined, null);
+    expect(mockUpdateChart.mock.calls[0]![7]).toEqual({ ratingA: 25, continuousPct: 80, spikePct: 100 });
+  });
+
+  it("follow the status the dashboard fetched for its panel", async () => {
+    const live = hass({ enabled: true, ...STATUS });
+    const ctrl = new DashboardController();
+    ctrl.init(GROUPED, AMPS, live, "entry-1");
+    await ctrl.monitoringCache.fetch(live, "entry-1");
+
+    ctrl.updateDOM(expandedMember());
+
+    expect(mockUpdateChart.mock.calls[0]![7]).toEqual(JUDGED);
+  });
+
+  it("follow the status merged across the Favorites view's panels", async () => {
+    const live = hass({ enabled: true, ...STATUS });
+    const ctrl = new DashboardController();
+    ctrl.init(GROUPED, AMPS, live, null);
+    ctrl.setFavoriteRefs({ "t-b": { panelDeviceId: "panel-1", kind: "circuit", targetId: "t-b", configEntryId: "entry-1" } });
+    await ctrl.fetchMergedMonitoringStatus(["entry-1"]);
+
+    ctrl.updateDOM(expandedMember());
+
+    expect(mockUpdateChart.mock.calls[0]![7]).toEqual(JUDGED);
   });
 });

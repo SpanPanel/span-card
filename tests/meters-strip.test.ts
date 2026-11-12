@@ -210,7 +210,7 @@ describe("the fallback site sum", () => {
       const root = document.createElement("div");
       root.innerHTML = buildPanelStatsHTML(topology, CONFIG);
 
-      updateCircuitDOM(root, hass, topology, CONFIG, new Map(), undefined);
+      updateCircuitDOM(root, hass, topology, CONFIG, new Map(), undefined, null);
 
       const consumption = root.querySelector(".stat-consumption .stat-value")!;
       expect(consumption.textContent).toBe("0.3");
@@ -268,7 +268,7 @@ describe("a meter outside the panel in the list views", () => {
     const slot = root.querySelector(".circuit-slot")!;
     expect(slot.classList.contains("circuit-off")).toBe(false);
 
-    updateCircuitDOM(root, HASS, TOPOLOGY, CONFIG, new Map(), undefined);
+    updateCircuitDOM(root, HASS, TOPOLOGY, CONFIG, new Map(), undefined, null);
 
     expect(slot.classList.contains("circuit-off")).toBe(false);
   });

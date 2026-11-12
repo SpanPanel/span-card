@@ -69,6 +69,9 @@ export class DashboardController {
    */
   private _favRefs: Record<string, FavoriteRef> | null = null;
 
+  /** The Favorites view's monitoring status, merged across its panels by `fetchMergedMonitoringStatus`. */
+  private _favoritesMonitoringStatus: MonitoringStatus | null = null;
+
   private _perPanelInfo: Map<string, FavoritesPanelInfo> = new Map();
 
   /**
@@ -130,6 +133,16 @@ export class DashboardController {
 
   clearFavoriteRefs(): void {
     this._favRefs = null;
+    this._favoritesMonitoringStatus = null;
+  }
+
+  /**
+   * The monitoring status this view draws from: in the Favorites view the status
+   * merged across its panels, else this panel's. Null while monitoring is
+   * disabled or its status not yet fetched.
+   */
+  get monitoringStatus(): MonitoringStatus | null {
+    return this._favRefs ? this._favoritesMonitoringStatus : this.monitoringCache.status;
   }
 
   /**
@@ -226,7 +239,9 @@ export class DashboardController {
     // render. When settings change, ``monitoringMultiCache.invalidate``
     // is called alongside the existing ``monitoringCache.invalidate``.
     const statuses = await Promise.all(entryIds.map(eid => this.monitoringMultiCache.fetchOne(hass, eid)));
-    return mergeMonitoringStatuses(statuses);
+    const merged = mergeMonitoringStatuses(statuses);
+    this._favoritesMonitoringStatus = merged;
+    return merged;
   }
 
   /**
@@ -375,7 +390,7 @@ export class DashboardController {
 
   updateDOM(root: DOMRoot): void {
     if (!this._hass || !this._topology || !this._config) return;
-    updateCircuitDOM(root, this._hass, this._topology, this._config, this.powerHistory, this.horizonMap);
+    updateCircuitDOM(root, this._hass, this._topology, this._config, this.powerHistory, this.horizonMap, this.monitoringStatus);
     updateSubDeviceDOM(root, this._hass, this._topology, this._config, this.powerHistory, this.subDeviceHorizonMap);
     updateMetersDOM(root, this._hass, this._topology, this._config);
   }
