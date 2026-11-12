@@ -236,6 +236,33 @@ describe("a list row's reading", () => {
     expect(el.querySelector(".utilization")!.textContent).toBe("45%");
   });
 
+  /** The row's utilization class, from the monitor's figure where given, else the current over the 20 A rating. */
+  function level(amps: string, monitoring: MonitoringPointInfo | null): string | undefined {
+    const el = row({ "switch.k": { state: "on" }, "sensor.k_current": { state: amps } }, mockConfig, monitoring);
+    return [...el.querySelector(".utilization")!.classList].find(name => name.startsWith("utilization-"));
+  }
+
+  it("colours utilization against the circuit's own thresholds", () => {
+    // 30 A on the 20 A breaker is 150 %, under the 160 % continuous threshold set for the pair it is judged as.
+    const tandem = { continuous_threshold_pct: 160, spike_threshold_pct: 200 };
+    expect(level("30", { ...tandem, utilization_pct: 150 })).toBe("utilization-normal");
+    expect(level("34", { ...tandem, utilization_pct: 170 })).toBe("utilization-warning");
+    expect(level("40", { ...tandem, utilization_pct: 200 })).toBe("utilization-alert");
+  });
+
+  it("keeps the default thresholds' colours", () => {
+    const defaults = { continuous_threshold_pct: 80, spike_threshold_pct: 100 };
+    expect(level("15", { ...defaults, utilization_pct: 75 })).toBe("utilization-normal");
+    expect(level("16", { ...defaults, utilization_pct: 80 })).toBe("utilization-warning");
+    expect(level("30", { ...defaults, utilization_pct: 150 })).toBe("utilization-alert");
+  });
+
+  it("falls back to 80 % and 100 % with no monitoring info, the utilization coming from the rating", () => {
+    expect(level("15", null)).toBe("utilization-normal");
+    expect(level("17", null)).toBe("utilization-warning");
+    expect(level("30", null)).toBe("utilization-alert");
+  });
+
   it("does not style an unknown reading as production in the expanded chart", () => {
     const html = buildExpandedChartHTML("k", circuit, hassWith({ "switch.k": { state: "on" }, "sensor.k_power": { state: "unknown" } }), mockConfig, null);
     expect(html).not.toContain("circuit-producer");

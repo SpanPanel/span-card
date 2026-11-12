@@ -4,7 +4,7 @@ import { t } from "../i18n.js";
 import { tabToRow, tabToCol, classifyDualTab, measuresOutsidePanel, type PositionRange } from "../helpers/layout.js";
 import { getChartMetric } from "../helpers/chart.js";
 import { meterSlots } from "../helpers/shared-meters.js";
-import { getCircuitMonitoringInfo } from "./monitoring-status.js";
+import { getCircuitMonitoringInfo, utilizationClass } from "./monitoring-status.js";
 import {
   circuitCurrentA,
   circuitPowerW,
@@ -201,8 +201,7 @@ export function renderCircuitSlot(
   let utilizationHTML = "";
   const utilizationPct = circuitUtilizationPct(circuit, hass, monitoringInfo);
   if (utilizationPct !== null) {
-    const utilClass = utilizationPct >= 100 ? "utilization-alert" : utilizationPct >= 80 ? "utilization-warning" : "utilization-normal";
-    utilizationHTML = `<span class="utilization ${utilClass}">${Math.round(utilizationPct)}%</span>`;
+    utilizationHTML = `<span class="utilization ${utilizationClass(utilizationPct, monitoringInfo)}">${Math.round(utilizationPct)}%</span>`;
   }
 
   const stateClasses = getCircuitStateClasses(circuit, monitoringInfo, isOn, isProducer);

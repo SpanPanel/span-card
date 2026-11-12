@@ -5,6 +5,7 @@ import { getChartMetric } from "../helpers/chart.js";
 import { measuresOutsidePanel } from "../helpers/layout.js";
 import { circuitCurrentA, circuitPowerW, circuitUtilizationPct, drawsAsOn, getCircuitStateClasses, readsAsProducer, switchPresence } from "./circuit-state.js";
 import { buildSheddingIconHTML, buildTogglePillHTML } from "./circuit-controls.js";
+import { utilizationClass } from "./monitoring-status.js";
 import type { Circuit, HomeAssistant, CardConfig, MonitoringPointInfo } from "../types.js";
 
 /**
@@ -72,8 +73,7 @@ export function buildListRowHTML(
   let utilizationHTML = "";
   const utilizationPct = circuitUtilizationPct(circuit, hass, monitoringInfo);
   if (utilizationPct !== null) {
-    const utilClass = utilizationPct >= 100 ? "utilization-alert" : utilizationPct >= 80 ? "utilization-warning" : "utilization-normal";
-    utilizationHTML = `<span class="utilization ${utilClass}">${Math.round(utilizationPct)}%</span>`;
+    utilizationHTML = `<span class="utilization ${utilizationClass(utilizationPct, monitoringInfo)}">${Math.round(utilizationPct)}%</span>`;
   }
 
   // Gear — matches the breaker-grid's gear so onGearClick handles it unchanged.

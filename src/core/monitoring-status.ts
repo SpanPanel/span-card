@@ -207,15 +207,40 @@ export function hasCustomOverrides(monitoringInfo: MonitoringPointInfo | null): 
   return monitoringInfo.continuous_threshold_pct !== undefined;
 }
 
+/** How a point's utilization reads: under its continuous threshold, at or above it, or at or above its spike threshold. */
+export type UtilizationLevel = "normal" | "warning" | "alert";
+
 /**
- * Get CSS class for utilization level.
+ * The thresholds a point is judged against where monitoring reports none: the integration's defaults, which the card
+ * judged every point against before it read each point's own.
+ */
+const FALLBACK_CONTINUOUS_THRESHOLD_PCT = 80;
+const FALLBACK_SPIKE_THRESHOLD_PCT = 100;
+
+/**
+ * A point's utilization level against its own monitoring thresholds, as `get_monitoring_status` reports them: the
+ * point's override, else the global setting. A warning at or above the continuous threshold and an alert at or above the
+ * spike threshold, as the monitor judges them, so a point set above 100 % is not an alert below its thresholds. 80 %
+ * and 100 % stand in only where there is no monitoring info, such as with monitoring off, where the utilization comes
+ * from the breaker rating.
+ */
+export function utilizationLevel(pct: number, monitoringInfo: MonitoringPointInfo | null): UtilizationLevel {
+  if (pct >= (monitoringInfo?.spike_threshold_pct ?? FALLBACK_SPIKE_THRESHOLD_PCT)) return "alert";
+  if (pct >= (monitoringInfo?.continuous_threshold_pct ?? FALLBACK_CONTINUOUS_THRESHOLD_PCT)) return "warning";
+  return "normal";
+}
+
+/** The CSS class that colours a point's utilization by its level (`utilizationLevel`). */
+export function utilizationClass(pct: number, monitoringInfo: MonitoringPointInfo | null): string {
+  return `utilization-${utilizationLevel(pct, monitoringInfo)}`;
+}
+
+/**
+ * Get CSS class for the utilization the monitor reports, by its level; empty while it reports none.
  */
 export function getUtilizationClass(monitoringInfo: MonitoringPointInfo | null): string {
   if (!monitoringInfo?.utilization_pct) return "";
-  const pct = monitoringInfo.utilization_pct;
-  if (pct >= 100) return "utilization-alert";
-  if (pct >= 80) return "utilization-warning";
-  return "utilization-normal";
+  return utilizationClass(monitoringInfo.utilization_pct, monitoringInfo);
 }
 
 /**
@@ -236,8 +261,10 @@ export function buildMonitoringSummaryHTML(status: MonitoringStatus | null): str
   const mains: MonitoringPointInfo[] = Object.values(status.mains ?? {});
   const all: MonitoringPointInfo[] = [...circuits, ...mains];
 
-  const warnings = all.filter(p => p.utilization_pct != null && p.utilization_pct >= 80 && p.utilization_pct < 100).length;
-  const alerts = all.filter(p => p.utilization_pct != null && p.utilization_pct >= 100).length;
+  // Each point by its own thresholds, as the monitor judges it.
+  const levels = all.flatMap(p => (p.utilization_pct != null ? [utilizationLevel(p.utilization_pct, p)] : []));
+  const warnings = levels.filter(level => level === "warning").length;
+  const alerts = levels.filter(level => level === "alert").length;
   const overrides = all.filter(p => p.has_override).length;
 
   return `
