@@ -69,11 +69,21 @@ const reset = (p: SidePanel): HTMLElement | null => p.shadowRoot!.querySelector<
 const panelRating = (p: SidePanel): string | null | undefined => p.shadowRoot!.querySelector('[data-role="rating-panel-rating"]')?.textContent;
 const explanation = (p: SidePanel): HTMLElement | null => p.shadowRoot!.querySelector<HTMLElement>('[data-role="rating-multi-space"]');
 
-function type(el: HTMLInputElement, value: string): void {
+/** Type `value` into the field, as keystrokes do, without committing it. */
+function typeOnly(el: HTMLInputElement, value: string): void {
+  el.focus();
   el.value = value;
   el.dispatchEvent(new Event("input"));
-  vi.advanceTimersByTime(600);
 }
+
+/** Type `value` and commit it with Enter. */
+function type(el: HTMLInputElement, value: string): void {
+  typeOnly(el, value);
+  el.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter" }));
+}
+
+const active = (p: SidePanel): Element | null => p.shadowRoot!.activeElement;
+const feedback = (p: SidePanel): string | null | undefined => p.shadowRoot!.querySelector('[data-role="rating-feedback"]')?.textContent;
 
 const OVEN = [{ uuid: "c-1", circuit: circuit("Oven", 20) }];
 const COPIED = [{ uuid: "c-1", circuit: circuit("Oven", 20, [20, 30]) }];
@@ -234,39 +244,115 @@ describe("choosing Global and removing the copy", () => {
 });
 
 describe("the other breaker's input", () => {
-  it("sends the package in the SPAN app's order, the panel's rating first, the other rounded, after the debounce", () => {
+  it("sends the package in the SPAN app's order, the panel's rating first, when Enter is pressed", () => {
     const { panel, callWS } = open(OVEN);
-    const el = input(panel);
-    el.value = "12.6";
-    el.dispatchEvent(new Event("input"));
+    typeOnly(input(panel), "30");
+    vi.advanceTimersByTime(5000);
     expect(callWS).not.toHaveBeenCalled();
-    vi.advanceTimersByTime(600);
+
+    input(panel).dispatchEvent(new KeyboardEvent("keydown", { key: "Enter" }));
+
     expect(callWS).toHaveBeenCalledTimes(1);
     expect(callWS).toHaveBeenCalledWith({
       type: "call_service",
       domain: "span_panel",
       service: "set_circuit_package_ratings",
-      service_data: { circuit_id: "c-1", package_ratings_a: [20, 13], config_entry_id: "entry-1" },
+      service_data: { circuit_id: "c-1", package_ratings_a: [20, 30], config_entry_id: "entry-1" },
     });
   });
 
-  it("sends only the last of several keystrokes", () => {
+  it("sends it when the field is left, and once only when Enter came first", () => {
     const { panel, callWS } = open(OVEN);
-    const el = input(panel);
-    el.value = "3";
-    el.dispatchEvent(new Event("input"));
-    vi.advanceTimersByTime(100);
-    el.value = "30";
-    el.dispatchEvent(new Event("input"));
-    vi.advanceTimersByTime(600);
+    typeOnly(input(panel), "30");
+    input(panel).blur();
+    expect(callWS).toHaveBeenCalledTimes(1);
+
+    type(input(panel), "25");
+    input(panel).blur();
+    expect(callWS.mock.calls.map(c => (c[0] as { service_data: { package_ratings_a: number[] } }).service_data.package_ratings_a)).toEqual([
+      [20, 30],
+      [20, 25],
+    ]);
+  });
+
+  it("stores nothing while the user types slowly, steps or pauses: only the value committed", () => {
+    const { panel, callWS } = open(OVEN);
+    typeOnly(input(panel), "3");
+    vi.advanceTimersByTime(2000);
+    typeOnly(input(panel), "30");
+    vi.advanceTimersByTime(2000);
+    expect(callWS).not.toHaveBeenCalled();
+
+    type(input(panel), "30");
+
     expect(callWS).toHaveBeenCalledTimes(1);
     expect(callWS.mock.calls[0]![0]).toMatchObject({ service_data: { package_ratings_a: [20, 30] } });
   });
 
-  it.each(["", "abc", "0", "-5", "0.5", "0.99"])("sends nothing for %j", value => {
+  it("sends nothing for the copy already in force", () => {
+    const { panel, callWS } = open(COPIED);
+    type(input(panel), "30");
+    input(panel).blur();
+    expect(callWS).not.toHaveBeenCalled();
+  });
+
+  it.each(["12.6", "0", "-5", "0.5"])("sends nothing for %j and says what to enter", value => {
     const { panel, callWS } = open(OVEN);
     type(input(panel), value);
     expect(callWS).not.toHaveBeenCalled();
+    expect(feedback(panel)).toBe("Enter the other breaker's rating as a whole number of amps, 1 or more.");
+    expect(input(panel).getAttribute("aria-invalid")).toBe("true");
+  });
+
+  it("says what to enter for text a browser holds back from a number field as bad input", () => {
+    const { panel, callWS } = open(COPIED);
+    typeOnly(input(panel), "");
+    Object.defineProperty(input(panel), "validity", { value: { badInput: true } });
+    input(panel).dispatchEvent(new KeyboardEvent("keydown", { key: "Enter" }));
+    expect(callWS).not.toHaveBeenCalled();
+    expect(feedback(panel)).toBe("Enter the other breaker's rating as a whole number of amps, 1 or more.");
+  });
+
+  it("clears what it said once the user types again, and sends a corrected value", () => {
+    const { panel, callWS } = open(OVEN);
+    type(input(panel), "12.6");
+    typeOnly(input(panel), "13");
+    expect(feedback(panel)).toBe("");
+    expect(input(panel).hasAttribute("aria-invalid")).toBe(false);
+    input(panel).dispatchEvent(new KeyboardEvent("keydown", { key: "Enter" }));
+    expect(callWS.mock.calls[0]![0]).toMatchObject({ service_data: { package_ratings_a: [20, 13] } });
+  });
+
+  it("puts the copy in force back when the field is left empty, sending nothing", () => {
+    const { panel, callWS } = open(COPIED);
+    typeOnly(input(panel), "");
+    input(panel).blur();
+    expect(callWS).not.toHaveBeenCalled();
+    expect(input(panel).value).toBe("30");
+  });
+
+  it("keeps the wheel from stepping the focused field", () => {
+    const { panel } = open(OVEN);
+    input(panel).focus();
+    const wheel = new WheelEvent("wheel", { cancelable: true, deltaY: -100 });
+    input(panel).dispatchEvent(wheel);
+    expect(wheel.defaultPrevented).toBe(true);
+  });
+
+  it("leaves the wheel alone over a field that is not focused, so the page scrolls", () => {
+    const { panel } = open(OVEN);
+    const wheel = new WheelEvent("wheel", { cancelable: true, deltaY: -100 });
+    input(panel).dispatchEvent(wheel);
+    expect(wheel.defaultPrevented).toBe(false);
+  });
+
+  it("keeps the wheel from stepping a focused threshold field too", () => {
+    const { panel } = open(OVEN, { monitoringInfo: { monitoring_enabled: true, has_override: true } });
+    const threshold = panel.shadowRoot!.querySelector<HTMLInputElement>('[data-role="threshold-continuous"]')!;
+    threshold.focus();
+    const wheel = new WheelEvent("wheel", { cancelable: true, deltaY: -100 });
+    threshold.dispatchEvent(wheel);
+    expect(wheel.defaultPrevented).toBe(true);
   });
 
   it("leaves max unset, since the topology carries no service rating", () => {
@@ -294,6 +380,71 @@ describe("the other breaker's input", () => {
   });
 });
 
+describe("a refresh while the user is in the editor", () => {
+  const refresh = (p: SidePanel, copied: number[] | null): void =>
+    (p as unknown as { refreshRating(view: unknown): void }).refreshRating({
+      members: [{ uuid: "c-1", circuit: circuit("Oven", 20, copied) }],
+      capacityA: null,
+      monitoringInfo: { monitoring_enabled: true },
+    });
+
+  it("never replaces what is being typed in the focused field", () => {
+    const { panel } = open(COPIED);
+    typeOnly(input(panel), "4");
+    const field = input(panel);
+
+    refresh(panel, [20, 35]);
+
+    expect(input(panel)).toBe(field);
+    expect(field.value).toBe("4");
+    expect(active(panel)).toBe(field);
+  });
+
+  it("shows the copy in force in a field that is not focused", () => {
+    const { panel } = open(COPIED);
+    refresh(panel, [20, 35]);
+    expect(input(panel).value).toBe("35");
+  });
+
+  it("keeps the focused field's focus after a save, the editor patched in place", () => {
+    const { panel } = open(OVEN);
+    type(input(panel), "30");
+    const field = input(panel);
+
+    refresh(panel, [20, 30]);
+
+    expect(input(panel)).toBe(field);
+    expect(active(panel)).toBe(field);
+    expect(reset(panel)).not.toBeNull();
+  });
+
+  it("moves focus from a reset that goes to the field", () => {
+    const { panel } = open(COPIED);
+    reset(panel)!.focus();
+    reset(panel)!.click();
+
+    refresh(panel, null);
+
+    expect(reset(panel)).toBeNull();
+    expect(active(panel)).toBe(input(panel));
+  });
+
+  it("keeps focus on the equivalent control when the editor is drawn afresh", () => {
+    const { panel } = open(OVEN);
+    input(panel).focus();
+
+    // A second space arriving makes the circuit a two-space one: the editor gives way to its explanation.
+    (panel as unknown as { refreshRating(view: unknown): void }).refreshRating({
+      members: [{ uuid: "c-1", circuit: circuit("Oven", 20, null, [1, 3]) }],
+      capacityA: null,
+      monitoringInfo: { monitoring_enabled: true },
+    });
+
+    expect(panel.shadowRoot!.querySelector('[data-role="rating-input"]')).toBeNull();
+    expect((active(panel) as HTMLInputElement | null)?.name).toBe("monitoring-mode");
+  });
+});
+
 describe("the reset", () => {
   it("is shown only where a package is stored", () => {
     expect(reset(open(OVEN).panel)).toBeNull();
@@ -304,26 +455,18 @@ describe("the reset", () => {
     expect(reset(open([{ uuid: "c-1", circuit: circuit("Oven", 20, [20, 30], [1], false) }]).panel)).not.toBeNull();
   });
 
-  it("cancels a typed value still waiting out its debounce", () => {
+  it("clears the copy of its own circuit, sending nothing typed but not committed", () => {
     const { panel, callWS } = open(COPIED);
-    const el = input(panel);
-    el.value = "25";
-    el.dispatchEvent(new Event("input"));
+    typeOnly(input(panel), "25");
     reset(panel)!.click();
-    vi.advanceTimersByTime(600);
-    expect(callWS).toHaveBeenCalledTimes(1);
-    expect(callWS.mock.calls[0]![0]).toMatchObject({ service: "clear_circuit_package_ratings" });
-  });
-
-  it("clears the copy of its own circuit", () => {
-    const { panel, callWS } = open(COPIED);
-    reset(panel)!.click();
-    expect(callWS).toHaveBeenCalledWith({
-      type: "call_service",
-      domain: "span_panel",
-      service: "clear_circuit_package_ratings",
-      service_data: { circuit_id: "c-1", config_entry_id: "entry-1" },
-    });
+    expect(callWS.mock.calls.map(c => c[0])).toEqual([
+      {
+        type: "call_service",
+        domain: "span_panel",
+        service: "clear_circuit_package_ratings",
+        service_data: { circuit_id: "c-1", config_entry_id: "entry-1" },
+      },
+    ]);
   });
 });
 
@@ -346,7 +489,7 @@ describe("a refused change", () => {
     expect(errors.active.map(e => e.message)).toEqual(["Unable to update the ratings copied from the SPAN app"]);
   });
 
-  it("puts the copy in force back in the input, beside the message", async () => {
+  it("puts the copy in force back in the field, focused so it can be corrected", async () => {
     const { panel, errors } = open(COPIED, {}, async () => {
       throw { code: "service_validation_error", message: "refused" };
     });
@@ -354,12 +497,14 @@ describe("a refused change", () => {
     await vi.advanceTimersByTimeAsync(0);
     expect(errors.active).toHaveLength(1);
     expect(input(panel).value).toBe("30");
+    expect(active(panel)).toBe(input(panel));
   });
 
   it("restores from the copy in force when the refusal lands, not when the value was typed", async () => {
     let refuse: (reason: unknown) => void = () => {};
     const { panel } = open(OVEN, {}, () => new Promise((_resolve, reject) => (refuse = reject)));
     type(input(panel), "90");
+    input(panel).blur();
     (panel as unknown as { refreshRating(view: unknown): void }).refreshRating({
       members: [{ uuid: "c-1", circuit: circuit("Oven", 20, [20, 15]) }],
       capacityA: null,
@@ -376,13 +521,12 @@ describe("a refused change", () => {
     const { panel, callWS } = open(OVEN, {}, () => new Promise((_resolve, reject) => (refuse = reject)));
     type(input(panel), "90");
     const el = input(panel);
-    el.value = "30";
-    el.dispatchEvent(new Event("input"));
+    typeOnly(el, "30");
     refuse({ message: "refused" });
     await vi.advanceTimersByTimeAsync(0);
     expect(input(panel)).toBe(el);
     expect(el.value).toBe("30");
-    vi.advanceTimersByTime(600);
+    el.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter" }));
     expect(callWS.mock.calls.map(c => (c[0] as { service_data: { package_ratings_a?: number[] } }).service_data.package_ratings_a)).toEqual([
       [20, 90],
       [20, 30],
@@ -399,13 +543,15 @@ describe("a refused change", () => {
     expect(panel.hasAttribute("open")).toBe(false);
   });
 
-  it("reports a failed reset the same way", async () => {
+  it("reports a failed reset the same way, focus staying on it", async () => {
     const { panel, errors } = open(COPIED, {}, async () => {
       throw { message: "no such circuit" };
     });
+    reset(panel)!.focus();
     reset(panel)!.click();
     await vi.advanceTimersByTimeAsync(0);
     expect(errors.active.map(e => e.message)).toEqual(["no such circuit"]);
+    expect(active(panel)).toBe(reset(panel));
   });
 });
 
@@ -449,16 +595,40 @@ describe("custom thresholds above 100% under a copy", () => {
     expect(warning(open(COPIED, { monitoringInfo: { ...ABOVE, has_override: false } }).panel)).toBeNull();
   });
 
-  it("are reset to the global thresholds in one click, as choosing Global does, and the warning goes", () => {
-    const { panel, callWS } = open(COPIED, { monitoringInfo: ABOVE });
+  it("are reset to the global thresholds in one click, as choosing Global does, the warning going once that succeeds", async () => {
+    let clear: () => void = () => {};
+    const { panel, callWS } = open(COPIED, { monitoringInfo: ABOVE }, () => new Promise<undefined>(resolve => (clear = () => resolve(undefined))));
+    useGlobal(panel)!.focus();
     useGlobal(panel)!.click();
     expect(callWS.mock.calls.map(c => c[0])).toEqual([
       { type: "call_service", domain: "span_panel", service: "clear_circuit_threshold", service_data: { circuit_id: "c-1", config_entry_id: "entry-1" } },
     ]);
     expect(panel.shadowRoot!.querySelector<HTMLInputElement>('input[name="monitoring-mode"][value="global"]')!.checked).toBe(true);
     expect(panel.shadowRoot!.querySelector<HTMLElement>('[data-role="threshold-fields"]')!.style.display).toBe("none");
+    // In flight: the warning stays, its button disabled so it is not sent twice.
+    expect(warning(panel)).not.toBeNull();
+    expect((useGlobal(panel) as HTMLButtonElement).disabled).toBe(true);
+
+    clear();
+    await vi.advanceTimersByTimeAsync(0);
+
     expect(warning(panel)).toBeNull();
     expect(input(panel).value).toBe("30");
+    expect((active(panel) as HTMLInputElement | null)?.value).toBe("global");
+  });
+
+  it("are kept, with the warning, when the reset fails, the Custom choice and its fields put back", async () => {
+    const { panel, errors } = open(COPIED, { monitoringInfo: ABOVE }, async () => {
+      throw { message: "refused" };
+    });
+    useGlobal(panel)!.click();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(errors.active.map(e => e.message)).toEqual(["Unable to save threshold"]);
+    expect(warning(panel)).not.toBeNull();
+    expect((useGlobal(panel) as HTMLButtonElement).disabled).toBe(false);
+    expect(panel.shadowRoot!.querySelector<HTMLInputElement>('input[name="monitoring-mode"][value="custom"]')!.checked).toBe(true);
+    expect(panel.shadowRoot!.querySelector<HTMLElement>('[data-role="threshold-fields"]')!.style.display).toBe("block");
   });
 
   it("are left as they are by the copy itself: setting the package calls no threshold service", () => {

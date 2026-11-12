@@ -1,0 +1,384 @@
+// src/core/package-ratings-editor.ts
+import { t, tf } from "../i18n.js";
+import { occupiedSpaces, type SlotMember } from "../helpers/shared-meters.js";
+import type { MonitoringGlobalSettings, MonitoringPointInfo } from "../types.js";
+
+/** What the editor draws from: the slot a circuit side panel is open on, and its monitoring. */
+export interface PackageRatingsState {
+  readonly members: readonly SlotMember[];
+  readonly monitoringInfo: MonitoringPointInfo | null;
+  /** The panel's global thresholds, from the same `get_monitoring_status` answer; null where not known. */
+  readonly monitoringGlobals: MonitoringGlobalSettings | null;
+  /** True where the circuit's panel takes package ratings (topology `monitoring_rating_offered`). */
+  readonly offered: boolean;
+}
+
+/** What the editor asks of the side panel that holds it. */
+export interface PackageRatingsHost {
+  /** The state in force now, read whenever the editor acts, so an action follows the latest refresh. */
+  readonly ratingsState: PackageRatingsState | null;
+  setPackageRatings(uuid: string, ratings: readonly number[]): Promise<void>;
+  clearPackageRatings(uuid: string): Promise<void>;
+  /** Show why a change failed. */
+  reportRatingsFailure(err: unknown): void;
+  /** Choose the global thresholds, as the Monitoring section's Global choice does; resolves whether that succeeded. */
+  useGlobalThresholds(): Promise<boolean>;
+  /** Focus the control after the editor, for when the one focused inside it goes. */
+  focusAfterRatingsEditor(): void;
+}
+
+type Shape = { readonly kind: "editor" | "multi-space"; readonly member: SlotMember };
+
+/**
+ * What the editor shows for a state, or null where it has nothing to offer: the
+ * integration takes no package ratings on this panel (or predates them and says
+ * nothing), the slot is a shared meter, judged by its group's capacity, or the
+ * circuit has no space yet or no panel rating to copy against. A circuit across
+ * several spaces gets an explanation in place of the editor.
+ */
+function shapeOf(state: PackageRatingsState | null): Shape | null {
+  if (!state?.offered) return null;
+  const [member, ...others] = state.members;
+  if (!member || others.length > 0) return null;
+  const spaces = occupiedSpaces([member.circuit]);
+  if (spaces.length === 0) return null;
+  if (spaces.length > 1) return { kind: "multi-space", member };
+  if (member.circuit.breaker_rating_a == null) return null;
+  return { kind: "editor", member };
+}
+
+/** The other breaker of the package stored for a circuit, or null where none is. */
+function storedOther(member: SlotMember): number | null {
+  return member.circuit.package_ratings_a?.[1] ?? null;
+}
+
+/** Whether `el` holds keyboard focus in the document or shadow root it is drawn in. */
+function isFocused(el: Element | null): boolean {
+  if (!el) return false;
+  const root = el.getRootNode();
+  const active = root instanceof Document || root instanceof ShadowRoot ? root.activeElement : null;
+  return active === el;
+}
+
+/** Whether keyboard focus is on `container` or inside it. */
+function focusWithin(container: Element | null): boolean {
+  if (!container) return false;
+  const root = container.getRootNode();
+  const active = root instanceof Document || root instanceof ShadowRoot ? root.activeElement : null;
+  return active !== null && container.contains(active);
+}
+
+/** The data-role of the focused control inside `container`, or null where focus is elsewhere. */
+function focusedRole(container: Element | null): string | null {
+  if (!container) return null;
+  const root = container.getRootNode();
+  const active = root instanceof Document || root instanceof ShadowRoot ? root.activeElement : null;
+  return active instanceof HTMLElement && container.contains(active) ? (active.dataset.role ?? null) : null;
+}
+
+/**
+ * Keep a number field's value from changing under the wheel: a scroll over the
+ * focused field would otherwise step it, and a step is a value nobody entered.
+ */
+export function guardNumberWheel(input: HTMLInputElement): void {
+  input.addEventListener(
+    "wheel",
+    event => {
+      if (isFocused(input)) event.preventDefault();
+    },
+    { passive: false }
+  );
+}
+
+/**
+ * The Monitoring section's editor for a tandem's ratings copied from the SPAN app.
+ *
+ * It shows the rating the panel publishes, read-only, which is the package's
+ * first, and one field for the other breaker in the space. A value is stored only
+ * as the user entered it: when they press Enter or leave the field, never while
+ * they type, step or scroll, and only as a whole number of amps of at least 1;
+ * anything else is shown as needing correction and sent nowhere. A refresh
+ * patches the editor in place, so a focused control keeps focus and a field
+ * being typed in keeps what was typed; only a change of shape, such as a copy
+ * becoming possible, draws it afresh, focus moving to the equivalent control.
+ */
+export class PackageRatingsEditor {
+  private _section: HTMLDivElement | null = null;
+  /** The other breaker last sent and not yet answered by the copy in force, so Enter then leaving sends it once. */
+  private _sent: number | null = null;
+
+  constructor(private readonly _host: PackageRatingsHost) {}
+
+  /** The editor as drawn, or null where there is none. */
+  get element(): HTMLDivElement | null {
+    return this._section;
+  }
+
+  /** Draw the editor for the state in force after `anchor`; used when the Monitoring section is drawn. */
+  mount(anchor: Element): void {
+    this._sent = null;
+    const shape = shapeOf(this._host.ratingsState);
+    this._section = shape ? this._build(shape) : null;
+    if (this._section) anchor.after(this._section);
+  }
+
+  /**
+   * Bring the drawn editor up to the state in force, after `anchor`. The same
+   * shape is patched in place; a new one is drawn afresh, focus moving to the
+   * same control where there is one, else to the field, else past the editor.
+   */
+  sync(anchor: Element): void {
+    const shape = shapeOf(this._host.ratingsState);
+    const old = this._section;
+    if (old && shape && old.dataset.kind === shape.kind && old.dataset.uuid === shape.member.uuid) {
+      if (shape.kind === "editor") this._patch(old, shape.member);
+      return;
+    }
+    const role = focusedRole(old);
+    const next = shape ? this._build(shape) : null;
+    if (old && next) old.replaceWith(next);
+    else if (old) old.remove();
+    else if (next) anchor.after(next);
+    this._section = next;
+    if (role === null) return;
+    const same = next?.querySelector<HTMLElement>(`[data-role="${role}"]`) ?? next?.querySelector<HTMLElement>('[data-role="rating-input"]');
+    if (same) same.focus();
+    else this._host.focusAfterRatingsEditor();
+  }
+
+  // ── Drawing ─────────────────────────────────────────────────────────
+
+  private _build(shape: Shape): HTMLDivElement {
+    const section = document.createElement("div");
+    section.dataset.role = "rating-section";
+    section.dataset.kind = shape.kind;
+    section.dataset.uuid = shape.member.uuid;
+    section.className = "rating-section";
+
+    const label = document.createElement("div");
+    label.className = "section-label";
+    label.textContent = t("monitoringRating.title");
+    section.appendChild(label);
+
+    if (shape.kind === "multi-space") {
+      // The panel reports a multi-space circuit's legs averaged, which no copied package can be judged against.
+      const note = document.createElement("div");
+      note.className = "field-label";
+      note.dataset.role = "rating-multi-space";
+      note.setAttribute("role", "note");
+      note.textContent = t("monitoringRating.multi_space");
+      section.appendChild(note);
+      return section;
+    }
+
+    const guidance = document.createElement("div");
+    guidance.className = "field-label";
+    guidance.id = "rating-guidance";
+    guidance.dataset.role = "rating-guidance";
+    guidance.textContent = t("monitoringRating.guidance");
+    section.appendChild(guidance);
+
+    section.appendChild(this._buildRow(shape.member));
+
+    // Always present, so what it says is announced as it changes.
+    const feedback = document.createElement("div");
+    feedback.className = "field-label rating-feedback";
+    feedback.id = "rating-feedback";
+    feedback.dataset.role = "rating-feedback";
+    feedback.setAttribute("aria-live", "polite");
+    section.appendChild(feedback);
+
+    const warnings = document.createElement("div");
+    warnings.dataset.role = "rating-warning-region";
+    warnings.setAttribute("aria-live", "polite");
+    section.appendChild(warnings);
+    this._syncWarning(section, shape.member);
+    return section;
+  }
+
+  private _buildRow(member: SlotMember): HTMLDivElement {
+    const row = document.createElement("div");
+    row.className = "field-row rating-row";
+    row.dataset.role = "rating-row";
+    row.dataset.uuid = member.uuid;
+
+    const panelEl = document.createElement("span");
+    panelEl.className = "field-label";
+    panelEl.id = "rating-panel-rating";
+    panelEl.dataset.role = "rating-panel-rating";
+    panelEl.textContent = tf("monitoringRating.panel_rating", { panel: String(member.circuit.breaker_rating_a) });
+
+    const labelEl = document.createElement("span");
+    labelEl.className = "field-label";
+    labelEl.textContent = t("monitoringRating.other_breaker");
+
+    const input = document.createElement("input");
+    input.type = "number";
+    input.min = "1";
+    input.step = "1";
+    input.inputMode = "numeric";
+    const stored = storedOther(member);
+    input.value = stored !== null ? String(stored) : "";
+    input.setAttribute("aria-label", tf("monitoringRating.other_breaker_label", { circuit: member.circuit.name }));
+    input.setAttribute("aria-describedby", "rating-panel-rating rating-guidance rating-feedback");
+    input.dataset.role = "rating-input";
+    input.addEventListener("keydown", event => {
+      if (event.key === "Enter") this._commit(input);
+    });
+    input.addEventListener("blur", () => this._commit(input));
+    input.addEventListener("input", () => this._showFeedback(input, null));
+    guardNumberWheel(input);
+
+    row.append(panelEl, labelEl, input);
+    if (stored !== null) row.appendChild(this._buildReset(member.uuid));
+    return row;
+  }
+
+  private _buildReset(uuid: string): HTMLButtonElement {
+    const reset = document.createElement("button");
+    reset.type = "button";
+    reset.className = "text-btn";
+    reset.dataset.role = "rating-reset";
+    reset.textContent = t("monitoringRating.reset");
+    reset.addEventListener("click", () => {
+      this._sent = null;
+      this._host.clearPackageRatings(uuid).catch((err: unknown) => this._host.reportRatingsFailure(err));
+    });
+    return reset;
+  }
+
+  /** Bring an editor of the same shape up to the circuit's state, in place. */
+  private _patch(section: HTMLDivElement, member: SlotMember): void {
+    const stored = storedOther(member);
+    if (this._sent !== null && this._sent === stored) this._sent = null;
+
+    const panelEl = section.querySelector<HTMLElement>('[data-role="rating-panel-rating"]');
+    if (panelEl) panelEl.textContent = tf("monitoringRating.panel_rating", { panel: String(member.circuit.breaker_rating_a) });
+
+    const input = section.querySelector<HTMLInputElement>('[data-role="rating-input"]');
+    const feedback = section.querySelector<HTMLElement>('[data-role="rating-feedback"]');
+    // A focused field is the user's, and so is one still showing why its value needs correcting.
+    if (input && !isFocused(input) && !feedback?.textContent) input.value = stored !== null ? String(stored) : "";
+
+    const row = section.querySelector<HTMLElement>('[data-role="rating-row"]');
+    const reset = section.querySelector<HTMLElement>('[data-role="rating-reset"]');
+    if (stored === null && reset) {
+      if (isFocused(reset)) input?.focus();
+      reset.remove();
+    } else if (stored !== null && !reset && row) {
+      row.appendChild(this._buildReset(member.uuid));
+    }
+    this._syncWarning(section, member);
+  }
+
+  // ── Committing ──────────────────────────────────────────────────────
+
+  /** Send what the field holds, as the user entered it, where it is a valid other breaker the copy does not already hold. */
+  private _commit(input: HTMLInputElement): void {
+    const shape = shapeOf(this._host.ratingsState);
+    if (shape?.kind !== "editor") return;
+    const { member } = shape;
+    const panel = member.circuit.breaker_rating_a;
+    if (panel == null) return;
+    const stored = storedOther(member);
+
+    const raw = input.value.trim();
+    // A browser empties a number field holding text it cannot read, and says so here.
+    if (raw === "" && input.validity?.badInput) {
+      this._showFeedback(input, t("monitoringRating.invalid_other"));
+      return;
+    }
+    if (raw === "") {
+      // Nothing entered: the field shows the copy in force; removing it is the reset's.
+      this._showFeedback(input, null);
+      input.value = stored !== null ? String(stored) : "";
+      return;
+    }
+    const amps = Number(raw);
+    if (!Number.isInteger(amps) || amps < 1) {
+      this._showFeedback(input, t("monitoringRating.invalid_other"));
+      return;
+    }
+    this._showFeedback(input, null);
+    if (amps === (this._sent ?? stored)) return;
+    this._sent = amps;
+    this._host.setPackageRatings(member.uuid, [panel, amps]).catch((err: unknown) => {
+      this._host.reportRatingsFailure(err);
+      this._answerRefusal(amps);
+    });
+  }
+
+  /**
+   * Put the copy in force back in the field after `amps` was refused, unless the
+   * user has entered something else since, which is theirs. Focus goes to the
+   * field where it was in the editor or nowhere, so the value can be corrected.
+   */
+  private _answerRefusal(amps: number): void {
+    if (this._sent === amps) this._sent = null;
+    const section = this._section;
+    const input = section?.querySelector<HTMLInputElement>('[data-role="rating-input"]');
+    const shape = shapeOf(this._host.ratingsState);
+    if (!section || !input || shape?.kind !== "editor" || input.value.trim() !== String(amps)) return;
+    const stored = storedOther(shape.member);
+    input.value = stored !== null ? String(stored) : "";
+    // Focus lost, as to the page's body, or still in the editor: the field, to correct. Anywhere else is the user's.
+    const lost = document.activeElement === null || document.activeElement === document.body;
+    if (lost || focusWithin(section)) input.focus();
+  }
+
+  private _showFeedback(input: HTMLInputElement, message: string | null): void {
+    const feedback = this._section?.querySelector<HTMLElement>('[data-role="rating-feedback"]');
+    if (feedback) feedback.textContent = message ?? "";
+    if (message) input.setAttribute("aria-invalid", "true");
+    else input.removeAttribute("aria-invalid");
+  }
+
+  // ── The threshold warning ───────────────────────────────────────────
+
+  /**
+   * A warning, with a reset to the global thresholds, where a copied package is
+   * stored and the circuit's own thresholds exceed 100%. Thresholds are
+   * percentages of the rating a circuit is judged against, so ones raised to quiet
+   * a tandem's alerts now apply to both breakers together, which can let a real
+   * overload pass. The copy changes no threshold itself; the user chooses.
+   */
+  private _syncWarning(section: HTMLDivElement, member: SlotMember): void {
+    const region = section.querySelector<HTMLElement>('[data-role="rating-warning-region"]');
+    if (!region) return;
+    const info = this._host.ratingsState?.monitoringInfo ?? null;
+    const wanted =
+      storedOther(member) !== null && info?.has_override === true && ((info.continuous_threshold_pct ?? 0) > 100 || (info.spike_threshold_pct ?? 0) > 100);
+    const current = region.querySelector<HTMLElement>('[data-role="rating-threshold-warning"]');
+    if (wanted && !current) region.appendChild(this._buildWarning());
+    else if (!wanted && current) {
+      const hadFocus = focusWithin(current);
+      current.remove();
+      if (hadFocus) this._host.focusAfterRatingsEditor();
+    }
+  }
+
+  private _buildWarning(): HTMLDivElement {
+    const warning = document.createElement("div");
+    warning.className = "field-label rating-warning";
+    warning.dataset.role = "rating-threshold-warning";
+    warning.setAttribute("role", "note");
+
+    const text = document.createElement("span");
+    text.textContent = t("monitoringRating.threshold_warning");
+    warning.appendChild(text);
+
+    const useGlobal = document.createElement("button");
+    useGlobal.type = "button";
+    useGlobal.className = "text-btn";
+    useGlobal.dataset.role = "rating-threshold-reset";
+    useGlobal.textContent = t("monitoringRating.use_global_thresholds");
+    useGlobal.addEventListener("click", () => {
+      useGlobal.disabled = true;
+      void this._host.useGlobalThresholds().then(done => {
+        if (!done) useGlobal.disabled = false;
+      });
+    });
+    warning.appendChild(useGlobal);
+    return warning;
+  }
+}

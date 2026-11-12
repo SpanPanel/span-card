@@ -6,13 +6,22 @@ import { t, tf } from "../i18n.js";
 import { judgedAgainstSentence, monitoringRatingView } from "../helpers/monitoring-rating.js";
 import { errorText } from "../helpers/error-text.js";
 import { occupiedSpaces, slotRatingText, type SlotMember } from "../helpers/shared-meters.js";
+import { guardNumberWheel, PackageRatingsEditor, type PackageRatingsHost, type PackageRatingsState } from "./package-ratings-editor.js";
 import { addFavorite, removeFavorite } from "./favorites-store.js";
 import { sortedCircuitsForSection } from "./favorites-sections.js";
 import { subDeviceCharts } from "../helpers/sub-device-power.js";
 import { subDeviceFavoriteEntityId } from "../helpers/sub-device-settings.js";
 import { relayClosed, selectOperable, shedPriorityKey, switchPresence, type CircuitControlFields } from "./circuit-state.js";
 import type { SpanSwitch } from "./span-switch.js";
-import type { HomeAssistant, PanelTopology, GraphSettings, CircuitEntities, CircuitGraphOverride, MonitoringPointInfo } from "../types.js";
+import type {
+  HomeAssistant,
+  PanelTopology,
+  GraphSettings,
+  CircuitEntities,
+  CircuitGraphOverride,
+  MonitoringGlobalSettings,
+  MonitoringPointInfo,
+} from "../types.js";
 import type { ErrorStore } from "./error-store.js";
 
 // ── Interfaces for config shapes passed to open() ────────────────────────
@@ -72,6 +81,8 @@ export type CircuitModeConfig = CircuitControlFields & {
   capacityA: number | null;
   monitoringInfo: MonitoringPointInfo | null;
   showMonitoring?: boolean;
+  /** The panel's global thresholds, from the `get_monitoring_status` answer `monitoringInfo` came from; null where not known. */
+  monitoringGlobals?: MonitoringGlobalSettings | null;
   /**
    * True where the circuit's panel takes package ratings copied from the SPAN app (topology
    * `monitoring_rating_offered`); anything else, an older integration's silence included, draws no editor.
@@ -374,10 +385,11 @@ const STYLES = `
 
 // ── Component ─────────────────────────────────────────────────────────────
 
-class SpanSidePanel extends HTMLElement {
+class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
   errorStore: ErrorStore | null = null;
   private _hass: HomeAssistant | null;
   private _config: SidePanelConfig | null;
+  private readonly _ratingsEditor: PackageRatingsEditor;
   private _debounceTimers: Record<string, ReturnType<typeof setTimeout>>;
   constructor() {
     super();
@@ -385,6 +397,7 @@ class SpanSidePanel extends HTMLElement {
     this._hass = null;
     this._config = null;
     this._debounceTimers = {};
+    this._ratingsEditor = new PackageRatingsEditor(this);
   }
 
   set hass(val: HomeAssistant | null) {
@@ -424,11 +437,10 @@ class SpanSidePanel extends HTMLElement {
 
   /**
    * Redraw what a rating change touches in the open circuit panel, from the
-   * integration's answer: the package ratings editor in the Monitoring section (so
-   * its input shows the copy in force, not what was typed, and the reset button
-   * follows the new state), the subtitle and the "judged against" line. Nothing else
-   * is rebuilt, so a threshold the user is typing keeps its value. A rating value
-   * still waiting out its debounce is dropped with the input it came from.
+   * integration's answer: the subtitle, the "judged against" line, and the package
+   * ratings editor in the Monitoring section, which patches itself in place, so a
+   * focused control keeps focus and a field being typed in keeps what was typed.
+   * Nothing else is rebuilt, so a threshold the user is typing keeps its value.
    */
   refreshRating(view: CircuitRatingView): void {
     const cfg = this._config;
@@ -438,21 +450,15 @@ class SpanSidePanel extends HTMLElement {
     const next: CircuitModeConfig = { ...cfg, members: view.members, capacityA: view.capacityA, monitoringInfo: view.monitoringInfo };
     this._config = next;
 
-    for (const key of Object.keys(this._debounceTimers)) {
-      if (key.startsWith("rating-")) this._cancelDebounce(key);
-    }
-
     const subtitle = shadow.querySelector(".subtitle");
     if (subtitle) subtitle.textContent = this._circuitSubtitle(next);
 
     const judged = shadow.querySelector('[data-role="judged-against"]');
     if (judged) {
-      judged.textContent = this._judgedAgainstText(next.monitoringInfo);
-      const current = shadow.querySelector('[data-role="rating-section"]');
-      const editor = this._buildRatingEditor(next);
-      if (current && editor) current.replaceWith(editor);
-      else if (current) current.remove();
-      else if (editor) judged.after(editor);
+      const text = this._judgedAgainstText(next.monitoringInfo);
+      // Set only on a change, so the live region announces a change and nothing else.
+      if (judged.textContent !== text) judged.textContent = text;
+      this._ratingsEditor.sync(judged);
     }
   }
 
@@ -1324,188 +1330,99 @@ class SpanSidePanel extends HTMLElement {
 
   // ── Package ratings editor (inside the Monitoring section) ──────────
 
-  /**
-   * The editor for a tandem's ratings copied from the SPAN app, or null where it
-   * has nothing to offer: the integration takes none on this panel (or predates
-   * them and says nothing), the slot is a shared meter, judged by its group's
-   * capacity, or the circuit has no space yet or no panel rating to copy against.
-   * A circuit across several spaces gets the section with an explanation in place
-   * of the editor. It is not a threshold: it sits in the Monitoring details above
-   * the Global/Custom choice, and neither that choice nor the threshold reset
-   * touches it.
-   */
-  private _buildRatingEditor(cfg: CircuitModeConfig): HTMLDivElement | null {
-    if (cfg.monitoringRatingOffered !== true) return null;
-    const [member, ...others] = cfg.members ?? [];
-    if (!member || others.length > 0) return null;
-    const spaces = occupiedSpaces([member.circuit]);
-    if (spaces.length === 0) return null;
-    if (spaces.length === 1 && member.circuit.breaker_rating_a == null) return null;
-
-    const section = document.createElement("div");
-    section.dataset.role = "rating-section";
-    section.style.marginBottom = "8px";
-
-    const label = document.createElement("div");
-    label.className = "section-label";
-    label.textContent = t("monitoringRating.title");
-    section.appendChild(label);
-
-    if (spaces.length > 1) {
-      // The panel reports a multi-space circuit's legs averaged, which no copied package can be judged against.
-      const note = document.createElement("div");
-      note.className = "field-label";
-      note.dataset.role = "rating-multi-space";
-      note.setAttribute("role", "note");
-      note.textContent = t("monitoringRating.multi_space");
-      section.appendChild(note);
-      return section;
-    }
-
-    const guidance = document.createElement("div");
-    guidance.className = "field-label";
-    guidance.dataset.role = "rating-guidance";
-    guidance.textContent = t("monitoringRating.guidance");
-    section.appendChild(guidance);
-
-    section.appendChild(this._createRatingRow(member, cfg));
-    const warning = this._buildThresholdWarning(member, cfg);
-    if (warning) section.appendChild(warning);
-    return section;
+  /** What the package ratings editor draws from: the open circuit's slot and monitoring; null in any other mode. */
+  get ratingsState(): PackageRatingsState | null {
+    const cfg = this._config;
+    if (!cfg || cfg.panelMode || cfg.subDeviceMode || cfg.favoritesMode || !cfg.showMonitoring) return null;
+    return {
+      members: cfg.members ?? [],
+      monitoringInfo: cfg.monitoringInfo,
+      monitoringGlobals: cfg.monitoringGlobals ?? null,
+      offered: cfg.monitoringRatingOffered === true,
+    };
   }
 
-  /**
-   * A warning, with a one-click reset to the global thresholds, where a copied
-   * package is stored and the circuit's own thresholds exceed 100%. Thresholds are
-   * percentages of the rating a circuit is judged against, so ones raised to quiet
-   * a tandem's alerts now apply to both breakers together, which can let a real
-   * overload pass. The copy changes no threshold itself; the user chooses.
-   */
-  private _buildThresholdWarning(member: SlotMember, cfg: CircuitModeConfig): HTMLDivElement | null {
-    const info = cfg.monitoringInfo;
-    if (member.circuit.package_ratings_a == null || info?.has_override !== true) return null;
-    if ((info.continuous_threshold_pct ?? 0) <= 100 && (info.spike_threshold_pct ?? 0) <= 100) return null;
-
-    const warning = document.createElement("div");
-    warning.className = "field-label";
-    warning.dataset.role = "rating-threshold-warning";
-    warning.setAttribute("role", "note");
-
-    const text = document.createElement("span");
-    text.textContent = t("monitoringRating.threshold_warning");
-    warning.appendChild(text);
-
-    const useGlobal = document.createElement("button");
-    useGlobal.type = "button";
-    useGlobal.dataset.role = "rating-threshold-reset";
-    useGlobal.textContent = t("monitoringRating.use_global_thresholds");
-    useGlobal.addEventListener("click", () => {
-      // Choosing Global is the threshold reset the section already has: it clears the override and hides the fields.
-      const global = this.shadowRoot?.querySelector<HTMLInputElement>('input[name="monitoring-mode"][value="global"]');
-      if (!global) return;
-      global.checked = true;
-      global.dispatchEvent(new Event("change"));
-      warning.remove();
-    });
-    warning.appendChild(useGlobal);
-    return warning;
+  setPackageRatings(uuid: string, ratings: readonly number[]): Promise<void> {
+    return this._callDomainService("set_circuit_package_ratings", this._ratingsPayload(uuid, { package_ratings_a: [...ratings] }));
   }
 
-  /**
-   * The circuit's row: the rating the panel publishes, read-only, which is the
-   * package's first, and one input for the other breaker in the space. The
-   * service takes the package in the SPAN app's order, so a value is sent with
-   * the panel's rating before it.
-   */
-  private _createRatingRow(member: SlotMember, cfg: CircuitModeConfig): HTMLDivElement {
-    const row = document.createElement("div");
-    row.className = "field-row";
-    row.dataset.role = "rating-row";
-    row.dataset.uuid = member.uuid;
-
-    const panelAmps = member.circuit.breaker_rating_a;
-    const copied = member.circuit.package_ratings_a ?? null;
-
-    const panelEl = document.createElement("span");
-    panelEl.className = "field-label";
-    panelEl.dataset.role = "rating-panel-rating";
-    panelEl.textContent = tf("monitoringRating.panel_rating", { panel: String(panelAmps) });
-
-    const labelEl = document.createElement("span");
-    labelEl.className = "field-label";
-    labelEl.textContent = t("monitoringRating.other_breaker");
-
-    const input = document.createElement("input");
-    input.type = "number";
-    input.min = "1";
-    input.step = "1";
-    input.value = copied?.[1] != null ? String(copied[1]) : "";
-    input.setAttribute("aria-label", tf("monitoringRating.other_breaker_label", { circuit: member.circuit.name }));
-    input.dataset.role = "rating-input";
-
-    input.addEventListener("input", () => {
-      this._debounce(`rating-${member.uuid}`, INPUT_DEBOUNCE_MS, () => {
-        const amps = input.valueAsNumber;
-        if (panelAmps == null || !Number.isFinite(amps) || amps < 1) return;
-        this._callRatingService("set_circuit_package_ratings", member.uuid, { package_ratings_a: [panelAmps, Math.round(amps)] }, cfg);
-      });
-    });
-
-    row.appendChild(panelEl);
-    row.appendChild(labelEl);
-    row.appendChild(input);
-
-    if (copied !== null) {
-      const resetBtn = document.createElement("button");
-      resetBtn.type = "button";
-      resetBtn.dataset.role = "rating-reset";
-      resetBtn.textContent = t("monitoringRating.reset");
-      resetBtn.addEventListener("click", () => {
-        // A typed value still waiting out its debounce would otherwise copy the package again after this clear.
-        this._cancelDebounce(`rating-${member.uuid}`);
-        this._callRatingService("clear_circuit_package_ratings", member.uuid, {}, cfg);
-      });
-      row.appendChild(resetBtn);
-    }
-    return row;
+  clearPackageRatings(uuid: string): Promise<void> {
+    return this._callDomainService("clear_circuit_package_ratings", this._ratingsPayload(uuid, {}));
   }
 
-  /**
-   * Calls a package-ratings service for the circuit. A refusal shows the
-   * service's own message, else the generic one, and puts the row back as it
-   * stands: a refused change fires no event, so nothing else would replace the
-   * value the input still shows.
-   */
-  private _callRatingService(service: string, uuid: string, data: Record<string, unknown>, cfg: CircuitModeConfig): void {
-    const payload: Record<string, unknown> = { circuit_id: uuid, ...data };
-    if (cfg.configEntryId) payload.config_entry_id = cfg.configEntryId;
-    this._callDomainService(service, payload).catch((err: unknown) => {
-      console.warn("SPAN Panel: package ratings update failed", err);
-      const detail = errorText(err);
-      this.errorStore?.add({
-        key: "service:package-ratings",
-        level: "error",
-        message: detail && detail !== "[object Object]" ? detail : t("error.package_ratings_failed"),
-        persistent: false,
-      });
-      this._restoreRatingRow(uuid);
+  /** A refusal shows the service's own message, else the generic one. */
+  reportRatingsFailure(err: unknown): void {
+    console.warn("SPAN Panel: package ratings update failed", err);
+    const detail = errorText(err);
+    this.errorStore?.add({
+      key: "service:package-ratings",
+      level: "error",
+      message: detail && detail !== "[object Object]" ? detail : t("error.package_ratings_failed"),
+      persistent: false,
     });
   }
 
   /**
-   * Rebuild the circuit's rating row from the config in force now, which a
-   * refresh may have replaced while the call was in flight. Left alone when the
-   * user has typed again since, as that value is still to be sent, and when the
-   * panel has closed or moved to another circuit.
+   * Choose the global thresholds for the open circuit, as the Global choice does:
+   * the choice and the hidden fields show it at once, and they are put back if
+   * clearing the override fails. Resolves whether it succeeded; on success the
+   * circuit's monitoring reads as having no override, so the editor's warning
+   * follows without waiting for a refresh.
    */
-  private _restoreRatingRow(uuid: string): void {
+  async useGlobalThresholds(): Promise<boolean> {
     const cfg = this._config;
     const shadow = this.shadowRoot;
-    if (!cfg || !shadow || !this.hasAttribute("open") || cfg.panelMode || cfg.subDeviceMode || cfg.favoritesMode || !cfg.showMonitoring) return;
-    if (this._debounceTimers[`rating-${uuid}`]) return;
-    const member = cfg.members?.find(m => m.uuid === uuid);
-    const row = [...shadow.querySelectorAll<HTMLElement>('[data-role="rating-row"]')].find(r => r.dataset.uuid === uuid);
-    if (member && row) row.replaceWith(this._createRatingRow(member, cfg));
+    if (!cfg || !shadow || cfg.panelMode || cfg.subDeviceMode || cfg.favoritesMode) return false;
+    const global = shadow.querySelector<HTMLInputElement>('input[name="monitoring-mode"][value="global"]');
+    const custom = shadow.querySelector<HTMLInputElement>('input[name="monitoring-mode"][value="custom"]');
+    const fields = shadow.querySelector<HTMLElement>('[data-role="threshold-fields"]');
+    if (global) global.checked = true;
+    if (fields) fields.style.display = "none";
+    const data: Record<string, unknown> = { circuit_id: cfg.entities?.power || cfg.uuid };
+    if (cfg.configEntryId) data.config_entry_id = cfg.configEntryId;
+    try {
+      await this._callDomainService("clear_circuit_threshold", data);
+    } catch (err: unknown) {
+      console.warn("SPAN Panel: monitoring update failed", err);
+      this.errorStore?.add({ key: "service:monitoring", level: "error", message: t("error.threshold_failed"), persistent: false });
+      if (this._config === cfg) {
+        if (custom) custom.checked = true;
+        if (fields) fields.style.display = "block";
+      }
+      return false;
+    }
+    this._thresholdsChanged(cfg, { has_override: false });
+    return true;
+  }
+
+  /** Focus the Global/Custom choice that follows the editor, the one now chosen. */
+  focusAfterRatingsEditor(): void {
+    const shadow = this.shadowRoot;
+    const radio =
+      shadow?.querySelector<HTMLInputElement>('input[name="monitoring-mode"]:checked') ??
+      shadow?.querySelector<HTMLInputElement>('input[name="monitoring-mode"]');
+    radio?.focus();
+  }
+
+  private _ratingsPayload(uuid: string, data: Record<string, unknown>): Record<string, unknown> {
+    const payload: Record<string, unknown> = { circuit_id: uuid, ...data };
+    const cfg = this._config;
+    const entryId = cfg && !cfg.panelMode && !cfg.subDeviceMode && !cfg.favoritesMode ? cfg.configEntryId : null;
+    if (entryId) payload.config_entry_id = entryId;
+    return payload;
+  }
+
+  /**
+   * Fold a threshold change the integration accepted into the open circuit's
+   * monitoring, so what reads it, the editor's warning, follows at once. Ignored
+   * where the panel has since closed or moved to another circuit.
+   */
+  private _thresholdsChanged(cfg: CircuitModeConfig, change: Partial<MonitoringPointInfo>): void {
+    if (this._config !== cfg || !this.hasAttribute("open")) return;
+    const next: CircuitModeConfig = { ...cfg, monitoringInfo: { ...(cfg.monitoringInfo ?? {}), ...change } };
+    this._config = next;
+    const judged = this.shadowRoot?.querySelector('[data-role="judged-against"]');
+    if (judged) this._ratingsEditor.sync(judged);
   }
 
   // ── Graph horizon section ──────────────────────────────────────────
@@ -1642,16 +1559,17 @@ class SpanSidePanel extends HTMLElement {
     const hasCustom = info?.has_override === true;
 
     // The rating the monitor judges this point against; textContent, so the text needs no escaping.
+    // A polite live region: a copy applying or going is announced as the line changes.
     const judged = document.createElement("div");
     judged.className = "field-label";
     judged.dataset.role = "judged-against";
+    judged.setAttribute("aria-live", "polite");
     judged.style.marginBottom = "8px";
     judged.textContent = this._judgedAgainstText(info);
     detailsWrap.appendChild(judged);
 
     // The package ratings editor: above Global/Custom, shown in both modes, hidden with the details.
-    const ratingEditor = this._buildRatingEditor(cfg);
-    if (ratingEditor) detailsWrap.appendChild(ratingEditor);
+    this._ratingsEditor.mount(judged);
 
     // Global / Custom radio
     const radioGroup = document.createElement("div");
@@ -1699,26 +1617,13 @@ class SpanSidePanel extends HTMLElement {
       });
     });
 
-    // Event: radio change
+    // Event: radio change. Choosing Global is the threshold reset, which puts the choice back if it fails.
     const radios = radioGroup.querySelectorAll<HTMLInputElement>('input[type="radio"]');
     for (const radio of radios) {
       radio.addEventListener("change", () => {
-        const isCustom = radio.value === "custom" && radio.checked;
-        thresholdsWrap.style.display = isCustom ? "block" : "none";
-        if (!isCustom && radio.checked) {
-          const entityId = cfg.entities?.power || cfg.uuid;
-          const data: Record<string, unknown> = { circuit_id: entityId };
-          if (cfg.configEntryId) data.config_entry_id = cfg.configEntryId;
-          this._callDomainService("clear_circuit_threshold", data).catch((err: Error) => {
-            console.warn("SPAN Panel: monitoring update failed", err);
-            this.errorStore?.add({
-              key: "service:monitoring",
-              level: "error",
-              message: t("error.threshold_failed"),
-              persistent: false,
-            });
-          });
-        }
+        if (!radio.checked) return;
+        if (radio.value === "custom") thresholdsWrap.style.display = "block";
+        else void this.useGlobalThresholds();
       });
     }
 
@@ -1739,6 +1644,7 @@ class SpanSidePanel extends HTMLElement {
     input.max = "200";
     input.value = String(value);
     input.dataset.role = `threshold-${key}`;
+    guardNumberWheel(input);
 
     input.addEventListener("input", () => {
       this._debounce(`threshold-${key}`, INPUT_DEBOUNCE_MS, () => {
@@ -1799,6 +1705,7 @@ class SpanSidePanel extends HTMLElement {
     input.max = String(max);
     input.value = String(value);
     input.dataset.role = `threshold-${key}`;
+    guardNumberWheel(input);
     if (readOnly) {
       input.disabled = true;
     }
@@ -1899,13 +1806,6 @@ class SpanSidePanel extends HTMLElement {
   }
 
   // ── Debounce ────────────────────────────────────────────────────────
-
-  private _cancelDebounce(key: string): void {
-    if (this._debounceTimers[key]) {
-      clearTimeout(this._debounceTimers[key]);
-      delete this._debounceTimers[key];
-    }
-  }
 
   private _debounce(key: string, ms: number, fn: () => void): void {
     if (this._debounceTimers[key]) {

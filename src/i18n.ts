@@ -231,6 +231,7 @@ const translations: Record<string, Record<string, string>> = {
     "monitoringRating.other_breaker": "Other breaker (A)",
     "monitoringRating.other_breaker_label": "Other breaker in the space of {circuit}",
     "monitoringRating.reset": "Remove copied ratings",
+    "monitoringRating.invalid_other": "Enter the other breaker's rating as a whole number of amps, 1 or more.",
     "monitoringRating.guidance":
       "Enter the other breaker in this space exactly as your SPAN app shows this circuit (for example 20-20A). The panel publishes only the first; monitoring then judges this space against both breakers together.",
     "monitoringRating.multi_space":
@@ -504,6 +505,7 @@ const translations: Record<string, Record<string, string>> = {
     "monitoringRating.other_breaker": "Otro interruptor (A)",
     "monitoringRating.other_breaker_label": "Otro interruptor en el espacio de {circuit}",
     "monitoringRating.reset": "Quitar los calibres copiados",
+    "monitoringRating.invalid_other": "Introduzca el calibre del otro interruptor como un n\u00famero entero de amperios, 1 o m\u00e1s.",
     "monitoringRating.guidance":
       "Introduzca el otro interruptor de este espacio tal como la app de SPAN muestra este circuito (por ejemplo, 20-20A). El panel publica solo el primero; el monitoreo juzga entonces este espacio seg\u00fan ambos interruptores juntos.",
     "monitoringRating.multi_space":
@@ -768,6 +770,7 @@ const translations: Record<string, Record<string, string>> = {
     "monitoringRating.other_breaker": "Autre disjoncteur (A)",
     "monitoringRating.other_breaker_label": "Autre disjoncteur dans l'emplacement de {circuit}",
     "monitoringRating.reset": "Supprimer les calibres copi\u00e9s",
+    "monitoringRating.invalid_other": "Saisissez le calibre de l'autre disjoncteur en nombre entier d'amp\u00e8res, 1 ou plus.",
     "monitoringRating.guidance":
       "Saisissez l'autre disjoncteur de cet emplacement exactement comme l'application SPAN affiche ce circuit (par exemple 20-20A). Le panneau ne publie que le premier ; la surveillance juge alors cet emplacement par rapport aux deux disjoncteurs ensemble.",
     "monitoringRating.multi_space":
@@ -1043,6 +1046,8 @@ const translations: Record<string, Record<string, string>> = {
     "monitoringRating.other_breaker_label":
       "{circuit} \u306e\u30b9\u30da\u30fc\u30b9\u306b\u3042\u308b\u3082\u3046\u4e00\u65b9\u306e\u30d6\u30ec\u30fc\u30ab\u30fc",
     "monitoringRating.reset": "\u30b3\u30d4\u30fc\u3057\u305f\u5b9a\u683c\u3092\u524a\u9664",
+    "monitoringRating.invalid_other":
+      "\u3082\u3046\u4e00\u65b9\u306e\u30d6\u30ec\u30fc\u30ab\u30fc\u306e\u5b9a\u683c\u3092 1 \u4ee5\u4e0a\u306e\u6574\u6570\u306e\u30a2\u30f3\u30da\u30a2\u3067\u5165\u529b\u3057\u3066\u304f\u3060\u3055\u3044\u3002",
     "monitoringRating.guidance":
       "\u3053\u306e\u30b9\u30da\u30fc\u30b9\u306e\u3082\u3046\u4e00\u65b9\u306e\u30d6\u30ec\u30fc\u30ab\u30fc\u3092\u3001SPAN \u30a2\u30d7\u30ea\u304c\u3053\u306e\u56de\u8def\u306b\u3064\u3044\u3066\u8868\u793a\u3059\u308b\u3068\u304a\u308a\u306b\u5165\u529b\u3057\u3066\u304f\u3060\u3055\u3044(\u4f8b: 20-20A)\u3002\u30d1\u30cd\u30eb\u304c\u516c\u958b\u3059\u308b\u306e\u306f\u6700\u521d\u306e\u5b9a\u683c\u3060\u3051\u3067\u3059\u3002\u30e2\u30cb\u30bf\u30ea\u30f3\u30b0\u306f\u3053\u306e\u30b9\u30da\u30fc\u30b9\u3092\u4e21\u65b9\u306e\u30d6\u30ec\u30fc\u30ab\u30fc\u306e\u5408\u8a08\u3067\u5224\u5b9a\u3057\u307e\u3059\u3002",
     "monitoringRating.multi_space":
@@ -1311,6 +1316,7 @@ const translations: Record<string, Record<string, string>> = {
     "monitoringRating.other_breaker": "Outro disjuntor (A)",
     "monitoringRating.other_breaker_label": "Outro disjuntor no espa\u00e7o de {circuit}",
     "monitoringRating.reset": "Remover as correntes nominais copiadas",
+    "monitoringRating.invalid_other": "Digite a corrente nominal do outro disjuntor como um n\u00famero inteiro de amperes, 1 ou mais.",
     "monitoringRating.guidance":
       "Digite o outro disjuntor deste espa\u00e7o exatamente como o app SPAN mostra este circuito (por exemplo, 20-20A). O painel publica apenas o primeiro; o monitoramento ent\u00e3o avalia este espa\u00e7o pelos dois disjuntores juntos.",
     "monitoringRating.multi_space":

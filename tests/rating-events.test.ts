@@ -217,7 +217,7 @@ describe("refreshCircuitSidePanel", () => {
     for (const el of mounted.splice(0)) el.remove();
   });
 
-  it("rebuilds the package ratings editor from the integration's answer, dropping what was typed", async () => {
+  it("patches the package ratings editor in place from the integration's answer, its unfocused field showing the copy", async () => {
     const open = await openOven(circuit(20, 20));
     expect(reset(open.panel)).toBeNull();
     input(open.panel).value = "45";
@@ -227,7 +227,7 @@ describe("refreshCircuitSidePanel", () => {
     open.setStatus(after);
     await open.ctrl.refreshCircuitSidePanel(open.root, ENTRY, topologyOf(after));
 
-    expect(section(open.panel)).not.toBe(before);
+    expect(section(open.panel)).toBe(before);
     expect(input(open.panel).value).toBe("30");
     expect(reset(open.panel)).not.toBeNull();
     expect(open.panel.shadowRoot!.querySelector('[data-role="rating-panel-rating"]')!.textContent).toContain("20");
@@ -248,20 +248,27 @@ describe("refreshCircuitSidePanel", () => {
     expect(input(open.panel).value).toBe("");
   });
 
-  it("drops a typed value still waiting out its debounce, so a refusal leaves the integration's rating", async () => {
+  it("keeps a value being typed in the focused field across a refresh, and sends it when committed", async () => {
     const open = await openOven(circuit(20, 20));
-    const sent = vi.spyOn(open.panel as unknown as { _callDomainService: () => Promise<unknown> }, "_callDomainService");
-    input(open.panel).value = "45";
-    input(open.panel).dispatchEvent(new Event("input"));
+    const sent = vi.spyOn(open.panel as unknown as { _callDomainService: (s: string, d: Record<string, unknown>) => Promise<unknown> }, "_callDomainService");
+    const field = input(open.panel);
+    field.focus();
+    field.value = "3";
+    field.dispatchEvent(new Event("input"));
 
     await open.ctrl.refreshCircuitSidePanel(open.root, ENTRY, topologyOf(circuit(20, 20)));
     vi.advanceTimersByTime(1000);
+    field.value = "30";
+    field.dispatchEvent(new Event("input"));
 
+    expect(input(open.panel)).toBe(field);
+    expect(field.value).toBe("30");
     expect(sent).not.toHaveBeenCalled();
-    expect(input(open.panel).value).toBe("");
+    field.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter" }));
+    expect(sent).toHaveBeenCalledWith("set_circuit_package_ratings", expect.objectContaining({ package_ratings_a: [20, 30] }));
   });
 
-  it("puts the rebuilt editor where the old one was: after the judged-against line, above the Global/Custom choice", async () => {
+  it("keeps the editor where it was: after the judged-against line, above the Global/Custom choice", async () => {
     const open = await openOven(circuit(20, 20));
 
     const after = circuit(20, 50, true);
