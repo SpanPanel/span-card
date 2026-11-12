@@ -114,6 +114,13 @@ describe("the editor's visibility", () => {
     expect(details(panel).contains(editor(panel))).toBe(true);
   });
 
+  it("is absent where the integration offers no monitoring rating, the Judged against line still shown", () => {
+    const { panel } = open(ONE, { monitoringRatingOffered: false });
+    expect(editor(panel)).toBeNull();
+    expect(panel.shadowRoot!.querySelector('[data-role="judged-against"]')).not.toBeNull();
+    expect(rows(open(ONE, { monitoringRatingOffered: true }).panel)).toHaveLength(1);
+  });
+
   it("is absent for a circuit with no panel rating", () => {
     const { panel } = open([{ uuid: "c-1", circuit: circuit("Meter", null, null) }]);
     expect(rows(panel)).toHaveLength(0);
@@ -414,15 +421,23 @@ describe("the gear", () => {
     },
   } as unknown as PanelTopology;
 
-  async function opened(uuid: string, show: boolean): Promise<{ showMonitoring?: boolean; members?: { uuid: string }[] }> {
+  type Opened = { showMonitoring?: boolean; monitoringRatingOffered?: boolean; members?: { uuid: string }[] };
+
+  async function opened(
+    uuid: string,
+    show: boolean,
+    topology: PanelTopology = TOPOLOGY,
+    setUp: (ctrl: DashboardController) => void = () => {}
+  ): Promise<Opened> {
     const ctrl = new DashboardController();
     ctrl.showMonitoring = show;
     ctrl.init(
-      TOPOLOGY,
+      topology,
       {} as CardConfig,
       hass(async () => undefined),
       "entry-1"
     );
+    setUp(ctrl);
     const root = document.createElement("div");
     root.innerHTML = `<button class="gear-icon circuit-gear" data-uuid="${uuid}"></button><span-side-panel></span-side-panel>`;
     document.body.appendChild(root);
@@ -430,7 +445,7 @@ describe("the gear", () => {
     const spy = vi.spyOn(sp, "open").mockImplementation(() => {});
     await ctrl.onGearClick({ target: root.querySelector(".gear-icon") } as unknown as Event, root);
     root.remove();
-    return spy.mock.calls[0]![0] as { showMonitoring?: boolean; members?: { uuid: string }[] };
+    return spy.mock.calls[0]![0] as Opened;
   }
 
   it("is not asked to show the Monitoring section, and so the editor, in the standalone card", async () => {
@@ -441,5 +456,20 @@ describe("the gear", () => {
     const cfg = await opened("c-a", true);
     expect(cfg.showMonitoring).toBe(true);
     expect(cfg.members?.map(m => m.uuid)).toEqual(["c-a", "c-b"]);
+  });
+
+  it("passes on whether the panel offers a monitoring rating, as the integration says", async () => {
+    expect((await opened("c-m", true, { ...TOPOLOGY, monitoring_rating_offered: false })).monitoringRatingOffered).toBe(false);
+    expect((await opened("c-m", true, { ...TOPOLOGY, monitoring_rating_offered: true })).monitoringRatingOffered).toBe(true);
+  });
+
+  it("takes a favorite's flag from the favorite's own panel in the Favorites view", async () => {
+    const merged = { circuits: { "p-1|c-m": TOPOLOGY.circuits["c-m"]! } } as PanelTopology;
+    const cfg = await opened("p-1|c-m", true, merged, ctrl => {
+      ctrl.setFavoriteRefs({ "p-1|c-m": { panelDeviceId: "p-1", kind: "circuit", targetId: "c-m", configEntryId: "entry-1" } });
+      const own = { ...TOPOLOGY, monitoring_rating_offered: false } as PanelTopology;
+      ctrl.setFavoritesPerPanelInfo(new Map([["p-1", { panelName: "Panel", topology: own, configEntryId: "entry-1" }]]));
+    });
+    expect(cfg.monitoringRatingOffered).toBe(false);
   });
 });

@@ -139,6 +139,12 @@ export interface PanelTopology {
   /** The config entry that owns the panel. */
   config_entry_id?: string;
   /**
+   * Whether the integration takes a monitoring rating on this panel at all: false where the panel publishes each
+   * circuit of a multi-load breaker with its own rating, so the editor is not offered. Absent from an integration
+   * that predates it, which offered one everywhere.
+   */
+  monitoring_rating_offered?: boolean;
+  /**
    * Each group of circuits that share a meter, by the key its members carry in `shared_meter_group`. A group with no
    * record here, as from an integration that predates the map, falls back to its members' ratings added up.
    */

@@ -72,6 +72,8 @@ export type CircuitModeConfig = CircuitControlFields & {
   capacityA: number | null;
   monitoringInfo: MonitoringPointInfo | null;
   showMonitoring?: boolean;
+  /** False where the circuit's panel takes no monitoring rating (topology `monitoring_rating_offered`), so no editor is drawn. */
+  monitoringRatingOffered?: boolean;
   graphHorizonInfo: GraphHorizonInfo;
   /** Dashboard-only: render the Favorite section on this side panel. */
   showFavorites?: boolean;
@@ -1320,11 +1322,13 @@ class SpanSidePanel extends HTMLElement {
   // ── Monitoring rating editor (inside the Monitoring section) ────────
 
   /**
-   * The monitoring rating editor, or null when no member has a panel rating to
-   * judge against. It is not a threshold: it sits in the Monitoring details above
-   * the Global/Custom choice, and neither that choice nor the threshold reset touches it.
+   * The monitoring rating editor, or null where the panel takes no monitoring
+   * rating or no member has a panel rating to judge against. It is not a
+   * threshold: it sits in the Monitoring details above the Global/Custom choice,
+   * and neither that choice nor the threshold reset touches it.
    */
   private _buildRatingEditor(cfg: CircuitModeConfig): HTMLDivElement | null {
+    if (cfg.monitoringRatingOffered === false) return null;
     const members = cfg.members ?? [];
     const rated = members.filter(member => member.circuit.breaker_rating_a != null);
     if (rated.length === 0) return null;

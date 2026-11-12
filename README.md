@@ -86,13 +86,15 @@ its output is included in the site total. The editor's Battery section now also 
 
 ### Monitoring Rating
 
-Where the panel reports a rating that is not what a circuit can carry, as it can for a tandem breaker, an administrator can set the rating that current
-monitoring judges the circuit against. Open a circuit's gear in the sidebar dashboard and turn **Monitoring** on: the **Monitoring rating** field sits at the
-top of the Monitoring section, above the Global/Custom choice, and shows the panel's own rating beside the rating in force. Type the rating that applies and it
-is saved after a short pause; **Reset to panel rating** returns to the panel's value. The rating is not a threshold: it is shown in both Global and Custom mode,
-and choosing Global or resetting thresholds leaves it alone. It is hidden while monitoring is off for that circuit, and the value you set applies again when you
-turn monitoring back on. A circuit that shares a meter with others lists each member, so each can be set on its own. The field is not part of the Lovelace card
-or the list tabs, which show the panel's rating and do not edit it.
+On a MAIN 32, which publishes a tandem breaker as one circuit with the rating of one half, an administrator can set the rating that current monitoring judges a
+circuit against. Open a circuit's gear in the sidebar dashboard and turn **Monitoring** on: the **Monitoring rating** field sits at the top of the Monitoring
+section, above the Global/Custom choice, and shows the panel's own rating beside the rating in force. Type the rating that applies and it is saved after a short
+pause; **Reset to panel rating** returns to the panel's value. The rating is not a threshold: it is shown in both Global and Custom mode, and choosing Global or
+resetting thresholds leaves it alone. It is hidden while monitoring is off for that circuit, and the value you set applies again when you turn monitoring back
+on. The field is not part of the Lovelace card or the list tabs, which show the panel's rating and do not edit it.
+
+On panels other than MAIN 32 the field is not shown, because the integration offers no monitoring rating there: those panels publish each circuit of a
+multi-load breaker with its own rating and name the circuits that share its meter.
 
 The most current the measured wire can carry is the right value; for a tandem in one space, add its breakers. For a circuit that spans several spaces the panel
 does not publish which leg it measures, so the section shows a caution, once for the circuit, that a rating set there may hide a real overload and that turning

@@ -541,6 +541,8 @@ export class DashboardController {
 
         // The panel describes the slot the circuit is drawn in: for a shared meter, every member and its capacity.
         const slot = this._sidePanelSlot(uuid, ref);
+        // A favorite's panel says whether it takes a monitoring rating, not the merged view's topology.
+        const ownTopology = ref ? this._perPanelInfo.get(ref.panelDeviceId)?.topology : this._topology;
 
         const circuitConfig: CircuitModeConfig = {
           uuid: realUuid,
@@ -554,6 +556,7 @@ export class DashboardController {
           device_type: circuit.device_type,
           monitoringInfo,
           showMonitoring: this._showMonitoring,
+          monitoringRatingOffered: ownTopology?.monitoring_rating_offered !== false,
           graphHorizonInfo,
           showFavorites: this.showFavorites,
           favoritePanelDeviceId,
