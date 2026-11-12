@@ -8,7 +8,10 @@ import type { Circuit } from "../types.js";
 export interface MeterSlot {
   /** The circuit the slot reads and switches through: the group's key when that is a member, else its first. */
   readonly uuid: string;
-  /** That circuit, carrying the group's combined rating, which is what the group is judged against. */
+  /**
+   * That circuit, carrying the group's combined rating, which is what the group is judged against, and every
+   * space its members occupy, which is where the group is drawn.
+   */
   readonly circuit: Circuit;
   /** Every circuit drawn in the slot, in topology order. */
   readonly members: readonly Circuit[];
@@ -35,10 +38,22 @@ export function meterSlots(circuits: Record<string, Circuit>): MeterSlot[] {
     } else if (group[0]![0] === uuid) {
       const [throughId, through] = group.find(([id]) => id === key) ?? group[0]!;
       const members = group.map(([, member]) => member);
-      slots.push({ uuid: throughId, circuit: { ...through, breaker_rating_a: combinedRating(members) }, members });
+      slots.push({
+        uuid: throughId,
+        circuit: { ...through, tabs: occupiedSpaces(members), breaker_rating_a: combinedRating(members) },
+        members,
+      });
     }
   }
   return slots;
+}
+
+/**
+ * Every space the members occupy, ascending. A member need not list them all: on a tandem-quad each single-pole
+ * circuit lists only its own space and the two-pole circuit lists both, so the group's own key can be one space short.
+ */
+function occupiedSpaces(members: readonly Circuit[]): number[] {
+  return [...new Set(members.flatMap(member => member.tabs))].sort((a, b) => a - b);
 }
 
 /** The members' ratings summed, or null while any member's is unknown. */

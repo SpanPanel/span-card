@@ -129,6 +129,43 @@ describe("circuits that share a space on the grid", () => {
   });
 });
 
+/** A multi-load breaker across spaces 34 and 36: every member reads one meter, keyed by its first member. */
+function spanning(members: Record<string, number[]>): Record<string, Circuit> {
+  const key = Object.keys(members)[0]!;
+  return Object.fromEntries(Object.entries(members).map(([uuid, tabs]) => [uuid, { ...circuit(uuid, uuid, tabs[0]!, 20, key), tabs }]));
+}
+
+function gridOf(circuits: Record<string, Circuit>): HTMLElement {
+  const div = document.createElement("div");
+  const topo = { circuits, panel_size: 48, first_position: 1, last_position: 48, panel_entities: { site_power: SITE } } as PanelTopology;
+  div.innerHTML = buildGridHTML(topo, positionRange(topo, 48)!, hassWith(), CONFIG, null);
+  return div;
+}
+
+describe("a group whose members occupy different spaces", () => {
+  // A tandem-quad's single-pole circuits each list their own space and its two-pole circuit lists both;
+  // a quad's two circuits are both two-pole and each lists both. Here the group is keyed by a single-pole member.
+  const TANDEM_QUAD = spanning({ "q-34": [34], "q-36": [36], "q-2p": [34, 36] });
+  const QUAD = spanning({ "q-a": [34, 36], "q-b": [34, 36] });
+
+  it.each([
+    ["a tandem-quad", TANDEM_QUAD],
+    ["a quad", QUAD],
+  ])("covers every member's spaces in %s's slot", (_, circuits) => {
+    expect(meterSlots(circuits)[0]!.circuit.tabs).toEqual([34, 36]);
+  });
+
+  it.each([
+    ["a tandem-quad", TANDEM_QUAD, "q-34"],
+    ["a quad", QUAD, "q-a"],
+  ])("draws %s as one slot spanning both spaces, leaving neither empty", (_, circuits, key) => {
+    const root = gridOf(circuits);
+    expect(root.querySelectorAll(".circuit-slot[data-uuid]")).toHaveLength(1);
+    expect(slotAt(root, key).classList.contains("circuit-col-span")).toBe(true);
+    expect(root.querySelectorAll(".circuit-empty")).toHaveLength(46);
+  });
+});
+
 describe("the site sum", () => {
   it("counts each shared meter once", () => {
     const root = document.createElement("div");
