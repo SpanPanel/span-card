@@ -1369,7 +1369,46 @@ class SpanSidePanel extends HTMLElement {
     section.appendChild(guidance);
 
     section.appendChild(this._createRatingRow(member, cfg));
+    const warning = this._buildThresholdWarning(member, cfg);
+    if (warning) section.appendChild(warning);
     return section;
+  }
+
+  /**
+   * A warning, with a one-click reset to the global thresholds, where a copied
+   * package is stored and the circuit's own thresholds exceed 100%. Thresholds are
+   * percentages of the rating a circuit is judged against, so ones raised to quiet
+   * a tandem's alerts now apply to both breakers together, which can let a real
+   * overload pass. The copy changes no threshold itself; the user chooses.
+   */
+  private _buildThresholdWarning(member: SlotMember, cfg: CircuitModeConfig): HTMLDivElement | null {
+    const info = cfg.monitoringInfo;
+    if (member.circuit.package_ratings_a == null || info?.has_override !== true) return null;
+    if ((info.continuous_threshold_pct ?? 0) <= 100 && (info.spike_threshold_pct ?? 0) <= 100) return null;
+
+    const warning = document.createElement("div");
+    warning.className = "field-label";
+    warning.dataset.role = "rating-threshold-warning";
+    warning.setAttribute("role", "note");
+
+    const text = document.createElement("span");
+    text.textContent = t("monitoringRating.threshold_warning");
+    warning.appendChild(text);
+
+    const useGlobal = document.createElement("button");
+    useGlobal.type = "button";
+    useGlobal.dataset.role = "rating-threshold-reset";
+    useGlobal.textContent = t("monitoringRating.use_global_thresholds");
+    useGlobal.addEventListener("click", () => {
+      // Choosing Global is the threshold reset the section already has: it clears the override and hides the fields.
+      const global = this.shadowRoot?.querySelector<HTMLInputElement>('input[name="monitoring-mode"][value="global"]');
+      if (!global) return;
+      global.checked = true;
+      global.dispatchEvent(new Event("change"));
+      warning.remove();
+    });
+    warning.appendChild(useGlobal);
+    return warning;
   }
 
   /**

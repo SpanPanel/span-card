@@ -409,6 +409,65 @@ describe("a refused change", () => {
   });
 });
 
+describe("custom thresholds above 100% under a copy", () => {
+  const ABOVE = { monitoring_enabled: true, has_override: true, continuous_threshold_pct: 160, spike_threshold_pct: 200 };
+  const warning = (p: SidePanel): HTMLElement | null => p.shadowRoot!.querySelector<HTMLElement>('[data-role="rating-threshold-warning"]');
+  const useGlobal = (p: SidePanel): HTMLElement | null => p.shadowRoot!.querySelector<HTMLElement>('[data-role="rating-threshold-reset"]');
+
+  it("are warned of, since they now apply to both breakers together", () => {
+    const { panel } = open(COPIED, { monitoringInfo: ABOVE });
+    expect(warning(panel)!.getAttribute("role")).toBe("note");
+    expect(warning(panel)!.textContent).toContain(
+      "This circuit's custom thresholds are above 100%. With the copied ratings they now apply to both breakers together, which can let a real overload pass."
+    );
+    expect(useGlobal(panel)!.textContent).toBe("Use global thresholds");
+    expect(editor(panel)!.contains(warning(panel))).toBe(true);
+  });
+
+  it.each([
+    ["the continuous threshold alone", { continuous_threshold_pct: 160, spike_threshold_pct: 100 }],
+    ["the spike threshold alone", { continuous_threshold_pct: 80, spike_threshold_pct: 200 }],
+  ])("are warned of for %s", (_label, thresholds) => {
+    expect(warning(open(COPIED, { monitoringInfo: { monitoring_enabled: true, has_override: true, ...thresholds } }).panel)).not.toBeNull();
+  });
+
+  it("are warned of for a copy waiting on a value not yet arrived, which applies once it does", () => {
+    const waiting = [{ uuid: "c-1", circuit: circuit("Oven", 20, [20, 30], [1], false) }];
+    expect(warning(open(waiting, { monitoringInfo: ABOVE }).panel)).not.toBeNull();
+  });
+
+  it("are not warned of with no copy, where they are the circuit's own business", () => {
+    expect(warning(open(OVEN, { monitoringInfo: ABOVE }).panel)).toBeNull();
+  });
+
+  it("are not warned of at 100% or below", () => {
+    const within = { monitoring_enabled: true, has_override: true, continuous_threshold_pct: 80, spike_threshold_pct: 100 };
+    expect(warning(open(COPIED, { monitoringInfo: within }).panel)).toBeNull();
+  });
+
+  it("are not the circuit's when they are the global ones, which the warning does not judge", () => {
+    expect(warning(open(COPIED, { monitoringInfo: { ...ABOVE, has_override: false } }).panel)).toBeNull();
+  });
+
+  it("are reset to the global thresholds in one click, as choosing Global does, and the warning goes", () => {
+    const { panel, callWS } = open(COPIED, { monitoringInfo: ABOVE });
+    useGlobal(panel)!.click();
+    expect(callWS.mock.calls.map(c => c[0])).toEqual([
+      { type: "call_service", domain: "span_panel", service: "clear_circuit_threshold", service_data: { circuit_id: "c-1", config_entry_id: "entry-1" } },
+    ]);
+    expect(panel.shadowRoot!.querySelector<HTMLInputElement>('input[name="monitoring-mode"][value="global"]')!.checked).toBe(true);
+    expect(panel.shadowRoot!.querySelector<HTMLElement>('[data-role="threshold-fields"]')!.style.display).toBe("none");
+    expect(warning(panel)).toBeNull();
+    expect(input(panel).value).toBe("30");
+  });
+
+  it("are left as they are by the copy itself: setting the package calls no threshold service", () => {
+    const { panel, callWS } = open(OVEN, { monitoringInfo: ABOVE });
+    type(input(panel), "20");
+    expect(callWS.mock.calls.map(c => (c[0] as { service: string }).service)).toEqual(["set_circuit_package_ratings"]);
+  });
+});
+
 describe("the gear", () => {
   const TOPOLOGY = {
     monitoring_rating_offered: true,
