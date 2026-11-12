@@ -1,8 +1,10 @@
 import { describe, it, expect, afterEach } from "vitest";
-import { limitRatingA, monitoringRatingView, ratingLabelHTML, ratingSentence, type RatingView } from "../src/helpers/monitoring-rating.js";
-import { setLanguage, tf } from "../src/i18n.js";
+import { judgedAgainstSentence, limitRatingA, monitoringRatingView, ratingLabelHTML, type RatingView } from "../src/helpers/monitoring-rating.js";
+import { setLanguage, t, tf } from "../src/i18n.js";
 
 afterEach(() => setLanguage("en"));
+
+const COPIED: RatingView = { amps: 40, panelAmps: 20, userSet: true, packageRatings: [20, 20] };
 
 describe("ratingLabelHTML", () => {
   it("is empty when there is no rating", () => {
@@ -16,22 +18,28 @@ describe("ratingLabelHTML", () => {
     expect(ratingLabelHTML({ amps: 20 })).toBe("20A");
   });
 
-  it("marks a user-set rating with a pencil whose title names the panel's value", () => {
-    expect(ratingLabelHTML({ amps: 50, panelAmps: 20, userSet: true })).toBe('50A<span class="rating-user-set" title="Set by you; panel: 20 A">✎</span>');
+  it("marks a copied package with a pencil whose title names the package and the panel's value", () => {
+    expect(ratingLabelHTML(COPIED)).toBe('40A<span class="rating-user-set" title="20-20 from your SPAN app (the panel publishes 20 A)">✎</span>');
   });
 
-  it("states that the panel publishes no rating when the user set one over none", () => {
-    expect(ratingLabelHTML({ amps: 30, panelAmps: null, userSet: true })).toContain('title="Set by you; panel: none"');
+  it("names an unequal package in the SPAN app's order", () => {
+    expect(ratingLabelHTML({ amps: 35, panelAmps: 15, userSet: true, packageRatings: [15, 20] })).toContain(
+      'title="15-20 from your SPAN app (the panel publishes 15 A)"'
+    );
+  });
+
+  it("still says where the rating came from when the package or the panel's value is missing", () => {
+    expect(ratingLabelHTML({ amps: 40, panelAmps: 20, userSet: true })).toContain('title="Copied from your SPAN app"');
+    expect(ratingLabelHTML({ amps: 40, panelAmps: null, userSet: true, packageRatings: [20, 20] })).toContain('title="Copied from your SPAN app"');
   });
 
   it("localizes the title", () => {
     setLanguage("fr");
-    const html = ratingLabelHTML({ amps: 50, panelAmps: 20, userSet: true });
-    expect(html).toContain('title="D\u00e9fini par vous');
+    expect(ratingLabelHTML(COPIED)).toContain("depuis votre application SPAN");
   });
 
   it("escapes hostile text arriving in a websocket payload so it cannot leave the title attribute", () => {
-    const payload = '{"amps": 50, "panelAmps": "\\"><img src=x onerror=1>", "userSet": true}';
+    const payload = '{"amps": 50, "panelAmps": 20, "userSet": true, "packageRatings": ["\\"><img src=x onerror=1>", 30]}';
     const view: RatingView = JSON.parse(payload);
     const html = ratingLabelHTML(view);
     expect(html).toContain("&quot;&gt;&lt;img src=x onerror=1&gt;");
@@ -40,48 +48,43 @@ describe("ratingLabelHTML", () => {
   });
 });
 
-describe("ratingSentence", () => {
+describe("judgedAgainstSentence", () => {
   it("says there is no rating", () => {
-    expect(ratingSentence({ amps: null })).toBe("no rating");
-    expect(ratingSentence({ amps: 0 })).toBe("no rating");
+    expect(judgedAgainstSentence({ amps: null })).toBe("Judged against: no rating");
+    expect(judgedAgainstSentence({ amps: 0 })).toBe("Judged against: no rating");
   });
 
   it("gives the rating alone when it is the panel's", () => {
-    expect(ratingSentence({ amps: 20, panelAmps: 20 })).toBe("20 A");
+    expect(judgedAgainstSentence({ amps: 20, panelAmps: 20 })).toBe("Judged against: 20 A");
   });
 
-  it("gives the monitoring rating and the panel's value when user-set", () => {
-    expect(ratingSentence({ amps: 50, panelAmps: 20, userSet: true })).toBe("50 A, set by you (panel: 20 A)");
-  });
-
-  it("says none for the panel's value when it publishes none", () => {
-    expect(ratingSentence({ amps: 30, panelAmps: null, userSet: true })).toBe("30 A, set by you (panel: none)");
+  it("names the copied package and the panel's rating when the copy applies", () => {
+    expect(judgedAgainstSentence(COPIED)).toBe("Judged against 40 A: 20-20 from your SPAN app (the panel publishes 20 A)");
   });
 });
 
 describe("rating strings", () => {
   it.each(["en", "es", "fr", "ja", "pt"])("%s has every key with its placeholders", lang => {
     setLanguage(lang);
-    expect(tf("monitoringRating.user_set", { rating: "R1", panel: "P1" })).toMatch(/R1[\s\S]*P1/);
-    expect(tf("monitoringRating.user_set_title", { panel: "P1" })).toContain("P1");
-    expect(tf("monitoringRating.user_set_no_panel", { rating: "R1" })).toContain("R1");
-    expect(tf("monitoringRating.user_set_title_no_panel", {})).not.toBe("monitoringRating.user_set_title_no_panel");
-    expect(tf("monitoringRating.none", {})).not.toBe("monitoringRating.none");
+    expect(tf("monitoringRating.copied", { package: "P1", panel: "P2" })).toMatch(/P1[\s\S]*P2/);
+    expect(tf("monitoringRating.judged_copied", { rating: "R1", copied: "C1" })).toMatch(/R1[\s\S]*C1/);
+    expect(t("monitoringRating.copied_unnamed")).not.toBe("monitoringRating.copied_unnamed");
+    expect(t("monitoringRating.none")).not.toBe("monitoringRating.none");
   });
 });
 
 describe("monitoringRatingView", () => {
-  it("judges against the monitoring rating and names the panel's beside a user-set one", () => {
-    const view = monitoringRatingView({ breaker_rating_a: 20, monitoring_rating_a: 50, monitoring_rating_user_set: true });
-    expect(view).toEqual({ amps: 50, panelAmps: 20, userSet: true });
-    expect(ratingLabelHTML(view)).toContain("50A");
-    expect(ratingSentence(view)).toBe("50 A, set by you (panel: 20 A)");
+  it("judges against the package's capacity and names the package and the panel's rating beside it", () => {
+    const view = monitoringRatingView({ breaker_rating_a: 20, monitoring_rating_a: 40, monitoring_rating_user_set: true, package_ratings_a: [20, 20] });
+    expect(view).toEqual(COPIED);
+    expect(ratingLabelHTML(view)).toContain("40A");
+    expect(judgedAgainstSentence(view)).toBe("Judged against 40 A: 20-20 from your SPAN app (the panel publishes 20 A)");
   });
 
-  it("is unmarked while the monitoring rating is the panel's, and absent when nothing is judged", () => {
+  it("is unmarked while the rating is the panel's, and absent when nothing is judged", () => {
     expect(monitoringRatingView({ breaker_rating_a: 20, monitoring_rating_a: 20, monitoring_rating_user_set: false }).userSet).toBe(false);
     expect(monitoringRatingView({ breaker_rating_a: 20, monitoring_rating_a: null }).amps).toBeNull();
-    expect(monitoringRatingView(undefined)).toEqual({ amps: undefined, panelAmps: undefined, userSet: false });
+    expect(monitoringRatingView(undefined)).toEqual({ amps: undefined, panelAmps: undefined, userSet: false, packageRatings: null });
   });
 });
 

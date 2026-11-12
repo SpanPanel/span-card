@@ -94,10 +94,9 @@ const translations: Record<string, Record<string, string>> = {
 
     // Monitoring rating
     "monitoringRating.none": "no rating",
-    "monitoringRating.user_set": "{rating} A, set by you (panel: {panel} A)",
-    "monitoringRating.user_set_no_panel": "{rating} A, set by you (panel: none)",
-    "monitoringRating.user_set_title": "Set by you; panel: {panel} A",
-    "monitoringRating.user_set_title_no_panel": "Set by you; panel: none",
+    "monitoringRating.copied": "{package} from your SPAN app (the panel publishes {panel} A)",
+    "monitoringRating.copied_unnamed": "Copied from your SPAN app",
+    "monitoringRating.judged_copied": "Judged against {rating} A: {copied}",
 
     // Settings tab
     "settings.heading": "Settings",
@@ -378,10 +377,9 @@ const translations: Record<string, Record<string, string>> = {
 
     // Monitoring rating
     "monitoringRating.none": "sin calibre",
-    "monitoringRating.user_set": "{rating} A, definido por usted (panel: {panel} A)",
-    "monitoringRating.user_set_no_panel": "{rating} A, definido por usted (panel: ninguno)",
-    "monitoringRating.user_set_title": "Definido por usted; panel: {panel} A",
-    "monitoringRating.user_set_title_no_panel": "Definido por usted; panel: ninguno",
+    "monitoringRating.copied": "{package} de su app de SPAN (el panel publica {panel} A)",
+    "monitoringRating.copied_unnamed": "Copiado de su app de SPAN",
+    "monitoringRating.judged_copied": "Evaluado seg\u00fan {rating} A: {copied}",
     "settings.heading": "Configuraci\u00f3n",
     "settings.description":
       "La configuraci\u00f3n general de la integraci\u00f3n (nombres de entidades, prefijo de dispositivo, n\u00fameros de circuito) se administra a trav\u00e9s del flujo de opciones de la integraci\u00f3n.",
@@ -639,10 +637,9 @@ const translations: Record<string, Record<string, string>> = {
 
     // Monitoring rating
     "monitoringRating.none": "aucun calibre",
-    "monitoringRating.user_set": "{rating} A, d\u00e9fini par vous (panneau : {panel} A)",
-    "monitoringRating.user_set_no_panel": "{rating} A, d\u00e9fini par vous (panneau : aucun)",
-    "monitoringRating.user_set_title": "D\u00e9fini par vous ; panneau : {panel} A",
-    "monitoringRating.user_set_title_no_panel": "D\u00e9fini par vous ; panneau : aucun",
+    "monitoringRating.copied": "{package} depuis votre application SPAN (le panneau publie {panel} A)",
+    "monitoringRating.copied_unnamed": "Copi\u00e9 depuis votre application SPAN",
+    "monitoringRating.judged_copied": "\u00c9valu\u00e9 selon {rating} A : {copied}",
     "settings.heading": "Param\u00e8tres",
     "settings.description":
       "Les param\u00e8tres g\u00e9n\u00e9raux de l'int\u00e9gration (noms d'entit\u00e9s, pr\u00e9fixe de l'appareil, num\u00e9ros de circuit) sont g\u00e9r\u00e9s via le flux d'options de l'int\u00e9gration.",
@@ -904,10 +901,9 @@ const translations: Record<string, Record<string, string>> = {
 
     // Monitoring rating
     "monitoringRating.none": "\u5b9a\u683c\u306a\u3057",
-    "monitoringRating.user_set": "{rating} A\u3001\u30e6\u30fc\u30b6\u30fc\u8a2d\u5b9a\uff08\u30d1\u30cd\u30eb: {panel} A\uff09",
-    "monitoringRating.user_set_no_panel": "{rating} A\u3001\u30e6\u30fc\u30b6\u30fc\u8a2d\u5b9a\uff08\u30d1\u30cd\u30eb: \u306a\u3057\uff09",
-    "monitoringRating.user_set_title": "\u30e6\u30fc\u30b6\u30fc\u8a2d\u5b9a\u3001\u30d1\u30cd\u30eb: {panel} A",
-    "monitoringRating.user_set_title_no_panel": "\u30e6\u30fc\u30b6\u30fc\u8a2d\u5b9a\u3001\u30d1\u30cd\u30eb: \u306a\u3057",
+    "monitoringRating.copied": "SPAN \u30a2\u30d7\u30ea\u306e {package}(\u30d1\u30cd\u30eb\u306e\u516c\u958b\u5024 {panel} A)",
+    "monitoringRating.copied_unnamed": "SPAN \u30a2\u30d7\u30ea\u304b\u3089\u30b3\u30d4\u30fc",
+    "monitoringRating.judged_copied": "\u5224\u5b9a\u57fa\u6e96 {rating} A: {copied}",
     "settings.heading": "\u8a2d\u5b9a",
     "settings.description":
       "\u7d71\u5408\u306e\u4e00\u822c\u8a2d\u5b9a\uff08\u30a8\u30f3\u30c6\u30a3\u30c6\u30a3\u540d\u3001\u30c7\u30d0\u30a4\u30b9\u30d7\u30ec\u30d5\u30a3\u30c3\u30af\u30b9\u3001\u56de\u8def\u756a\u53f7\uff09\u306f\u7d71\u5408\u306e\u30aa\u30d7\u30b7\u30e7\u30f3\u30d5\u30ed\u30fc\u3067\u7ba1\u7406\u3055\u308c\u307e\u3059\u3002",
@@ -1179,10 +1175,9 @@ const translations: Record<string, Record<string, string>> = {
 
     // Monitoring rating
     "monitoringRating.none": "sem corrente nominal",
-    "monitoringRating.user_set": "{rating} A, definido por voc\u00ea (painel: {panel} A)",
-    "monitoringRating.user_set_no_panel": "{rating} A, definido por voc\u00ea (painel: nenhum)",
-    "monitoringRating.user_set_title": "Definido por voc\u00ea; painel: {panel} A",
-    "monitoringRating.user_set_title_no_panel": "Definido por voc\u00ea; painel: nenhum",
+    "monitoringRating.copied": "{package} do seu app SPAN (o painel publica {panel} A)",
+    "monitoringRating.copied_unnamed": "Copiado do seu app SPAN",
+    "monitoringRating.judged_copied": "Avaliado com base em {rating} A: {copied}",
     "settings.heading": "Configura\u00e7\u00f5es",
     "settings.description":
       "As configura\u00e7\u00f5es gerais da integra\u00e7\u00e3o (nomes de entidades, prefixo do dispositivo, n\u00fameros de circuito) s\u00e3o gerenciadas atrav\u00e9s do fluxo de op\u00e7\u00f5es da integra\u00e7\u00e3o.",

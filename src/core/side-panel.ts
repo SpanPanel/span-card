@@ -3,7 +3,7 @@ import { escapeHtml } from "../helpers/sanitize.js";
 import { loadListColumns, saveListColumns } from "../helpers/list-columns.js";
 import { INTEGRATION_DOMAIN, SHEDDING_PRIORITIES, SELECTABLE_PRIORITY_KEYS, GRAPH_HORIZONS, DEFAULT_GRAPH_HORIZON, INPUT_DEBOUNCE_MS } from "../constants.js";
 import { t, tf } from "../i18n.js";
-import { monitoringRatingView, ratingSentence } from "../helpers/monitoring-rating.js";
+import { judgedAgainstSentence, monitoringRatingView } from "../helpers/monitoring-rating.js";
 import { errorText } from "../helpers/error-text.js";
 import { occupiedSpaces, slotRatingText, type SlotMember } from "../helpers/shared-meters.js";
 import { addFavorite, removeFavorite } from "./favorites-store.js";
@@ -1565,10 +1565,9 @@ class SpanSidePanel extends HTMLElement {
 
   // ── Monitoring section ──────────────────────────────────────────────
 
-  /** "Judged against: 50 A, set by you (panel: 20 A)", or "no rating" when the point has none. */
+  /** "Judged against 40 A: 20-20 from your SPAN app (the panel publishes 20 A)", or "Judged against: no rating" when the point has none. */
   private _judgedAgainstText(info: MonitoringPointInfo | null): string {
-    const rating = ratingSentence(monitoringRatingView(info));
-    return tf("sidepanel.judged_against", { rating });
+    return judgedAgainstSentence(monitoringRatingView(info));
   }
 
   private _renderMonitoringSection(body: HTMLDivElement, cfg: CircuitModeConfig): void {

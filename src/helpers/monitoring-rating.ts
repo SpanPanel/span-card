@@ -4,15 +4,18 @@ import type { Circuit, MonitoringPointInfo } from "../types.js";
 
 /**
  * A monitoring rating as the card shows it: what monitoring judges against, the
- * panel's own breaker rating, and whether the user set the monitoring rating.
+ * panel's own breaker rating, whether that judgement comes from a package the
+ * user copied from the SPAN app, and that package.
  */
 export interface RatingView {
-  /** What monitoring judges against: the user's value where one applies, else the panel's. */
+  /** What monitoring judges against: both breakers of a copied package where it applies, else the panel's rating. */
   amps: number | null | undefined;
   /** The panel's own breaker rating, null when it publishes none. */
   panelAmps?: number | null;
-  /** True when `amps` is the user's value rather than the panel's. */
+  /** True when `amps` comes from a copied package rather than the panel's rating. */
   userSet?: boolean;
+  /** The package's ratings as the user copied them, in the SPAN app's order; null where there is none. */
+  packageRatings?: readonly number[] | null;
 }
 
 /**
@@ -25,7 +28,10 @@ export function judgedRatingA(circuit: Pick<Circuit, "breaker_rating_a" | "monit
 }
 
 /** The fields a monitoring display reads, on a circuit or a monitoring point. */
-export type MonitoringRatingFields = Pick<Circuit | MonitoringPointInfo, "breaker_rating_a" | "monitoring_rating_a" | "monitoring_rating_user_set">;
+export type MonitoringRatingFields = Pick<
+  Circuit | MonitoringPointInfo,
+  "breaker_rating_a" | "monitoring_rating_a" | "monitoring_rating_user_set" | "package_ratings_a"
+>;
 
 /**
  * The rating a circuit's chart limit line and utilization fallback read: its
@@ -46,36 +52,51 @@ export function limitRatingA(
 
 /**
  * What a monitoring display shows for a circuit or point: the monitoring rating,
- * marked when the user set it, with the panel's own rating for the mark to name.
+ * marked when it comes from a copied package, with the package and the panel's
+ * own rating for the mark to name.
  */
 export function monitoringRatingView(fields: MonitoringRatingFields | null | undefined): RatingView {
-  return { amps: fields?.monitoring_rating_a, panelAmps: fields?.breaker_rating_a, userSet: fields?.monitoring_rating_user_set === true };
+  return {
+    amps: fields?.monitoring_rating_a,
+    panelAmps: fields?.breaker_rating_a,
+    userSet: fields?.monitoring_rating_user_set === true,
+    packageRatings: fields?.package_ratings_a ?? null,
+  };
 }
 
 /**
- * The rating as a compact label: "20A", or "50A" followed by a pencil mark whose
- * tooltip names the panel's value when the user set it. Empty when there is no rating.
+ * Where a copied rating came from: "20-20 from your SPAN app (the panel publishes
+ * 20 A)", the package in the app's order. A view that lacks the package or the
+ * panel's rating, which an applying copy always has, says only that it was copied.
+ * Plain text, not escaped.
+ */
+export function copiedSentence(r: RatingView): string {
+  if (!r.packageRatings?.length || !r.panelAmps) return t("monitoringRating.copied_unnamed");
+  return tf("monitoringRating.copied", { package: r.packageRatings.join("-"), panel: String(r.panelAmps) });
+}
+
+/**
+ * The rating as a compact label: "20A", or "40A" followed by a pencil mark whose
+ * tooltip names the copied package. Empty when there is no rating.
  */
 export function ratingLabelHTML(r: RatingView): string {
   if (!r.amps) return "";
   const label = `${escapeHtml(r.amps)}A`;
-  return r.userSet ? `${label}${ratingMarkHTML(r.panelAmps)}` : label;
+  return r.userSet ? `${label}${ratingMarkHTML(r)}` : label;
 }
 
-/** The pencil that marks a user-set rating, its tooltip naming the panel's own value (or that it publishes none). */
-export function ratingMarkHTML(panelAmps: number | null | undefined): string {
-  const title = escapeHtml(panelAmps ? tf("monitoringRating.user_set_title", { panel: String(panelAmps) }) : t("monitoringRating.user_set_title_no_panel"));
-  return `<span class="rating-user-set" title="${title}">✎</span>`;
+/** The pencil that marks a rating from a copied package, its tooltip naming the package and the panel's own rating. */
+export function ratingMarkHTML(r: RatingView): string {
+  return `<span class="rating-user-set" title="${escapeHtml(copiedSentence(r))}">✎</span>`;
 }
 
-/** "50 A, set by you (panel: 20 A)": a user-set rating, already formatted, beside the panel's own; plain text. */
-export function userSetSentence(rating: string, panelAmps: number | null | undefined): string {
-  return panelAmps ? tf("monitoringRating.user_set", { rating, panel: String(panelAmps) }) : tf("monitoringRating.user_set_no_panel", { rating });
-}
-
-/** The rating as a sentence for a side panel or a message; plain text, not escaped. */
-export function ratingSentence(r: RatingView): string {
-  if (!r.amps) return t("monitoringRating.none");
-  if (!r.userSet) return `${r.amps} A`;
-  return userSetSentence(String(r.amps), r.panelAmps);
+/**
+ * The side panel's line for what a point is judged against: "Judged against: 20 A",
+ * "Judged against: no rating", or for a copied package "Judged against 40 A: 20-20
+ * from your SPAN app (the panel publishes 20 A)". Plain text, not escaped.
+ */
+export function judgedAgainstSentence(r: RatingView): string {
+  if (!r.amps) return tf("sidepanel.judged_against", { rating: t("monitoringRating.none") });
+  if (!r.userSet) return tf("sidepanel.judged_against", { rating: `${r.amps} A` });
+  return tf("monitoringRating.judged_copied", { rating: String(r.amps), copied: copiedSentence(r) });
 }

@@ -180,9 +180,9 @@ const judged = (p: SidePanel): string | undefined => p.shadowRoot!.querySelector
 const reset = (p: SidePanel): HTMLElement | null => p.shadowRoot!.querySelector<HTMLElement>('[data-role="rating-reset"]');
 
 describe("the Monitoring section's judged-against line", () => {
-  it("names the rating the point is judged against, with the user-set form naming the panel's", async () => {
+  it("names the rating the point is judged against, with a copied package named beside the panel's rating", async () => {
     expect(judged((await openOven(circuit(30, 30))).panel)).toBe("Judged against: 30 A");
-    expect(judged((await openOven(circuit(20, 50, true))).panel)).toBe("Judged against: 50 A, set by you (panel: 20 A)");
+    expect(judged((await openOven(circuit(20, 50, true))).panel)).toBe("Judged against 50 A: 20-30 from your SPAN app (the panel publishes 20 A)");
   });
 
   it("says there is no rating when the point has none", async () => {
@@ -211,7 +211,7 @@ describe("refreshCircuitSidePanel", () => {
     expect(input(open.panel).value).toBe("30");
     expect(reset(open.panel)).not.toBeNull();
     expect(open.panel.shadowRoot!.querySelector('[data-role="rating-panel-rating"]')!.textContent).toContain("20");
-    expect(judged(open.panel)).toBe("Judged against: 50 A, set by you (panel: 20 A)");
+    expect(judged(open.panel)).toBe("Judged against 50 A: 20-30 from your SPAN app (the panel publishes 20 A)");
     // The subtitle is the panel's rating, which a monitoring rating does not change.
     expect(open.panel.shadowRoot!.querySelector(".subtitle")!.textContent).toBe("20A \u00b7 240V \u00b7 Tabs [1]");
   });
@@ -337,14 +337,16 @@ describe("the Monitoring tab's rating cell", () => {
     expect(cells(container).map(c => c.textContent)).toEqual(["200A", "30A"]);
   });
 
-  it("marks a user-set rating, naming the panel's, and leaves the mains unmarked", async () => {
+  it("marks a copied package, naming it and the panel's rating as the side panel does, and leaves the mains unmarked", async () => {
     const container = await render({
-      circuits: { "sensor.a": { name: "Oven", breaker_rating_a: 20, monitoring_rating_a: 50, monitoring_rating_user_set: true } },
+      circuits: {
+        "sensor.a": { name: "Oven", breaker_rating_a: 20, monitoring_rating_a: 50, monitoring_rating_user_set: true, package_ratings_a: [20, 30] },
+      },
       mains: { "sensor.m": { name: "Mains L1", breaker_rating_a: 200, monitoring_rating_a: 150, monitoring_rating_user_set: true } },
     });
     const [mains, oven] = cells(container);
 
-    expect(oven!.querySelector(".rating-user-set")!.getAttribute("title")).toBe("Set by you; panel: 20 A");
+    expect(oven!.querySelector(".rating-user-set")!.getAttribute("title")).toBe("20-30 from your SPAN app (the panel publishes 20 A)");
     expect(oven!.textContent).toContain("50A");
     expect(mains!.textContent).toBe("150A");
     expect(mains!.querySelector(".rating-user-set")).toBeNull();
@@ -591,7 +593,7 @@ describe("the sidebar dashboard", () => {
 
     await vi.waitFor(() => expect(cell()?.querySelector(".rating-user-set")).not.toBeNull());
     expect(cell()!.textContent).toContain("50A");
-    expect(cell()!.querySelector(".rating-user-set")!.getAttribute("title")).toBe("Set by you; panel: 20 A");
+    expect(cell()!.querySelector(".rating-user-set")!.getAttribute("title")).toBe("20-30 from your SPAN app (the panel publishes 20 A)");
   });
 
   it("redraws a list row's utilization against the new monitoring rating, its breaker label staying the panel's", async () => {
