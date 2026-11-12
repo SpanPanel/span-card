@@ -42,7 +42,7 @@ export function buildGridHTML(
   const occupiedTabs = new Set<number>();
 
   // Circuits that share a meter share a space, and are drawn there as one slot.
-  for (const { uuid, circuit, members } of meterSlots(topology.circuits)) {
+  for (const { uuid, circuit, members } of meterSlots(topology)) {
     // A meter outside the panel is drawn in the Meters strip, never in a breaker space.
     if (measuresOutsidePanel(circuit)) continue;
     const tabs = circuit.tabs;

@@ -71,6 +71,7 @@ export class FavoritesController {
     const includePanelPrefix = contributing.length > 1;
 
     const mergedCircuits: FavoritesTopology["circuits"] = {};
+    const mergedGroups: NonNullable<FavoritesTopology["shared_meter_groups"]> = {};
     const mergedSubDevices: NonNullable<FavoritesTopology["sub_devices"]> = {};
     const refs: Record<string, FavoriteRef> = {};
     const entryIds = new Set<string>();
@@ -92,7 +93,15 @@ export class FavoritesController {
         if (!circuit) continue;
         const compositeId = buildCompositeId(panelDeviceId, uuid);
         const name = includePanelPrefix && panelLabel ? `${panelLabel} \u00b7 ${circuit.name}` : circuit.name;
-        mergedCircuits[compositeId] = { ...circuit, name };
+        // A group key is one panel's circuit id, so it is made composite as the circuit's own is: two panels'
+        // groups then never draw as one, and the group's rating, which the integration computes, comes along.
+        const groupKey = circuit.shared_meter_group;
+        const compositeGroup = groupKey ? buildCompositeId(panelDeviceId, groupKey) : groupKey;
+        const group = groupKey ? topology.shared_meter_groups?.[groupKey] : undefined;
+        if (compositeGroup && group) {
+          mergedGroups[compositeGroup] = { ...group, members: group.members.map(member => buildCompositeId(panelDeviceId, member)) };
+        }
+        mergedCircuits[compositeId] = { ...circuit, name, shared_meter_group: compositeGroup };
         refs[compositeId] = {
           panelDeviceId,
           kind: "circuit",
@@ -118,6 +127,7 @@ export class FavoritesController {
 
     const topology: FavoritesTopology = {
       circuits: mergedCircuits,
+      shared_meter_groups: mergedGroups,
       sub_devices: mergedSubDevices,
       panel_entities: {},
       device_name: "",

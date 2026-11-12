@@ -5,7 +5,7 @@ import { updateCircuitDOM } from "../src/core/dom-updater.js";
 import { positionRange } from "../src/helpers/layout.js";
 import { meterSlots } from "../src/helpers/shared-meters.js";
 import { t } from "../src/i18n.js";
-import type { CardConfig, Circuit, HomeAssistant, PanelTopology } from "../src/types.js";
+import type { CardConfig, Circuit, HomeAssistant, PanelTopology, SharedMeterGroup } from "../src/types.js";
 
 const CONFIG = { chart_metric: "power" } as CardConfig;
 const SITE = "sensor.site_power";
@@ -35,8 +35,27 @@ const CIRCUITS: Record<string, Circuit> = {
   "c-48b": circuit("lights_c", "Lights C", 48, 10, "c-48a"),
 };
 
+/** What the integration rates a group against; the card adds nothing up where it has this. */
+function group(members: string[], rating: number | null): SharedMeterGroup {
+  return { members, breaker_rating_a: rating };
+}
+
+/** Each pair's capacity as the integration publishes it: both members on one space, so their ratings add. */
+const GROUPS: Record<string, SharedMeterGroup> = {
+  "c-44a": group(["c-44a", "c-44b"], 30),
+  "c-46a": group(["c-46a", "c-46b"], 40),
+  "c-48a": group(["c-48a", "c-48b"], 25),
+};
+
 function topology(): PanelTopology {
-  return { circuits: CIRCUITS, panel_size: 48, first_position: 1, last_position: 48, panel_entities: { site_power: SITE } } as PanelTopology;
+  return {
+    circuits: CIRCUITS,
+    shared_meter_groups: GROUPS,
+    panel_size: 48,
+    first_position: 1,
+    last_position: 48,
+    panel_entities: { site_power: SITE },
+  } as PanelTopology;
 }
 
 /** Both members of a pair read the one meter they share. */
@@ -73,20 +92,29 @@ function slotAt(root: ParentNode, uuid: string): HTMLElement {
 
 describe("meterSlots", () => {
   it("gives each group one slot, read through its first member, and every other circuit its own", () => {
-    const slots = meterSlots(CIRCUITS);
+    const slots = meterSlots(topology());
     expect(slots.map(s => s.uuid)).toEqual(["c-1", "c-44a", "c-46a", "c-48a"]);
     expect(slots[1]!.members.map(m => m.name)).toEqual(["Lights A", "Outlets A"]);
     expect(slots[0]!.circuit).toBe(CIRCUITS["c-1"]);
   });
 
-  it("judges a group against its members' combined rating", () => {
-    const slots = meterSlots(CIRCUITS);
+  it("rates a group as the integration reports it", () => {
+    const slots = meterSlots(topology());
     expect(slots.map(s => s.circuit.breaker_rating_a)).toEqual([20, 30, 40, 25]);
   });
 
-  it("has no combined rating while a member's rating is unknown", () => {
+  it("has no rating where the integration reports the group's capacity as unknown, and adds nothing up in its place", () => {
+    const unknown = { ...topology(), shared_meter_groups: { ...GROUPS, "c-48a": group(["c-48a", "c-48b"], null) } };
+    expect(meterSlots(unknown).find(s => s.uuid === "c-48a")!.circuit.breaker_rating_a).toBeNull();
+  });
+
+  it("falls back to the members' sum only for a group with no record, as from an older integration", () => {
+    expect(meterSlots({ circuits: CIRCUITS }).map(s => s.circuit.breaker_rating_a)).toEqual([20, 30, 40, 25]);
+    // c-48a has no record, so its members' 15 + 10 A stand; c-46a's record is read as published, not summed.
+    const unlisted = { ...topology(), shared_meter_groups: { "c-44a": GROUPS["c-44a"]!, "c-46a": group(["c-46a", "c-46b"], 12) } };
+    expect(meterSlots(unlisted).map(s => s.circuit.breaker_rating_a)).toEqual([20, 30, 12, 25]);
     const circuits = { ...CIRCUITS, "c-48b": { ...CIRCUITS["c-48b"]!, breaker_rating_a: null } };
-    expect(meterSlots(circuits).find(s => s.uuid === "c-48a")!.circuit.breaker_rating_a).toBeNull();
+    expect(meterSlots({ circuits }).find(s => s.uuid === "c-48a")!.circuit.breaker_rating_a).toBeNull();
   });
 });
 
@@ -122,8 +150,8 @@ describe("circuits that share a space on the grid", () => {
     expect(slotAt(root, "c-1").querySelector(".toggle-pill")!.classList.contains("toggle-shared")).toBe(false);
   });
 
-  it("judge utilization against the combined rating", () => {
-    // 5 A of a 15·10 A pair is 20%, not 50% of the second member's 10 A.
+  it("judge utilization against the group's rating", () => {
+    // 5 A of a 15·10 A pair is 20% of the 25 A the integration reports, not 50% of the second member's 10 A.
     const root = grid();
     expect(slotAt(root, "c-48a").querySelector(".utilization")!.textContent).toBe("20%");
   });
@@ -152,7 +180,19 @@ describe("a group whose members occupy different spaces", () => {
     ["a tandem-quad", TANDEM_QUAD],
     ["a quad", QUAD],
   ])("covers every member's spaces in %s's slot", (_, circuits) => {
-    expect(meterSlots(circuits)[0]!.circuit.tabs).toEqual([34, 36]);
+    expect(meterSlots({ circuits })[0]!.circuit.tabs).toEqual([34, 36]);
+  });
+
+  it("rates a tandem-quad by the integration's capacity, its heavier leg, not by its members' sum", () => {
+    // 20 + 15 + 35 A would be 70 A; the heavier leg carries the two-pole 35 A and the larger single pole's 20 A.
+    const circuits = {
+      ...TANDEM_QUAD,
+      "q-36": { ...TANDEM_QUAD["q-36"]!, breaker_rating_a: 15 },
+      "q-2p": { ...TANDEM_QUAD["q-2p"]!, breaker_rating_a: 35 },
+    };
+    const slots = meterSlots({ circuits, shared_meter_groups: { "q-34": group(["q-34", "q-36", "q-2p"], 55) } });
+    expect(slots[0]!.circuit.breaker_rating_a).toBe(55);
+    expect(slotAt(gridOf(circuits), "q-34").querySelector(".breaker-badge")!.textContent).toBe("20·15·35 A");
   });
 
   it.each([

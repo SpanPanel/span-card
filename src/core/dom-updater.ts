@@ -147,7 +147,7 @@ export function updateCircuitDOM(
 
   // The circuits' consumption: every circuit with a power sensor that is no source of generation, an unknown reading skipped.
   // A meter outside the panel is no load on it, so it is no term at all; circuits that share a meter are one term.
-  const slots = meterSlots(topology.circuits);
+  const slots = meterSlots(topology);
   const consumption: (number | null)[] = [];
   for (const { circuit } of slots) {
     if (!circuit.entities?.power || isGeneration(circuit) || measuresOutsidePanel(circuit)) continue;
