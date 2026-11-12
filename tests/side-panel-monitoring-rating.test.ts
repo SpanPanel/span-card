@@ -159,7 +159,7 @@ describe("the editor's visibility", () => {
 });
 
 describe("the multi-space caution", () => {
-  const CAUTION = "This circuit spans several spaces.";
+  const CAUTION = "The panel reports the average of its legs, so one leg can carry more than its breaker while the reading stays under the rating.";
 
   it("is absent for a circuit in one space", () => {
     expect(cautions(open(ONE).panel)).toHaveLength(0);

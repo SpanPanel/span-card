@@ -97,9 +97,9 @@ On panels other than MAIN 32 the field is not shown, because the integration off
 multi-load breaker with its own rating, and a group of circuits that share a meter is judged against the capacity the integration reports for it, what its
 heaviest space can carry. The card reads that capacity and adds no ratings up itself.
 
-The most current the measured wire can carry is the right value; for a tandem in one space, add its breakers. For a circuit that spans several spaces the panel
-does not publish which leg it measures, so the section shows a caution, once for the circuit, that a rating set there may hide a real overload and that turning
-monitoring off for the circuit is the safer choice.
+The most current the measured wire can carry is the right value; for a tandem in one space, add its breakers. For a circuit that spans more than one space the
+panel reports the average of its legs, so one leg can carry more than its breaker while the reading stays under the rating; the section shows a caution, once
+for the circuit, that turning monitoring off for it is the safer choice.
 
 A rating you set carries a pencil mark wherever the card shows what monitoring judges against, with a tooltip naming the panel's rating, for example "Set by
 you; panel: 20 A". The Monitoring tab has a Rating column, and a circuit's Monitoring section says what it is "Judged against", beside the field, so you can see
