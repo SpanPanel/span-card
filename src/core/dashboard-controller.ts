@@ -556,7 +556,7 @@ export class DashboardController {
           device_type: circuit.device_type,
           monitoringInfo,
           showMonitoring: this._showMonitoring,
-          monitoringRatingOffered: ownTopology?.monitoring_rating_offered !== false,
+          monitoringRatingOffered: ownTopology?.monitoring_rating_offered === true,
           graphHorizonInfo,
           showFavorites: this.showFavorites,
           favoritePanelDeviceId,

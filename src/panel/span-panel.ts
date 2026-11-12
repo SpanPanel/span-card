@@ -109,7 +109,7 @@ export class SpanPanelElement extends LitElement {
   /** The topology the area tab last rendered; the area subscription reads it through a getter. */
   private _areaTopology: PanelTopology | null = null;
   private _reloadSub: Promise<() => Promise<void>> | null = null;
-  /** One monitoring-rating subscription per panel entry, each held as the promise it was handed. */
+  /** One package ratings subscription per panel entry, each held as the promise it was handed. */
   private readonly _ratingSubs = new Map<string, Promise<() => void>>();
   /** Per panel, the rating refresh: a burst of events is one fetch in flight and at most one trailing, which sees the last change. */
   private readonly _ratingRefreshes = new Map<string, () => Promise<void>>();
@@ -649,7 +649,7 @@ export class SpanPanelElement extends LitElement {
   }
 
   /**
-   * Keep one monitoring-rating subscription per panel entry, adding those a refreshed
+   * Keep one package ratings subscription per panel entry, adding those a refreshed
    * panel list brought in and dropping those it lost. An administrator-only event:
    * a non-admin's views read the entity fallback, which carries no rating.
    */

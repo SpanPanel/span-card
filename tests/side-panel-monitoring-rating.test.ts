@@ -18,8 +18,18 @@ afterEach(() => {
 });
 beforeEach(() => vi.useFakeTimers());
 
-function circuit(name: string, panel: number | null, monitoring: number | null, userSet = false, tabs: number[] = [1]): Circuit {
-  return { name, tabs, entities: {}, breaker_rating_a: panel, monitoring_rating_a: monitoring, monitoring_rating_user_set: userSet };
+/** A circuit as the topology describes it; `copied` is the package the user copied from the SPAN app, if any. */
+function circuit(name: string, panel: number | null, copied: number[] | null = null, tabs: number[] = [1], applies = copied !== null): Circuit {
+  const judged = applies && copied ? copied.reduce((sum, rating) => sum + rating, 0) : panel;
+  return {
+    name,
+    tabs,
+    entities: {},
+    breaker_rating_a: panel,
+    monitoring_rating_a: judged,
+    monitoring_rating_user_set: applies,
+    package_ratings_a: copied,
+  };
 }
 
 interface Opened {
@@ -28,7 +38,7 @@ interface Opened {
   errors: ErrorStore;
 }
 
-/** Opens the circuit panel as the sidebar dashboard does: Monitoring section shown, monitoring on for the circuit. */
+/** Opens the circuit panel as the sidebar dashboard does on a MAIN 32: Monitoring section shown, monitoring on, package ratings offered. */
 function open(members: { uuid: string; circuit: Circuit }[], extra: Record<string, unknown> = {}, callWS?: CallWS): Opened {
   const spy = vi.fn<CallWS>(callWS ?? (async () => undefined));
   const panel = document.createElement("span-side-panel") as SidePanel;
@@ -40,22 +50,24 @@ function open(members: { uuid: string; circuit: Circuit }[], extra: Record<strin
   panel.open({
     uuid: members[0]!.uuid,
     name: members[0]!.circuit.name,
-    tabs: members[0]!.circuit.tabs,
-    voltage: 240,
     entities: {},
     showMonitoring: true,
+    monitoringRatingOffered: true,
     monitoringInfo: { monitoring_enabled: true },
     graphHorizonInfo: { horizon: "5m", has_override: false, globalHorizon: "5m" },
     members,
+    capacityA: null,
     configEntryId: "entry-1",
     ...extra,
   });
   return { panel, callWS: spy, errors };
 }
 
-const rows = (p: SidePanel): HTMLElement[] => [...p.shadowRoot!.querySelectorAll<HTMLElement>('[data-role="rating-row"]')];
-const input = (row: HTMLElement): HTMLInputElement => row.querySelector<HTMLInputElement>('[data-role="rating-input"]')!;
-const reset = (row: HTMLElement): HTMLElement | null => row.querySelector<HTMLElement>('[data-role="rating-reset"]');
+const row = (p: SidePanel): HTMLElement | null => p.shadowRoot!.querySelector<HTMLElement>('[data-role="rating-row"]');
+const input = (p: SidePanel): HTMLInputElement => p.shadowRoot!.querySelector<HTMLInputElement>('[data-role="rating-input"]')!;
+const reset = (p: SidePanel): HTMLElement | null => p.shadowRoot!.querySelector<HTMLElement>('[data-role="rating-reset"]');
+const panelRating = (p: SidePanel): string | null | undefined => p.shadowRoot!.querySelector('[data-role="rating-panel-rating"]')?.textContent;
+const explanation = (p: SidePanel): HTMLElement | null => p.shadowRoot!.querySelector<HTMLElement>('[data-role="rating-multi-space"]');
 
 function type(el: HTMLInputElement, value: string): void {
   el.value = value;
@@ -63,11 +75,11 @@ function type(el: HTMLInputElement, value: string): void {
   vi.advanceTimersByTime(600);
 }
 
-const ONE = [{ uuid: "c-1", circuit: circuit("Oven", 30, 30) }];
+const OVEN = [{ uuid: "c-1", circuit: circuit("Oven", 20) }];
+const COPIED = [{ uuid: "c-1", circuit: circuit("Oven", 20, [20, 30]) }];
 
 const details = (p: SidePanel): HTMLElement => p.shadowRoot!.querySelector<HTMLElement>('[data-role="monitoring-details"]')!;
 const editor = (p: SidePanel): HTMLElement | null => p.shadowRoot!.querySelector<HTMLElement>('[data-role="rating-section"]');
-const cautions = (p: SidePanel): HTMLElement[] => [...p.shadowRoot!.querySelectorAll<HTMLElement>('[data-role="rating-caution"]')];
 /** Whether the editor is on screen: in the DOM with no ancestor hidden (the details, or the threshold fields). */
 function shown(p: SidePanel): boolean {
   for (let el: HTMLElement | null = editor(p); el && el !== (p.shadowRoot!.host as HTMLElement); el = el.parentElement) {
@@ -84,149 +96,147 @@ function turnMonitoring(p: SidePanel, on: boolean): void {
 
 describe("the editor's visibility", () => {
   it("is absent from a panel that does not show the Monitoring section (the standalone card)", () => {
-    expect(rows(open(ONE, { showMonitoring: false }).panel)).toHaveLength(0);
-    expect(rows(open(ONE, { showMonitoring: undefined }).panel)).toHaveLength(0);
+    expect(editor(open(OVEN, { showMonitoring: false }).panel)).toBeNull();
+    expect(editor(open(OVEN, { showMonitoring: undefined }).panel)).toBeNull();
   });
 
-  it("is hidden while the circuit's monitoring is off, and returns with the stored value when it is turned on", () => {
-    const { panel } = open([{ uuid: "c-1", circuit: circuit("Oven", 20, 50, true) }], { monitoringInfo: { monitoring_enabled: false } });
+  it("is hidden while the circuit's monitoring is off, and returns with the copied breaker when it is turned on", () => {
+    const { panel } = open(COPIED, { monitoringInfo: { monitoring_enabled: false } });
     expect(shown(panel)).toBe(false);
     turnMonitoring(panel, true);
     expect(shown(panel)).toBe(true);
-    expect(input(rows(panel)[0]!).value).toBe("50");
+    expect(input(panel).value).toBe("30");
     turnMonitoring(panel, false);
     expect(shown(panel)).toBe(false);
     turnMonitoring(panel, true);
     expect(shown(panel)).toBe(true);
-    expect(input(rows(panel)[0]!).value).toBe("50");
+    expect(input(panel).value).toBe("30");
   });
 
   it("is shown in both the Global and the Custom mode", () => {
-    expect(shown(open(ONE, { monitoringInfo: { monitoring_enabled: true, has_override: false } }).panel)).toBe(true);
-    expect(shown(open(ONE, { monitoringInfo: { monitoring_enabled: true, has_override: true } }).panel)).toBe(true);
+    expect(shown(open(OVEN, { monitoringInfo: { monitoring_enabled: true, has_override: false } }).panel)).toBe(true);
+    expect(shown(open(OVEN, { monitoringInfo: { monitoring_enabled: true, has_override: true } }).panel)).toBe(true);
   });
 
   it("sits above the Global/Custom choice, outside the threshold fields", () => {
-    const { panel } = open(ONE, { monitoringInfo: { monitoring_enabled: true, has_override: true } });
+    const { panel } = open(OVEN, { monitoringInfo: { monitoring_enabled: true, has_override: true } });
     const radios = panel.shadowRoot!.querySelector<HTMLElement>(".radio-group")!;
     expect(editor(panel)!.compareDocumentPosition(radios) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(panel.shadowRoot!.querySelector('[data-role="threshold-fields"]')!.contains(editor(panel))).toBe(false);
     expect(details(panel).contains(editor(panel))).toBe(true);
   });
 
-  it("is absent where the integration offers no monitoring rating, the Judged against line still shown", () => {
-    const { panel } = open(ONE, { monitoringRatingOffered: false });
-    expect(editor(panel)).toBeNull();
-    expect(panel.shadowRoot!.querySelector('[data-role="judged-against"]')).not.toBeNull();
-    expect(rows(open(ONE, { monitoringRatingOffered: true }).panel)).toHaveLength(1);
-  });
-
-  it("is absent for a circuit with no panel rating", () => {
-    const { panel } = open([{ uuid: "c-1", circuit: circuit("Meter", null, null) }]);
-    expect(rows(panel)).toHaveLength(0);
-    expect(editor(panel)).toBeNull();
-  });
-
-  it("is one row for a lone circuit, with the guidance line", () => {
-    const { panel } = open(ONE);
-    expect(editor(panel)).not.toBeNull();
-    expect(rows(panel)).toHaveLength(1);
-    expect(input(rows(panel)[0]!).value).toBe("30");
-    expect(rows(panel)[0]!.textContent).toContain("30 A");
-    expect(editor(panel)!.textContent).toContain("The most current the measured wire can carry. For a tandem in one space, add its breakers.");
-  });
-
-  it("is one row per rated member of a shared slot, skipping a member with no panel rating", () => {
-    const { panel } = open([
-      { uuid: "c-a", circuit: circuit("Lights", 15, 15) },
-      { uuid: "c-b", circuit: circuit("Outlets", 10, 12, true) },
-      { uuid: "c-c", circuit: circuit("Odd", null, null) },
-    ]);
-    expect(rows(panel)).toHaveLength(2);
-    expect(input(rows(panel)[1]!).value).toBe("12");
-    expect(rows(panel)[1]!.textContent).toContain("10 A");
-  });
-
-  it("shows the Judged against line beside it", () => {
-    const { panel } = open([{ uuid: "c-1", circuit: circuit("Oven", 20, 50, true) }], {
-      monitoringInfo: { monitoring_enabled: true, breaker_rating_a: 20, monitoring_rating_a: 50, monitoring_rating_user_set: true },
-    });
+  it("follows the Judged against line", () => {
+    const { panel } = open(COPIED);
     const judged = panel.shadowRoot!.querySelector('[data-role="judged-against"]')!;
-    expect(judged.textContent).toBe("Judged against: 50 A, set by you (panel: 20 A)");
     expect(details(panel).contains(judged)).toBe(true);
     expect(judged.nextElementSibling).toBe(editor(panel));
   });
+
+  it("is absent where the integration offers no package ratings, the Judged against line still shown", () => {
+    const { panel } = open(OVEN, { monitoringRatingOffered: false });
+    expect(editor(panel)).toBeNull();
+    expect(panel.shadowRoot!.querySelector('[data-role="judged-against"]')).not.toBeNull();
+  });
+
+  it("is absent where the integration predates package ratings and so says nothing", () => {
+    expect(editor(open(OVEN, { monitoringRatingOffered: undefined }).panel)).toBeNull();
+  });
+
+  it("is absent for a circuit with no panel rating, there being no first breaker to copy against", () => {
+    expect(editor(open([{ uuid: "c-1", circuit: circuit("Meter", null) }]).panel)).toBeNull();
+  });
+
+  it("is absent for a circuit whose space has not arrived", () => {
+    expect(editor(open([{ uuid: "c-1", circuit: circuit("Oven", 20, null, []) }]).panel)).toBeNull();
+  });
+
+  it("is absent for a shared meter, which is judged by its group's capacity", () => {
+    const { panel } = open([
+      { uuid: "c-a", circuit: circuit("Lights", 15, null, [7]) },
+      { uuid: "c-b", circuit: circuit("Outlets", 10, null, [7]) },
+    ]);
+    expect(editor(panel)).toBeNull();
+  });
+
+  it("shows the panel's rating read-only, labelled as the panel's, beside one input for the other breaker", () => {
+    const { panel } = open(OVEN);
+    expect(panelRating(panel)).toBe("Panel publishes 20 A");
+    expect(row(panel)!.querySelectorAll("input")).toHaveLength(1);
+    expect(input(panel).value).toBe("");
+    expect(input(panel).getAttribute("aria-label")).toBe("Other breaker in the space of Oven");
+    expect(row(panel)!.textContent).toContain("Other breaker (A)");
+  });
+
+  it("shows the copied other breaker, the panel's own still read-only", () => {
+    const { panel } = open(COPIED);
+    expect(input(panel).value).toBe("30");
+    expect(panelRating(panel)).toBe("Panel publishes 20 A");
+  });
+
+  it("titles the section and gives the guidance, asking nothing to be added up", () => {
+    const { panel } = open(OVEN);
+    expect(editor(panel)!.querySelector(".section-label")!.textContent).toBe("Breaker ratings from the SPAN app");
+    expect(panel.shadowRoot!.querySelector('[data-role="rating-guidance"]')!.textContent).toBe(
+      "Enter the other breaker in this space exactly as your SPAN app shows this circuit (for example 20-20A). " +
+        "The panel publishes only the first; monitoring then judges this space against both breakers together."
+    );
+  });
 });
 
-describe("the multi-space caution", () => {
-  const CAUTION = "The panel reports the average of its legs, so one leg can carry more than its breaker while the reading stays under the rating.";
+describe("a circuit across several spaces", () => {
+  const DRYER = [{ uuid: "c-1", circuit: circuit("Dryer", 30, null, [1, 3]) }];
 
-  it("is absent for a circuit in one space", () => {
-    expect(cautions(open(ONE).panel)).toHaveLength(0);
+  it("gets an explanation in place of the editor", () => {
+    const { panel } = open(DRYER);
+    expect(row(panel)).toBeNull();
+    expect(panel.shadowRoot!.querySelector('[data-role="rating-input"]')).toBeNull();
+    expect(panel.shadowRoot!.querySelector('[data-role="rating-guidance"]')).toBeNull();
+    expect(explanation(panel)!.getAttribute("role")).toBe("note");
+    expect(explanation(panel)!.textContent).toBe(
+      "This circuit spans more than one space. The panel reports the average of its legs, so one leg can carry more " +
+        "than its breaker while the reading stays under the rating, and no ratings copied from the SPAN app can show it. " +
+        "Turning monitoring off for this circuit is the safer choice."
+    );
+    expect(editor(panel)!.querySelector(".section-label")!.textContent).toBe("Breaker ratings from the SPAN app");
   });
 
-  it("is shown for a circuit whose tabs span two spaces", () => {
-    const { panel } = open([{ uuid: "c-1", circuit: circuit("Dryer", 30, 30, false, [1, 3]) }]);
-    expect(cautions(panel)).toHaveLength(1);
-    expect(cautions(panel)[0]!.textContent).toContain(CAUTION);
-    expect(cautions(panel)[0]!.textContent).toContain("Turning monitoring off for this circuit is the safer choice.");
+  it("gets it whether or not the panel rates the circuit", () => {
+    expect(explanation(open([{ uuid: "c-1", circuit: circuit("Dryer", null, null, [1, 3]) }]).panel)).not.toBeNull();
   });
 
-  it("is shown once, not per member, for a slot whose members occupy several spaces", () => {
-    const { panel } = open([
-      { uuid: "c-a", circuit: circuit("Lights", 15, 15, false, [1]) },
-      { uuid: "c-b", circuit: circuit("Outlets", 10, 10, false, [3]) },
-      { uuid: "c-c", circuit: circuit("Fan", 10, 10, false, [5]) },
-    ]);
-    expect(rows(panel)).toHaveLength(3);
-    expect(cautions(panel)).toHaveLength(1);
+  it("is not explained for a circuit in one space", () => {
+    expect(explanation(open(OVEN).panel)).toBeNull();
   });
 
-  it("is shown once for a slot of several members that each span two spaces", () => {
-    const { panel } = open([
-      { uuid: "c-a", circuit: circuit("Lights", 15, 15, false, [1, 3]) },
-      { uuid: "c-b", circuit: circuit("Outlets", 10, 10, false, [1, 3]) },
-    ]);
-    expect(cautions(panel)).toHaveLength(1);
-  });
-
-  it("is absent for a tandem pair sharing one space", () => {
-    const { panel } = open([
-      { uuid: "c-a", circuit: circuit("Lights", 15, 15, false, [7]) },
-      { uuid: "c-b", circuit: circuit("Outlets", 10, 10, false, [7]) },
-    ]);
-    expect(cautions(panel)).toHaveLength(0);
+  it("is not explained where the integration offers no package ratings", () => {
+    expect(editor(open(DRYER, { monitoringRatingOffered: false }).panel)).toBeNull();
   });
 });
 
-describe("choosing Global and pressing Reset", () => {
-  const WITH_RATING = [{ uuid: "c-1", circuit: circuit("Oven", 20, 50, true) }];
-
-  it("choosing Global calls only clear_circuit_threshold and leaves the monitoring rating shown", () => {
-    const { panel, callWS } = open(WITH_RATING, { monitoringInfo: { monitoring_enabled: true, has_override: true } });
+describe("choosing Global and removing the copy", () => {
+  it("choosing Global calls only clear_circuit_threshold and leaves the copy shown", () => {
+    const { panel, callWS } = open(COPIED, { monitoringInfo: { monitoring_enabled: true, has_override: true } });
     const global = panel.shadowRoot!.querySelector<HTMLInputElement>('input[name="monitoring-mode"][value="global"]')!;
     global.checked = true;
     global.dispatchEvent(new Event("change"));
     expect(callWS.mock.calls.map(c => (c[0] as { service: string }).service)).toEqual(["clear_circuit_threshold"]);
     expect(shown(panel)).toBe(true);
-    expect(input(rows(panel)[0]!).value).toBe("50");
-    expect(reset(rows(panel)[0]!)).not.toBeNull();
+    expect(input(panel).value).toBe("30");
+    expect(reset(panel)).not.toBeNull();
   });
 
-  it("the rating's own reset calls only clear_circuit_monitoring_rating, leaving thresholds alone", () => {
-    const { panel, callWS } = open(WITH_RATING, { monitoringInfo: { monitoring_enabled: true, has_override: true } });
-    reset(rows(panel)[0]!)!.click();
-    expect(callWS.mock.calls.map(c => (c[0] as { service: string }).service)).toEqual(["clear_circuit_monitoring_rating"]);
+  it("the copy's own reset calls only clear_circuit_package_ratings, leaving thresholds alone", () => {
+    const { panel, callWS } = open(COPIED, { monitoringInfo: { monitoring_enabled: true, has_override: true } });
+    reset(panel)!.click();
+    expect(callWS.mock.calls.map(c => (c[0] as { service: string }).service)).toEqual(["clear_circuit_package_ratings"]);
   });
 });
 
-describe("the rating input", () => {
-  it("sends the rounded value for the row's own circuit, after the debounce", () => {
-    const { panel, callWS } = open([
-      { uuid: "c-a", circuit: circuit("Lights", 15, 15) },
-      { uuid: "c-b", circuit: circuit("Outlets", 10, 10) },
-    ]);
-    const el = input(rows(panel)[1]!);
+describe("the other breaker's input", () => {
+  it("sends the package in the SPAN app's order, the panel's rating first, the other rounded, after the debounce", () => {
+    const { panel, callWS } = open(OVEN);
+    const el = input(panel);
     el.value = "12.6";
     el.dispatchEvent(new Event("input"));
     expect(callWS).not.toHaveBeenCalled();
@@ -235,167 +245,154 @@ describe("the rating input", () => {
     expect(callWS).toHaveBeenCalledWith({
       type: "call_service",
       domain: "span_panel",
-      service: "set_circuit_monitoring_rating",
-      service_data: { circuit_id: "c-b", monitoring_rating_a: 13, config_entry_id: "entry-1" },
+      service: "set_circuit_package_ratings",
+      service_data: { circuit_id: "c-1", package_ratings_a: [20, 13], config_entry_id: "entry-1" },
     });
   });
 
   it("sends only the last of several keystrokes", () => {
-    const { panel, callWS } = open(ONE);
-    const el = input(rows(panel)[0]!);
-    el.value = "4";
+    const { panel, callWS } = open(OVEN);
+    const el = input(panel);
+    el.value = "3";
     el.dispatchEvent(new Event("input"));
     vi.advanceTimersByTime(100);
-    el.value = "40";
+    el.value = "30";
     el.dispatchEvent(new Event("input"));
     vi.advanceTimersByTime(600);
     expect(callWS).toHaveBeenCalledTimes(1);
-    expect(callWS.mock.calls[0]![0]).toMatchObject({ service_data: { monitoring_rating_a: 40 } });
+    expect(callWS.mock.calls[0]![0]).toMatchObject({ service_data: { package_ratings_a: [20, 30] } });
   });
 
   it.each(["", "abc", "0", "-5", "0.5", "0.99"])("sends nothing for %j", value => {
-    const { panel, callWS } = open(ONE);
-    type(input(rows(panel)[0]!), value);
+    const { panel, callWS } = open(OVEN);
+    type(input(panel), value);
     expect(callWS).not.toHaveBeenCalled();
   });
 
   it("leaves max unset, since the topology carries no service rating", () => {
-    const el = input(rows(open(ONE).panel)[0]!);
+    const el = input(open(OVEN).panel);
     expect(el.min).toBe("1");
+    expect(el.step).toBe("1");
     expect(el.hasAttribute("max")).toBe(false);
   });
 
-  it("does not show the typed value as the rating in force", () => {
-    const { panel } = open([{ uuid: "c-1", circuit: circuit("Oven", 30, 25, true) }]);
-    type(input(rows(panel)[0]!), "50");
-    const shown = panel.shadowRoot!.querySelector(".panel")!.textContent;
-    expect(shown).toContain("Oven");
-    expect(shown).not.toContain("50");
-    expect(panel.shadowRoot!.querySelector('[data-role="rating-panel-rating"]')!.textContent).toBe("Panel: 30 A");
+  it("does not show the typed value as the copy in force", () => {
+    const { panel } = open(COPIED, {
+      monitoringInfo: {
+        monitoring_enabled: true,
+        breaker_rating_a: 20,
+        monitoring_rating_a: 50,
+        monitoring_rating_user_set: true,
+        package_ratings_a: [20, 30],
+      },
+    });
+    const judged = panel.shadowRoot!.querySelector('[data-role="judged-against"]')!;
+    const before = judged.textContent;
+    type(input(panel), "25");
+    expect(judged.textContent).toBe(before);
+    expect(panelRating(panel)).toBe("Panel publishes 20 A");
   });
 });
 
 describe("the reset", () => {
-  it("is shown only on a row whose rating is the user's", () => {
-    const { panel } = open([
-      { uuid: "c-a", circuit: circuit("Lights", 15, 15) },
-      { uuid: "c-b", circuit: circuit("Outlets", 10, 12, true) },
-    ]);
-    expect(reset(rows(panel)[0]!)).toBeNull();
-    expect(reset(rows(panel)[1]!)).not.toBeNull();
+  it("is shown only where a package is stored", () => {
+    expect(reset(open(OVEN).panel)).toBeNull();
+    expect(reset(open(COPIED).panel)).not.toBeNull();
+  });
+
+  it("is shown for a copy waiting on a value not yet arrived, which is still stored", () => {
+    expect(reset(open([{ uuid: "c-1", circuit: circuit("Oven", 20, [20, 30], [1], false) }]).panel)).not.toBeNull();
   });
 
   it("cancels a typed value still waiting out its debounce", () => {
-    const { panel, callWS } = open([{ uuid: "c-1", circuit: circuit("Oven", 30, 25, true) }]);
-    const el = input(rows(panel)[0]!);
-    el.value = "50";
+    const { panel, callWS } = open(COPIED);
+    const el = input(panel);
+    el.value = "25";
     el.dispatchEvent(new Event("input"));
-    reset(rows(panel)[0]!)!.click();
+    reset(panel)!.click();
     vi.advanceTimersByTime(600);
     expect(callWS).toHaveBeenCalledTimes(1);
-    expect(callWS.mock.calls[0]![0]).toMatchObject({ service: "clear_circuit_monitoring_rating" });
+    expect(callWS.mock.calls[0]![0]).toMatchObject({ service: "clear_circuit_package_ratings" });
   });
 
-  it("clears the monitoring rating of its own circuit", () => {
-    const { panel, callWS } = open([
-      { uuid: "c-a", circuit: circuit("Lights", 15, 15) },
-      { uuid: "c-b", circuit: circuit("Outlets", 10, 12, true) },
-    ]);
-    reset(rows(panel)[1]!)!.click();
+  it("clears the copy of its own circuit", () => {
+    const { panel, callWS } = open(COPIED);
+    reset(panel)!.click();
     expect(callWS).toHaveBeenCalledWith({
       type: "call_service",
       domain: "span_panel",
-      service: "clear_circuit_monitoring_rating",
-      service_data: { circuit_id: "c-b", config_entry_id: "entry-1" },
+      service: "clear_circuit_package_ratings",
+      service_data: { circuit_id: "c-1", config_entry_id: "entry-1" },
     });
   });
 });
 
 describe("a refused change", () => {
   it("shows the service's message", async () => {
-    const { panel, errors } = open(ONE, {}, async () => {
-      throw { code: "service_validation_error", message: "50 A is above the panel's 40 A service rating" };
+    const { panel, errors } = open(OVEN, {}, async () => {
+      throw { code: "service_validation_error", message: "The ratings copied from the SPAN app add up to more than the panel's service rating of 40 A." };
     });
-    type(input(rows(panel)[0]!), "50");
+    type(input(panel), "30");
     await vi.advanceTimersByTimeAsync(0);
-    expect(errors.active.map(e => e.message)).toEqual(["50 A is above the panel's 40 A service rating"]);
+    expect(errors.active.map(e => e.message)).toEqual(["The ratings copied from the SPAN app add up to more than the panel's service rating of 40 A."]);
   });
 
   it("falls back to the generic message when the error carries none", async () => {
-    const { panel, errors } = open(ONE, {}, async () => {
+    const { panel, errors } = open(OVEN, {}, async () => {
       throw new Error("");
     });
-    type(input(rows(panel)[0]!), "50");
+    type(input(panel), "30");
     await vi.advanceTimersByTimeAsync(0);
-    expect(errors.active.map(e => e.message)).toEqual(["Unable to update monitoring rating"]);
+    expect(errors.active.map(e => e.message)).toEqual(["Unable to update the ratings copied from the SPAN app"]);
   });
 
-  it("puts the rating in force back in the input, beside the message", async () => {
-    const { panel, errors } = open(ONE, {}, async () => {
-      throw { code: "service_validation_error", message: "50 A is above the panel's 40 A service rating" };
+  it("puts the copy in force back in the input, beside the message", async () => {
+    const { panel, errors } = open(COPIED, {}, async () => {
+      throw { code: "service_validation_error", message: "refused" };
     });
-    type(input(rows(panel)[0]!), "50");
+    type(input(panel), "90");
     await vi.advanceTimersByTimeAsync(0);
     expect(errors.active).toHaveLength(1);
-    expect(input(rows(panel)[0]!).value).toBe("30");
-    expect(rows(panel)).toHaveLength(1);
+    expect(input(panel).value).toBe("30");
   });
 
-  it("restores only the refused member's row of a shared slot", async () => {
-    const { panel } = open(
-      [
-        { uuid: "c-a", circuit: circuit("Lights", 15, 15) },
-        { uuid: "c-b", circuit: circuit("Outlets", 10, 12, true) },
-      ],
-      {},
-      async () => {
-        throw { message: "refused" };
-      }
-    );
-    const lights = rows(panel)[0]!;
-    input(lights).value = "17";
-    type(input(rows(panel)[1]!), "99");
-    await vi.advanceTimersByTimeAsync(0);
-    expect(rows(panel)[0]).toBe(lights);
-    expect(input(rows(panel)[0]!).value).toBe("17");
-    expect(input(rows(panel)[1]!).value).toBe("12");
-    expect(reset(rows(panel)[1]!)).not.toBeNull();
-  });
-
-  it("restores from the rating in force when the refusal lands, not when the value was typed", async () => {
+  it("restores from the copy in force when the refusal lands, not when the value was typed", async () => {
     let refuse: (reason: unknown) => void = () => {};
-    const { panel } = open(ONE, {}, () => new Promise((_resolve, reject) => (refuse = reject)));
-    type(input(rows(panel)[0]!), "50");
+    const { panel } = open(OVEN, {}, () => new Promise((_resolve, reject) => (refuse = reject)));
+    type(input(panel), "90");
     (panel as unknown as { refreshRating(view: unknown): void }).refreshRating({
-      members: [{ uuid: "c-1", circuit: circuit("Oven", 30, 35, true) }],
-      ratingText: "35 A",
+      members: [{ uuid: "c-1", circuit: circuit("Oven", 20, [20, 15]) }],
+      capacityA: null,
       monitoringInfo: null,
     });
     refuse({ message: "refused" });
     await vi.advanceTimersByTimeAsync(0);
-    expect(input(rows(panel)[0]!).value).toBe("35");
-    expect(reset(rows(panel)[0]!)).not.toBeNull();
+    expect(input(panel).value).toBe("15");
+    expect(reset(panel)).not.toBeNull();
   });
 
   it("leaves a value typed while the refused one was in flight", async () => {
     let refuse: (reason: unknown) => void = () => {};
-    const { panel, callWS } = open(ONE, {}, () => new Promise((_resolve, reject) => (refuse = reject)));
-    type(input(rows(panel)[0]!), "50");
-    const el = input(rows(panel)[0]!);
-    el.value = "45";
+    const { panel, callWS } = open(OVEN, {}, () => new Promise((_resolve, reject) => (refuse = reject)));
+    type(input(panel), "90");
+    const el = input(panel);
+    el.value = "30";
     el.dispatchEvent(new Event("input"));
     refuse({ message: "refused" });
     await vi.advanceTimersByTimeAsync(0);
-    expect(input(rows(panel)[0]!)).toBe(el);
-    expect(el.value).toBe("45");
+    expect(input(panel)).toBe(el);
+    expect(el.value).toBe("30");
     vi.advanceTimersByTime(600);
-    expect(callWS.mock.calls.map(c => (c[0] as { service_data: { monitoring_rating_a?: number } }).service_data.monitoring_rating_a)).toEqual([50, 45]);
+    expect(callWS.mock.calls.map(c => (c[0] as { service_data: { package_ratings_a?: number[] } }).service_data.package_ratings_a)).toEqual([
+      [20, 90],
+      [20, 30],
+    ]);
   });
 
   it("does nothing to a panel closed while the call was in flight", async () => {
     let refuse: (reason: unknown) => void = () => {};
-    const { panel } = open(ONE, {}, () => new Promise((_resolve, reject) => (refuse = reject)));
-    type(input(rows(panel)[0]!), "50");
+    const { panel } = open(OVEN, {}, () => new Promise((_resolve, reject) => (refuse = reject)));
+    type(input(panel), "30");
     (panel as unknown as { close(): void }).close();
     refuse({ message: "refused" });
     await vi.advanceTimersByTimeAsync(0);
@@ -403,10 +400,10 @@ describe("a refused change", () => {
   });
 
   it("reports a failed reset the same way", async () => {
-    const { panel, errors } = open([{ uuid: "c-1", circuit: circuit("Oven", 30, 50, true) }], {}, async () => {
+    const { panel, errors } = open(COPIED, {}, async () => {
       throw { message: "no such circuit" };
     });
-    reset(rows(panel)[0]!)!.click();
+    reset(panel)!.click();
     await vi.advanceTimersByTimeAsync(0);
     expect(errors.active.map(e => e.message)).toEqual(["no such circuit"]);
   });
@@ -414,10 +411,11 @@ describe("a refused change", () => {
 
 describe("the gear", () => {
   const TOPOLOGY = {
+    monitoring_rating_offered: true,
     circuits: {
-      "c-a": { ...circuit("Lights", 15, 15), shared_meter_group: "c-a" },
-      "c-b": { ...circuit("Outlets", 10, 12, true), shared_meter_group: "c-a" },
-      "c-m": circuit("Lone", 20, 20),
+      "c-a": { ...circuit("Lights", 15), shared_meter_group: "c-a" },
+      "c-b": { ...circuit("Outlets", 10), shared_meter_group: "c-a" },
+      "c-m": circuit("Lone", 20),
     },
   } as unknown as PanelTopology;
 
@@ -458,9 +456,11 @@ describe("the gear", () => {
     expect(cfg.members?.map(m => m.uuid)).toEqual(["c-a", "c-b"]);
   });
 
-  it("passes on whether the panel offers a monitoring rating, as the integration says", async () => {
+  it("passes on whether the panel offers package ratings, as the integration says, and an older integration's silence as no", async () => {
     expect((await opened("c-m", true, { ...TOPOLOGY, monitoring_rating_offered: false })).monitoringRatingOffered).toBe(false);
     expect((await opened("c-m", true, { ...TOPOLOGY, monitoring_rating_offered: true })).monitoringRatingOffered).toBe(true);
+    const { monitoring_rating_offered: _offered, ...older } = TOPOLOGY;
+    expect((await opened("c-m", true, older as PanelTopology)).monitoringRatingOffered).toBe(false);
   });
 
   it("takes a favorite's flag from the favorite's own panel in the Favorites view", async () => {

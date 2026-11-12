@@ -28,7 +28,7 @@ function ratingEvent(entryId: string, circuitIds: string[] = ["c-1"]): unknown {
 }
 
 describe("subscribePackageRatingChanges", () => {
-  it("listens for the integration's monitoring-rating event", async () => {
+  it("listens for the integration's package ratings event", async () => {
     const connection = new FakeConnection();
     await subscribePackageRatingChanges(hassWith(connection), "entry-1", vi.fn());
 
@@ -100,6 +100,7 @@ type SidePanel = HTMLElement & {
 
 const ENTRY = "entry-1";
 
+/** The Oven as the topology describes it; a user-set rating is a tandem copied from the SPAN app, the panel's rating first. */
 function circuit(panel: number | null, monitoring: number | null, userSet = false): Circuit {
   return {
     name: "Oven",
@@ -109,11 +110,18 @@ function circuit(panel: number | null, monitoring: number | null, userSet = fals
     breaker_rating_a: panel,
     monitoring_rating_a: monitoring,
     monitoring_rating_user_set: userSet,
+    package_ratings_a: userSet && panel !== null && monitoring !== null ? [panel, monitoring - panel] : null,
   };
 }
 
 function topologyOf(c: Circuit, entryId = ENTRY): PanelTopology {
-  return { circuits: { "c-1": c }, panel_size: 32, panel_device_id: "panel-1", config_entry_id: entryId } as unknown as PanelTopology;
+  return {
+    circuits: { "c-1": c },
+    panel_size: 32,
+    panel_device_id: "panel-1",
+    config_entry_id: entryId,
+    monitoring_rating_offered: true,
+  } as unknown as PanelTopology;
 }
 
 /** A `get_monitoring_status` answer with the circuit monitored, keyed as the integration keys it: its current sensor, else its power sensor. */
@@ -127,6 +135,7 @@ function monitoringFor(c: Circuit): Record<string, unknown> {
           breaker_rating_a: c.breaker_rating_a,
           monitoring_rating_a: c.monitoring_rating_a,
           monitoring_rating_user_set: c.monitoring_rating_user_set,
+          package_ratings_a: c.package_ratings_a,
           monitoring_enabled: true,
         },
       },
@@ -188,7 +197,7 @@ describe("refreshCircuitSidePanel", () => {
     for (const el of mounted.splice(0)) el.remove();
   });
 
-  it("rebuilds the monitoring rating editor from the integration's answer, dropping what was typed", async () => {
+  it("rebuilds the package ratings editor from the integration's answer, dropping what was typed", async () => {
     const open = await openOven(circuit(20, 20));
     expect(reset(open.panel)).toBeNull();
     input(open.panel).value = "45";
@@ -199,7 +208,7 @@ describe("refreshCircuitSidePanel", () => {
     await open.ctrl.refreshCircuitSidePanel(open.root, ENTRY, topologyOf(after));
 
     expect(section(open.panel)).not.toBe(before);
-    expect(input(open.panel).value).toBe("50");
+    expect(input(open.panel).value).toBe("30");
     expect(reset(open.panel)).not.toBeNull();
     expect(open.panel.shadowRoot!.querySelector('[data-role="rating-panel-rating"]')!.textContent).toContain("20");
     expect(judged(open.panel)).toBe("Judged against: 50 A, set by you (panel: 20 A)");
@@ -216,7 +225,7 @@ describe("refreshCircuitSidePanel", () => {
     await open.ctrl.refreshCircuitSidePanel(open.root, ENTRY, topologyOf(after));
 
     expect(reset(open.panel)).toBeNull();
-    expect(input(open.panel).value).toBe("20");
+    expect(input(open.panel).value).toBe("");
   });
 
   it("drops a typed value still waiting out its debounce, so a refusal leaves the integration's rating", async () => {
@@ -229,7 +238,7 @@ describe("refreshCircuitSidePanel", () => {
     vi.advanceTimersByTime(1000);
 
     expect(sent).not.toHaveBeenCalled();
-    expect(input(open.panel).value).toBe("20");
+    expect(input(open.panel).value).toBe("");
   });
 
   it("puts the rebuilt editor where the old one was: after the judged-against line, above the Global/Custom choice", async () => {
@@ -272,7 +281,7 @@ describe("refreshCircuitSidePanel", () => {
 
     const editor = section(open.panel)!;
     expect(editor).not.toBeNull();
-    expect(input(open.panel).value).toBe("20");
+    expect(input(open.panel).value).toBe("");
     expect(editor.previousElementSibling?.getAttribute("data-role")).toBe("judged-against");
     expect(editor.nextElementSibling?.classList.contains("radio-group")).toBe(true);
   });
