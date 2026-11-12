@@ -1821,7 +1821,7 @@ exports[`the card over capture 'r202639-b' > renders as before > header 1`] = `
       <div class="stat stat-grid-state">
         <span class="stat-label">Grid</span>
         <div class="stat-row">
-          <span class="stat-value">unknown</span>
+          <span class="stat-value">dsm_on_grid</span>
         </div>
       </div>
       
@@ -2154,6 +2154,13 @@ exports[`the card over capture 'r202639-c' > renders as before > header 1`] = `
         </div>
       </div>
       
+      <div class="stat stat-solar">
+        <span class="stat-label">Solar</span>
+        <div class="stat-row">
+          <span class="stat-value">0.0</span>
+          <span class="stat-unit">kW</span>
+        </div>
+      </div>
       
       <div class="stat stat-battery">
         <span class="stat-label">Battery</span>
@@ -2196,6 +2203,20 @@ exports[`the card over capture 'r202639-c' > renders as before > sub-devices 1`]
         
       </div>
     
+        
+        
+      </div>
+    
+      <div class="sub-device " data-subdev="xg-7814-15i6h_pv">
+        <div class="sub-device-header">
+          <span class="sub-device-type">Solar</span>
+          <span class="sub-device-name">Span Panel Solar</span>
+          <span class="sub-power-caption">Site total</span><span class="sub-power-value"><strong>0</strong> <span class="power-unit">W</span></span>
+          <button class="gear-icon subdevice-gear" data-subdev-id="xg-7814-15i6h_pv" style="color:#555;" title="Configure device">
+            <span-icon icon="mdi:cog" style="--mdc-icon-size:16px;"></span-icon>
+          </button>
+        </div>
+        <div class="chart-container" data-chart-key="sub_xg-7814-15i6h_pv_power" style="min-height: 150px;"><span-chart style="display: block; width: 100%;"></span-chart></div>
         
         
       </div>
