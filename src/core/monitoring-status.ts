@@ -279,14 +279,20 @@ export function isAlertActive(monitoringInfo: MonitoringPointInfo | null): boole
 }
 
 /**
- * Build HTML for the monitoring summary bar.
+ * Build HTML for the monitoring summary bar: how many circuits and mains are monitored, each circuit counted, and
+ * how many warnings, alerts and overrides there are, each monitored point counted once.
  */
 export function buildMonitoringSummaryHTML(status: MonitoringStatus | null): string {
   if (!status) return "";
 
   const circuits: MonitoringPointInfo[] = Object.values(status.circuits ?? {});
   const mains: MonitoringPointInfo[] = Object.values(status.mains ?? {});
-  const all: MonitoringPointInfo[] = [...circuits, ...mains];
+  // One judgement per monitored point: every member of a shared meter reports its group's under the group's
+  // `point_id`. An entry naming no point, from an older integration, is a point of its own.
+  const circuitPoints = new Map(
+    Object.entries(status.circuits ?? {}).map(([key, p]) => [p.point_id !== undefined ? `point:${p.point_id}` : `entry:${key}`, p])
+  );
+  const all: MonitoringPointInfo[] = [...circuitPoints.values(), ...mains];
 
   // Each point by its own thresholds, as the monitor judges it.
   const levels = all.flatMap(p => (p.utilization_pct != null ? [utilizationLevel(p.utilization_pct, p)] : []));

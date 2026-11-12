@@ -249,6 +249,29 @@ describe("the monitoring summary's counts", () => {
     expect(counts(points)).toEqual({ warnings: 2, alerts: 2 });
   });
 
+  it("counts a shared meter once, however many of its members report it", () => {
+    // Every member of a group reports the group's judgement under the group's point id.
+    const tandem = (utilization_pct: number) => ({ ...TANDEM, utilization_pct, point_id: "t-a" });
+    expect(counts([tandem(170), tandem(170)])).toEqual({ warnings: 1, alerts: null });
+    expect(counts([tandem(210), tandem(210), { ...DEFAULTS, utilization_pct: 120, point_id: "c-1" }])).toEqual({ warnings: null, alerts: 2 });
+  });
+
+  it("counts each entry as its own point where the integration names none, as an older one does", () => {
+    expect(
+      counts([
+        { ...DEFAULTS, utilization_pct: 85 },
+        { ...DEFAULTS, utilization_pct: 85 },
+      ])
+    ).toEqual({ warnings: 2, alerts: null });
+  });
+
+  it("counts a shared meter's override once", () => {
+    const div = document.createElement("div");
+    const member = { has_override: true, point_id: "t-a" };
+    div.innerHTML = buildMonitoringSummaryHTML({ circuits: { "sensor.a_power": member, "sensor.b_power": member }, mains: {} });
+    expect(Number.parseInt(div.querySelector(".count-overrides")!.textContent!, 10)).toBe(1);
+  });
+
   it("counts a point that reports no thresholds against 80 % and 100 %", () => {
     expect(counts([{ utilization_pct: 85 }, { utilization_pct: 120 }])).toEqual({ warnings: 1, alerts: 1 });
   });

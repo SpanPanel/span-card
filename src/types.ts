@@ -320,6 +320,11 @@ export interface GraphSettings {
 
 export interface MonitoringPointInfo {
   name?: string;
+  /**
+   * The monitored point this entry's judgement is: the group's key for every member of a shared meter, else the
+   * circuit's own id. Absent from an integration that predates it.
+   */
+  point_id?: string;
   monitoring_enabled?: boolean;
   /** Null while the circuit has no current reading or no breaker rating. */
   utilization_pct?: number | null;
