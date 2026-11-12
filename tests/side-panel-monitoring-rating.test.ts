@@ -846,13 +846,15 @@ describe("the gear", () => {
     expect((await opened("c-m", true, older as PanelTopology)).monitoringRatingOffered).toBe(false);
   });
 
-  it("takes a favorite's flag from the favorite's own panel in the Favorites view", async () => {
+  it("takes a favorite's flag from the favorite's own panel in the Favorites view, not the merged view's", async () => {
+    // The merged topology says nothing, which reads as no; only the favorite's own panel says yes.
     const merged = { circuits: { "p-1|c-m": TOPOLOGY.circuits["c-m"]! } } as PanelTopology;
-    const cfg = await opened("p-1|c-m", true, merged, ctrl => {
+    const configure = (offered: boolean) => (ctrl: DashboardController) => {
       ctrl.setFavoriteRefs({ "p-1|c-m": { panelDeviceId: "p-1", kind: "circuit", targetId: "c-m", configEntryId: "entry-1" } });
-      const own = { ...TOPOLOGY, monitoring_rating_offered: false } as PanelTopology;
+      const own = { ...TOPOLOGY, monitoring_rating_offered: offered } as PanelTopology;
       ctrl.setFavoritesPerPanelInfo(new Map([["p-1", { panelName: "Panel", topology: own, configEntryId: "entry-1" }]]));
-    });
-    expect(cfg.monitoringRatingOffered).toBe(false);
+    };
+    expect((await opened("p-1|c-m", true, merged, configure(true))).monitoringRatingOffered).toBe(true);
+    expect((await opened("p-1|c-m", true, merged, configure(false))).monitoringRatingOffered).toBe(false);
   });
 });

@@ -3,7 +3,7 @@ import { buildGridHTML } from "../src/core/grid-renderer.js";
 import { buildPanelStatsHTML } from "../src/core/header-renderer.js";
 import { updateCircuitDOM } from "../src/core/dom-updater.js";
 import { positionRange } from "../src/helpers/layout.js";
-import { meterSlots, slotRatingText } from "../src/helpers/shared-meters.js";
+import { judgedAs, meterSlots, slotRatingText } from "../src/helpers/shared-meters.js";
 import { t } from "../src/i18n.js";
 import type { CardConfig, Circuit, HomeAssistant, PanelTopology, SharedMeterGroup } from "../src/types.js";
 
@@ -91,6 +91,26 @@ function grid(hass: HomeAssistant = hassWith()): HTMLElement {
 function slotAt(root: ParentNode, uuid: string): HTMLElement {
   return root.querySelector<HTMLElement>(`.circuit-slot[data-uuid="${uuid}"]`)!;
 }
+
+describe("judgedAs", () => {
+  it("carries the slot's ratings, the monitoring ones included, onto a member, its own name and spaces kept", () => {
+    const member: Circuit = { name: "Lights", tabs: [7], entities: {}, breaker_rating_a: 15, monitoring_rating_a: 15, monitoring_rating_user_set: false };
+    const slot = {
+      memberIds: ["a", "b"],
+      members: [member],
+      circuit: { name: "Lights + Outlets", tabs: [7], entities: {}, breaker_rating_a: 30, monitoring_rating_a: 35, monitoring_rating_user_set: true },
+    } as unknown as Parameters<typeof judgedAs>[1];
+
+    const judged = judgedAs(member, slot);
+
+    expect(judged).toMatchObject({ name: "Lights", tabs: [7], breaker_rating_a: 30, monitoring_rating_a: 35, monitoring_rating_user_set: true });
+  });
+
+  it("is the circuit itself where it has no slot", () => {
+    const circuit: Circuit = { name: "Oven", tabs: [1], entities: {}, breaker_rating_a: 20, monitoring_rating_a: 40 };
+    expect(judgedAs(circuit, undefined)).toBe(circuit);
+  });
+});
 
 describe("meterSlots", () => {
   it("gives each group one slot, read through its first member, and every other circuit its own", () => {

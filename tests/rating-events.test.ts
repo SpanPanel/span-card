@@ -325,6 +325,39 @@ describe("refreshCircuitSidePanel", () => {
     expect((open.panel as unknown as { ratingsState: { monitoringGlobals: unknown } }).ratingsState.monitoringGlobals).toEqual(globals);
   });
 
+  it("applies nothing when the panel is reopened on another circuit while the status is fetched", async () => {
+    const open = await openOven(circuit(20, 20));
+    let release: () => void = () => {};
+    const answered = monitoringFor(circuit(20, 50, true));
+    open.callWS.mockImplementation(
+      (msg: Record<string, unknown>) =>
+        new Promise(resolve => {
+          if (msg.service === "get_monitoring_status") release = () => resolve(answered);
+          else resolve({});
+        })
+    );
+    const refreshed = vi.spyOn(open.panel as unknown as { refreshRating: (view: unknown) => void }, "refreshRating");
+
+    const refresh = open.ctrl.refreshCircuitSidePanel(open.root, ENTRY, topologyOf(circuit(20, 50, true)));
+    open.panel.open({
+      uuid: "c-2",
+      name: "Dryer",
+      entities: {},
+      showMonitoring: true,
+      monitoringRatingOffered: true,
+      monitoringInfo: { monitoring_enabled: true },
+      graphHorizonInfo: { horizon: "5m", has_override: false, globalHorizon: "5m" },
+      members: [{ uuid: "c-2", circuit: { ...circuit(30, 30), name: "Dryer" } }],
+      capacityA: null,
+      configEntryId: ENTRY,
+    });
+    release();
+    await refresh;
+
+    expect(refreshed).not.toHaveBeenCalled();
+    expect(open.panel.openCircuit?.uuid).toBe("c-2");
+  });
+
   it("leaves the open panel alone for an event that names other circuits only", async () => {
     const open = await openOven(circuit(20, 20));
     const before = section(open.panel);
@@ -658,6 +691,36 @@ describe("the sidebar dashboard", () => {
     await vi.waitFor(() => expect(render.mock.calls.length).toBeGreaterThan(renders));
     expect(invalidate).toHaveBeenCalled();
     expect(refreshSidePanel).toHaveBeenCalledWith("entry-1", rendered, new Set(["c-1"]));
+  });
+
+  it("drops the list views' monitoring caches on an event for a panel it shows", async () => {
+    const connection = new FakeConnection();
+    const panel = await mount(connection);
+    const list = (panel as unknown as { _listDashCtrl: DashboardController })._listDashCtrl;
+    const single = vi.spyOn(list.monitoringCache, "invalidate");
+    const multi = vi.spyOn(list.monitoringMultiCache, "invalidate");
+
+    connection.emit(PACKAGE_RATINGS_CHANGED, ratingEvent("entry-1"));
+
+    expect(single).toHaveBeenCalled();
+    expect(multi).toHaveBeenCalled();
+  });
+
+  it("leaves the Adopted tab as it is, its rows its own, while still dropping the monitoring caches", async () => {
+    const connection = new FakeConnection();
+    const panel = await mount(connection);
+    showTab(panel, "adopted");
+    const fetches = mockDiscover.mock.calls.length;
+    const renders = render.mock.calls.length;
+
+    connection.emit(PACKAGE_RATINGS_CHANGED, ratingEvent("entry-1"));
+    await flush();
+    await flush();
+
+    expect(invalidate).toHaveBeenCalled();
+    expect(mockDiscover.mock.calls.length).toBe(fetches);
+    expect(render.mock.calls.length).toBe(renders);
+    expect(refreshSidePanel).not.toHaveBeenCalled();
   });
 
   it("redraws the Monitoring tab's rating cell from the new status on an event for its entry", async () => {
