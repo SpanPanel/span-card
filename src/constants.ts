@@ -1,7 +1,7 @@
 import { t } from "./i18n.js";
 import type { ChartMetricDef, GraphHorizonPreset, SheddingPriorityDef } from "./types.js";
 
-export const CARD_VERSION = "0.10.0-beta.1";
+export const CARD_VERSION = "0.10.0-beta.2";
 
 // -- Defaults --
 
@@ -40,10 +40,10 @@ export const CIRCUIT_COL_SPAN_CHART_HEIGHT = 200;
 export const BESS_CHART_COL_HEIGHT = 120;
 export const EVSE_CHART_HEIGHT = 150;
 
-// -- NEC breaker limits --
+// -- Current chart limits --
 
-export const NEC_CONTINUOUS_LOAD_FACTOR = 0.8;
-export const NEC_TRIP_RATING_FACTOR = 1.25;
+/** How far a current chart's axis rises above its highest limit line or reading: a quarter, as above the breaker rating before. */
+export const LIMIT_AXIS_HEADROOM = 1.25;
 
 // -- History thresholds --
 

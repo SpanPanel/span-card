@@ -7,10 +7,11 @@ import { getHistoryDurationMs, getHorizonDurationMs } from "../helpers/history.j
 import { updateChart } from "../chart/chart-update.js";
 import { attrSelectorValue } from "../helpers/selector.js";
 import { measuresOutsidePanel } from "../helpers/layout.js";
-import { meterSlots } from "../helpers/shared-meters.js";
+import { judgedAs, meterSlots, slotMembers } from "../helpers/shared-meters.js";
 import { circuitCurrentA, circuitPowerW, drawsAsOn, isGeneration, readsAsProducer, shedPriorityKey, switchPresence } from "./circuit-state.js";
 import { applySheddingIcon, applyTogglePill } from "./circuit-controls.js";
-import type { HomeAssistant, PanelTopology, CardConfig, HistoryMap, ChartMetricDef } from "../types.js";
+import { circuitMonitoringInfo, pointThresholds } from "./monitoring-status.js";
+import type { HomeAssistant, PanelTopology, CardConfig, HistoryMap, ChartMetricDef, Circuit, MonitoringStatus } from "../types.js";
 
 // ── Header stats ───────────────────────────────────────────────────────────
 
@@ -133,13 +134,20 @@ function _updateHeaderStats(root: Element | ShadowRoot, hass: HomeAssistant, top
 
 // ── Exported updaters ──────────────────────────────────────────────────────
 
+/**
+ * Refresh every circuit slot's readings, controls and chart in place.
+ * `monitoringStatus` is the status the view draws from, null while monitoring
+ * is disabled or not yet known: a chart's limit lines are drawn at each point's
+ * own thresholds from it.
+ */
 export function updateCircuitDOM(
   root: Element | ShadowRoot,
   hass: HomeAssistant,
   topology: PanelTopology,
   config: CardConfig,
   powerHistory: HistoryMap,
-  horizonMap: Map<string, string> | undefined
+  horizonMap: Map<string, string> | undefined,
+  monitoringStatus: MonitoringStatus | null
 ): void {
   if (!root || !topology || !hass) return;
 
@@ -147,7 +155,7 @@ export function updateCircuitDOM(
 
   // The circuits' consumption: every circuit with a power sensor that is no source of generation, an unknown reading skipped.
   // A meter outside the panel is no load on it, so it is no term at all; circuits that share a meter are one term.
-  const slots = meterSlots(topology.circuits);
+  const slots = meterSlots(topology);
   const consumption: (number | null)[] = [];
   for (const { circuit } of slots) {
     if (!circuit.entities?.power || isGeneration(circuit) || measuresOutsidePanel(circuit)) continue;
@@ -157,39 +165,71 @@ export function updateCircuitDOM(
 
   _updateHeaderStats(root, hass, topology, config, sumReadings(consumption));
 
-  const chartMetric: ChartMetricDef = getChartMetric(config);
-  const showCurrent = chartMetric.entityRole === "current";
-
-  for (const { uuid, circuit } of slots) {
-    const slot = root.querySelector(`.circuit-slot[data-uuid="${attrSelectorValue(uuid)}"]`);
-    if (!slot) continue;
-
-    const powerW = circuitPowerW(circuit, hass);
-    const isProducer = readsAsProducer(circuit, powerW);
-
-    // A meter outside the panel has no relay, so its list chart is never dimmed as off.
-    const isOn = drawsAsOn(circuit, hass);
-
-    const powerVal = slot.querySelector(".power-value");
-    if (powerVal) {
-      powerVal.innerHTML = showCurrent ? formatCircuitCurrentHTML(circuitCurrentA(circuit, hass)) : formatCircuitPowerHTML(powerW);
+  const context: SlotUpdateContext = {
+    hass,
+    powerHistory,
+    horizonMap,
+    defaultDurationMs,
+    chartMetric: getChartMetric(config),
+    monitoringStatus,
+  };
+  for (const meterSlot of slots) {
+    // The grid draws a slot once, under the slot's own id; a list draws a row for every member, and a chart under each
+    // one expanded, judged as the slot is.
+    for (const member of slotMembers(meterSlot)) {
+      const slot = root.querySelector(`.circuit-slot[data-uuid="${attrSelectorValue(member.uuid)}"]`);
+      if (!slot) continue;
+      const circuit = member.uuid === meterSlot.uuid ? meterSlot.circuit : judgedAs(member.circuit, meterSlot);
+      updateCircuitSlot(slot, member.uuid, circuit, context);
     }
+  }
+}
 
-    applyTogglePill(slot, isOn, switchPresence(circuit, hass));
+/** What every circuit slot's update reads, the same for each slot of one pass. */
+interface SlotUpdateContext {
+  readonly hass: HomeAssistant;
+  readonly powerHistory: HistoryMap;
+  readonly horizonMap: Map<string, string> | undefined;
+  readonly defaultDurationMs: number;
+  readonly chartMetric: ChartMetricDef;
+  readonly monitoringStatus: MonitoringStatus | null;
+}
 
-    slot.classList.toggle("circuit-off", !isOn);
-    slot.classList.toggle("circuit-producer", isProducer);
+/**
+ * Refresh one drawn slot, `uuid`'s: its reading, controls, state classes and chart. `circuit` is what the slot is
+ * read and judged as (a grid slot's composed circuit, or a list member judged as its slot); the chart draws `uuid`'s
+ * own history and horizon.
+ */
+function updateCircuitSlot(slot: Element, uuid: string, circuit: Circuit, context: SlotUpdateContext): void {
+  const { hass, powerHistory, horizonMap, defaultDurationMs, chartMetric, monitoringStatus } = context;
+  const powerW = circuitPowerW(circuit, hass);
+  const isProducer = readsAsProducer(circuit, powerW);
 
-    applySheddingIcon(slot, shedPriorityKey(circuit, hass));
+  // A meter outside the panel has no relay, so its list chart is never dimmed as off.
+  const isOn = drawsAsOn(circuit, hass);
 
-    const chartContainer = slot.querySelector(".chart-container") as HTMLElement | null;
-    if (chartContainer) {
-      const history = powerHistory.get(uuid) || [];
-      const h = slot.classList.contains("circuit-col-span") ? CIRCUIT_COL_SPAN_CHART_HEIGHT : CIRCUIT_CHART_HEIGHT;
-      const circuitDuration = horizonMap?.has(uuid) ? getHorizonDurationMs(horizonMap.get(uuid)!) : defaultDurationMs;
-      const useLinear = isGeneration(circuit);
-      updateChart(chartContainer, hass, history, circuitDuration, chartMetric, isProducer, h, circuit.breaker_rating_a ?? undefined, useLinear);
-    }
+  const powerVal = slot.querySelector(".power-value");
+  if (powerVal) {
+    powerVal.innerHTML = chartMetric.entityRole === "current" ? formatCircuitCurrentHTML(circuitCurrentA(circuit, hass)) : formatCircuitPowerHTML(powerW);
+  }
+
+  applyTogglePill(slot, isOn, switchPresence(circuit, hass));
+
+  slot.classList.toggle("circuit-off", !isOn);
+  slot.classList.toggle("circuit-producer", isProducer);
+
+  applySheddingIcon(slot, shedPriorityKey(circuit, hass));
+
+  const chartContainer = slot.querySelector(".chart-container") as HTMLElement | null;
+  if (chartContainer) {
+    const history = powerHistory.get(uuid) || [];
+    const h = slot.classList.contains("circuit-col-span") ? CIRCUIT_COL_SPAN_CHART_HEIGHT : CIRCUIT_CHART_HEIGHT;
+    const circuitDuration = horizonMap?.has(uuid) ? getHorizonDurationMs(horizonMap.get(uuid)!) : defaultDurationMs;
+    const useLinear = isGeneration(circuit);
+    // Limit lines at the point's own thresholds of the rating it is judged against.
+    const ratingA = circuit.breaker_rating_a;
+    const limit = ratingA ? { ratingA, ...pointThresholds(circuitMonitoringInfo(monitoringStatus, circuit)) } : undefined;
+    updateChart(chartContainer, hass, history, circuitDuration, chartMetric, isProducer, h, limit, useLinear);
   }
 }
 

@@ -33,8 +33,8 @@ describe("buildChartOptions", () => {
     expect(result.options.xAxis.min).toBeLessThanOrEqual(after - durationMs);
   });
 
-  it("adds NEC limit lines when breakerRatingA is set and metric is current", () => {
-    const result = buildChartOptions([], 300_000, currentMetric, false, 20);
+  it("draws the default limit lines at 80 % and 100 % of the rating, as before", () => {
+    const result = buildChartOptions([], 300_000, currentMetric, false, { ratingA: 20, continuousPct: 80, spikePct: 100 });
     // Main data series + continuous load line + trip rating line
     expect(result.series).toHaveLength(3);
     // Continuous load line (80% of 20A = 16A)
@@ -46,9 +46,23 @@ describe("buildChartOptions", () => {
     expect(result.options.yAxis.min).toBe(0);
   });
 
-  it("does not add NEC lines for power metric", () => {
-    const result = buildChartOptions([], 300_000, powerMetric, false, 20);
+  it("does not add limit lines for power metric", () => {
+    const result = buildChartOptions([], 300_000, powerMetric, false, { ratingA: 20, continuousPct: 80, spikePct: 100 });
     expect(result.series).toHaveLength(1);
+  });
+
+  it("draws the limit lines at the point's own thresholds and fits the axis to the highest", () => {
+    // The #260 tandem: a 20 A breaker judged at 160 % and 200 % warns at 32 A and alerts at 40 A.
+    const result = buildChartOptions([], 300_000, currentMetric, false, { ratingA: 20, continuousPct: 160, spikePct: 200 });
+    expect(result.series[1]!.data[0]![1]).toBe(32);
+    expect(result.series[2]!.data[0]![1]).toBe(40);
+    expect(result.options.yAxis.max).toBe(50);
+  });
+
+  it("fits the axis to a reading above the highest limit line", () => {
+    const history: HistoryPoint[] = [{ time: Date.now() - 1000, value: 60 }];
+    const result = buildChartOptions(history, 300_000, currentMetric, false, { ratingA: 20, continuousPct: 80, spikePct: 100 });
+    expect(result.options.yAxis.max).toBe(75);
   });
 
   it("uses producer accent color when isProducer is true", () => {

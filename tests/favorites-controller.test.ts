@@ -7,6 +7,7 @@ vi.mock("../src/card/card-discovery.js", () => ({
 
 import { discoverTopology } from "../src/card/card-discovery.js";
 import { FavoritesController, buildCompositeId } from "../src/core/favorites-controller.js";
+import { meterSlots } from "../src/helpers/shared-meters.js";
 
 const mockDiscover = vi.mocked(discoverTopology);
 
@@ -214,5 +215,50 @@ describe("FavoritesController.build", () => {
       targetId: "uuid-a",
       configEntryId: "entry-1",
     });
+  });
+
+  it("keeps each favorited group's rating, under a group key of its own panel's, so two panels' groups never merge", async () => {
+    const panel1 = makePanel("panel-1", "Span Panel 1", "entry-1");
+    const panel2 = makePanel("panel-2", "Span Panel 2", "entry-2");
+    const grouped = (rating: number): PanelTopology => {
+      const topology = makeTopology({ "circuit-52": { name: "Bath" }, "circuit-53": { name: "Fan" } });
+      for (const uuid of ["circuit-52", "circuit-53"]) topology.circuits[uuid]!.shared_meter_group = "circuit-52";
+      topology.shared_meter_groups = { "circuit-52": { members: ["circuit-52", "circuit-53"], breaker_rating_a: rating } };
+      return topology;
+    };
+    const topologies: Record<string, PanelTopology> = { "panel-1": grouped(30), "panel-2": grouped(25) };
+    mockDiscover.mockImplementation((_hass, deviceId) =>
+      Promise.resolve({ topology: topologies[deviceId]!, panelDevice: deviceId === "panel-1" ? panel1 : panel2, panelSize: 48 })
+    );
+    const favorites = {
+      "panel-1": { circuits: ["circuit-52", "circuit-53"], sub_devices: [] },
+      "panel-2": { circuits: ["circuit-52"], sub_devices: [] },
+    };
+
+    const merged = (await controller.build(hass, favorites, [panel1, panel2])).topology;
+
+    const key1 = buildCompositeId("panel-1", "circuit-52");
+    const key2 = buildCompositeId("panel-2", "circuit-52");
+    expect(merged.circuits[buildCompositeId("panel-1", "circuit-53")]!.shared_meter_group).toBe(key1);
+    expect(merged.circuits[key2]!.shared_meter_group).toBe(key2);
+    expect(merged.shared_meter_groups?.[key1]).toEqual({ members: [key1, buildCompositeId("panel-1", "circuit-53")], breaker_rating_a: 30 });
+    expect(merged.shared_meter_groups?.[key2]?.breaker_rating_a).toBe(25);
+  });
+
+  it("leaves a favorited group whose panel publishes no record to its members' sum, as from an older integration", async () => {
+    const panel = makePanel("panel-1", "Home Panel", "entry-1");
+    const topology = makeTopology({ "circuit-52": { name: "Bath" }, "circuit-53": { name: "Fan" } });
+    for (const [uuid, rating] of [
+      ["circuit-52", 15],
+      ["circuit-53", 10],
+    ] as const) {
+      Object.assign(topology.circuits[uuid]!, { tabs: [52], breaker_rating_a: rating, shared_meter_group: "circuit-52" });
+    }
+    mockDiscover.mockResolvedValue({ topology, panelDevice: panel, panelSize: 48 });
+
+    const merged = (await controller.build(hass, { "panel-1": { circuits: ["circuit-52", "circuit-53"], sub_devices: [] } }, [panel])).topology;
+
+    expect(merged.shared_meter_groups).toEqual({});
+    expect(meterSlots(merged).map(slot => slot.circuit.breaker_rating_a)).toEqual([25]);
   });
 });

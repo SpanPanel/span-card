@@ -170,3 +170,34 @@ describe("a slot's reading on the grid", () => {
     expect(slot.querySelector(".utilization")!.textContent).toBe("45%");
   });
 });
+
+describe("a slot's utilization colour on the grid", () => {
+  const TANDEM = { continuous_threshold_pct: 160, spike_threshold_pct: 200 };
+  const DEFAULTS = { continuous_threshold_pct: 80, spike_threshold_pct: 100 };
+  const ON = { [SWITCH]: { state: "on" } };
+
+  /** The slot's utilization class, from the monitor's figure where given, else 20 A of current over the 20 A rating. */
+  function level(amps: string, monitoring: MonitoringPointInfo | null): string | undefined {
+    const slot = slotOf({ ...ON, [CURRENT]: { state: amps } }, config, monitoring);
+    return [...slot.querySelector(".utilization")!.classList].find(name => name.startsWith("utilization-"));
+  }
+
+  it("is judged against the circuit's own thresholds", () => {
+    // 30 A on the 20 A breaker is 150 %, under the 160 % continuous threshold set for the pair it is judged as.
+    expect(level("30", { ...TANDEM, utilization_pct: 150 })).toBe("utilization-normal");
+    expect(level("34", { ...TANDEM, utilization_pct: 170 })).toBe("utilization-warning");
+    expect(level("40", { ...TANDEM, utilization_pct: 200 })).toBe("utilization-alert");
+  });
+
+  it("keeps the default thresholds' colours", () => {
+    expect(level("15", { ...DEFAULTS, utilization_pct: 75 })).toBe("utilization-normal");
+    expect(level("16", { ...DEFAULTS, utilization_pct: 80 })).toBe("utilization-warning");
+    expect(level("30", { ...DEFAULTS, utilization_pct: 150 })).toBe("utilization-alert");
+  });
+
+  it("falls back to 80 % and 100 % with no monitoring info, the utilization coming from the rating", () => {
+    expect(level("15", null)).toBe("utilization-normal");
+    expect(level("17", null)).toBe("utilization-warning");
+    expect(level("30", null)).toBe("utilization-alert");
+  });
+});

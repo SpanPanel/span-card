@@ -133,6 +133,20 @@ export interface PanelTopology {
   panel_device_id?: string;
   /** The config entry that owns the panel. */
   config_entry_id?: string;
+  /**
+   * Each group of circuits that share a meter, by the key its members carry in `shared_meter_group`. A group with no
+   * record here, as from an integration that predates the map, falls back to its members' ratings added up.
+   */
+  shared_meter_groups?: Record<string, SharedMeterGroup>;
+}
+
+/**
+ * One shared meter as the integration rates it. `breaker_rating_a` is the group's capacity, what its heaviest space can
+ * carry, which the integration computes and current monitoring judges against; null where unknown.
+ */
+export interface SharedMeterGroup {
+  members: string[];
+  breaker_rating_a: number | null;
 }
 
 export interface PanelDevice {
@@ -306,6 +320,11 @@ export interface GraphSettings {
 
 export interface MonitoringPointInfo {
   name?: string;
+  /**
+   * The monitored point this entry's judgement is: the group's key for every member of a shared meter, else the
+   * circuit's own id. Absent from an integration that predates it.
+   */
+  point_id?: string;
   monitoring_enabled?: boolean;
   /** Null while the circuit has no current reading or no breaker rating. */
   utilization_pct?: number | null;

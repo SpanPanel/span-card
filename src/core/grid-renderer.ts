@@ -3,8 +3,8 @@ import { formatCircuitCurrentHTML, formatCircuitPowerHTML } from "../helpers/for
 import { t } from "../i18n.js";
 import { tabToRow, tabToCol, classifyDualTab, measuresOutsidePanel, type PositionRange } from "../helpers/layout.js";
 import { getChartMetric } from "../helpers/chart.js";
-import { meterSlots } from "../helpers/shared-meters.js";
-import { getCircuitMonitoringInfo } from "./monitoring-status.js";
+import { meterSlots, slotRatingLabel } from "../helpers/shared-meters.js";
+import { getCircuitMonitoringInfo, utilizationClass } from "./monitoring-status.js";
 import {
   circuitCurrentA,
   circuitPowerW,
@@ -42,7 +42,7 @@ export function buildGridHTML(
   const occupiedTabs = new Set<number>();
 
   // Circuits that share a meter share a space, and are drawn there as one slot.
-  for (const { uuid, circuit, members } of meterSlots(topology.circuits)) {
+  for (const { uuid, circuit, members } of meterSlots(topology)) {
     // A meter outside the panel is drawn in the Meters strip, never in a breaker space.
     if (measuresOutsidePanel(circuit)) continue;
     const tabs = circuit.tabs;
@@ -182,7 +182,7 @@ export function renderCircuitSlot(
   const presence = switchPresence(circuit, hass);
 
   const shared = members.length > 1;
-  const breakerLabel = shared ? sharedRatingsLabel(members) : singleRatingLabel(circuit.breaker_rating_a);
+  const breakerLabel = slotRatingLabel(members);
   const name = escapeHtml(members.map(member => member.name || t("grid.unknown")).join(" · "));
 
   const showCurrent = getChartMetric(config).entityRole === "current";
@@ -201,8 +201,7 @@ export function renderCircuitSlot(
   let utilizationHTML = "";
   const utilizationPct = circuitUtilizationPct(circuit, hass, monitoringInfo);
   if (utilizationPct !== null) {
-    const utilClass = utilizationPct >= 100 ? "utilization-alert" : utilizationPct >= 80 ? "utilization-warning" : "utilization-normal";
-    utilizationHTML = `<span class="utilization ${utilClass}">${Math.round(utilizationPct)}%</span>`;
+    utilizationHTML = `<span class="utilization ${utilizationClass(utilizationPct, monitoringInfo)}">${Math.round(utilizationPct)}%</span>`;
   }
 
   const stateClasses = getCircuitStateClasses(circuit, monitoringInfo, isOn, isProducer);
@@ -235,16 +234,6 @@ export function renderCircuitSlot(
       <div class="chart-container"></div>
     </div>
   `;
-}
-
-function singleRatingLabel(amps: number | null | undefined): string {
-  return amps ? `${Math.round(amps)}A` : "";
-}
-
-/** Each member's rating, as "15·10 A"; empty while any is unknown. */
-function sharedRatingsLabel(members: readonly Circuit[]): string {
-  if (members.some(member => !member.breaker_rating_a)) return "";
-  return `${members.map(member => Math.round(member.breaker_rating_a!)).join("·")} A`;
 }
 
 /** Whether every member switches with the same relay, so one toggle switches them all. */

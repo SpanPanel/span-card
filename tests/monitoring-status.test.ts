@@ -6,6 +6,8 @@ import {
   isAlertActive,
   mergeMonitoringStatuses,
   monitoringStatusFrom,
+  buildMonitoringSummaryHTML,
+  utilizationLevel,
 } from "../src/core/monitoring-status.js";
 import type { MonitoringPointInfo, MonitoringStatus } from "../src/types.js";
 
@@ -195,5 +197,82 @@ describe("monitoringStatusFrom", () => {
     const circuits = { "sensor.circuit_1_power": { utilization_pct: 55 } };
     const mains = { "sensor.mains_power": { utilization_pct: 20 } };
     expect(monitoringStatusFrom({ enabled: true, circuits, mains, global_settings: {} })).toEqual({ circuits, mains });
+  });
+});
+
+/** The thresholds the #260 user was told to set on a 20 A tandem judged as its pair. */
+const TANDEM: MonitoringPointInfo = { continuous_threshold_pct: 160, spike_threshold_pct: 200 };
+const DEFAULTS: MonitoringPointInfo = { continuous_threshold_pct: 80, spike_threshold_pct: 100 };
+
+describe("utilizationLevel", () => {
+  it("judges a point against its own thresholds: a warning from the continuous one, an alert from the spike one", () => {
+    expect([150, 159.9, 160, 199.9, 200, 250].map(pct => utilizationLevel(pct, TANDEM))).toEqual(["normal", "normal", "warning", "warning", "alert", "alert"]);
+  });
+
+  it("judges the default thresholds as the card always has", () => {
+    expect([0, 79.9, 80, 99.9, 100, 150].map(pct => utilizationLevel(pct, DEFAULTS))).toEqual(["normal", "normal", "warning", "warning", "alert", "alert"]);
+  });
+
+  it("falls back to 80 % and 100 % only where monitoring gives no thresholds", () => {
+    for (const info of [null, {}]) {
+      expect([79.9, 80, 99.9, 100].map(pct => utilizationLevel(pct, info))).toEqual(["normal", "warning", "warning", "alert"]);
+    }
+  });
+});
+
+describe("the monitoring summary's counts", () => {
+  /** The summary's warning and alert counts, null where it shows none. */
+  function counts(points: MonitoringPointInfo[]): { warnings: number | null; alerts: number | null } {
+    const div = document.createElement("div");
+    const circuits = Object.fromEntries(points.map((point, i) => [`sensor.c${i}_power`, point]));
+    div.innerHTML = buildMonitoringSummaryHTML({ circuits, mains: {} });
+    const count = (selector: string) => {
+      const text = div.querySelector(selector)?.textContent;
+      return text ? Number.parseInt(text, 10) : null;
+    };
+    return { warnings: count(".count-warning"), alerts: count(".count-alert") };
+  }
+
+  it("counts a point against its own thresholds", () => {
+    // 150 % is under the tandem's 160 % continuous threshold: neither a warning nor an alert, as the monitor judges it.
+    expect(counts([{ ...TANDEM, utilization_pct: 150 }])).toEqual({ warnings: null, alerts: null });
+    expect(
+      counts([
+        { ...TANDEM, utilization_pct: 170 },
+        { ...TANDEM, utilization_pct: 200 },
+      ])
+    ).toEqual({ warnings: 1, alerts: 1 });
+  });
+
+  it("counts default thresholds as before", () => {
+    const points = [79, 80, 99, 100, 150].map(utilization_pct => ({ ...DEFAULTS, utilization_pct }));
+    expect(counts(points)).toEqual({ warnings: 2, alerts: 2 });
+  });
+
+  it("counts a shared meter once, however many of its members report it", () => {
+    // Every member of a group reports the group's judgement under the group's point id.
+    const tandem = (utilization_pct: number) => ({ ...TANDEM, utilization_pct, point_id: "t-a" });
+    expect(counts([tandem(170), tandem(170)])).toEqual({ warnings: 1, alerts: null });
+    expect(counts([tandem(210), tandem(210), { ...DEFAULTS, utilization_pct: 120, point_id: "c-1" }])).toEqual({ warnings: null, alerts: 2 });
+  });
+
+  it("counts each entry as its own point where the integration names none, as an older one does", () => {
+    expect(
+      counts([
+        { ...DEFAULTS, utilization_pct: 85 },
+        { ...DEFAULTS, utilization_pct: 85 },
+      ])
+    ).toEqual({ warnings: 2, alerts: null });
+  });
+
+  it("counts a shared meter's override once", () => {
+    const div = document.createElement("div");
+    const member = { has_override: true, point_id: "t-a" };
+    div.innerHTML = buildMonitoringSummaryHTML({ circuits: { "sensor.a_power": member, "sensor.b_power": member }, mains: {} });
+    expect(Number.parseInt(div.querySelector(".count-overrides")!.textContent!, 10)).toBe(1);
+  });
+
+  it("counts a point that reports no thresholds against 80 % and 100 %", () => {
+    expect(counts([{ utilization_pct: 85 }, { utilization_pct: 120 }])).toEqual({ warnings: 1, alerts: 1 });
   });
 });

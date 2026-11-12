@@ -2,12 +2,24 @@
 
 ## Unreleased
 
-- spanos3/r202639/03 batch 2: the panel view shows more of this firmware's data.
+### Added
+
+- **On panels other than MAIN 32, the panel view draws the breaker positions the panel reports**, so every breaker appears in its place even where the positions
+  do not start at 1.
+- **Circuits that share one breaker's meter, such as a tandem's, are drawn as one slot** with each circuit's name and rating, one reading and one switch, and
+  are counted once in the site total.
+- **A meter with no breaker space, such as a remote current transformer, is drawn in a Meters strip above the grid** with its import and export, and is left out
+  of the circuits' total.
+- **A circuit the panel marks as solar is drawn and totalled as generation.**
 
 ### Fixed
 
-- **A multi-load breaker whose circuits list different spaces, such as a tandem-quad, is drawn across all of them**, rather than over one space with the other
-  shown empty.
+- **A panel that reports its size as 0 loads**, taking its size from its circuits.
+- **With current monitoring off, the dashboard no longer shows a summary of 0 monitored circuits.**
+- **A circuit's utilization is colored and counted against that circuit's own monitoring thresholds**, so one set above 100%, such as a tandem judged as its
+  pair, no longer shows as an alert below them.
+- **Current charts draw their limit lines at the circuit's own monitoring thresholds**, with the axis fitted to the highest line and reading, instead of at 80%
+  and 100% of the breaker rating.
 
 ## 0.9.6
 
