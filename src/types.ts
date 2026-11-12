@@ -152,12 +152,15 @@ export interface PanelTopology {
 }
 
 /**
- * One shared meter as the integration rates it. `breaker_rating_a` is the group's capacity, what its heaviest space can
- * carry, which the integration computes and current monitoring judges against; null where unknown.
+ * One shared meter as the integration rates and judges it. The ratings are capacities the integration computes, what
+ * the group's heaviest space can carry, so the card reads them and adds nothing up itself; null where unknown. The
+ * monitoring fields are absent from an integration that predates monitoring ratings.
  */
 export interface SharedMeterGroup {
   members: string[];
   breaker_rating_a: number | null;
+  monitoring_rating_a?: number | null;
+  monitoring_rating_user_set?: boolean;
 }
 
 export interface PanelDevice {

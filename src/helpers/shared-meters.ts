@@ -9,8 +9,8 @@ export interface MeterSlot {
   /** The circuit the slot reads and switches through: the group's key when that is a member, else its first. */
   readonly uuid: string;
   /**
-   * That circuit, carrying the group's panel rating as the integration reports it in `shared_meter_groups` and its
-   * combined monitoring rating, the monitoring one being what the group is judged against, and every space its members
+   * That circuit, carrying the group's panel and monitoring ratings as the integration reports them in
+   * `shared_meter_groups`, the monitoring one being what the group is judged against, and every space its members
    * occupy, which is where the group is drawn.
    */
   readonly circuit: Circuit;
@@ -32,7 +32,7 @@ export interface SlotMember {
  * do not. A rating set on such a slot may be judged against the wrong leg.
  */
 export function spansSeveralSpaces(members: readonly SlotMember[]): boolean {
-  return new Set(members.flatMap(member => member.circuit.tabs)).size > 1;
+  return occupiedSpaces(members.map(member => member.circuit)).length > 1;
 }
 
 /** A slot's circuits, each with its id. */
@@ -59,11 +59,12 @@ export function judgedAs(circuit: Circuit, slot: MeterSlot | undefined): Circuit
 /**
  * One slot per meter, in topology order: each group of circuits that share a
  * meter once, at its first member's place, and every other circuit by itself.
- * A circuit with no group is its own slot, unchanged. A group's rating is the
+ * A circuit with no group is its own slot, unchanged. A group's ratings are the
  * integration's, from `shared_meter_groups`; only a group with no record there,
- * as from an integration that predates it, falls back to the members' sum. A
- * member drawn without the others, as one favorited alone is, is still rated by
- * its group's record, since it still reads the one meter.
+ * as from an integration that predates it, falls back to its members' panel
+ * ratings summed, and has no monitoring rating. A member drawn without the
+ * others, as one favorited alone is, is still rated by its group's record, since
+ * it still reads the one meter.
  */
 export function meterSlots(topology: Pick<PanelTopology, "circuits" | "shared_meter_groups">): MeterSlot[] {
   const circuits = topology.circuits;
@@ -89,13 +90,10 @@ export function meterSlots(topology: Pick<PanelTopology, "circuits" | "shared_me
           ...through,
           tabs: occupiedSpaces(members),
           breaker_rating_a: rated ? rated.breaker_rating_a : combinedRating(members),
-          // Only where the members carry one: an integration that predates monitoring ratings gives none to combine.
-          ...(members.some(member => member.monitoring_rating_a !== undefined)
-            ? {
-                monitoring_rating_a: combinedMonitoringRating(members),
-                monitoring_rating_user_set: members.some(member => member.monitoring_rating_user_set === true),
-              }
-            : {}),
+          // The group's, never the key member's own: absent where the record carries none (an integration that
+          // predates monitoring ratings) or there is no record, so the group is then judged by its capacity.
+          monitoring_rating_a: rated?.monitoring_rating_a,
+          monitoring_rating_user_set: rated?.monitoring_rating_user_set === true,
         },
         members,
         memberIds: group.map(([id]) => id),
@@ -139,16 +137,6 @@ function combinedRating(members: readonly Circuit[]): number | null {
   for (const member of members) {
     if (!member.breaker_rating_a) return null;
     total += member.breaker_rating_a;
-  }
-  return total;
-}
-
-/** The members' monitoring ratings summed, which is what a group is judged against; null while any member has none. */
-function combinedMonitoringRating(members: readonly Circuit[]): number | null {
-  let total = 0;
-  for (const member of members) {
-    if (!member.monitoring_rating_a) return null;
-    total += member.monitoring_rating_a;
   }
   return total;
 }

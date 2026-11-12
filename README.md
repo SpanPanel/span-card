@@ -94,7 +94,8 @@ resetting thresholds leaves it alone. It is hidden while monitoring is off for t
 on. The field is not part of the Lovelace card or the list tabs, which show the panel's rating and do not edit it.
 
 On panels other than MAIN 32 the field is not shown, because the integration offers no monitoring rating there: those panels publish each circuit of a
-multi-load breaker with its own rating and name the circuits that share its meter.
+multi-load breaker with its own rating, and a group of circuits that share a meter is judged against the capacity the integration reports for it, what its
+heaviest space can carry. The card reads that capacity and adds no ratings up itself.
 
 The most current the measured wire can carry is the right value; for a tandem in one space, add its breakers. For a circuit that spans several spaces the panel
 does not publish which leg it measures, so the section shows a caution, once for the circuit, that a rating set there may hide a real overload and that turning
