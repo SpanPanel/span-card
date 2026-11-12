@@ -89,10 +89,11 @@ its output is included in the site total. The editor's Battery section now also 
 On a MAIN 32, which publishes a tandem breaker as one circuit with the rating of its first breaker, an administrator can copy the other breaker's rating from
 the SPAN app, so current monitoring judges the space against both breakers together. Open a circuit's gear in the sidebar dashboard and turn **Monitoring** on:
 **Breaker ratings from the SPAN app** sits at the top of the Monitoring section, above the Global/Custom choice. It shows the rating the panel publishes,
-read-only, and asks for the other breaker in the space exactly as the SPAN app shows the circuit: for 20-30A, enter 30. It is saved after a short pause;
-**Remove copied ratings** returns to the panel's rating. The copy is not a threshold: it is shown in both Global and Custom mode, and choosing Global or
-resetting thresholds leaves it alone. It is hidden while monitoring is off for that circuit, and the copy applies again when you turn monitoring back on. The
-section is not part of the Lovelace card or the list tabs, which show the panel's rating and do not edit it.
+read-only, and asks for the other breaker in the space exactly as the SPAN app shows the circuit: for 20-30A, enter 30. It is saved when you press Enter or
+leave the field, never while you type, and only as a whole number of amps of 1 or more; anything else is marked for correction. **Remove copied ratings**
+returns to the panel's rating. The copy is not a threshold: it is shown in both Global and Custom mode, and choosing Global or resetting thresholds leaves it
+alone. It is hidden while monitoring is off for that circuit, and the copy applies again when you turn monitoring back on. The section is not part of the
+Lovelace card or the list tabs, which show the panel's rating and do not edit it.
 
 On panels other than MAIN 32 the section is not shown, because the integration takes no copied ratings there: those panels publish each circuit of a multi-load
 breaker with its own rating, and a group of circuits that share a meter is judged against the capacity the integration reports for it, what its heaviest space
@@ -102,17 +103,17 @@ it either.
 For a circuit that spans more than one space the panel reports the average of its legs, so one leg can carry more than its breaker while the reading stays under
 the rating. No copied rating can show that, so the section offers none there and says instead that turning monitoring off for the circuit is the safer choice.
 
-Thresholds are percentages of the rating a circuit is judged against. Where the circuit's own thresholds are above 100%, as they may be if you raised them to
-quiet a tandem's alerts, the section warns that they now apply to both breakers together, which can let a real overload pass, and offers **Use global
-thresholds**.
+Thresholds are percentages of the rating a circuit is judged against. Where the thresholds a circuit uses are above 100%, as they may be if you raised them to
+quiet a tandem's alerts, the section warns that they now apply to both breakers together, which can let a real overload pass. For the circuit's own it offers
+**Use global thresholds**; for the global ones it points to **Global Settings** on the Monitoring tab. The warning follows a threshold change as it is saved.
 
-A copied rating carries a pencil mark wherever the card shows what monitoring judges against, with a tooltip naming the package and the panel's rating, for
-example "20-20 from your SPAN app (the panel publishes 20 A)". The Monitoring tab has a Rating column, and a circuit's Monitoring section says what it is judged
-against, "Judged against 40 A: 20-20 from your SPAN app (the panel publishes 20 A)", so you can see the rating that utilization and alerts use. The breaker
-labels on the grid, list and side panel keep showing the panel's own rating. The current chart's limit line, and the utilization the card works out when the
-monitor has no figure, use both breakers together only while that circuit's monitoring is on; with it off, or monitoring disabled, they use the panel's rating.
-A circuit with no rating shows "no rating". Every open view redraws when a copy changes, whether you changed it here, in another browser or from a service call,
-and a field you were typing in shows the copy the integration holds, not the value you typed.
+A copied rating carries a pencil mark wherever the card shows what monitoring judges against, naming the package and the panel's rating, for example "20-20 from
+your SPAN app (the panel publishes 20 A)", as its tooltip and, on a tap, in a note beside it. The Monitoring tab has a Rating column, and a circuit's Monitoring
+section says what it is judged against, "Judged against 40 A: 20-20 from your SPAN app (the panel publishes 20 A)", so you can see the rating that utilization
+and alerts use. The breaker labels on the grid, list and side panel keep showing the panel's own rating. The current chart's limit line, and the utilization the
+card works out when the monitor has no figure, use both breakers together only while that circuit's monitoring is on; with it off, or monitoring disabled, they
+use the panel's rating. A circuit with no rating shows "no rating". Every open view redraws when a copy changes, whether you changed it here, in another browser
+or from a service call, and a field you were typing in shows the copy the integration holds, not the value you typed.
 
 ### Finding Your Device ID
 
