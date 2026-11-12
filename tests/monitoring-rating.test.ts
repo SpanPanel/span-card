@@ -81,6 +81,11 @@ describe("monitoringRatingView", () => {
     expect(judgedAgainstSentence(view)).toBe("Judged against 40 A: 20-20 from your SPAN app (the panel publishes 20 A)");
   });
 
+  it("falls back to the breaker rating for a status from an integration that predates monitoring ratings", () => {
+    expect(monitoringRatingView({ breaker_rating_a: 20 }).amps).toBe(20);
+    expect(ratingLabelHTML(monitoringRatingView({ breaker_rating_a: 20 }))).toBe("20A");
+  });
+
   it("is unmarked while the rating is the panel's, and absent when nothing is judged", () => {
     expect(monitoringRatingView({ breaker_rating_a: 20, monitoring_rating_a: 20, monitoring_rating_user_set: false }).userSet).toBe(false);
     expect(monitoringRatingView({ breaker_rating_a: 20, monitoring_rating_a: null }).amps).toBeNull();

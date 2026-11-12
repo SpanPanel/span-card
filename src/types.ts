@@ -347,7 +347,7 @@ export interface MonitoringPointInfo {
    * circuit's own id. Absent from an integration that predates it.
    */
   point_id?: string;
-  /** The panel's own breaker rating (a shared-meter group's sum); null when it publishes none. */
+  /** The panel's own breaker rating (for a shared meter, the group's capacity over those ratings); null when it publishes none. */
   breaker_rating_a?: number | null;
   /** What monitoring judges this point against; null when nothing is judged. */
   monitoring_rating_a?: number | null;

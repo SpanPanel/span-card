@@ -23,7 +23,7 @@ export interface RatingView {
  * judged. A topology from an integration that predates monitoring ratings carries none, and there the judgement is the
  * breaker rating, as it always was.
  */
-export function judgedRatingA(circuit: Pick<Circuit, "breaker_rating_a" | "monitoring_rating_a">): number | null {
+export function judgedRatingA(circuit: Pick<Circuit | MonitoringPointInfo, "breaker_rating_a" | "monitoring_rating_a">): number | null {
   return (circuit.monitoring_rating_a === undefined ? circuit.breaker_rating_a : circuit.monitoring_rating_a) ?? null;
 }
 
@@ -53,11 +53,13 @@ export function limitRatingA(
 /**
  * What a monitoring display shows for a circuit or point: the monitoring rating,
  * marked when it comes from a copied package, with the package and the panel's
- * own rating for the mark to name.
+ * own rating for the mark to name. A status from an integration that predates
+ * monitoring ratings carries none, and there it is the breaker rating, as the
+ * topology's is (`judgedRatingA`).
  */
 export function monitoringRatingView(fields: MonitoringRatingFields | null | undefined): RatingView {
   return {
-    amps: fields?.monitoring_rating_a,
+    amps: fields ? judgedRatingA(fields) : undefined,
     panelAmps: fields?.breaker_rating_a,
     userSet: fields?.monitoring_rating_user_set === true,
     packageRatings: fields?.package_ratings_a ?? null,
