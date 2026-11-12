@@ -203,6 +203,33 @@ describe("the editor's visibility", () => {
   });
 });
 
+describe("the editor's layout", () => {
+  const css = (p: SidePanel): string => p.shadowRoot!.querySelector("style")!.textContent ?? "";
+  const rule = (p: SidePanel, selector: string): string => {
+    const at = css(p).indexOf(`${selector} {`);
+    return at < 0 ? "" : css(p).slice(at, css(p).indexOf("}", at));
+  };
+
+  it("lets the row wrap, so the field and the reset fit the 360 px panel", () => {
+    const { panel } = open(COPIED);
+    expect(row(panel)!.classList.contains("rating-row")).toBe(true);
+    expect(rule(panel, ".rating-row")).toContain("flex-wrap: wrap");
+  });
+
+  it("styles its buttons as the panel's own, from the theme, so they follow dark mode", () => {
+    const { panel } = open(COPIED, {
+      monitoringInfo: { monitoring_enabled: true, has_override: true, continuous_threshold_pct: 160, spike_threshold_pct: 200 },
+      monitoringGlobals: { continuous_threshold_pct: 80, spike_threshold_pct: 100 },
+    });
+    const buttons = [reset(panel)!, panel.shadowRoot!.querySelector<HTMLElement>('[data-role="rating-threshold-reset"]')!];
+    expect(buttons.map(b => b.classList.contains("text-btn"))).toEqual([true, true]);
+    const style = rule(panel, ".text-btn");
+    expect(style).toContain("var(--primary-text-color");
+    expect(style).toContain("var(--divider-color");
+    expect(style).toContain("background: none");
+  });
+});
+
 describe("a circuit across several spaces", () => {
   const DRYER = [{ uuid: "c-1", circuit: circuit("Dryer", 30, null, [1, 3]) }];
 
