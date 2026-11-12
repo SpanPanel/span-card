@@ -17,7 +17,7 @@ import { DashboardController } from "../core/dashboard-controller.js";
 import { buildTabBarHTML } from "../core/tab-bar-renderer.js";
 import { subscribeAreaUpdates } from "../core/area-resolver.js";
 import { subscribeEntryReloads } from "../core/entry-reload.js";
-import { subscribeMonitoringRatingChanges } from "../core/rating-events.js";
+import { subscribePackageRatingChanges } from "../core/rating-events.js";
 import { sameTopologyStructure } from "../core/topology-structure.js";
 import { discoverTopology } from "../card/card-discovery.js";
 import { RetryManager } from "../core/retry-manager.js";
@@ -670,7 +670,7 @@ export class SpanPanelElement extends LitElement {
       if (this._ratingSubs.has(entryId)) continue;
       this._ratingSubs.set(
         entryId,
-        subscribeMonitoringRatingChanges(hass, entryId, () => this._onRatingChanged(entryId)).catch((err: unknown): (() => void) => {
+        subscribePackageRatingChanges(hass, entryId, () => this._onRatingChanged(entryId)).catch((err: unknown): (() => void) => {
           console.warn("SPAN Panel: monitoring rating subscription failed", err);
           return () => {};
         })

@@ -1,7 +1,7 @@
 import type { HomeAssistant } from "../types.js";
 
-/** The bus event the integration fires on every set, clear and reconcile that changes a monitoring rating. */
-export const MONITORING_RATING_CHANGED = "span_panel_monitoring_rating_changed";
+/** The bus event the integration fires on every set, clear and reconcile that changes a circuit's package ratings. */
+export const PACKAGE_RATINGS_CHANGED = "span_panel_package_ratings_changed";
 
 /** The config entry a rating event names, or null for an event that carries none. */
 function eventEntryId(event: unknown): string | null {
@@ -12,21 +12,21 @@ function eventEntryId(event: unknown): string | null {
 }
 
 /**
- * Call `onChange` whenever a monitoring rating changes on the given config entry.
+ * Call `onChange` whenever the package ratings copied from the SPAN app change on the given config entry.
  *
  * Every card view reads ratings from a topology fetched on render, so without this
- * a monitoring rating made elsewhere (another browser, Developer Tools, a reconcile) would
- * leave it showing the old rating. An event for another entry is ignored: two panels
- * can publish the same circuit id, and each keeps its own monitoring ratings.
+ * a copy made elsewhere (another browser, Developer Tools, a reconcile that removes
+ * one) would leave it showing the old monitoring rating. An event for another entry
+ * is ignored: two panels can publish the same circuit id, and each keeps its own copies.
  *
  * Only administrators may subscribe to this event, which matches `panel_topology`
  * being admin-only; a caller whose topology came from the entity fallback should not
  * subscribe. Resolves to the unsubscribe function.
  */
-export async function subscribeMonitoringRatingChanges(hass: HomeAssistant, configEntryId: string, onChange: () => void): Promise<() => void> {
+export async function subscribePackageRatingChanges(hass: HomeAssistant, configEntryId: string, onChange: () => void): Promise<() => void> {
   const connection = hass.connection;
   if (!connection) return () => {};
   return connection.subscribeEvents<unknown>(event => {
     if (eventEntryId(event) === configEntryId) onChange();
-  }, MONITORING_RATING_CHANGED);
+  }, PACKAGE_RATINGS_CHANGED);
 }

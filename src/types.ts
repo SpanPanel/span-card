@@ -39,10 +39,18 @@ export interface Circuit {
   entities: CircuitEntities;
   /** The panel's own breaker rating; null when it publishes none. */
   breaker_rating_a?: number | null;
-  /** What monitoring judges the circuit against: the user's value where set, else the panel's; null where nothing is judged. */
+  /**
+   * What monitoring judges the circuit against: both breakers of the package copied from the SPAN app where it
+   * applies, else the panel's rating; null where nothing is judged.
+   */
   monitoring_rating_a?: number | null;
-  /** True when `monitoring_rating_a` is the user's value. */
+  /** True when `monitoring_rating_a` comes from the package the user copied. */
   monitoring_rating_user_set?: boolean;
+  /**
+   * The package's breaker ratings the user copied from the SPAN app, in its order, the first the panel's; kept while
+   * it waits on a value not yet arrived. Null where there is none; absent from an integration that predates them.
+   */
+  package_ratings_a?: number[] | null;
   device_type?: string;
   relay_state?: string;
   relay_state_target?: string;
@@ -139,9 +147,9 @@ export interface PanelTopology {
   /** The config entry that owns the panel. */
   config_entry_id?: string;
   /**
-   * Whether the integration takes a monitoring rating on this panel at all: false where the panel publishes each
-   * circuit of a multi-load breaker with its own rating, so the editor is not offered. Absent from an integration
-   * that predates it, which offered one everywhere.
+   * Whether the integration takes package ratings on this panel at all: false where the panel publishes each circuit
+   * of a multi-load breaker with its own rating. Absent from an integration that predates package ratings, which has
+   * no service to take them, so the editor is offered only where this is true.
    */
   monitoring_rating_offered?: boolean;
   /**
@@ -343,8 +351,10 @@ export interface MonitoringPointInfo {
   breaker_rating_a?: number | null;
   /** What monitoring judges this point against; null when nothing is judged. */
   monitoring_rating_a?: number | null;
-  /** True when `monitoring_rating_a` is the user's value; always false for the mains. */
+  /** True when `monitoring_rating_a` comes from a package the user copied; always false for the mains. */
   monitoring_rating_user_set?: boolean;
+  /** The package the user copied from the SPAN app for this circuit; null for none, a shared meter and the mains. */
+  package_ratings_a?: number[] | null;
   monitoring_enabled?: boolean;
   /** Null while the circuit has no current reading or no breaker rating. */
   utilization_pct?: number | null;
