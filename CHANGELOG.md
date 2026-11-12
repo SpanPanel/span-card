@@ -4,6 +4,16 @@
 
 ### Added
 
+- **On MAIN 32, a circuit's Monitoring section takes a tandem's other breaker rating, copied from the SPAN app**, beside the panel's own rating, so current
+  monitoring judges that space against both breakers together.
+- **What current monitoring judges a circuit against is shown in its Monitoring section and in a Rating column on the Monitoring tab**, marked where it comes
+  from ratings you copied.
+- **Every open view redraws when copied ratings change**, whether the change came from the dashboard, another browser or a service call.
+
+## 0.10.0
+
+### Added
+
 - **On panels other than MAIN 32, the panel view draws the breaker positions the panel reports**, so every breaker appears in its place even where the positions
   do not start at 1.
 - **Circuits that share one breaker's meter, such as a tandem's, are drawn as one slot** with each circuit's name and rating, one reading and one switch, and
