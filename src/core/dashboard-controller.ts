@@ -2,6 +2,7 @@ import { DEFAULT_GRAPH_HORIZON, GRAPH_HORIZONS, INTEGRATION_DOMAIN, LIVE_SAMPLE_
 import { getCircuitChartEntity } from "../helpers/chart.js";
 import { getHorizonDurationMs, getMaxHistoryPoints, getMinGapMs, recordSample } from "../helpers/history.js";
 import { readNumber } from "../helpers/read-number.js";
+import { meterSlots, slotMembers, slotsByMember, type MeterSlot } from "../helpers/shared-meters.js";
 import { subDeviceCharts } from "../helpers/sub-device-power.js";
 import { loadHistory, collectSubDeviceEntityIds } from "./history-loader.js";
 import { updateCircuitDOM, updateSubDeviceDOM } from "./dom-updater.js";
@@ -510,13 +511,15 @@ export class DashboardController {
         const favoritePanelDeviceId = ref?.panelDeviceId ?? this._panelFavorites?.panelDeviceId;
         const isFavorite = ref !== null || (this._panelFavorites?.circuitUuids.has(realUuid) ?? false);
 
+        // The panel describes the slot the circuit is drawn in: for a shared meter, every member and its capacity.
+        const slot = this._sidePanelSlot(uuid, ref);
+
         const circuitConfig: CircuitModeConfig = {
           uuid: realUuid,
           name: circuit.name,
-          tabs: circuit.tabs,
           entities: circuit.entities,
-          breaker_rating_a: circuit.breaker_rating_a ?? undefined,
-          voltage: circuit.voltage,
+          members: slot ? slotMembers(slot) : [{ uuid: realUuid, circuit }],
+          capacityA: slot && slot.members.length > 1 ? (slot.circuit.breaker_rating_a ?? null) : null,
           is_user_controllable: circuit.is_user_controllable,
           always_on: circuit.always_on,
           relay_state: circuit.relay_state,
@@ -571,6 +574,17 @@ export class DashboardController {
         configEntryId: entryId,
       });
     }
+  }
+
+  /**
+   * The slot a circuit's side panel describes, found by the circuit's own id in its own panel's topology. In the
+   * Favorites view that is the contributing panel's, since the merged topology holds only the favorited circuits and a
+   * member favorited alone would lose the others; the merged one stands in only where that panel is not known.
+   */
+  private _sidePanelSlot(uuid: string, ref: FavoriteRef | null): MeterSlot | undefined {
+    const own = ref?.kind === "circuit" ? this._perPanelInfo.get(ref.panelDeviceId)?.topology : undefined;
+    if (own && ref) return slotsByMember(meterSlots(own)).get(ref.targetId);
+    return this._topology ? slotsByMember(meterSlots(this._topology)).get(uuid) : undefined;
   }
 
   /**

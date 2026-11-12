@@ -6,6 +6,7 @@ import { measuresOutsidePanel } from "../helpers/layout.js";
 import { circuitCurrentA, circuitPowerW, circuitUtilizationPct, drawsAsOn, getCircuitStateClasses, readsAsProducer, switchPresence } from "./circuit-state.js";
 import { buildSheddingIconHTML, buildTogglePillHTML } from "./circuit-controls.js";
 import { utilizationClass } from "./monitoring-status.js";
+import { slotRatingLabel } from "../helpers/shared-meters.js";
 import type { Circuit, HomeAssistant, CardConfig, MonitoringPointInfo } from "../types.js";
 
 /**
@@ -56,8 +57,7 @@ export function buildListRowHTML(
   const isOn = drawsAsOn(circuit, hass);
   const presence = switchPresence(circuit, hass);
 
-  const breakerAmps = circuit.breaker_rating_a;
-  const breakerLabel = breakerAmps ? `${Math.round(breakerAmps)}A` : "";
+  const breakerLabel = slotRatingLabel([circuit]);
   const name = escapeHtml(circuit.name || t("grid.unknown"));
 
   // Power / current value

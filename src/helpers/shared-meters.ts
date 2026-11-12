@@ -86,8 +86,33 @@ export function meterSlots(topology: Pick<PanelTopology, "circuits" | "shared_me
  * Every space the members occupy, ascending. A member need not list them all: on a tandem-quad each single-pole
  * circuit lists only its own space and the two-pole circuit lists both, so the group's own key can be one space short.
  */
-function occupiedSpaces(members: readonly Circuit[]): number[] {
+export function occupiedSpaces(members: readonly Circuit[]): number[] {
   return [...new Set(members.flatMap(member => member.tabs))].sort((a, b) => a - b);
+}
+
+/** What a slot's panel rating reads as: one circuit's "20", or each member's "15·10"; empty while any is unknown. */
+function slotAmpsText(members: readonly Circuit[]): string {
+  if (members.some(member => !member.breaker_rating_a)) return "";
+  return members.map(member => Math.round(member.breaker_rating_a!)).join("·");
+}
+
+/**
+ * A slot's breaker label as the grid and list draw it: "20A" for a circuit alone, "15·10 A" for circuits that
+ * share a meter. It is each breaker's own rating, never the group's capacity; empty while any rating is unknown.
+ */
+export function slotRatingLabel(members: readonly Circuit[]): string {
+  const text = slotAmpsText(members);
+  if (!text) return "";
+  return members.length === 1 ? `${text}A` : `${text} A`;
+}
+
+/** The same label for the side panel's subtitle: a circuit alone reads its rating as published. */
+export function slotRatingText(members: readonly Circuit[]): string {
+  if (members.length === 1) {
+    const amps = members[0]!.breaker_rating_a;
+    return amps ? `${amps}A` : "";
+  }
+  return slotRatingLabel(members);
 }
 
 /**

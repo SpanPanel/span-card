@@ -2,7 +2,8 @@
 import { escapeHtml } from "../helpers/sanitize.js";
 import { loadListColumns, saveListColumns } from "../helpers/list-columns.js";
 import { INTEGRATION_DOMAIN, SHEDDING_PRIORITIES, SELECTABLE_PRIORITY_KEYS, GRAPH_HORIZONS, DEFAULT_GRAPH_HORIZON, INPUT_DEBOUNCE_MS } from "../constants.js";
-import { t } from "../i18n.js";
+import { t, tf } from "../i18n.js";
+import { occupiedSpaces, slotRatingText, type SlotMember } from "../helpers/shared-meters.js";
 import { addFavorite, removeFavorite } from "./favorites-store.js";
 import { sortedCircuitsForSection } from "./favorites-sections.js";
 import { subDeviceCharts } from "../helpers/sub-device-power.js";
@@ -53,9 +54,13 @@ export type CircuitModeConfig = CircuitControlFields & {
   favoritesMode?: undefined;
   uuid: string;
   name: string;
-  tabs: number[];
-  breaker_rating_a?: number;
-  voltage?: number;
+  /**
+   * Every circuit drawn in the slot this panel opened on, each with the id the services take; a circuit alone is a
+   * slot of one. The subtitle reads each one's rating, voltage and spaces from them.
+   */
+  members: readonly SlotMember[];
+  /** For circuits that share a meter, the group's capacity, which they are judged against; null for a circuit alone or where unknown. */
+  capacityA: number | null;
   monitoringInfo: MonitoringPointInfo | null;
   showMonitoring?: boolean;
   graphHorizonInfo: GraphHorizonInfo;
@@ -831,8 +836,7 @@ class SpanSidePanel extends HTMLElement {
   }
 
   private _renderCircuitMode(panel: HTMLDivElement, cfg: CircuitModeConfig): void {
-    const subtitle = `${escapeHtml(String(cfg.breaker_rating_a))}A \u00b7 ${escapeHtml(String(cfg.voltage))}V \u00b7 Tabs [${escapeHtml(String(cfg.tabs))}]`;
-    const header = this._createHeader(escapeHtml(cfg.name), subtitle);
+    const header = this._createHeader(escapeHtml(cfg.name), this._circuitSubtitle(cfg));
     panel.appendChild(header);
 
     const body = document.createElement("div");
@@ -848,6 +852,22 @@ class SpanSidePanel extends HTMLElement {
     if (cfg.showMonitoring) {
       this._renderMonitoringSection(body, cfg);
     }
+  }
+
+  /**
+   * The header line for the slot the panel opened on, as plain text: each breaker's rating as the grid labels it, a
+   * shared meter's capacity, the members' voltages and every space they occupy. A part with nothing known is left out.
+   */
+  private _circuitSubtitle(cfg: CircuitModeConfig): string {
+    const circuits = cfg.members.map(member => member.circuit);
+    const voltages = [...new Set(circuits.flatMap(circuit => (circuit.voltage ? [circuit.voltage] : [])))].sort((a, b) => a - b);
+    const parts = [
+      slotRatingText(circuits),
+      circuits.length > 1 && cfg.capacityA ? tf("sidepanel.capacity", { amps: String(cfg.capacityA) }) : "",
+      voltages.length > 0 ? `${voltages.join("/")}V` : "",
+      `Tabs [${occupiedSpaces(circuits).join(",")}]`,
+    ];
+    return parts.filter(Boolean).join(" \u00b7 ");
   }
 
   private _favoriteEntityId(entities: CircuitEntities | undefined): string | null {

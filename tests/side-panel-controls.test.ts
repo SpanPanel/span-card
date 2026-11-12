@@ -31,7 +31,8 @@ function openFor(states: Record<string, string>, priority?: string, callService?
   panel.open({
     uuid: "kitchen",
     name: "Kitchen",
-    tabs: [2],
+    members: [{ uuid: "kitchen", circuit: { name: "Kitchen", tabs: [2], entities: { switch: SWITCH, select: SELECT, power: POWER } } }],
+    capacityA: null,
     entities: { switch: SWITCH, select: SELECT, power: POWER },
     is_user_controllable: true,
     relay_state: "CLOSED",
