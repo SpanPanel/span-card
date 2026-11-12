@@ -471,10 +471,50 @@ describe("the reset", () => {
 });
 
 describe("a refused change", () => {
-  it("shows the service's message", async () => {
+  /** A refusal as Home Assistant's websocket hands it over: the message in the server's language, prefixed, and its translation key. */
+  const REFUSAL = {
+    code: "service_validation_error",
+    message: "Validation error: The ratings copied from the SPAN app add up to more than the panel's service rating of 40 A.",
+    translation_domain: "span_panel",
+    translation_key: "package_ratings_above_service_rating",
+    translation_placeholders: { service_rating: "40" },
+  };
+
+  it("shows the refusal in the user's language, from the integration's exception translations", async () => {
+    const loads: unknown[][] = [];
     const { panel, errors } = open(OVEN, {}, async () => {
-      throw { code: "service_validation_error", message: "The ratings copied from the SPAN app add up to more than the panel's service rating of 40 A." };
+      throw REFUSAL;
     });
+    panel.hass = {
+      ...panel.hass,
+      loadBackendTranslation: async (...args: unknown[]) => {
+        loads.push(args);
+        return (key: string, values?: Record<string, string | number>) =>
+          key === "component.span_panel.exceptions.package_ratings_above_service_rating.message"
+            ? `Les calibres copiés dépassent le calibre de service du panneau, soit ${String(values?.service_rating)} A.`
+            : "";
+      },
+    } as HomeAssistant;
+    type(input(panel), "30");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(loads).toEqual([["exceptions", "span_panel"]]);
+    expect(errors.active.map(e => e.message)).toEqual(["Les calibres copiés dépassent le calibre de service du panneau, soit 40 A."]);
+  });
+
+  it("shows the service's message without Home Assistant's prefix where no translation is to be had", async () => {
+    const { panel, errors } = open(OVEN, {}, async () => {
+      throw REFUSAL;
+    });
+    type(input(panel), "30");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(errors.active.map(e => e.message)).toEqual(["The ratings copied from the SPAN app add up to more than the panel's service rating of 40 A."]);
+  });
+
+  it("shows the service's message where the translation has no such key", async () => {
+    const { panel, errors } = open(OVEN, {}, async () => {
+      throw REFUSAL;
+    });
+    panel.hass = { ...panel.hass, loadBackendTranslation: async () => () => "" } as HomeAssistant;
     type(input(panel), "30");
     await vi.advanceTimersByTimeAsync(0);
     expect(errors.active.map(e => e.message)).toEqual(["The ratings copied from the SPAN app add up to more than the panel's service rating of 40 A."]);

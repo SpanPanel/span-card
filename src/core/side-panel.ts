@@ -4,7 +4,7 @@ import { loadListColumns, saveListColumns } from "../helpers/list-columns.js";
 import { INTEGRATION_DOMAIN, SHEDDING_PRIORITIES, SELECTABLE_PRIORITY_KEYS, GRAPH_HORIZONS, DEFAULT_GRAPH_HORIZON, INPUT_DEBOUNCE_MS } from "../constants.js";
 import { t, tf } from "../i18n.js";
 import { judgedAgainstSentence, monitoringRatingView } from "../helpers/monitoring-rating.js";
-import { errorText } from "../helpers/error-text.js";
+import { serviceErrorMessage } from "../helpers/error-text.js";
 import { occupiedSpaces, slotRatingText, type SlotMember } from "../helpers/shared-meters.js";
 import { guardNumberWheel, PackageRatingsEditor, type PackageRatingsHost, type PackageRatingsState } from "./package-ratings-editor.js";
 import { addFavorite, removeFavorite } from "./favorites-store.js";
@@ -1358,15 +1358,11 @@ class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
     return this._callDomainService("clear_circuit_package_ratings", this._ratingsPayload(uuid, {}));
   }
 
-  /** A refusal shows the service's own message, else the generic one. */
+  /** A refusal shows the integration's message in the user's language (`serviceErrorMessage`), else the generic one. */
   reportRatingsFailure(err: unknown): void {
     console.warn("SPAN Panel: package ratings update failed", err);
-    const detail = errorText(err);
-    this.errorStore?.add({
-      key: "service:package-ratings",
-      level: "error",
-      message: detail && detail !== "[object Object]" ? detail : t("error.package_ratings_failed"),
-      persistent: false,
+    void serviceErrorMessage(this._hass, err, INTEGRATION_DOMAIN, t("error.package_ratings_failed")).then(message => {
+      this.errorStore?.add({ key: "service:package-ratings", level: "error", message, persistent: false });
     });
   }
 

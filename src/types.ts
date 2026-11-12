@@ -8,6 +8,9 @@ export interface HassEntity {
   last_updated: string;
 }
 
+/** Home Assistant's frontend translator: a key and its placeholders to text, "" where it holds no such key. */
+export type LocalizeFunc = (key: string, values?: Record<string, string | number>) => string;
+
 export interface HomeAssistant {
   states: Record<string, HassEntity>;
   services: Record<string, Record<string, unknown>>;
@@ -16,6 +19,10 @@ export interface HomeAssistant {
   callService: (domain: string, service: string, data?: Record<string, unknown>, target?: Record<string, unknown>) => Promise<void>;
   callWS: <T = unknown>(msg: Record<string, unknown>) => Promise<T>;
   formatEntityState?: (entity: HassEntity) => string;
+  /** The frontend's translator for the strings it has loaded; "" for a key it does not hold. */
+  localize?: LocalizeFunc;
+  /** Load a backend translation category, as the frontend does, resolving to a translator that holds it. */
+  loadBackendTranslation?: (category: string, integration?: string | string[], configFlow?: boolean) => Promise<LocalizeFunc>;
   connection?: {
     subscribeEvents: <T = unknown>(callback: (event: T) => void, event: string) => Promise<() => void>;
     /** home-assistant-js-websocket's: replays the subscription on reconnect, and the unsubscribe stays valid. */
