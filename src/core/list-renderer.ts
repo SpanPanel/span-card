@@ -38,7 +38,10 @@ export function buildUnitToggleHTML(config: CardConfig): string {
 }
 
 /**
- * Build a compact circuit row for the collapsed list view.
+ * Build a compact circuit row for the collapsed list view. `judged` is the
+ * circuit as current monitoring judges it (`judgedAs`): the row's utilization is
+ * read against its rating, which for a member of a shared meter is the group's
+ * capacity, while the badge shows the circuit's own breaker.
  */
 export function buildListRowHTML(
   uuid: string,
@@ -47,7 +50,8 @@ export function buildListRowHTML(
   config: CardConfig,
   monitoringInfo: MonitoringPointInfo | null,
   sheddingPriority: string,
-  isExpanded: boolean
+  isExpanded: boolean,
+  judged: Pick<Circuit, "entities" | "breaker_rating_a">
 ): string {
   const isOn = drawsAsOn(circuit, hass);
   const presence = switchPresence(circuit, hass);
@@ -71,7 +75,7 @@ export function buildListRowHTML(
 
   // Utilization — prefer monitoring data, fall back to live current / breaker rating
   let utilizationHTML = "";
-  const utilizationPct = circuitUtilizationPct(circuit, hass, monitoringInfo);
+  const utilizationPct = circuitUtilizationPct(judged, hass, monitoringInfo);
   if (utilizationPct !== null) {
     utilizationHTML = `<span class="utilization ${utilizationClass(utilizationPct, monitoringInfo)}">${Math.round(utilizationPct)}%</span>`;
   }

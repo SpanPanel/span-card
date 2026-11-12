@@ -228,7 +228,7 @@ describe("a meter outside the panel in the list views", () => {
     const cells = order
       .map(
         uuid =>
-          `<div class="list-cell" data-cell-uuid="${uuid}">${buildListRowHTML(uuid, CIRCUITS[uuid as keyof typeof CIRCUITS], hass, CONFIG, null, "unknown", false)}</div>`
+          `<div class="list-cell" data-cell-uuid="${uuid}">${buildListRowHTML(uuid, CIRCUITS[uuid as keyof typeof CIRCUITS], hass, CONFIG, null, "unknown", false, CIRCUITS[uuid as keyof typeof CIRCUITS])}</div>`
       )
       .join("");
     root.innerHTML = `<div class="list-view">${cells}</div>`;

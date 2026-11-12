@@ -87,14 +87,14 @@ const nonControllableCircuit = {
 
 describe("buildListRowHTML gear and status control", () => {
   it("adds a gear button with data-uuid", () => {
-    const html = buildListRowHTML("uuid-42", controllableCircuit, mockHass, mockConfig, null, "unknown", false);
+    const html = buildListRowHTML("uuid-42", controllableCircuit, mockHass, mockConfig, null, "unknown", false, controllableCircuit);
     expect(html).toContain("gear-icon");
     expect(html).toContain("circuit-gear");
     expect(html).toContain('data-uuid="uuid-42"');
   });
 
   it("puts the gear after list-power-value and before list-expand-toggle", () => {
-    const html = buildListRowHTML("uuid-42", controllableCircuit, mockHass, mockConfig, null, "unknown", false);
+    const html = buildListRowHTML("uuid-42", controllableCircuit, mockHass, mockConfig, null, "unknown", false, controllableCircuit);
     const valueIdx = html.indexOf("list-power-value");
     const gearIdx = html.indexOf("gear-icon");
     const toggleIdx = html.indexOf("list-expand-toggle");
@@ -104,7 +104,7 @@ describe("buildListRowHTML gear and status control", () => {
   });
 
   it("renders a real toggle-pill when circuit is user-controllable and has a switch entity", () => {
-    const html = buildListRowHTML("uuid-42", controllableCircuit, mockHass, mockConfig, null, "unknown", false);
+    const html = buildListRowHTML("uuid-42", controllableCircuit, mockHass, mockConfig, null, "unknown", false, controllableCircuit);
     expect(html).toContain("toggle-pill");
     expect(html).toContain("toggle-knob");
     expect(html).toContain("toggle-label");
@@ -112,7 +112,7 @@ describe("buildListRowHTML gear and status control", () => {
   });
 
   it("falls back to a static list-status-badge for non-controllable circuits", () => {
-    const html = buildListRowHTML("uuid-42", nonControllableCircuit, mockHass, mockConfig, null, "unknown", false);
+    const html = buildListRowHTML("uuid-42", nonControllableCircuit, mockHass, mockConfig, null, "unknown", false, nonControllableCircuit);
     expect(html).toContain("list-status-badge");
     expect(html).not.toContain("toggle-pill");
   });
@@ -125,13 +125,13 @@ describe("buildListRowHTML gear and status control", () => {
       is_user_controllable: true,
       entities: { power: "sensor.circuit_a_power" },
     } as unknown as Circuit;
-    const html = buildListRowHTML("uuid-42", noSwitch, mockHass, mockConfig, null, "unknown", false);
+    const html = buildListRowHTML("uuid-42", noSwitch, mockHass, mockConfig, null, "unknown", false, noSwitch);
     expect(html).toContain("list-status-badge");
     expect(html).not.toContain("toggle-pill");
   });
 
   it("adds data-uuid on the list-row (needed by onToggleClick ancestor lookup)", () => {
-    const html = buildListRowHTML("uuid-42", controllableCircuit, mockHass, mockConfig, null, "unknown", false);
+    const html = buildListRowHTML("uuid-42", controllableCircuit, mockHass, mockConfig, null, "unknown", false, controllableCircuit);
     const rowMatch = html.match(/<div class="list-row[^"]*"([^>]*)>/);
     expect(rowMatch).not.toBeNull();
     const attrs = rowMatch?.[1] ?? "";
@@ -161,7 +161,7 @@ describe("a list row's status control and shedding marker", () => {
 
   function row(states: Record<string, { state: string; attributes?: Record<string, unknown> }>, priority = "unknown"): HTMLElement {
     const div = document.createElement("div");
-    div.innerHTML = buildListRowHTML("k", circuit, hassWith(states), mockConfig, null, priority, false);
+    div.innerHTML = buildListRowHTML("k", circuit, hassWith(states), mockConfig, null, priority, false, circuit);
     return div;
   }
 
@@ -204,7 +204,7 @@ describe("a list row's reading", () => {
 
   function row(states: Record<string, { state: string }>, config: CardConfig = mockConfig, monitoring: MonitoringPointInfo | null = null): HTMLElement {
     const div = document.createElement("div");
-    div.innerHTML = buildListRowHTML("k", circuit, hassWith(states), config, monitoring, "unknown", false);
+    div.innerHTML = buildListRowHTML("k", circuit, hassWith(states), config, monitoring, "unknown", false, circuit);
     return div;
   }
 

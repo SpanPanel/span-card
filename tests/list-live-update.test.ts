@@ -26,7 +26,7 @@ function hassWith(states: Record<string, string>): HomeAssistant {
 
 function rendered(hass: HomeAssistant, priority: string): HTMLElement {
   const root = document.createElement("div");
-  root.innerHTML = buildListRowHTML("kitchen", KITCHEN, hass, CONFIG, null, priority, false);
+  root.innerHTML = buildListRowHTML("kitchen", KITCHEN, hass, CONFIG, null, priority, false, KITCHEN);
   return root;
 }
 
@@ -82,7 +82,7 @@ describe("updateCollapsedRows readings and order", () => {
     const cells = order
       .map(
         uuid =>
-          `<div class="list-cell" data-cell-uuid="${uuid}">${buildListRowHTML(uuid, CIRCUITS[uuid as keyof typeof CIRCUITS], hass, CONFIG, null, "unknown", false)}</div>`
+          `<div class="list-cell" data-cell-uuid="${uuid}">${buildListRowHTML(uuid, CIRCUITS[uuid as keyof typeof CIRCUITS], hass, CONFIG, null, "unknown", false, CIRCUITS[uuid as keyof typeof CIRCUITS])}</div>`
       )
       .join("");
     root.innerHTML = `<div class="list-view">${cells}</div>`;
