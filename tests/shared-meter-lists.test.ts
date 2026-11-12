@@ -88,3 +88,42 @@ describe("a circuit favorited without the others that share its meter", () => {
     expect(mockUpdateChart.mock.calls[0]![7]).toBe(25);
   });
 });
+
+describe("an expanded list row of a circuit that shares a meter", () => {
+  const GROUPED = { circuits: TANDEM, shared_meter_groups: { "t-a": RECORD } } as PanelTopology;
+  const HISTORY = new Map([
+    ["t-a", [{ time: Date.now(), value: 20 }]],
+    ["t-b", [{ time: Date.now(), value: 20 }]],
+  ]);
+
+  /** The expanded chart slots of `uuids`, as the list draws them below their rows. */
+  function expanded(...uuids: string[]): HTMLElement {
+    const root = document.createElement("div");
+    root.innerHTML = uuids.map(uuid => buildExpandedChartHTML(uuid, TANDEM[uuid]!, hass(), AMPS, null)).join("");
+    return root;
+  }
+
+  function chartOf(root: ParentNode, uuid: string): Element {
+    return root.querySelector(`.circuit-slot[data-uuid="${uuid}"] .chart-container`)!;
+  }
+
+  it("draws its chart for a member other than the group's key, from its own history, limited at the group's capacity", () => {
+    const root = expanded("t-b");
+
+    updateCircuitDOM(root, hass(), GROUPED, AMPS, HISTORY, undefined);
+
+    expect(mockUpdateChart).toHaveBeenCalledTimes(1);
+    const [container, , history, , , , , limit] = mockUpdateChart.mock.calls[0]!;
+    expect(container).toBe(chartOf(root, "t-b"));
+    expect(history).toBe(HISTORY.get("t-b"));
+    expect(limit).toBe(25);
+  });
+
+  it("draws one chart for every expanded member", () => {
+    const root = expanded("t-a", "t-b");
+
+    updateCircuitDOM(root, hass(), GROUPED, AMPS, HISTORY, undefined);
+
+    expect(mockUpdateChart.mock.calls.map(call => call[0])).toEqual([chartOf(root, "t-a"), chartOf(root, "t-b")]);
+  });
+});
