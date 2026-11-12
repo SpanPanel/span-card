@@ -4,6 +4,11 @@
 
 - spanos3/r202639/03 batch 2: the panel view shows more of this firmware's data.
 
+### Fixed
+
+- **A multi-load breaker whose circuits list different spaces, such as a tandem-quad, is drawn across all of them**, rather than over one space with the other
+  shown empty.
+
 ## 0.9.6
 
 ### Fixed
