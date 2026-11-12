@@ -118,9 +118,26 @@ export function ratingLabelHTML(r: RatingView): string {
   return r.userSet ? `${label}${ratingMarkHTML(r)}` : label;
 }
 
-/** The pencil that marks a rating from a copied package, its tooltip naming the package and the panel's own rating. */
+/**
+ * The pencil that marks a rating from a copied package: a button named by what
+ * it marks, the package and the panel's own rating, which it also says as a
+ * tooltip, and which a tap or a key press shows in the note after it, where no
+ * tooltip can be hovered (`toggleRatingNote`).
+ */
 export function ratingMarkHTML(r: RatingView): string {
-  return `<span class="rating-user-set" title="${escapeHtml(copiedSentence(r))}">✎</span>`;
+  const text = escapeHtml(copiedSentence(r));
+  return (
+    `<button type="button" class="rating-user-set" title="${text}" aria-label="${text}" aria-expanded="false">✎</button>` +
+    `<span class="rating-copied-note" hidden>${text}</span>`
+  );
+}
+
+/** Show or hide the note after a rating mark (`ratingMarkHTML`), saying which on the mark. */
+export function toggleRatingNote(mark: HTMLElement): void {
+  const note = mark.nextElementSibling;
+  if (!(note instanceof HTMLElement) || !note.classList.contains("rating-copied-note")) return;
+  note.hidden = !note.hidden;
+  mark.setAttribute("aria-expanded", String(!note.hidden));
 }
 
 /**

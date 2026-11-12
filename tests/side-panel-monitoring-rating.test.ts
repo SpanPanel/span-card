@@ -184,6 +184,15 @@ describe("the editor's visibility", () => {
     expect(panelRating(panel)).toBe("Panel publishes 20 A");
   });
 
+  it("describes the field by the panel's rating, the guidance and what it says of a value, announcing changes politely", () => {
+    const { panel } = open(COPIED);
+    const ids = input(panel).getAttribute("aria-describedby")!.split(" ");
+    expect(ids.map(id => panel.shadowRoot!.getElementById(id)?.dataset.role)).toEqual(["rating-panel-rating", "rating-guidance", "rating-feedback"]);
+    expect(panel.shadowRoot!.querySelector('[data-role="rating-feedback"]')!.getAttribute("aria-live")).toBe("polite");
+    expect(panel.shadowRoot!.querySelector('[data-role="rating-warning-region"]')!.getAttribute("aria-live")).toBe("polite");
+    expect(panel.shadowRoot!.querySelector('[data-role="judged-against"]')!.getAttribute("aria-live")).toBe("polite");
+  });
+
   it("titles the section and gives the guidance, asking nothing to be added up", () => {
     const { panel } = open(OVEN);
     expect(editor(panel)!.querySelector(".section-label")!.textContent).toBe("Breaker ratings from the SPAN app");

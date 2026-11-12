@@ -2,7 +2,7 @@ import { INTEGRATION_DOMAIN, INPUT_DEBOUNCE_MS, THRESHOLD_DEBOUNCE_MS } from "..
 import { escapeHtml } from "../helpers/sanitize.js";
 import { errorText } from "../helpers/error-text.js";
 import { t } from "../i18n.js";
-import { monitoringRatingView, ratingLabelHTML } from "../helpers/monitoring-rating.js";
+import { monitoringRatingView, ratingLabelHTML, toggleRatingNote } from "../helpers/monitoring-rating.js";
 import type { ErrorStore } from "../core/error-store.js";
 import type { HomeAssistant, MonitoringPointInfo, MonitoringStatusResponse, CallServiceResponse } from "../types.js";
 
@@ -454,6 +454,7 @@ export class MonitoringTab {
     this._bindMainsToggles(container, hass);
     this._bindThresholdInputs(container, hass);
     this._bindResetButtons(container, hass);
+    this._bindRatingMarks(container);
   }
 
   private _serviceData(data: Record<string, unknown>): Record<string, unknown> {
@@ -871,6 +872,13 @@ export class MonitoringTab {
           }, THRESHOLD_DEBOUNCE_MS)
         );
       });
+    }
+  }
+
+  /** A rating mark's note shows on a tap or a key press, where its tooltip cannot be hovered. */
+  private _bindRatingMarks(container: HTMLElement): void {
+    for (const mark of container.querySelectorAll<HTMLElement>(".rating-user-set")) {
+      mark.addEventListener("click", () => toggleRatingNote(mark));
     }
   }
 

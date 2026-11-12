@@ -25,8 +25,12 @@ describe("ratingLabelHTML", () => {
     expect(ratingLabelHTML({ amps: 20 })).toBe("20A");
   });
 
-  it("marks a copied package with a pencil whose title names the package and the panel's value", () => {
-    expect(ratingLabelHTML(COPIED)).toBe('40A<span class="rating-user-set" title="20-20 from your SPAN app (the panel publishes 20 A)">✎</span>');
+  it("marks a copied package with a pencil button named by the package and the panel's value, its note revealed on a tap", () => {
+    const text = "20-20 from your SPAN app (the panel publishes 20 A)";
+    expect(ratingLabelHTML(COPIED)).toBe(
+      `40A<button type="button" class="rating-user-set" title="${text}" aria-label="${text}" aria-expanded="false">✎</button>` +
+        `<span class="rating-copied-note" hidden>${text}</span>`
+    );
   });
 
   it("names an unequal package in the SPAN app's order", () => {

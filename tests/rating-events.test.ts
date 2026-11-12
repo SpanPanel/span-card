@@ -413,6 +413,27 @@ describe("the Monitoring tab's rating cell", () => {
     expect(mains!.querySelector(".rating-user-set")).toBeNull();
   });
 
+  it("gives the mark an accessible name and shows what it says on a tap, as on a touch screen", async () => {
+    const container = await render({
+      circuits: {
+        "sensor.a": { name: "Oven", breaker_rating_a: 20, monitoring_rating_a: 50, monitoring_rating_user_set: true, package_ratings_a: [20, 30] },
+      },
+    });
+    const mark = container.querySelector<HTMLButtonElement>(".rating-user-set")!;
+    const note = container.querySelector<HTMLElement>(".rating-copied-note")!;
+    expect(mark.tagName).toBe("BUTTON");
+    expect(mark.getAttribute("aria-label")).toBe("20-30 from your SPAN app (the panel publishes 20 A)");
+    expect(note.hidden).toBe(true);
+
+    mark.click();
+    expect(note.hidden).toBe(false);
+    expect(mark.getAttribute("aria-expanded")).toBe("true");
+
+    mark.click();
+    expect(note.hidden).toBe(true);
+    expect(mark.getAttribute("aria-expanded")).toBe("false");
+  });
+
   it("says there is no rating for a point with none", async () => {
     const container = await render({ circuits: { "sensor.a": { name: "Meter", breaker_rating_a: null, monitoring_rating_a: null } } });
 
