@@ -30,6 +30,7 @@
   and 100% of the breaker rating.
 - **Threshold and duration fields in the side panel and the Monitoring tab save when you press Enter or leave them**, and only a whole number in their range, so
   stepping or scrolling a field no longer saves every value it passes through and an emptied field no longer saves 0.
+- **A circuit's name shows as written in its side panel's title**, so a name containing &, < or > no longer appears as `&amp;` and the like.
 
 ## 0.9.6
 
