@@ -105,6 +105,15 @@ describe("monitoringRatingView", () => {
   });
 });
 
+describe("the Japanese pointer to the global settings", () => {
+  it("runs the placeholders into the sentence with no space around them, as Japanese is written", () => {
+    setLanguage("ja");
+    const text = tf("monitoringRating.threshold_warning_global", { settings: "<S>", tab: "<T>" });
+    expect(text).toContain("<T>タブの<S>で");
+    expect(text).not.toMatch(/\s<[ST]>|<[ST]>\s/);
+  });
+});
+
 describe("the mark's style", () => {
   it("gives the mark a touch target of at least 24 by 24 px", () => {
     const at = CARD_STYLES.indexOf(".rating-user-set {");
