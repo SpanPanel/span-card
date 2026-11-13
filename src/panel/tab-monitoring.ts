@@ -1,7 +1,7 @@
 import { INTEGRATION_DOMAIN, INPUT_DEBOUNCE_MS } from "../constants.js";
 import { escapeHtml } from "../helpers/sanitize.js";
 import { errorText, serviceErrorMessage } from "../helpers/error-text.js";
-import { t } from "../i18n.js";
+import { t, tf } from "../i18n.js";
 import { monitoringRatingView, ratingLabelHTML, toggleRatingNote } from "../helpers/monitoring-rating.js";
 import { focusedIn } from "../helpers/focus.js";
 import { bindLimitField, isLimitField, LIMIT_RANGES, type LimitField } from "../helpers/number-field.js";
@@ -138,11 +138,25 @@ function coerceMonitoringStatusResponse(resp: unknown): MonitoringStatusResponse
   return out;
 }
 
-function thresholdCell(entityId: string, field: LimitField, value: number | undefined, unit: string, type: string): string {
+/** The label each threshold and duration field goes by, its unit included. */
+const FIELD_LABELS: Readonly<Record<LimitField, string>> = {
+  continuous_threshold_pct: "monitoring.continuous",
+  spike_threshold_pct: "monitoring.spike",
+  window_duration_m: "monitoring.window",
+  cooldown_duration_m: "monitoring.cooldown",
+};
+
+/**
+ * A point's threshold or duration field. The column header does not name a field
+ * for a screen reader, so the field is named by what it sets and the point's
+ * name (`name`, as written; it is escaped here).
+ */
+function thresholdCell(entityId: string, name: string, field: LimitField, value: number | undefined, unit: string, type: string): string {
   const { min, max } = LIMIT_RANGES[field];
+  const label = escapeHtml(tf("monitoring.point_field", { field: t(FIELD_LABELS[field]), name }));
   return `<td style="padding:6px 4px;">
     <input type="number" class="threshold-input" data-entity="${entityId}" data-field="${field}" data-type="${type}"
-           value="${value ?? ""}" min="${min}" max="${max}" step="1"
+           value="${value ?? ""}" min="${min}" max="${max}" step="1" aria-label="${label}"
            style="${CELL_INPUT_STYLE}"><span style="font-size:0.75em;color:var(--secondary-text-color);">${unit}</span>
   </td>`;
 }
@@ -286,7 +300,8 @@ export class MonitoringTab {
 
     const circuitRows = circuitEntries
       .map(([entityId, info]) => {
-        const name = escapeHtml(info.name ?? entityId);
+        const written = info.name ?? entityId;
+        const name = escapeHtml(written);
         const enabled = info.monitoring_enabled !== false;
         const hasOverride = info.has_override === true;
         const dimStyle = enabled ? "" : "opacity:0.4;";
@@ -302,14 +317,15 @@ export class MonitoringTab {
               </label>
             </td>
             ${ratingCell(info, false)}
-            ${thresholdCell(eid, "continuous_threshold_pct", info.continuous_threshold_pct, "%", "circuit")}
-            ${thresholdCell(eid, "spike_threshold_pct", info.spike_threshold_pct, "%", "circuit")}
-            ${thresholdCell(eid, "window_duration_m", info.window_duration_m, "m", "circuit")}
-            ${thresholdCell(eid, "cooldown_duration_m", info.cooldown_duration_m, "m", "circuit")}
+            ${thresholdCell(eid, written, "continuous_threshold_pct", info.continuous_threshold_pct, "%", "circuit")}
+            ${thresholdCell(eid, written, "spike_threshold_pct", info.spike_threshold_pct, "%", "circuit")}
+            ${thresholdCell(eid, written, "window_duration_m", info.window_duration_m, "m", "circuit")}
+            ${thresholdCell(eid, written, "cooldown_duration_m", info.cooldown_duration_m, "m", "circuit")}
             <td style="padding:6px 4px;">
               ${
                 hasOverride
                   ? `<button class="reset-btn" data-entity="${eid}" data-type="circuit"
+                       aria-label="${escapeHtml(tf("monitoring.reset_point", { name: written }))}"
                        style="background:none;border:1px solid var(--divider-color);color:var(--primary-text-color);border-radius:4px;padding:3px 6px;cursor:pointer;font-size:0.75em;">
                     ${t("monitoring.reset")}
                   </button>`
@@ -323,7 +339,8 @@ export class MonitoringTab {
 
     const mainsRows = Object.entries(mains)
       .map(([entityId, info]) => {
-        const name = escapeHtml(info.name ?? entityId);
+        const written = info.name ?? entityId;
+        const name = escapeHtml(written);
         const enabled = info.monitoring_enabled !== false;
         const hasOverride = info.has_override === true;
         const dimStyle = enabled ? "" : "opacity:0.4;";
@@ -339,14 +356,15 @@ export class MonitoringTab {
               </label>
             </td>
             ${ratingCell(info, true)}
-            ${thresholdCell(eid, "continuous_threshold_pct", info.continuous_threshold_pct, "%", "mains")}
-            ${thresholdCell(eid, "spike_threshold_pct", info.spike_threshold_pct, "%", "mains")}
-            ${thresholdCell(eid, "window_duration_m", info.window_duration_m, "m", "mains")}
-            ${thresholdCell(eid, "cooldown_duration_m", info.cooldown_duration_m, "m", "mains")}
+            ${thresholdCell(eid, written, "continuous_threshold_pct", info.continuous_threshold_pct, "%", "mains")}
+            ${thresholdCell(eid, written, "spike_threshold_pct", info.spike_threshold_pct, "%", "mains")}
+            ${thresholdCell(eid, written, "window_duration_m", info.window_duration_m, "m", "mains")}
+            ${thresholdCell(eid, written, "cooldown_duration_m", info.cooldown_duration_m, "m", "mains")}
             <td style="padding:6px 4px;">
               ${
                 hasOverride
                   ? `<button class="reset-btn" data-entity="${eid}" data-type="mains"
+                       aria-label="${escapeHtml(tf("monitoring.reset_point", { name: written }))}"
                        style="background:none;border:1px solid var(--divider-color);color:var(--primary-text-color);border-radius:4px;padding:3px 6px;cursor:pointer;font-size:0.75em;">
                     ${t("monitoring.reset")}
                   </button>`

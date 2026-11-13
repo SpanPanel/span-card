@@ -42,9 +42,9 @@ interface Integration {
  * the point's override, and a global save the thresholds of every point without one.
  * A service named in `refuse` is refused with the error given for it.
  */
-function integration({ ovenOverride = false, refuse = {} as Record<string, unknown> } = {}): Integration {
+function integration({ ovenOverride = false, ovenName = "Oven", refuse = {} as Record<string, unknown> } = {}): Integration {
   const globals: Fields = { ...GLOBALS };
-  const circuits: Record<string, MonitoringPointInfo> = { [OVEN]: { ...point("Oven"), has_override: ovenOverride } };
+  const circuits: Record<string, MonitoringPointInfo> = { [OVEN]: { ...point(ovenName), has_override: ovenOverride } };
   const mains: Record<string, MonitoringPointInfo> = { [MAINS]: point("Mains") };
   const saves: Message[] = [];
   let reads = 0;
@@ -687,5 +687,43 @@ describe("the Monitoring tab's notification settings", () => {
     await vi.advanceTimersByTimeAsync(1000);
 
     expect(settings(panel)).toEqual([{ service: "set_global_monitoring", notification_title_template: "SPAN alert", config_entry_id: "entry-1" }]);
+  });
+});
+
+describe("the Monitoring tab's table, as a screen reader names it", () => {
+  it("names each field by its point and what it sets", async () => {
+    const panel = integration();
+    const { container } = await shown(panel);
+    const names = [...container.querySelectorAll<HTMLInputElement>(".threshold-input")].map(field => field.getAttribute("aria-label"));
+
+    expect(names).toEqual([
+      "Continuous (%) for Mains",
+      "Spike (%) for Mains",
+      "Window (min) for Mains",
+      "Cooldown (min) for Mains",
+      "Continuous (%) for Oven",
+      "Spike (%) for Oven",
+      "Window (min) for Oven",
+      "Cooldown (min) for Oven",
+    ]);
+  });
+
+  it("names a point's Reset by its point, keeping the word it shows", async () => {
+    const panel = integration({ ovenOverride: true });
+    const { container } = await shown(panel);
+    const reset = container.querySelector<HTMLElement>(`.reset-btn[data-entity="${OVEN}"]`)!;
+
+    expect(reset.getAttribute("aria-label")).toBe("Reset Oven");
+    expect(reset.getAttribute("aria-label")).toContain(reset.textContent!.trim());
+  });
+
+  it("names them by the point's name as written, markup and quotes included", async () => {
+    const written = `Oven "A" <b>&</b>`;
+    const panel = integration({ ovenOverride: true, ovenName: written });
+    const { container } = await shown(panel);
+
+    expect(cell(container, OVEN, "spike_threshold_pct").getAttribute("aria-label")).toBe(`Spike (%) for ${written}`);
+    expect(container.querySelector(`.reset-btn[data-entity="${OVEN}"]`)!.getAttribute("aria-label")).toBe(`Reset ${written}`);
+    expect(container.querySelector("b")).toBeNull();
   });
 });
