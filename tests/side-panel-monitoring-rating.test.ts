@@ -1060,6 +1060,19 @@ describe("thresholds above 100% under a copy", () => {
     radio.dispatchEvent(new Event("change"));
   };
 
+  it("are warned of only while the circuit is monitored, the warning going with the details and back with them", () => {
+    // Monitoring off is itself an override, which the warning's reset to the global thresholds would clear.
+    const { panel } = open(COPIED, OWN);
+    turnMonitoring(panel, false);
+    expect(warning(panel)).toBeNull();
+    expect(shown(panel)).toBe(false);
+
+    turnMonitoring(panel, true);
+    expect(shown(panel)).toBe(true);
+    expect(warning(panel)!.textContent).toContain(OWN_TEXT);
+    expect(useGlobal(panel)!.hasAttribute("aria-disabled")).toBe(false);
+  });
+
   it("are the circuit's own where they differ from the global ones: warned of, with a reset to the global thresholds", () => {
     const { panel } = open(COPIED, OWN);
     expect(warning(panel)!.getAttribute("role")).toBe("note");

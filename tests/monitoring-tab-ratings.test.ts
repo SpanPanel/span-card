@@ -630,6 +630,30 @@ describe("a row's threshold warning", () => {
 
     expect(container.querySelectorAll(".rating-warning-row")).toHaveLength(0);
   });
+
+  it("is not drawn while monitoring is off for the circuit, whose Reset would turn monitoring back on", async () => {
+    // Monitoring turned off is an override, so the circuit has a Reset, yet it is judged by the global thresholds.
+    const panel = integration({ copies: { [OVEN]: [20, 20] }, off: [OVEN], globals: { continuous_threshold_pct: 160, spike_threshold_pct: 200 } });
+    const { container } = await shown(panel);
+
+    expect(rowOf(container, OVEN).querySelector(".reset-btn")).not.toBeNull();
+    expect(warningOf(container, OVEN)).toBeNull();
+    expect(container.querySelectorAll(".rating-warning-row")).toHaveLength(0);
+    // The field stays, dimmed with the row, for the copy to be kept or changed.
+    expect(fieldOf(container, OVEN)!.value).toBe("20");
+  });
+
+  it("comes back once monitoring is turned on again for the circuit", async () => {
+    const panel = integration({ copies: { [OVEN]: [20, 20] }, off: [OVEN], globals: { continuous_threshold_pct: 160, spike_threshold_pct: 200 } });
+    const { container } = await shown(panel);
+    const toggle = container.querySelector<HTMLInputElement>(`.circuit-toggle[data-entity="${OVEN}"]`)!;
+
+    toggle.checked = true;
+    toggle.dispatchEvent(new Event("change"));
+
+    // The switch's override stays, so the warning is the circuit's own, pointing to its Reset.
+    await vi.waitFor(() => expect(textOf(warningOf(container, OVEN))).toBe(OWN_WARNING));
+  });
 });
 
 describe("rows that take no copy", () => {

@@ -125,12 +125,16 @@ export type CopyWarning = ThresholdWarning | "averaged_legs";
  * The one warning a circuit's copy calls for, which every view that holds the
  * copy draws: the averaged-legs one (`warnsOfAveragedLegs`), else the threshold
  * one (`thresholdWarning`); null for none. The two never both apply, a copy on
- * averaged legs being one monitoring does not judge by.
+ * averaged legs being one monitoring does not judge by. Neither is given while
+ * the circuit is not monitored (`isMonitored`): no threshold judges it then, and
+ * turning monitoring off is itself an override, so the reset the own-thresholds
+ * warning points to would turn monitoring back on.
  */
 export function copyWarning(
   copy: PackageCopyFields | null | undefined,
   info: Pick<MonitoringPointInfo, "monitoring_enabled" | "has_override" | "continuous_threshold_pct" | "spike_threshold_pct"> | null | undefined
 ): CopyWarning | null {
+  if (!isMonitored(info)) return null;
   return warnsOfAveragedLegs(copy, info) ? "averaged_legs" : thresholdWarning(copy, info);
 }
 

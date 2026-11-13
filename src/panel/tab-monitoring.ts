@@ -365,18 +365,19 @@ function warningText(warning: CopyWarning): string {
 
 /**
  * The row under a circuit's cells for the warning its copy calls for
- * (`copyWarning`), dimmed with the circuit's row. The averaged-legs one carries
- * a button that turns monitoring off for the circuit, named by it as the row's
- * fields are (`written`, as written; it is escaped here).
+ * (`copyWarning`), which is only ever a monitored circuit's, so never dimmed.
+ * The averaged-legs one carries a button that turns monitoring off for the
+ * circuit, named by it as the row's fields are (`written`, as written; it is
+ * escaped here).
  */
-function warningRow(eid: string, written: string, warning: CopyWarning, dimStyle: string): string {
+function warningRow(eid: string, written: string, warning: CopyWarning): string {
   const label = t("monitoringRating.turn_off_monitoring");
   const action =
     warning === "averaged_legs"
       ? `<button type="button" class="rating-turn-off" data-entity="${eid}"
            aria-label="${escapeHtml(tf("monitoring.point_field", { field: label, name: written }))}" style="${ROW_BUTTON_STYLE}">${escapeHtml(label)}</button>`
       : "";
-  return `<tr class="rating-warning-row" style="${dimStyle}">
+  return `<tr class="rating-warning-row">
     <td colspan="${TABLE_COLUMNS}" style="padding:0 8px 8px;">
       <div class="rating-warning" role="note" data-kind="${warning}" style="${WARNING_STYLE}"><span>${escapeHtml(warningText(warning))}</span>${action}</div>
     </td>
@@ -665,7 +666,7 @@ export class MonitoringTab {
               }
             </td>
           </tr>
-          ${warning ? warningRow(eid, written, warning, dimStyle) : ""}
+          ${warning ? warningRow(eid, written, warning) : ""}
         `;
       })
       .join("");

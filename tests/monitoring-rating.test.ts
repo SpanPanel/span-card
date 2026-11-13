@@ -232,6 +232,12 @@ describe("copyWarning", () => {
     expect(copyWarning(AVERAGED, { ...ABOVE, monitoring_enabled: false })).toBeNull();
   });
 
+  it("is nothing for a copy monitoring judges by once monitoring is off for the circuit, whatever its thresholds", () => {
+    // Turning monitoring off is an override, so a Reset offered then would turn monitoring back on.
+    expect(copyWarning(APPLIES, { ...ABOVE, monitoring_enabled: false })).toBeNull();
+    expect(copyWarning({ package_ratings_form: "one_space", package_ratings_state: "pending" }, { ...ABOVE, monitoring_enabled: false })).toBeNull();
+  });
+
   it("is the threshold warning for a copy monitoring judges by, as thresholdWarning names it", () => {
     expect(copyWarning(APPLIES, ABOVE)).toBe("own");
     expect(copyWarning(APPLIES, { ...ABOVE, has_override: false })).toBe("global");
