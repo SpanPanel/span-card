@@ -1,6 +1,6 @@
 import { escapeHtml } from "./sanitize.js";
 import { t, tf } from "../i18n.js";
-import type { Circuit, MonitoringGlobalSettings, MonitoringPointInfo } from "../types.js";
+import type { Circuit, MonitoringPointInfo } from "../types.js";
 
 /**
  * A monitoring rating as the card shows it: what monitoring judges against, the
@@ -60,25 +60,19 @@ const _THRESHOLDS = ["continuous_threshold_pct", "spike_threshold_pct"] as const
  * under a copied package, and whose they are. Thresholds are percentages of the
  * rating a point is judged against, so ones above 100%, as a tandem's may have
  * been raised to quiet its alerts, now apply to both breakers together, which
- * can let a real overload pass. A threshold above 100% that differs from the
- * global one is the circuit's own, which a reset to the global thresholds
- * answers; one that equals it is the global one, which only the global settings
- * change. Where the global thresholds are not known, the override's presence
- * decides. Null without a copy or with every threshold at 100% or below.
+ * can let a real overload pass. A circuit with an override has its own, which a
+ * reset to the global thresholds answers, whatever its values: beside its checked
+ * Custom choice, that reset is what the user can act on there. One without has
+ * the global ones, which only the global settings change. Null without a copy or
+ * with every threshold at 100% or below.
  */
 export function thresholdWarning(
   copied: readonly number[] | null | undefined,
-  info: Pick<MonitoringPointInfo, "has_override" | "continuous_threshold_pct" | "spike_threshold_pct"> | null | undefined,
-  globals: Pick<MonitoringGlobalSettings, "continuous_threshold_pct" | "spike_threshold_pct"> | null | undefined
+  info: Pick<MonitoringPointInfo, "has_override" | "continuous_threshold_pct" | "spike_threshold_pct"> | null | undefined
 ): ThresholdWarning | null {
   if (!copied || !info) return null;
-  const above = _THRESHOLDS.filter(key => (info[key] ?? 0) > 100);
-  if (above.length === 0) return null;
-  const own = above.some(key => {
-    const global = globals?.[key];
-    return global === undefined ? info.has_override === true : info[key] !== global;
-  });
-  return own ? "own" : "global";
+  if (!_THRESHOLDS.some(key => (info[key] ?? 0) > 100)) return null;
+  return info.has_override === true ? "own" : "global";
 }
 
 /**

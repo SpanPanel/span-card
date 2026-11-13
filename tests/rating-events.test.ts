@@ -313,16 +313,23 @@ describe("refreshCircuitSidePanel", () => {
     expect(editor.nextElementSibling?.classList.contains("radio-group")).toBe(true);
   });
 
-  it("hands the open panel the global thresholds of the status it re-reads", async () => {
-    const open = await openOven(circuit(20, 20));
+  it("hands the open panel the global thresholds of the status it re-reads, which a reset then shows", async () => {
+    // A copied tandem whose override is above 100%, under global thresholds above 100% too.
+    const copied = circuit(20, 50, true);
+    const open = await openOven(copied);
     const globals = { continuous_threshold_pct: 150, spike_threshold_pct: 200 };
+    const status = monitoringFor(copied).response as { circuits: Record<string, Record<string, unknown>> };
+    const point = Object.values(status.circuits)[0]!;
+    Object.assign(point, { has_override: true, continuous_threshold_pct: 160, spike_threshold_pct: 200 });
     open.callWS.mockImplementation(async (msg: Record<string, unknown>) =>
-      msg.service === "get_monitoring_status" ? { response: { ...(monitoringFor(circuit(20, 20)).response as object), global_settings: globals } } : {}
+      msg.service === "get_monitoring_status" ? { response: { ...status, global_settings: globals } } : {}
     );
+    await open.ctrl.refreshCircuitSidePanel(open.root, ENTRY, topologyOf(copied));
+    const warning = (): HTMLElement | null => open.panel.shadowRoot!.querySelector<HTMLElement>('[data-role="rating-threshold-warning"]');
+    expect(warning()?.dataset.kind).toBe("own");
 
-    await open.ctrl.refreshCircuitSidePanel(open.root, ENTRY, topologyOf(circuit(20, 20)));
-
-    expect((open.panel as unknown as { ratingsState: { monitoringGlobals: unknown } }).ratingsState.monitoringGlobals).toEqual(globals);
+    open.panel.shadowRoot!.querySelector<HTMLElement>('[data-role="rating-threshold-reset"]')!.click();
+    await vi.waitFor(() => expect(warning()?.dataset.kind).toBe("global"));
   });
 
   it("applies nothing when the panel is reopened on another circuit while the status is fetched", async () => {

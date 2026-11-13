@@ -115,34 +115,23 @@ describe("the mark's style", () => {
 });
 
 describe("thresholdWarning", () => {
-  const GLOBALS = { continuous_threshold_pct: 80, spike_threshold_pct: 100 };
   const COPY = [20, 20];
 
   it("is nothing without a copy, or with every threshold at 100% or below", () => {
-    expect(thresholdWarning(null, { continuous_threshold_pct: 160 }, GLOBALS)).toBeNull();
-    expect(thresholdWarning(COPY, { continuous_threshold_pct: 100, spike_threshold_pct: 100 }, GLOBALS)).toBeNull();
-    expect(thresholdWarning(COPY, null, GLOBALS)).toBeNull();
+    expect(thresholdWarning(null, { has_override: true, continuous_threshold_pct: 160 })).toBeNull();
+    expect(thresholdWarning(COPY, { has_override: true, continuous_threshold_pct: 100, spike_threshold_pct: 100 })).toBeNull();
+    expect(thresholdWarning(COPY, null)).toBeNull();
   });
 
-  it("is the circuit's own where a threshold above 100% differs from the global one", () => {
-    expect(thresholdWarning(COPY, { has_override: true, continuous_threshold_pct: 160, spike_threshold_pct: 100 }, GLOBALS)).toBe("own");
+  it("is the circuit's own wherever it has an override, its values the global ones or not", () => {
+    // Beside a checked Custom choice, the reset to the global thresholds is what the user can act on here.
+    expect(thresholdWarning(COPY, { has_override: true, continuous_threshold_pct: 160, spike_threshold_pct: 100 })).toBe("own");
+    expect(thresholdWarning(COPY, { has_override: true, spike_threshold_pct: 200 })).toBe("own");
   });
 
-  it("is the global one where every threshold above 100% equals the global one, an override or not", () => {
-    const globals = { continuous_threshold_pct: 160, spike_threshold_pct: 200 };
-    expect(thresholdWarning(COPY, { has_override: false, continuous_threshold_pct: 160, spike_threshold_pct: 200 }, globals)).toBe("global");
-    expect(thresholdWarning(COPY, { has_override: true, continuous_threshold_pct: 160, spike_threshold_pct: 200 }, globals)).toBe("global");
-  });
-
-  it("is the circuit's own where one is and the global one another, above 100% both", () => {
-    expect(thresholdWarning(COPY, { has_override: true, continuous_threshold_pct: 160, spike_threshold_pct: 200 }, { continuous_threshold_pct: 160 })).toBe(
-      "own"
-    );
-  });
-
-  it("takes the override's presence where the global thresholds are not known", () => {
-    expect(thresholdWarning(COPY, { has_override: true, continuous_threshold_pct: 160 }, null)).toBe("own");
-    expect(thresholdWarning(COPY, { has_override: false, continuous_threshold_pct: 160 }, null)).toBe("global");
+  it("is the global one where the circuit has no override", () => {
+    expect(thresholdWarning(COPY, { has_override: false, continuous_threshold_pct: 160, spike_threshold_pct: 200 })).toBe("global");
+    expect(thresholdWarning(COPY, { continuous_threshold_pct: 160 })).toBe("global");
   });
 });
 

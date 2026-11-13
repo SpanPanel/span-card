@@ -774,10 +774,12 @@ describe("thresholds above 100% under a copy", () => {
     expect(useGlobal(panel)).toBeNull();
   });
 
-  it("are the global ones where only the circuit's window or cooldown is its own", () => {
+  it("are the circuit's own wherever it has an override, its values the global ones included, the reset offered", () => {
+    // Beside a checked Custom choice; a reset that changes no value then turns the warning into the pointer.
     const { panel } = open(COPIED, { monitoringInfo: ABOVE, monitoringGlobals: { continuous_threshold_pct: 160, spike_threshold_pct: 200 } });
-    expect(warning(panel)!.textContent).toBe(GLOBAL_TEXT);
-    expect(useGlobal(panel)).toBeNull();
+    expect(warning(panel)!.textContent).toContain(OWN_TEXT);
+    expect(useGlobal(panel)).not.toBeNull();
+    expect(panel.shadowRoot!.querySelector<HTMLInputElement>('input[name="monitoring-mode"][value="custom"]')!.checked).toBe(true);
   });
 
   it("are the circuit's own, where the global ones are not known, only while it has an override", () => {

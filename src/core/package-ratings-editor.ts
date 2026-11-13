@@ -2,14 +2,12 @@
 import { t, tf } from "../i18n.js";
 import { occupiedSpaces, type SlotMember } from "../helpers/shared-meters.js";
 import { thresholdWarning, type ThresholdWarning } from "../helpers/monitoring-rating.js";
-import type { MonitoringGlobalSettings, MonitoringPointInfo } from "../types.js";
+import type { MonitoringPointInfo } from "../types.js";
 
 /** What the editor draws from: the slot a circuit side panel is open on, and its monitoring. */
 export interface PackageRatingsState {
   readonly members: readonly SlotMember[];
   readonly monitoringInfo: MonitoringPointInfo | null;
-  /** The panel's global thresholds, from the same `get_monitoring_status` answer; null where not known. */
-  readonly monitoringGlobals: MonitoringGlobalSettings | null;
   /** True where the circuit's panel takes package ratings (topology `monitoring_rating_offered`). */
   readonly offered: boolean;
 }
@@ -357,16 +355,16 @@ export class PackageRatingsEditor {
 
   /**
    * A warning where a copied package is stored and the thresholds the circuit is
-   * judged by exceed 100% (`thresholdWarning`): for its own, with a reset to the
-   * global thresholds; for the global ones, pointing to the global settings,
-   * which a reset here would not change. The copy changes no threshold itself;
+   * judged by exceed 100% (`thresholdWarning`): for its own override, with a reset
+   * to the global thresholds; for the global ones, pointing to the global
+   * settings, which a reset here would not change. The copy changes no threshold itself;
    * the user chooses. Re-read on every sync, so it follows a threshold change.
    */
   private _syncWarning(section: HTMLDivElement, member: SlotMember): void {
     const region = section.querySelector<HTMLElement>('[data-role="rating-warning-region"]');
     if (!region) return;
     const state = this._host.ratingsState;
-    const wanted = thresholdWarning(member.circuit.package_ratings_a, state?.monitoringInfo, state?.monitoringGlobals);
+    const wanted = thresholdWarning(member.circuit.package_ratings_a, state?.monitoringInfo);
     const current = region.querySelector<HTMLElement>('[data-role="rating-threshold-warning"]');
     if (current && current.dataset.kind === wanted) return;
     const hadFocus = focusWithin(current);

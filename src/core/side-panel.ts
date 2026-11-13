@@ -1397,7 +1397,6 @@ class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
     return {
       members: cfg.members ?? [],
       monitoringInfo: cfg.monitoringInfo,
-      monitoringGlobals: cfg.monitoringGlobals ?? null,
       offered: cfg.monitoringRatingOffered === true,
     };
   }
