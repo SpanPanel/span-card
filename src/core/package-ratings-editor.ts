@@ -396,9 +396,11 @@ export class PackageRatingsEditor {
     useGlobal.dataset.role = "rating-threshold-reset";
     useGlobal.textContent = t("monitoringRating.use_global_thresholds");
     useGlobal.addEventListener("click", () => {
-      useGlobal.disabled = true;
+      // Busy, not disabled: a disabled button loses focus, and focus is to follow the reset.
+      if (useGlobal.getAttribute("aria-disabled") === "true") return;
+      useGlobal.setAttribute("aria-disabled", "true");
       void this._host.useGlobalThresholds().then(done => {
-        if (!done) useGlobal.disabled = false;
+        if (!done) useGlobal.removeAttribute("aria-disabled");
       });
     });
     warning.appendChild(useGlobal);

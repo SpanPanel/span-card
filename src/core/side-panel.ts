@@ -416,14 +416,15 @@ const STYLES = `
     line-height: 1.3;
     cursor: pointer;
   }
-  .text-btn:hover:not(:disabled) {
+  .text-btn:hover:not(:disabled):not([aria-disabled="true"]) {
     background: var(--secondary-background-color, #f5f5f5);
   }
   .text-btn:focus-visible {
     outline: 2px solid var(--primary-color, #03a9f4);
     outline-offset: 1px;
   }
-  .text-btn:disabled {
+  .text-btn:disabled,
+  .text-btn[aria-disabled="true"] {
     opacity: 0.5;
     cursor: default;
   }

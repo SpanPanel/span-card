@@ -847,9 +847,13 @@ describe("thresholds above 100% under a copy", () => {
     ]);
     expect(panel.shadowRoot!.querySelector<HTMLInputElement>('input[name="monitoring-mode"][value="global"]')!.checked).toBe(true);
     expect(panel.shadowRoot!.querySelector<HTMLElement>('[data-role="threshold-fields"]')!.style.display).toBe("none");
-    // In flight: the warning stays, its button disabled so it is not sent twice.
+    // In flight: the warning stays, its button marked busy, not disabled, so it keeps focus; a second click sends nothing.
     expect(warning(panel)).not.toBeNull();
-    expect((useGlobal(panel) as HTMLButtonElement).disabled).toBe(true);
+    expect(useGlobal(panel)!.getAttribute("aria-disabled")).toBe("true");
+    expect((useGlobal(panel) as HTMLButtonElement).disabled).toBe(false);
+    expect(active(panel)).toBe(useGlobal(panel));
+    useGlobal(panel)!.click();
+    expect(callWS).toHaveBeenCalledTimes(1);
 
     clear();
     await vi.advanceTimersByTimeAsync(0);
@@ -868,7 +872,7 @@ describe("thresholds above 100% under a copy", () => {
 
     expect(errors.active.map(e => e.message)).toEqual(["Unable to save threshold"]);
     expect(warning(panel)).not.toBeNull();
-    expect((useGlobal(panel) as HTMLButtonElement).disabled).toBe(false);
+    expect(useGlobal(panel)!.hasAttribute("aria-disabled")).toBe(false);
     expect(panel.shadowRoot!.querySelector<HTMLInputElement>('input[name="monitoring-mode"][value="custom"]')!.checked).toBe(true);
     expect(panel.shadowRoot!.querySelector<HTMLElement>('[data-role="threshold-fields"]')!.style.display).toBe("block");
   });
