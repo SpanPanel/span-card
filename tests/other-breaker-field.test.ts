@@ -1,6 +1,7 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { bindOtherBreakerField, type OtherBreakerFieldHandle } from "../src/helpers/other-breaker-field.js";
 import { t } from "../src/i18n.js";
+import { blurOnRemoval } from "./removal-blur.js";
 
 const INVALID = t("monitoringRating.invalid_other");
 
@@ -95,8 +96,19 @@ describe("committing the other breaker", () => {
   it("saves nothing as the field goes from the page, which is not the user leaving it", async () => {
     const b = bound();
     typeOnly(b.input, "30");
-    b.input.remove();
-    await leave(b.input);
+    const blurred = vi.fn();
+    b.input.addEventListener("blur", blurred);
+
+    // Chromium blurs the focused field as it is removed, before it is detached; happy-dom does not without this.
+    const undo = blurOnRemoval();
+    try {
+      b.input.remove();
+    } finally {
+      undo();
+    }
+    await new Promise<void>(resolve => setTimeout(resolve, 0));
+
+    expect(blurred).toHaveBeenCalled();
     expect(b.save).not.toHaveBeenCalled();
   });
 
@@ -209,6 +221,86 @@ describe("the handle", () => {
     b.store(null);
     b.handle.revert();
     expect(b.input.value).toBe("");
+  });
+});
+
+describe("answering a refusal", () => {
+  it("puts the copy in force back where the field still shows the value refused, and says it did", () => {
+    const b = bound(30);
+    typeOnly(b.input, "90");
+    enter(b.input);
+
+    expect(b.handle.answerRefusal(90)).toBe(true);
+
+    expect(b.input.value).toBe("30");
+    expect(b.handle.dirty).toBe(false);
+  });
+
+  it("reads the copy in force when the refusal lands, not when the value was saved", () => {
+    const b = bound(30);
+    typeOnly(b.input, "90");
+    enter(b.input);
+    b.store(15);
+
+    expect(b.handle.answerRefusal(90)).toBe(true);
+    expect(b.input.value).toBe("15");
+  });
+
+  it("knows the value saved by its amps, not by how it was typed", () => {
+    const b = bound(30);
+    typeOnly(b.input, "090");
+    enter(b.input);
+    expect(b.save.mock.calls).toEqual([[90]]);
+
+    expect(b.handle.answerRefusal(90)).toBe(true);
+    expect(b.input.value).toBe("30");
+  });
+
+  it("leaves what the user has typed since, which is theirs", () => {
+    const b = bound(30);
+    typeOnly(b.input, "90");
+    enter(b.input);
+    typeOnly(b.input, "9");
+
+    expect(b.handle.answerRefusal(90)).toBe(false);
+    expect(b.input.value).toBe("9");
+    expect(b.handle.dirty).toBe(true);
+  });
+
+  it("leaves a value saved since, until that one is refused too", () => {
+    const b = bound(30);
+    typeOnly(b.input, "90");
+    enter(b.input);
+    typeOnly(b.input, "25");
+    enter(b.input);
+
+    expect(b.handle.answerRefusal(90)).toBe(false);
+    expect(b.input.value).toBe("25");
+    expect(b.handle.answerRefusal(25)).toBe(true);
+    expect(b.input.value).toBe("30");
+  });
+
+  it("does nothing once the field shows the copy in force again, as after the ✕ or a refresh", () => {
+    const b = bound(30);
+    typeOnly(b.input, "90");
+    enter(b.input);
+    b.store(null);
+    b.handle.revert();
+    b.store(15);
+
+    expect(b.handle.answerRefusal(90)).toBe(false);
+    expect(b.input.value).toBe("");
+  });
+
+  it("does nothing for a value the field never saved", () => {
+    const b = bound(30);
+    typeOnly(b.input, "30");
+    enter(b.input);
+    expect(b.save).not.toHaveBeenCalled();
+
+    expect(b.handle.answerRefusal(30)).toBe(false);
+    expect(b.handle.answerRefusal(90)).toBe(false);
+    expect(b.input.value).toBe("30");
   });
 });
 

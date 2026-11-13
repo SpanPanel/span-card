@@ -53,26 +53,61 @@ export function limitRatingA(
 /** Where thresholds above 100% under a copy come from: the circuit's own override, or the panel's global settings. */
 export type ThresholdWarning = "own" | "global";
 
+/**
+ * What the integration says of a circuit's copy of its package from the SPAN app,
+ * as a topology circuit and a monitoring status entry both carry it: the form the
+ * copy takes and what is done with the one stored.
+ */
+export type PackageCopyFields = Pick<Circuit | MonitoringPointInfo, "package_ratings_form" | "package_ratings_state">;
+
 const _THRESHOLDS = ["continuous_threshold_pct", "spike_threshold_pct"] as const;
 
 /**
+ * Whether monitoring judges the circuit against its copy, or will once the value
+ * it waits on arrives. A copy in two spaces never applies, the panel reporting
+ * only the average of the circuit's legs, so one waiting is never judged either.
+ */
+function judgedByCopy(copy: PackageCopyFields): boolean {
+  const state = copy.package_ratings_state;
+  return state === "applies" || (state === "pending" && copy.package_ratings_form === "one_space");
+}
+
+/**
  * Whether a circuit's thresholds, as monitoring resolves them, call for a warning
- * under a copied package, and whose they are. Thresholds are percentages of the
- * rating a point is judged against, so ones above 100%, as a tandem's may have
- * been raised to quiet its alerts, now apply to both breakers together, which
- * can let a real overload pass. A circuit with an override has its own, which a
- * reset to the global thresholds answers, whatever its values: beside its checked
- * Custom choice, that reset is what the user can act on there. One without has
- * the global ones, which only the global settings change. Null without a copy or
- * with every threshold at 100% or below.
+ * under a copied package, and whose they are; the one rule every view draws the
+ * warning by. Thresholds are percentages of the rating a point is judged
+ * against, so ones above 100%, as a tandem's may have been raised to quiet its
+ * alerts, now apply to both breakers together, which can let a real overload
+ * pass. That holds only for a copy monitoring judges by (`judgedByCopy`): one
+ * kept on averaged legs changes no threshold's meaning, and offering a reset
+ * beside it would bring back the alerts the thresholds were raised to stop. A
+ * circuit with an override has its own, which a reset to the global thresholds
+ * answers, whatever its values: beside its checked Custom choice, that reset is
+ * what the user can act on there. One without has the global ones, which only
+ * the global settings change. Null for any other copy, where the integration
+ * says nothing of its state, or with every threshold at 100% or below.
  */
 export function thresholdWarning(
-  copied: readonly number[] | null | undefined,
+  copy: PackageCopyFields | null | undefined,
   info: Pick<MonitoringPointInfo, "has_override" | "continuous_threshold_pct" | "spike_threshold_pct"> | null | undefined
 ): ThresholdWarning | null {
-  if (!copied || !info) return null;
+  if (!copy || !info || !judgedByCopy(copy)) return null;
   if (!_THRESHOLDS.some(key => (info[key] ?? 0) > 100)) return null;
   return info.has_override === true ? "own" : "global";
+}
+
+/**
+ * Whether a circuit's copy calls for the averaged-legs warning, which recommends
+ * turning monitoring off: a copy across two spaces, kept without being applied
+ * because the panel reports only the average of the circuit's two legs, which
+ * can hide an overloaded leg, while the circuit is monitored. Once monitoring is
+ * off for it, or while no status says it is monitored, there is nothing to warn of.
+ */
+export function warnsOfAveragedLegs(
+  copy: PackageCopyFields | null | undefined,
+  info: Pick<MonitoringPointInfo, "monitoring_enabled"> | null | undefined
+): boolean {
+  return copy?.package_ratings_state === "averaged_legs" && info != null && info.monitoring_enabled !== false;
 }
 
 /**

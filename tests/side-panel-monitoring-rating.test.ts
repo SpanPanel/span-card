@@ -3,7 +3,7 @@ import { DashboardController } from "../src/core/dashboard-controller.js";
 import { ErrorStore } from "../src/core/error-store.js";
 import "../src/core/side-panel.js";
 import { blurOnRemoval } from "./removal-blur.js";
-import type { CardConfig, Circuit, HomeAssistant, PanelTopology } from "../src/types.js";
+import type { CardConfig, Circuit, HomeAssistant, PackageRatingsForm, PackageRatingsState, PanelTopology } from "../src/types.js";
 
 type CallWS = (message: Record<string, unknown>) => Promise<unknown>;
 type SidePanel = HTMLElement & { hass: HomeAssistant; errorStore: ErrorStore | null; open(config: unknown): void };
@@ -19,17 +19,27 @@ afterEach(() => {
 });
 beforeEach(() => vi.useFakeTimers());
 
-/** A circuit as the topology describes it; `copied` is the package the user copied from the SPAN app, if any. */
+/**
+ * A circuit as the integration's topology describes it on a SPAN Panel MAIN 32. `copied` is the package the user copied
+ * from the SPAN app, if any, and `applies` false holds it waiting on a value not yet arrived. The form and the state are
+ * the integration's: a rated circuit in one or two spaces takes a copy, and a two-space copy is kept on averaged legs,
+ * never applied.
+ */
 function circuit(name: string, panel: number | null, copied: number[] | null = null, tabs: number[] = [1], applies = copied !== null): Circuit {
-  const judged = applies && copied ? copied.reduce((sum, rating) => sum + rating, 0) : panel;
+  const form: PackageRatingsForm | null = panel === null ? null : tabs.length === 1 ? "one_space" : tabs.length === 2 ? "two_spaces" : null;
+  const state: PackageRatingsState | null = copied === null ? null : !applies ? "pending" : form === "two_spaces" ? "averaged_legs" : "applies";
+  const userSet = state === "applies";
+  const judged = userSet && copied ? copied.reduce((sum, rating) => sum + rating, 0) : panel;
   return {
     name,
     tabs,
     entities: {},
     breaker_rating_a: panel,
     monitoring_rating_a: judged,
-    monitoring_rating_user_set: applies,
+    monitoring_rating_user_set: userSet,
     package_ratings_a: copied,
+    package_ratings_form: form,
+    package_ratings_state: state,
   };
 }
 
@@ -68,7 +78,20 @@ const row = (p: SidePanel): HTMLElement | null => p.shadowRoot!.querySelector<HT
 const input = (p: SidePanel): HTMLInputElement => p.shadowRoot!.querySelector<HTMLInputElement>('[data-role="rating-input"]')!;
 const reset = (p: SidePanel): HTMLElement | null => p.shadowRoot!.querySelector<HTMLElement>('[data-role="rating-reset"]');
 const panelRating = (p: SidePanel): string | null | undefined => p.shadowRoot!.querySelector('[data-role="rating-panel-rating"]')?.textContent;
-const explanation = (p: SidePanel): HTMLElement | null => p.shadowRoot!.querySelector<HTMLElement>('[data-role="rating-multi-space"]');
+const guidance = (p: SidePanel): string | null | undefined => p.shadowRoot!.querySelector('[data-role="rating-guidance"]')?.textContent;
+const averagedLegs = (p: SidePanel): HTMLElement | null => p.shadowRoot!.querySelector<HTMLElement>('[data-role="rating-averaged-legs-warning"]');
+const turnOff = (p: SidePanel): HTMLElement | null => p.shadowRoot!.querySelector<HTMLElement>('[data-role="rating-turn-off-monitoring"]');
+const thresholdWarningOf = (p: SidePanel): HTMLElement | null => p.shadowRoot!.querySelector<HTMLElement>('[data-role="rating-threshold-warning"]');
+const toggle = (p: SidePanel): HTMLElement => p.shadowRoot!.querySelector<HTMLElement>('[data-role="monitoring-toggle"]')!;
+
+/** The side panel's guidance and the averaged-legs warning, as approved (spec §14.6). */
+const ONE_SPACE_GUIDANCE =
+  "If your SPAN app shows two ratings for this circuit, such as 20-20A, enter the second one here. SPAN Panel MAIN 32 panels report only " +
+  "the first, and monitoring then judges this space against both breakers together.";
+const TWO_SPACES_GUIDANCE = "If your SPAN app shows two ratings for this circuit, such as 20-30A, enter the second one here.";
+const AVERAGED_LEGS_TEXT =
+  "SPAN Panel MAIN 32 panels report only the average of this circuit's two legs, which can hide an overloaded leg. We recommend turning " +
+  "monitoring off for this circuit.";
 
 /** Type `value` into the field, as keystrokes do, without committing it. */
 function typeOnly(el: HTMLInputElement, value: string): void {
@@ -154,12 +177,13 @@ describe("the editor's visibility", () => {
     expect(editor(open(OVEN, { monitoringRatingOffered: undefined }).panel)).toBeNull();
   });
 
-  it("is absent for a circuit with no panel rating, there being no first breaker to copy against", () => {
-    expect(editor(open([{ uuid: "c-1", circuit: circuit("Meter", null) }]).panel)).toBeNull();
+  it("is absent where the integration offers the circuit no form of copy, whatever its spaces and rating", () => {
+    expect(editor(open([{ uuid: "c-1", circuit: { ...circuit("Oven", 20), package_ratings_form: null } }]).panel)).toBeNull();
   });
 
-  it("is absent for a circuit whose space has not arrived", () => {
-    expect(editor(open([{ uuid: "c-1", circuit: circuit("Oven", 20, null, []) }]).panel)).toBeNull();
+  it("is absent where the integration predates forms (2.3.0b1) and says nothing of the circuit's", () => {
+    const { package_ratings_form: _form, package_ratings_state: _state, ...older } = circuit("Oven", 20, [20, 30]);
+    expect(editor(open([{ uuid: "c-1", circuit: older }]).panel)).toBeNull();
   });
 
   it("is absent for a shared meter, which is judged by its group's capacity", () => {
@@ -194,13 +218,10 @@ describe("the editor's visibility", () => {
     expect(panel.shadowRoot!.querySelector('[data-role="judged-against"]')!.getAttribute("aria-live")).toBe("polite");
   });
 
-  it("titles the section and gives the guidance, asking nothing to be added up", () => {
+  it("titles the section and gives the one-space guidance, asking nothing to be added up", () => {
     const { panel } = open(OVEN);
     expect(editor(panel)!.querySelector(".section-label")!.textContent).toBe("Breaker ratings from the SPAN app");
-    expect(panel.shadowRoot!.querySelector('[data-role="rating-guidance"]')!.textContent).toBe(
-      "Enter the other breaker in this space exactly as your SPAN app shows this circuit (for example 20-20A). " +
-        "The panel publishes only the first; monitoring then judges this space against both breakers together."
-    );
+    expect(guidance(panel)).toBe(ONE_SPACE_GUIDANCE);
   });
 });
 
@@ -236,33 +257,217 @@ describe("the editor's layout", () => {
   });
 });
 
-describe("a circuit across several spaces", () => {
-  const DRYER = [{ uuid: "c-1", circuit: circuit("Dryer", 30, null, [1, 3]) }];
+describe("a circuit across two spaces", () => {
+  /** A 20-30 package across spaces 18 and 20, before and after its copy is entered. */
+  const WASHER = [{ uuid: "c-1", circuit: circuit("Washer", 20, null, [18, 20]) }];
+  const KEPT = [{ uuid: "c-1", circuit: circuit("Washer", 20, [20, 30], [18, 20]) }];
+  const ABOVE = {
+    monitoringInfo: { monitoring_enabled: true, has_override: true, continuous_threshold_pct: 160, spike_threshold_pct: 200 },
+    monitoringGlobals: { continuous_threshold_pct: 80, spike_threshold_pct: 100 },
+  };
 
-  it("gets an explanation in place of the editor", () => {
-    const { panel } = open(DRYER);
-    expect(row(panel)).toBeNull();
-    expect(panel.shadowRoot!.querySelector('[data-role="rating-input"]')).toBeNull();
-    expect(panel.shadowRoot!.querySelector('[data-role="rating-guidance"]')).toBeNull();
-    expect(explanation(panel)!.getAttribute("role")).toBe("note");
-    expect(explanation(panel)!.textContent).toBe(
-      "This circuit spans more than one space. The panel reports the average of its legs, so one leg can carry more " +
-        "than its breaker while the reading stays under the rating, and no ratings copied from the SPAN app can show it. " +
-        "Turning monitoring off for this circuit is the safer choice."
-    );
+  it("takes a copy in the same field, with the two-space guidance", () => {
+    const { panel } = open(WASHER);
+    expect(editor(panel)!.dataset.kind).toBe("two_spaces");
     expect(editor(panel)!.querySelector(".section-label")!.textContent).toBe("Breaker ratings from the SPAN app");
+    expect(panelRating(panel)).toBe("Panel publishes 20 A");
+    expect(row(panel)!.querySelectorAll("input")).toHaveLength(1);
+    expect(input(panel).value).toBe("");
+    expect(input(panel).getAttribute("aria-label")).toBe("Other breaker in the space of Washer");
+    expect(guidance(panel)).toBe(TWO_SPACES_GUIDANCE);
   });
 
-  it("gets it whether or not the panel rates the circuit", () => {
-    expect(explanation(open([{ uuid: "c-1", circuit: circuit("Dryer", null, null, [1, 3]) }]).panel)).not.toBeNull();
+  it("sends the package in the SPAN app's order, the panel's rating first, when Enter is pressed", () => {
+    const { panel, callWS } = open(WASHER);
+    type(input(panel), "30");
+    expect(callWS.mock.calls.map(c => c[0])).toEqual([
+      {
+        type: "call_service",
+        domain: "span_panel",
+        service: "set_circuit_package_ratings",
+        service_data: { circuit_id: "c-1", package_ratings_a: [20, 30], config_entry_id: "entry-1" },
+      },
+    ]);
   });
 
-  it("is not explained for a circuit in one space", () => {
-    expect(explanation(open(OVEN).panel)).toBeNull();
+  it("shows the copy kept, with its reset, and warns of the averaged legs with a button to turn monitoring off", () => {
+    const { panel } = open(KEPT);
+    expect(input(panel).value).toBe("30");
+    expect(reset(panel)).not.toBeNull();
+    expect(averagedLegs(panel)!.getAttribute("role")).toBe("note");
+    expect(averagedLegs(panel)!.textContent).toContain(AVERAGED_LEGS_TEXT);
+    expect(turnOff(panel)!.textContent).toBe("Turn off monitoring");
+    expect(turnOff(panel)!.classList.contains("text-btn")).toBe(true);
+    expect(turnOff(panel)!.getAttribute("type")).toBe("button");
+    expect(panel.shadowRoot!.querySelector('[data-role="rating-warning-region"]')!.contains(averagedLegs(panel))).toBe(true);
   });
 
-  it("is not explained where the integration offers no package ratings", () => {
-    expect(editor(open(DRYER, { monitoringRatingOffered: false }).panel)).toBeNull();
+  it("warns of the averaged legs once the copy entered is kept, the field keeping focus", () => {
+    const { panel } = open(WASHER);
+    type(input(panel), "30");
+    const field = input(panel);
+
+    (panel as unknown as { refreshRating(view: unknown): void }).refreshRating({
+      members: KEPT,
+      capacityA: null,
+      monitoringInfo: { monitoring_enabled: true },
+      monitoringGlobals: null,
+    });
+
+    expect(input(panel)).toBe(field);
+    expect(active(panel)).toBe(field);
+    expect(averagedLegs(panel)).not.toBeNull();
+  });
+
+  it("does not warn of the averaged legs before a copy is entered, or for a copy in one space", () => {
+    expect(averagedLegs(open(WASHER).panel)).toBeNull();
+    expect(averagedLegs(open(COPIED).panel)).toBeNull();
+  });
+
+  it("does not warn of thresholds above 100% for a copy on averaged legs, which changes no threshold's meaning", () => {
+    const { panel } = open(KEPT, ABOVE);
+    expect(thresholdWarningOf(panel)).toBeNull();
+    expect(averagedLegs(panel)).not.toBeNull();
+  });
+
+  it("does not warn of thresholds above 100% for a two-space copy waiting on a value, which never applies", () => {
+    const waiting = [{ uuid: "c-1", circuit: circuit("Washer", 20, [20, 30], [18, 20], false) }];
+    expect(waiting[0]!.circuit.package_ratings_state).toBe("pending");
+    expect(thresholdWarningOf(open(waiting, ABOVE).panel)).toBeNull();
+  });
+
+  it("warns of thresholds above 100% for a copy that applies, in one space", () => {
+    expect(thresholdWarningOf(open(COPIED, ABOVE).panel)).not.toBeNull();
+  });
+
+  it("is not offered where the integration offers no package ratings", () => {
+    expect(editor(open(WASHER, { monitoringRatingOffered: false }).panel)).toBeNull();
+  });
+});
+
+describe("turning monitoring off from the averaged-legs warning", () => {
+  const KEPT = [{ uuid: "c-1", circuit: circuit("Washer", 20, [20, 30], [18, 20]) }];
+  const POWER = { entities: { power: "sensor.washer_power" } };
+  const details = (p: SidePanel): HTMLElement => p.shadowRoot!.querySelector<HTMLElement>('[data-role="monitoring-details"]')!;
+
+  /** The panel open on the Washer, its service calls held until `answer` settles them. */
+  function held(): Opened & { answer(error?: unknown): void } {
+    let settle: (error?: unknown) => void = () => {};
+    const opened = open(
+      KEPT,
+      POWER,
+      () =>
+        new Promise<undefined>((resolve, reject) => {
+          settle = error => (error === undefined ? resolve(undefined) : reject(error));
+        })
+    );
+    return { ...opened, answer: error => settle(error) };
+  }
+
+  it("sends the Monitoring switch's own call, the button busy, not disabled, while it is in flight", () => {
+    const { panel, callWS } = held();
+    turnOff(panel)!.focus();
+    turnOff(panel)!.click();
+
+    expect(callWS.mock.calls.map(c => c[0])).toEqual([
+      {
+        type: "call_service",
+        domain: "span_panel",
+        service: "set_circuit_threshold",
+        service_data: { circuit_id: "sensor.washer_power", monitoring_enabled: false, config_entry_id: "entry-1" },
+      },
+    ]);
+    expect(turnOff(panel)!.getAttribute("aria-disabled")).toBe("true");
+    expect((turnOff(panel) as HTMLButtonElement).disabled).toBe(false);
+    expect(active(panel)).toBe(turnOff(panel));
+    turnOff(panel)!.click();
+    expect(callWS).toHaveBeenCalledTimes(1);
+  });
+
+  it("is the very call the Monitoring switch sends", () => {
+    const bySwitch = open(KEPT, POWER);
+    turnMonitoring(bySwitch.panel, false);
+    const byButton = open(KEPT, POWER);
+    turnOff(byButton.panel)!.click();
+    expect(byButton.callWS.mock.calls).toEqual(bySwitch.callWS.mock.calls);
+  });
+
+  it("once it succeeds, shows monitoring off: the switch off, the details hidden, the warning gone, focus on the switch", async () => {
+    const { panel, answer } = held();
+    turnOff(panel)!.focus();
+    turnOff(panel)!.click();
+
+    answer();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(toggle(panel).hasAttribute("checked")).toBe(false);
+    expect(details(panel).style.display).toBe("none");
+    expect(shown(panel)).toBe(false);
+    expect(averagedLegs(panel)).toBeNull();
+    expect(active(panel)).toBe(toggle(panel));
+    expect(input(panel).value).toBe("30");
+  });
+
+  it("warns again, its button ready, when monitoring is turned back on", async () => {
+    const { panel, answer } = held();
+    turnOff(panel)!.click();
+    answer();
+    await vi.advanceTimersByTimeAsync(0);
+
+    turnMonitoring(panel, true);
+
+    expect(shown(panel)).toBe(true);
+    expect(toggle(panel).hasAttribute("checked")).toBe(true);
+    expect(averagedLegs(panel)).not.toBeNull();
+    expect(turnOff(panel)!.hasAttribute("aria-disabled")).toBe(false);
+  });
+
+  it("goes as monitoring is turned off with the switch, and returns as it is turned on", () => {
+    const { panel } = open(KEPT);
+    turnMonitoring(panel, false);
+    expect(averagedLegs(panel)).toBeNull();
+    turnMonitoring(panel, true);
+    expect(averagedLegs(panel)).not.toBeNull();
+  });
+
+  it("keeps monitoring on and the warning, its button ready again, when the call fails", async () => {
+    const { panel, errors, answer } = held();
+    turnOff(panel)!.focus();
+    turnOff(panel)!.click();
+
+    answer({ message: "refused" });
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(errors.active.map(e => e.message)).toEqual(["Unable to save threshold"]);
+    expect(toggle(panel).hasAttribute("checked")).toBe(true);
+    expect(shown(panel)).toBe(true);
+    expect(averagedLegs(panel)).not.toBeNull();
+    expect(turnOff(panel)!.hasAttribute("aria-disabled")).toBe(false);
+    expect(active(panel)).toBe(turnOff(panel));
+  });
+
+  it("leaves the circuit the panel moved to alone when the call answers", async () => {
+    const { panel, answer } = held();
+    turnOff(panel)!.click();
+    panel.open({
+      uuid: "c-2",
+      name: "Dryer",
+      entities: {},
+      showMonitoring: true,
+      monitoringRatingOffered: true,
+      monitoringInfo: { monitoring_enabled: true },
+      graphHorizonInfo: { horizon: "5m", has_override: false, globalHorizon: "5m" },
+      members: [{ uuid: "c-2", circuit: circuit("Dryer", 30, [30, 30], [2, 4]) }],
+      capacityA: null,
+      configEntryId: "entry-1",
+    });
+
+    answer();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(toggle(panel).hasAttribute("checked")).toBe(true);
+    expect(shown(panel)).toBe(true);
+    expect(averagedLegs(panel)).not.toBeNull();
   });
 });
 
@@ -608,18 +813,35 @@ describe("a refresh while the user is in the editor", () => {
     expect(active(panel)).toBe(input(panel));
   });
 
-  it("keeps focus on the equivalent control when the editor is drawn afresh", () => {
+  it("keeps focus on the equivalent control when the editor is drawn afresh for another form", () => {
     const { panel } = open(OVEN);
-    input(panel).focus();
+    const before = input(panel);
+    before.focus();
 
-    // A second space arriving makes the circuit a two-space one: the editor gives way to its explanation.
+    // A second space arriving makes the circuit a two-space one: the editor is drawn afresh in that form.
     (panel as unknown as { refreshRating(view: unknown): void }).refreshRating({
       members: [{ uuid: "c-1", circuit: circuit("Oven", 20, null, [1, 3]) }],
       capacityA: null,
       monitoringInfo: { monitoring_enabled: true },
     });
 
-    expect(panel.shadowRoot!.querySelector('[data-role="rating-input"]')).toBeNull();
+    expect(editor(panel)!.dataset.kind).toBe("two_spaces");
+    expect(guidance(panel)).toBe(TWO_SPACES_GUIDANCE);
+    expect(input(panel)).not.toBe(before);
+    expect(active(panel)).toBe(input(panel));
+  });
+
+  it("moves focus past the editor when the integration stops offering the circuit a form", () => {
+    const { panel } = open(OVEN);
+    input(panel).focus();
+
+    (panel as unknown as { refreshRating(view: unknown): void }).refreshRating({
+      members: [{ uuid: "c-1", circuit: { ...circuit("Oven", 20), package_ratings_form: null } }],
+      capacityA: null,
+      monitoringInfo: { monitoring_enabled: true },
+    });
+
+    expect(editor(panel)).toBeNull();
     expect((active(panel) as HTMLInputElement | null)?.name).toBe("monitoring-mode");
   });
 });

@@ -132,7 +132,10 @@ type SidePanel = HTMLElement & {
 
 const ENTRY = "entry-1";
 
-/** The Oven as the topology describes it; a user-set rating is a tandem copied from the SPAN app, the panel's rating first. */
+/**
+ * The Oven, in one space, as the topology describes it; a user-set rating is a tandem copied from the SPAN app, the
+ * panel's rating first, which applies. The integration offers a copy wherever the panel rates the circuit.
+ */
 function circuit(panel: number | null, monitoring: number | null, userSet = false): Circuit {
   return {
     name: "Oven",
@@ -143,6 +146,8 @@ function circuit(panel: number | null, monitoring: number | null, userSet = fals
     monitoring_rating_a: monitoring,
     monitoring_rating_user_set: userSet,
     package_ratings_a: userSet && panel !== null && monitoring !== null ? [panel, monitoring - panel] : null,
+    package_ratings_form: panel === null ? null : "one_space",
+    package_ratings_state: userSet ? "applies" : null,
   };
 }
 
@@ -168,6 +173,8 @@ function monitoringFor(c: Circuit): Record<string, unknown> {
           monitoring_rating_a: c.monitoring_rating_a,
           monitoring_rating_user_set: c.monitoring_rating_user_set,
           package_ratings_a: c.package_ratings_a,
+          package_ratings_form: c.package_ratings_form,
+          package_ratings_state: c.package_ratings_state,
           monitoring_enabled: true,
         },
       },

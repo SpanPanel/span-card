@@ -21,8 +21,17 @@ export interface OtherBreakerFieldHandle {
    * across a refresh.
    */
   readonly dirty: boolean;
-  /** Drop what was typed and show the copy in force (the ✕ and a refusal use this). */
+  /** Drop what was typed and show the copy in force (the ✕ and a refresh use this). */
   revert(): void;
+  /**
+   * Answer the refusal of `amps`, a value this field saved: show the copy in
+   * force again, read now, where the field still shows the value refused. Where
+   * the user has typed or saved since, what the field shows is theirs, and where
+   * it shows the copy in force again, as after the ✕ or a refresh, there is
+   * nothing to put back. Returns whether it put the copy back, so the host can
+   * give the field focus to correct it.
+   */
+  answerRefusal(amps: number): boolean;
 }
 
 /**
@@ -38,6 +47,8 @@ export interface OtherBreakerFieldHandle {
 export function bindOtherBreakerField(input: HTMLInputElement, handlers: OtherBreakerFieldHandlers): OtherBreakerFieldHandle {
   guardNumberWheel(input);
   let dirty = false;
+  /** The amps the field shows as the user saved them, until they type again or it shows the copy in force; null otherwise. */
+  let saved: number | null = null;
   const say = (message: string | null): void => {
     if (message) input.setAttribute("aria-invalid", "true");
     else input.removeAttribute("aria-invalid");
@@ -45,6 +56,7 @@ export function bindOtherBreakerField(input: HTMLInputElement, handlers: OtherBr
   };
   const revert = (): void => {
     dirty = false;
+    saved = null;
     say(null);
     const stored = handlers.stored();
     input.value = stored !== null ? String(stored) : "";
@@ -68,10 +80,13 @@ export function bindOtherBreakerField(input: HTMLInputElement, handlers: OtherBr
     }
     dirty = false;
     say(null);
-    if (amps !== handlers.stored()) handlers.save(amps);
+    if (amps === handlers.stored()) return;
+    saved = amps;
+    handlers.save(amps);
   };
   input.addEventListener("input", () => {
     dirty = true;
+    saved = null;
     say(null);
   });
   input.addEventListener("keydown", event => {
@@ -83,5 +98,10 @@ export function bindOtherBreakerField(input: HTMLInputElement, handlers: OtherBr
       return dirty;
     },
     revert,
+    answerRefusal: amps => {
+      if (saved !== amps) return false;
+      revert();
+      return true;
+    },
   };
 }

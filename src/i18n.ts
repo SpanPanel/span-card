@@ -238,9 +238,11 @@ const translations: Record<string, Record<string, string>> = {
     "monitoringRating.reset": "Remove copied ratings",
     "monitoringRating.invalid_other": "Enter the other breaker's rating as a whole number of amps, 1 or more.",
     "monitoringRating.guidance":
-      "Enter the other breaker in this space exactly as your SPAN app shows this circuit (for example 20-20A). The panel publishes only the first; monitoring then judges this space against both breakers together.",
-    "monitoringRating.multi_space":
-      "This circuit spans more than one space. The panel reports the average of its legs, so one leg can carry more than its breaker while the reading stays under the rating, and no ratings copied from the SPAN app can show it. Turning monitoring off for this circuit is the safer choice.",
+      "If your SPAN app shows two ratings for this circuit, such as 20-20A, enter the second one here. SPAN Panel MAIN 32 panels report only the first, and monitoring then judges this space against both breakers together.",
+    "monitoringRating.guidance_two_spaces": "If your SPAN app shows two ratings for this circuit, such as 20-30A, enter the second one here.",
+    "monitoringRating.averaged_legs":
+      "SPAN Panel MAIN 32 panels report only the average of this circuit's two legs, which can hide an overloaded leg. We recommend turning monitoring off for this circuit.",
+    "monitoringRating.turn_off_monitoring": "Turn off monitoring",
     "monitoringRating.threshold_warning":
       "This circuit's custom thresholds are above 100%. With the copied ratings they now apply to both breakers together, which can let a real overload pass.",
     "monitoringRating.threshold_warning_global":
@@ -519,9 +521,11 @@ const translations: Record<string, Record<string, string>> = {
     "monitoringRating.reset": "Quitar los calibres copiados",
     "monitoringRating.invalid_other": "Introduzca el calibre del otro interruptor como un n\u00famero entero de amperios, 1 o m\u00e1s.",
     "monitoringRating.guidance":
-      "Introduzca el otro interruptor de este espacio tal como la app de SPAN muestra este circuito (por ejemplo, 20-20A). El panel publica solo el primero; el monitoreo juzga entonces este espacio seg\u00fan ambos interruptores juntos.",
-    "monitoringRating.multi_space":
-      "Este circuito ocupa varios espacios. El panel informa el promedio de sus fases, por lo que una fase puede llevar m\u00e1s corriente que su interruptor mientras la lectura queda por debajo del calibre, y ning\u00fan calibre copiado de la app de SPAN puede mostrarlo. Desactivar el monitoreo de este circuito es la opci\u00f3n m\u00e1s segura.",
+      "Si su app de SPAN muestra dos calibres para este circuito, como 20-20A, introduzca aqu\u00ed el segundo. Los paneles SPAN Panel MAIN 32 informan solo el primero, y el monitoreo juzga entonces este espacio seg\u00fan ambos interruptores juntos.",
+    "monitoringRating.guidance_two_spaces": "Si su app de SPAN muestra dos calibres para este circuito, como 20-30A, introduzca aqu\u00ed el segundo.",
+    "monitoringRating.averaged_legs":
+      "Los paneles SPAN Panel MAIN 32 informan solo el promedio de las dos fases de este circuito, lo que puede ocultar una fase sobrecargada. Recomendamos desactivar el monitoreo de este circuito.",
+    "monitoringRating.turn_off_monitoring": "Desactivar el monitoreo",
     "monitoringRating.threshold_warning":
       "Los umbrales personalizados de este circuito superan el 100 %. Con los calibres copiados se aplican ahora a ambos interruptores juntos, lo que puede dejar pasar una sobrecarga real.",
     "monitoringRating.threshold_warning_global":
@@ -791,9 +795,11 @@ const translations: Record<string, Record<string, string>> = {
     "monitoringRating.reset": "Supprimer les calibres copi\u00e9s",
     "monitoringRating.invalid_other": "Saisissez le calibre de l'autre disjoncteur en nombre entier d'amp\u00e8res, 1 ou plus.",
     "monitoringRating.guidance":
-      "Saisissez l'autre disjoncteur de cet emplacement exactement comme l'application SPAN affiche ce circuit (par exemple 20-20A). Le panneau ne publie que le premier ; la surveillance juge alors cet emplacement par rapport aux deux disjoncteurs ensemble.",
-    "monitoringRating.multi_space":
-      "Ce circuit occupe plusieurs emplacements. Le panneau indique la moyenne de ses phases ; une phase peut donc d\u00e9passer son disjoncteur alors que la mesure reste sous le calibre, et aucun calibre copi\u00e9 depuis l'application SPAN ne peut le montrer. D\u00e9sactiver la surveillance de ce circuit est le choix le plus s\u00fbr.",
+      "Si votre application SPAN affiche deux calibres pour ce circuit, par exemple 20-20A, saisissez ici le second. Les panneaux SPAN Panel MAIN 32 n'indiquent que le premier, et la surveillance juge alors cet emplacement par rapport aux deux disjoncteurs ensemble.",
+    "monitoringRating.guidance_two_spaces": "Si votre application SPAN affiche deux calibres pour ce circuit, par exemple 20-30A, saisissez ici le second.",
+    "monitoringRating.averaged_legs":
+      "Les panneaux SPAN Panel MAIN 32 n'indiquent que la moyenne des deux phases de ce circuit, ce qui peut masquer une phase en surcharge. Nous recommandons de d\u00e9sactiver la surveillance de ce circuit.",
+    "monitoringRating.turn_off_monitoring": "D\u00e9sactiver la surveillance",
     "monitoringRating.threshold_warning":
       "Les seuils personnalis\u00e9s de ce circuit d\u00e9passent 100 %. Avec les calibres copi\u00e9s, ils s'appliquent d\u00e9sormais aux deux disjoncteurs ensemble, ce qui peut laisser passer une vraie surcharge.",
     "monitoringRating.threshold_warning_global":
@@ -1076,9 +1082,12 @@ const translations: Record<string, Record<string, string>> = {
     "monitoringRating.invalid_other":
       "\u3082\u3046\u4e00\u65b9\u306e\u30d6\u30ec\u30fc\u30ab\u30fc\u306e\u5b9a\u683c\u3092 1 \u4ee5\u4e0a\u306e\u6574\u6570\u306e\u30a2\u30f3\u30da\u30a2\u3067\u5165\u529b\u3057\u3066\u304f\u3060\u3055\u3044\u3002",
     "monitoringRating.guidance":
-      "\u3053\u306e\u30b9\u30da\u30fc\u30b9\u306e\u3082\u3046\u4e00\u65b9\u306e\u30d6\u30ec\u30fc\u30ab\u30fc\u3092\u3001SPAN \u30a2\u30d7\u30ea\u304c\u3053\u306e\u56de\u8def\u306b\u3064\u3044\u3066\u8868\u793a\u3059\u308b\u3068\u304a\u308a\u306b\u5165\u529b\u3057\u3066\u304f\u3060\u3055\u3044(\u4f8b: 20-20A)\u3002\u30d1\u30cd\u30eb\u304c\u516c\u958b\u3059\u308b\u306e\u306f\u6700\u521d\u306e\u5b9a\u683c\u3060\u3051\u3067\u3059\u3002\u30e2\u30cb\u30bf\u30ea\u30f3\u30b0\u306f\u3053\u306e\u30b9\u30da\u30fc\u30b9\u3092\u4e21\u65b9\u306e\u30d6\u30ec\u30fc\u30ab\u30fc\u306e\u5408\u8a08\u3067\u5224\u5b9a\u3057\u307e\u3059\u3002",
-    "monitoringRating.multi_space":
-      "\u3053\u306e\u56de\u8def\u306f\u8907\u6570\u306e\u30b9\u30da\u30fc\u30b9\u306b\u307e\u305f\u304c\u3063\u3066\u3044\u307e\u3059\u3002\u30d1\u30cd\u30eb\u306f\u5404\u7dda\u306e\u5e73\u5747\u5024\u3092\u5831\u544a\u3059\u308b\u305f\u3081\u3001\u6e2c\u5b9a\u5024\u304c\u5b9a\u683c\u3092\u4e0b\u56de\u3063\u3066\u3044\u3066\u3082\u3001\u4e00\u65b9\u306e\u7dda\u304c\u30d6\u30ec\u30fc\u30ab\u30fc\u306e\u5b9a\u683c\u3092\u8d85\u3048\u308b\u3053\u3068\u304c\u3042\u308a\u3001SPAN \u30a2\u30d7\u30ea\u304b\u3089\u30b3\u30d4\u30fc\u3057\u305f\u5b9a\u683c\u3067\u306f\u305d\u308c\u3092\u793a\u305b\u307e\u305b\u3093\u3002\u3053\u306e\u56de\u8def\u306e\u30e2\u30cb\u30bf\u30ea\u30f3\u30b0\u3092\u30aa\u30d5\u306b\u3059\u308b\u306e\u304c\u3088\u308a\u5b89\u5168\u3067\u3059\u3002",
+      "SPAN \u30a2\u30d7\u30ea\u3067\u3053\u306e\u56de\u8def\u306b 20-20A \u306e\u3088\u3046\u306b 2 \u3064\u306e\u5b9a\u683c\u304c\u8868\u793a\u3055\u308c\u3066\u3044\u308b\u5834\u5408\u306f\u30012 \u3064\u76ee\u3092\u3053\u3053\u306b\u5165\u529b\u3057\u3066\u304f\u3060\u3055\u3044\u3002SPAN Panel MAIN 32 \u30d1\u30cd\u30eb\u304c\u5831\u544a\u3059\u308b\u306e\u306f 1 \u3064\u76ee\u3060\u3051\u3067\u3001\u30e2\u30cb\u30bf\u30ea\u30f3\u30b0\u306f\u3053\u306e\u30b9\u30da\u30fc\u30b9\u3092\u4e21\u65b9\u306e\u30d6\u30ec\u30fc\u30ab\u30fc\u306e\u5408\u8a08\u3067\u5224\u5b9a\u3057\u307e\u3059\u3002",
+    "monitoringRating.guidance_two_spaces":
+      "SPAN \u30a2\u30d7\u30ea\u3067\u3053\u306e\u56de\u8def\u306b 20-30A \u306e\u3088\u3046\u306b 2 \u3064\u306e\u5b9a\u683c\u304c\u8868\u793a\u3055\u308c\u3066\u3044\u308b\u5834\u5408\u306f\u30012 \u3064\u76ee\u3092\u3053\u3053\u306b\u5165\u529b\u3057\u3066\u304f\u3060\u3055\u3044\u3002",
+    "monitoringRating.averaged_legs":
+      "SPAN Panel MAIN 32 \u30d1\u30cd\u30eb\u306f\u3053\u306e\u56de\u8def\u306e 2 \u672c\u306e\u7dda\u306e\u5e73\u5747\u5024\u3057\u304b\u5831\u544a\u3057\u306a\u3044\u305f\u3081\u3001\u904e\u8ca0\u8377\u306e\u7dda\u304c\u898b\u3048\u306a\u304f\u306a\u308b\u3053\u3068\u304c\u3042\u308a\u307e\u3059\u3002\u3053\u306e\u56de\u8def\u306e\u30e2\u30cb\u30bf\u30ea\u30f3\u30b0\u3092\u30aa\u30d5\u306b\u3059\u308b\u3053\u3068\u3092\u304a\u3059\u3059\u3081\u3057\u307e\u3059\u3002",
+    "monitoringRating.turn_off_monitoring": "\u30e2\u30cb\u30bf\u30ea\u30f3\u30b0\u3092\u30aa\u30d5\u306b\u3059\u308b",
     "monitoringRating.threshold_warning":
       "\u3053\u306e\u56de\u8def\u306e\u30ab\u30b9\u30bf\u30e0\u3057\u304d\u3044\u5024\u306f 100% \u3092\u8d85\u3048\u3066\u3044\u307e\u3059\u3002\u30b3\u30d4\u30fc\u3057\u305f\u5b9a\u683c\u306b\u3088\u308a\u3001\u3057\u304d\u3044\u5024\u306f\u4e21\u65b9\u306e\u30d6\u30ec\u30fc\u30ab\u30fc\u306e\u5408\u8a08\u306b\u9069\u7528\u3055\u308c\u308b\u3088\u3046\u306b\u306a\u3063\u305f\u305f\u3081\u3001\u5b9f\u969b\u306e\u904e\u8ca0\u8377\u3092\u898b\u9003\u3059\u304a\u305d\u308c\u304c\u3042\u308a\u307e\u3059\u3002",
     "monitoringRating.threshold_warning_global":
@@ -1352,9 +1361,11 @@ const translations: Record<string, Record<string, string>> = {
     "monitoringRating.reset": "Remover as correntes nominais copiadas",
     "monitoringRating.invalid_other": "Digite a corrente nominal do outro disjuntor como um n\u00famero inteiro de amperes, 1 ou mais.",
     "monitoringRating.guidance":
-      "Digite o outro disjuntor deste espa\u00e7o exatamente como o app SPAN mostra este circuito (por exemplo, 20-20A). O painel publica apenas o primeiro; o monitoramento ent\u00e3o avalia este espa\u00e7o pelos dois disjuntores juntos.",
-    "monitoringRating.multi_space":
-      "Este circuito ocupa v\u00e1rios espa\u00e7os. O painel informa a m\u00e9dia das suas fases, ent\u00e3o uma fase pode passar da capacidade do seu disjuntor enquanto a leitura fica abaixo da corrente nominal, e nenhuma corrente nominal copiada do app SPAN consegue mostrar isso. Desativar o monitoramento deste circuito \u00e9 a escolha mais segura.",
+      "Se o seu app SPAN mostrar duas correntes nominais para este circuito, como 20-20A, digite a segunda aqui. Os pain\u00e9is SPAN Panel MAIN 32 informam apenas a primeira, e o monitoramento ent\u00e3o avalia este espa\u00e7o pelos dois disjuntores juntos.",
+    "monitoringRating.guidance_two_spaces": "Se o seu app SPAN mostrar duas correntes nominais para este circuito, como 20-30A, digite a segunda aqui.",
+    "monitoringRating.averaged_legs":
+      "Os pain\u00e9is SPAN Panel MAIN 32 informam apenas a m\u00e9dia das duas fases deste circuito, o que pode esconder uma fase sobrecarregada. Recomendamos desativar o monitoramento deste circuito.",
+    "monitoringRating.turn_off_monitoring": "Desativar o monitoramento",
     "monitoringRating.threshold_warning":
       "Os limites personalizados deste circuito passam de 100%. Com as correntes nominais copiadas, eles agora se aplicam aos dois disjuntores juntos, o que pode deixar passar uma sobrecarga real.",
     "monitoringRating.threshold_warning_global":

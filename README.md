@@ -100,8 +100,10 @@ breaker with its own rating, and a group of circuits that share a meter is judge
 can carry. The card reads that capacity and adds no ratings up itself. An integration that predates copied ratings offers none, so the section is not shown with
 it either.
 
-For a circuit that spans more than one space the panel reports the average of its legs, so one leg can carry more than its breaker while the reading stays under
-the rating. No copied rating can show that, so the section offers none there and says instead that turning monitoring off for the circuit is the safer choice.
+A circuit across two spaces takes the copy in the same field, for a package such as 20-30A. The panel reports only the average of such a circuit's two legs,
+which can hide an overloaded leg, so the copy is kept but never applied, and it changes no threshold's meaning. Once one is entered the section recommends
+turning monitoring off for that circuit, with a **Turn off monitoring** button that sends what the Monitoring switch sends. Which circuits take a copy, and in
+which form, is the integration's to say, and the section follows it.
 
 Thresholds are percentages of the rating a circuit is judged against. Where the thresholds a circuit uses are above 100%, as they may be if you raised them to
 quiet a tandem's alerts, the section warns that they now apply to both breakers together, which can let a real overload pass. For the circuit's own it offers
