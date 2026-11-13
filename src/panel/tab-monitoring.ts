@@ -51,6 +51,33 @@ function nextFeedbackId(): string {
   return `span-monitoring-feedback-${feedbackSerial}`;
 }
 
+/** The global settings' threshold and duration fields, by the field each sets. */
+const GLOBAL_FIELDS: ReadonlyArray<readonly [LimitField, string]> = [
+  ["continuous_threshold_pct", "#g-continuous"],
+  ["spike_threshold_pct", "#g-spike"],
+  ["window_duration_m", "#g-window"],
+  ["cooldown_duration_m", "#g-cooldown"],
+];
+
+/**
+ * Give a threshold or duration field a place after it that says what it needs
+ * correcting, as its description and a polite live region, with its border
+ * marked while it does; answers what reports into it.
+ */
+function fieldFeedback(input: HTMLInputElement): (message: string | null) => void {
+  const feedback = document.createElement("div");
+  feedback.id = nextFeedbackId();
+  feedback.setAttribute("aria-live", "polite");
+  feedback.style.cssText = FEEDBACK_STYLE;
+  input.setAttribute("aria-describedby", feedback.id);
+  input.parentElement?.appendChild(feedback);
+  const border = input.style.borderColor;
+  return message => {
+    feedback.textContent = message ?? "";
+    input.style.borderColor = message ? ERROR_BORDER : border;
+  };
+}
+
 /** A control's name across a redraw: its id, or the point and field a threshold cell is for. */
 function controlKey(el: HTMLElement): string | null {
   if (el.id) return `#${el.id}`;
@@ -314,25 +341,25 @@ export class MonitoringTab {
           <div id="global-fields" style="${isEnabled ? "" : "opacity:0.4;pointer-events:none;"}">
             <div style="${FIELD_STYLE}">
               <span style="${LABEL_STYLE}">${t("monitoring.continuous")}</span>
-              <input type="number" id="g-continuous" min="1" max="200"
+              <input type="number" id="g-continuous" min="${LIMIT_RANGES.continuous_threshold_pct.min}" max="${LIMIT_RANGES.continuous_threshold_pct.max}" step="1"
                      value="${globalSettings.continuous_threshold_pct ?? 80}"
                      style="${INPUT_STYLE}">
             </div>
             <div style="${FIELD_STYLE}">
               <span style="${LABEL_STYLE}">${t("monitoring.spike")}</span>
-              <input type="number" id="g-spike" min="1" max="200"
+              <input type="number" id="g-spike" min="${LIMIT_RANGES.spike_threshold_pct.min}" max="${LIMIT_RANGES.spike_threshold_pct.max}" step="1"
                      value="${globalSettings.spike_threshold_pct ?? 100}"
                      style="${INPUT_STYLE}">
             </div>
             <div style="${FIELD_STYLE}">
               <span style="${LABEL_STYLE}">${t("monitoring.window")}</span>
-              <input type="number" id="g-window" min="1" max="180"
+              <input type="number" id="g-window" min="${LIMIT_RANGES.window_duration_m.min}" max="${LIMIT_RANGES.window_duration_m.max}" step="1"
                      value="${globalSettings.window_duration_m ?? 5}"
                      style="${INPUT_STYLE}">
             </div>
             <div style="${FIELD_STYLE}">
               <span style="${LABEL_STYLE}">${t("monitoring.cooldown")}</span>
-              <input type="number" id="g-cooldown" min="1" max="180"
+              <input type="number" id="g-cooldown" min="${LIMIT_RANGES.cooldown_duration_m.min}" max="${LIMIT_RANGES.cooldown_duration_m.max}" step="1"
                      value="${globalSettings.cooldown_duration_m ?? 15}"
                      style="${INPUT_STYLE}">
             </div>
@@ -545,14 +572,8 @@ export class MonitoringTab {
     const statusEl = container.querySelector<HTMLElement>("#global-status");
 
     const readGlobalFields = (): Record<string, number> | null => {
-      const fields: Array<[string, string]> = [
-        ["continuous_threshold_pct", "#g-continuous"],
-        ["spike_threshold_pct", "#g-spike"],
-        ["window_duration_m", "#g-window"],
-        ["cooldown_duration_m", "#g-cooldown"],
-      ];
       const out: Record<string, number> = {};
-      for (const [key, sel] of fields) {
+      for (const [key, sel] of GLOBAL_FIELDS) {
         const input = container.querySelector<HTMLInputElement>(sel);
         if (!input) return null;
         const n = parseInt(input.value, 10);
@@ -570,21 +591,16 @@ export class MonitoringTab {
       target.style.color = "var(--error-color, #f44336)";
     };
 
-    const saveGlobal = (): void => {
-      if (this._debounceTimer) clearTimeout(this._debounceTimer);
-      this._debounceTimer = setTimeout(async () => {
-        const data = readGlobalFields();
-        if (!data) {
-          reportFailure(statusEl, null, t("error.failed_save"));
-          return;
-        }
-        try {
-          await this._callSetGlobal(hass, data);
-          await this.render(container, hass);
-        } catch (err: unknown) {
-          reportFailure(statusEl, err, t("error.failed_save"));
-        }
-      }, INPUT_DEBOUNCE_MS);
+    // The tab is read again after a save, since every point on the global thresholds shows them.
+    const saveGlobal = async (data: Record<string, number>): Promise<void> => {
+      const epoch = this._epoch;
+      try {
+        await this._callSetGlobal(hass, data);
+      } catch (err: unknown) {
+        reportFailure(statusEl, err, t("error.failed_save"));
+        return;
+      }
+      await this._redraw(container, hass, epoch);
     };
 
     if (enabledCheckbox) {
@@ -614,8 +630,14 @@ export class MonitoringTab {
       });
     }
 
-    for (const input of container.querySelectorAll<HTMLInputElement>("#global-fields input[type=number]")) {
-      input.addEventListener("input", saveGlobal);
+    // Each saves as the table's fields do, only as the user entered it, and only itself.
+    for (const [field, selector] of GLOBAL_FIELDS) {
+      const input = container.querySelector<HTMLInputElement>(selector);
+      if (!input) continue;
+      bindLimitField(input, field, {
+        report: fieldFeedback(input),
+        save: amount => void saveGlobal({ [field]: amount }),
+      });
     }
   }
 
@@ -914,18 +936,8 @@ export class MonitoringTab {
       const entityId = input.dataset.entity;
       if (!isLimitField(field) || entityId === undefined) continue;
       const isMains = input.dataset.type === "mains";
-      const feedback = document.createElement("div");
-      feedback.id = nextFeedbackId();
-      feedback.setAttribute("aria-live", "polite");
-      feedback.style.cssText = FEEDBACK_STYLE;
-      input.setAttribute("aria-describedby", feedback.id);
-      input.parentElement?.appendChild(feedback);
-      const border = input.style.borderColor;
       bindLimitField(input, field, {
-        report: message => {
-          feedback.textContent = message ?? "";
-          input.style.borderColor = message ? ERROR_BORDER : border;
-        },
+        report: fieldFeedback(input),
         save: amount => {
           const service = isMains ? "set_mains_threshold" : "set_circuit_threshold";
           const data = isMains ? { leg: entityId, [field]: amount } : { circuit_id: entityId, [field]: amount };

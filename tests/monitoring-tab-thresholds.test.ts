@@ -36,8 +36,12 @@ interface Integration {
   holdSaves: () => Array<() => void>;
 }
 
-/** One panel's monitoring as the integration reports it; a threshold save becomes the point's override, as the integration stores it. */
+/**
+ * One panel's monitoring as the integration reports it: a threshold save becomes
+ * the point's override, and a global save the thresholds of every point without one.
+ */
 function integration(): Integration {
+  const globals: Fields = { ...GLOBALS };
   const circuits: Record<string, MonitoringPointInfo> = { [OVEN]: point("Oven") };
   const mains: Record<string, MonitoringPointInfo> = { [MAINS]: point("Mains") };
   const saves: Message[] = [];
@@ -45,7 +49,7 @@ function integration(): Integration {
   let heldReads: Array<() => void> | null = null;
   let heldSaves: Array<() => void> | null = null;
   const status = (): unknown => ({
-    response: { enabled: true, global_settings: { ...GLOBALS }, circuits: structuredClone(circuits), mains: structuredClone(mains) },
+    response: { enabled: true, global_settings: { ...globals }, circuits: structuredClone(circuits), mains: structuredClone(mains) },
   });
   const callWS = vi.fn(async (msg: Message): Promise<unknown> => {
     if (msg.service === "get_monitoring_status") {
@@ -63,6 +67,12 @@ function integration(): Integration {
       }
       if (msg.service === "set_mains_threshold" && typeof data.leg === "string") {
         mains[data.leg] = { ...mains[data.leg]!, ...fieldsOf(data), has_override: true };
+      }
+      if (msg.service === "set_global_monitoring") {
+        Object.assign(globals, fieldsOf(data));
+        for (const points of [circuits, mains]) {
+          for (const [id, info] of Object.entries(points)) if (!info.has_override) points[id] = { ...info, ...fieldsOf(data) };
+        }
       }
     };
     const queue = heldSaves;
@@ -327,5 +337,104 @@ describe("the Monitoring tab's threshold table", () => {
 
     expect(cell(container, OVEN, "spike_threshold_pct").value).toBe("150");
     expect(cell(container, OVEN, "continuous_threshold_pct").value).toBe("90");
+  });
+});
+
+describe("the Monitoring tab's global thresholds", () => {
+  const global = (container: HTMLElement, id: string): HTMLInputElement => container.querySelector<HTMLInputElement>(`#${id}`)!;
+
+  it("saves a global threshold only on Enter, never while it is typed or stepped, and only the one changed", async () => {
+    vi.useFakeTimers();
+    const panel = integration();
+    const { container } = await shown(panel);
+    const field = global(container, "g-continuous");
+
+    for (const step of ["81", "82", "95"]) typeOnly(field, step);
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(panel.saves).toEqual([]);
+
+    field.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter" }));
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(panel.saves).toEqual([{ service: "set_global_monitoring", continuous_threshold_pct: 95, config_entry_id: "entry-1" }]);
+  });
+
+  it("saves on leaving a field the user changed, and nothing on leaving one nobody changed", async () => {
+    const panel = integration();
+    const { container } = await shown(panel);
+
+    global(container, "g-spike").focus();
+    global(container, "g-spike").blur();
+    await settle();
+    expect(panel.saves).toEqual([]);
+
+    typeOnly(global(container, "g-cooldown"), "30");
+    global(container, "g-cooldown").blur();
+    await settle();
+
+    expect(panel.saves).toEqual([{ service: "set_global_monitoring", cooldown_duration_m: 30, config_entry_id: "entry-1" }]);
+  });
+
+  it.each([
+    ["g-continuous", "0", "Enter a whole number from 1 to 200."],
+    ["g-spike", "201", "Enter a whole number from 1 to 200."],
+    ["g-window", "181", "Enter a whole number from 1 to 180."],
+    ["g-cooldown", "", "Enter a whole number from 1 to 180."],
+  ])("saves nothing for %s set to %j, saying what to enter", async (id, value, message) => {
+    const panel = integration();
+    const { container } = await shown(panel);
+    const field = global(container, id);
+
+    type(field, value);
+    field.blur();
+    await settle();
+
+    expect(panel.saves).toEqual([]);
+    expect(said(field)).toBe(message);
+    expect(field.getAttribute("aria-invalid")).toBe("true");
+    expect(description(field)!.getAttribute("aria-live")).toBe("polite");
+  });
+
+  it("keeps the wheel from stepping a focused global field", async () => {
+    const panel = integration();
+    const { container } = await shown(panel);
+    const field = global(container, "g-window");
+    field.focus();
+
+    const wheel = new WheelEvent("wheel", { cancelable: true, deltaY: -100 });
+    field.dispatchEvent(wheel);
+
+    expect(wheel.defaultPrevented).toBe(true);
+  });
+
+  it("reads the tab again once a global save is stored, keeping focus on the field the user moved to", async () => {
+    const panel = integration();
+    const { container, root } = await shown(panel);
+    typeOnly(global(container, "g-continuous"), "95");
+
+    const next = global(container, "g-spike");
+    next.focus();
+    await vi.waitFor(() => expect(global(container, "g-spike")).not.toBe(next));
+
+    // A point on the global thresholds shows the new one.
+    expect(cell(container, OVEN, "continuous_threshold_pct").value).toBe("95");
+    expect(root.activeElement).toBe(global(container, "g-spike"));
+  });
+
+  it("draws nothing once the tab is left while a global save is on its way", async () => {
+    const panel = integration();
+    const { tab, container } = await shown(panel);
+    const pending = panel.holdSaves();
+    const reads = panel.reads();
+    type(global(container, "g-continuous"), "95");
+
+    tab.stop();
+    container.innerHTML = "<p>another tab</p>";
+    for (const answer of pending) answer();
+    await settle();
+    await settle();
+
+    expect(container.innerHTML).toBe("<p>another tab</p>");
+    expect(panel.reads()).toBe(reads);
   });
 });
