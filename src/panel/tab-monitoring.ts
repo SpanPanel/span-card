@@ -1,8 +1,10 @@
-import { INTEGRATION_DOMAIN, INPUT_DEBOUNCE_MS, THRESHOLD_DEBOUNCE_MS } from "../constants.js";
+import { INTEGRATION_DOMAIN, INPUT_DEBOUNCE_MS } from "../constants.js";
 import { escapeHtml } from "../helpers/sanitize.js";
 import { errorText } from "../helpers/error-text.js";
 import { t } from "../i18n.js";
 import { monitoringRatingView, ratingLabelHTML, toggleRatingNote } from "../helpers/monitoring-rating.js";
+import { focusedIn } from "../helpers/focus.js";
+import { bindLimitField, isLimitField, LIMIT_RANGES, type LimitField } from "../helpers/number-field.js";
 import type { ErrorStore } from "../core/error-store.js";
 import type { HomeAssistant, MonitoringPointInfo, MonitoringStatusResponse, CallServiceResponse } from "../types.js";
 
@@ -35,6 +37,56 @@ const CELL_INPUT_STYLE = `
   border-radius:3px;padding:3px 6px;width:50px;font-size:0.8em;
   text-align:center;
 `;
+const FEEDBACK_STYLE = `
+  font-size:0.75em;color:var(--error-color,#f44336);
+  max-width:10em;white-space:normal;line-height:1.3;
+`;
+const ERROR_BORDER = "var(--error-color,#f44336)";
+
+let feedbackSerial = 0;
+
+/** An id for a field's feedback, unique in the shadow root every panel's tab is drawn in. */
+function nextFeedbackId(): string {
+  feedbackSerial += 1;
+  return `span-monitoring-feedback-${feedbackSerial}`;
+}
+
+/** A control's name across a redraw: its id, or the point and field a threshold cell is for. */
+function controlKey(el: HTMLElement): string | null {
+  if (el.id) return `#${el.id}`;
+  const { entity, field } = el.dataset;
+  return el.classList.contains("threshold-input") && entity !== undefined && field !== undefined ? `${entity}\u0000${field}` : null;
+}
+
+/** The control focused in the tab, and what was typed in it and not yet stored. */
+interface KeptFocus {
+  readonly key: string;
+  readonly draft: string | null;
+}
+
+function keptFocus(container: HTMLElement): KeptFocus | null {
+  const focused = focusedIn(container);
+  const key = focused ? controlKey(focused) : null;
+  if (!focused || key === null) return null;
+  const draft = focused instanceof HTMLInputElement && focused.value !== focused.defaultValue ? focused.value : null;
+  return { key, draft };
+}
+
+/**
+ * Put focus back on the control that had it before a redraw, with what the user
+ * had typed there and not yet stored: that typing is still theirs to commit, so
+ * the redrawn field takes it as typing.
+ */
+function restoreFocus(container: HTMLElement, kept: KeptFocus | null): void {
+  if (!kept) return;
+  const control = [...container.querySelectorAll<HTMLElement>("[id], .threshold-input")].find(el => controlKey(el) === kept.key);
+  if (!control) return;
+  if (kept.draft !== null && control instanceof HTMLInputElement && control.value !== kept.draft) {
+    control.value = kept.draft;
+    control.dispatchEvent(new Event("input"));
+  }
+  control.focus();
+}
 
 /**
  * Lightweight runtime-coerce for the ``get_monitoring_status`` response.
@@ -59,10 +111,11 @@ function coerceMonitoringStatusResponse(resp: unknown): MonitoringStatusResponse
   return out;
 }
 
-function thresholdCell(entityId: string, field: string, value: number | undefined, unit: string, type: string): string {
+function thresholdCell(entityId: string, field: LimitField, value: number | undefined, unit: string, type: string): string {
+  const { min, max } = LIMIT_RANGES[field];
   return `<td style="padding:6px 4px;">
     <input type="number" class="threshold-input" data-entity="${entityId}" data-field="${field}" data-type="${type}"
-           value="${value ?? ""}" min="1" max="${field === "window_duration_m" || field === "cooldown_duration_m" ? 180 : 200}"
+           value="${value ?? ""}" min="${min}" max="${max}" step="1"
            style="${CELL_INPUT_STYLE}"><span style="font-size:0.75em;color:var(--secondary-text-color);">${unit}</span>
   </td>`;
 }
@@ -84,6 +137,10 @@ export class MonitoringTab {
   private _configEntryId: string | null;
   private _notifyCloseHandler: ((e: MouseEvent) => void) | null;
   private _headerHTML: string;
+  /** Moves on each stop, so what a save started before the user left the tab draws nothing after. */
+  private _epoch = 0;
+  /** Counts reads of the table, so an earlier read answering late cannot draw over a later one. */
+  private _renderSeq = 0;
 
   constructor() {
     this._debounceTimer = null;
@@ -93,6 +150,7 @@ export class MonitoringTab {
   }
 
   stop(): void {
+    this._epoch += 1;
     if (this._notifyCloseHandler) {
       document.removeEventListener("click", this._notifyCloseHandler as EventListener);
       this._notifyCloseHandler = null;
@@ -110,6 +168,8 @@ export class MonitoringTab {
       document.removeEventListener("click", this._notifyCloseHandler as EventListener);
       this._notifyCloseHandler = null;
     }
+    const epoch = this._epoch;
+    const seq = ++this._renderSeq;
     let status: MonitoringStatusResponse | null;
     try {
       const serviceData: Record<string, unknown> = {};
@@ -126,6 +186,7 @@ export class MonitoringTab {
       console.warn("SPAN Panel: monitoring status fetch failed", err);
       status = null;
     }
+    if (epoch !== this._epoch || seq !== this._renderSeq) return;
 
     const globalSettings = status?.global_settings ?? {};
     const isEnabled = status?.enabled === true;
@@ -234,6 +295,7 @@ export class MonitoringTab {
       })
       .join("");
 
+    const kept = keptFocus(container);
     container.innerHTML = `
       ${this._headerHTML}
       <div style="padding:16px;">
@@ -455,6 +517,12 @@ export class MonitoringTab {
     this._bindThresholdInputs(container, hass);
     this._bindResetButtons(container, hass);
     this._bindRatingMarks(container);
+    restoreFocus(container, kept);
+  }
+
+  /** Read and draw the tab again, unless the user has left it since `epoch`. */
+  private async _redraw(container: HTMLElement, hass: HomeAssistant, epoch: number): Promise<void> {
+    if (epoch === this._epoch) await this.render(container, hass);
   }
 
   private _serviceData(data: Record<string, unknown>): Record<string, unknown> {
@@ -833,46 +901,67 @@ export class MonitoringTab {
     }
   }
 
+  /**
+   * The table's threshold and duration fields save as the side panel's do, only
+   * as the user entered them (`bindLimitField`), each saying under it what it
+   * needs correcting. A save reads the table again rather than patching its row:
+   * the integration drops an override that matches the global settings, and a
+   * shared meter's members share one, so only its answer says what each row holds.
+   */
   private _bindThresholdInputs(container: HTMLElement, hass: HomeAssistant): void {
-    const timers = new Map<string, ReturnType<typeof setTimeout>>();
     for (const input of container.querySelectorAll<HTMLInputElement>(".threshold-input")) {
-      input.addEventListener("input", () => {
-        const key = `${input.dataset.entity}-${input.dataset.field}`;
-        const existing = timers.get(key);
-        if (existing) clearTimeout(existing);
-        timers.set(
-          key,
-          setTimeout(async () => {
-            const val = parseInt(input.value, 10);
-            if (!val || val < 1) return;
-            const entityId = input.dataset.entity;
-            const field = input.dataset.field;
-            const type = input.dataset.type;
-            const service = type === "mains" ? "set_mains_threshold" : "set_circuit_threshold";
-            const idField = type === "mains" ? "leg" : "circuit_id";
-            try {
-              await hass.callWS({
-                type: "call_service",
-                domain: INTEGRATION_DOMAIN,
-                service,
-                service_data: this._serviceData({ [idField]: entityId, [field!]: val }),
-              });
-              // Re-render to update Custom badge and Reset button
-              await this.render(container, hass);
-            } catch (err) {
-              console.warn("SPAN Panel: threshold input save failed", err);
-              this.errorStore?.add({
-                key: "service:monitoring",
-                level: "error",
-                message: t("error.threshold_failed"),
-                persistent: false,
-              });
-              input.style.borderColor = "var(--error-color, #f44336)";
-            }
-          }, THRESHOLD_DEBOUNCE_MS)
-        );
+      const field = input.dataset.field;
+      const entityId = input.dataset.entity;
+      if (!isLimitField(field) || entityId === undefined) continue;
+      const isMains = input.dataset.type === "mains";
+      const feedback = document.createElement("div");
+      feedback.id = nextFeedbackId();
+      feedback.setAttribute("aria-live", "polite");
+      feedback.style.cssText = FEEDBACK_STYLE;
+      input.setAttribute("aria-describedby", feedback.id);
+      input.parentElement?.appendChild(feedback);
+      const border = input.style.borderColor;
+      bindLimitField(input, field, {
+        report: message => {
+          feedback.textContent = message ?? "";
+          input.style.borderColor = message ? ERROR_BORDER : border;
+        },
+        save: amount => {
+          const service = isMains ? "set_mains_threshold" : "set_circuit_threshold";
+          const data = isMains ? { leg: entityId, [field]: amount } : { circuit_id: entityId, [field]: amount };
+          void this._saveThreshold(container, hass, input, service, data);
+        },
       });
     }
+  }
+
+  private async _saveThreshold(
+    container: HTMLElement,
+    hass: HomeAssistant,
+    input: HTMLInputElement,
+    service: string,
+    data: Record<string, unknown>
+  ): Promise<void> {
+    const epoch = this._epoch;
+    try {
+      await hass.callWS({
+        type: "call_service",
+        domain: INTEGRATION_DOMAIN,
+        service,
+        service_data: this._serviceData(data),
+      });
+    } catch (err) {
+      console.warn("SPAN Panel: threshold input save failed", err);
+      this.errorStore?.add({
+        key: "service:monitoring",
+        level: "error",
+        message: t("error.threshold_failed"),
+        persistent: false,
+      });
+      input.style.borderColor = ERROR_BORDER;
+      return;
+    }
+    await this._redraw(container, hass, epoch);
   }
 
   /** A rating mark's note shows on a tap or a key press, where its tooltip cannot be hovered. */

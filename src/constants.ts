@@ -53,7 +53,6 @@ export const MIN_HISTORY_DURATION_MS = 60_000;
 // -- UI debounce / timing --
 
 export const INPUT_DEBOUNCE_MS = 500;
-export const THRESHOLD_DEBOUNCE_MS = 800;
 
 // -- Chart metric definitions --
 
