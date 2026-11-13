@@ -114,8 +114,8 @@ and alerts use. The breaker labels on the grid, list and side panel keep showing
 card works out when the monitor has no figure, use both breakers together only while that circuit's monitoring is on; with it off, or monitoring disabled, they
 use the panel's rating. A circuit with no rating shows "no rating". Every open view redraws when a copy changes, whether you changed it here, in another browser
 or from a service call: a field you have not touched shows the copy the integration now holds, and one you are typing in keeps what you typed until you press
-Enter or leave it. The Monitoring section's threshold and duration fields save the same way, on Enter or when you leave them, and only a whole number in their
-range.
+Enter or leave it. Threshold and duration fields save the same way, in a circuit's Monitoring section and in the Monitoring tab's Global Settings and table: on
+Enter or when you leave them, never while you type or step them, and only a whole number in their range.
 
 ### Finding Your Device ID
 
