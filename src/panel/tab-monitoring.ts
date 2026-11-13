@@ -547,7 +547,11 @@ export class MonitoringTab {
     restoreFocus(container, kept);
   }
 
-  /** Read and draw the tab again, unless the user has left it since `epoch`. */
+  /**
+   * Read and draw the tab again, unless the user has left it since `epoch`, when
+   * a save began: the container is another tab's by then. Every redraw after a
+   * save comes through here.
+   */
   private async _redraw(container: HTMLElement, hass: HomeAssistant, epoch: number): Promise<void> {
     if (epoch === this._epoch) await this.render(container, hass);
   }
@@ -605,6 +609,7 @@ export class MonitoringTab {
 
     if (enabledCheckbox) {
       enabledCheckbox.addEventListener("change", async () => {
+        const epoch = this._epoch;
         const enabled = enabledCheckbox.checked;
         if (fieldsDiv) {
           fieldsDiv.style.opacity = enabled ? "" : "0.4";
@@ -626,7 +631,7 @@ export class MonitoringTab {
           reportFailure(statusEl2, err, t("error.failed"));
           return;
         }
-        await this.render(container, hass);
+        await this._redraw(container, hass, epoch);
       });
     }
 
@@ -744,9 +749,10 @@ export class MonitoringTab {
 
     if (prioritySelect) {
       prioritySelect.addEventListener("change", async () => {
+        const epoch = this._epoch;
         try {
           await this._callSetGlobal(hass, { notification_priority: prioritySelect.value });
-          await this.render(container, hass);
+          await this._redraw(container, hass, epoch);
         } catch (err) {
           console.warn("SPAN Panel: notification priority change failed", err);
           this.errorStore?.add({
@@ -823,6 +829,7 @@ export class MonitoringTab {
     const toggleAll = container.querySelector<HTMLInputElement>("#toggle-all-circuits");
     if (!toggleAll) return;
     toggleAll.addEventListener("change", async () => {
+      const epoch = this._epoch;
       const enabled = toggleAll.checked;
       const calls: Promise<unknown>[] = [
         ...Object.keys(circuits).map(entityId =>
@@ -863,13 +870,14 @@ export class MonitoringTab {
         ),
       ];
       await Promise.all(calls);
-      await this.render(container, hass);
+      await this._redraw(container, hass, epoch);
     });
   }
 
   private _bindMainsToggles(container: HTMLElement, hass: HomeAssistant): void {
     for (const cb of container.querySelectorAll<HTMLInputElement>(".mains-toggle")) {
       cb.addEventListener("change", async () => {
+        const epoch = this._epoch;
         const entityId = cb.dataset.entity;
         const enabled = cb.checked;
         try {
@@ -890,7 +898,7 @@ export class MonitoringTab {
           cb.checked = !enabled;
           return;
         }
-        await this.render(container, hass);
+        await this._redraw(container, hass, epoch);
       });
     }
   }
@@ -898,6 +906,7 @@ export class MonitoringTab {
   private _bindCircuitToggles(container: HTMLElement, hass: HomeAssistant): void {
     for (const cb of container.querySelectorAll<HTMLInputElement>(".circuit-toggle")) {
       cb.addEventListener("change", async () => {
+        const epoch = this._epoch;
         const entityId = cb.dataset.entity;
         const enabled = cb.checked;
         try {
@@ -918,7 +927,7 @@ export class MonitoringTab {
           cb.checked = !enabled;
           return;
         }
-        await this.render(container, hass);
+        await this._redraw(container, hass, epoch);
       });
     }
   }
@@ -986,13 +995,14 @@ export class MonitoringTab {
   private _bindResetButtons(container: HTMLElement, hass: HomeAssistant): void {
     for (const btn of container.querySelectorAll<HTMLElement>(".reset-btn")) {
       btn.addEventListener("click", async () => {
+        const epoch = this._epoch;
         const entityId = btn.dataset.entity;
         if (!entityId) return;
         const type = btn.dataset.type;
         const service = type === "mains" ? "clear_mains_threshold" : "clear_circuit_threshold";
         const param = this._serviceData(type === "mains" ? { leg: entityId } : { circuit_id: entityId });
         await hass.callService(INTEGRATION_DOMAIN, service, param);
-        await this.render(container, hass);
+        await this._redraw(container, hass, epoch);
       });
     }
   }

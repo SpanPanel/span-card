@@ -40,9 +40,9 @@ interface Integration {
  * One panel's monitoring as the integration reports it: a threshold save becomes
  * the point's override, and a global save the thresholds of every point without one.
  */
-function integration(): Integration {
+function integration({ ovenOverride = false } = {}): Integration {
   const globals: Fields = { ...GLOBALS };
-  const circuits: Record<string, MonitoringPointInfo> = { [OVEN]: point("Oven") };
+  const circuits: Record<string, MonitoringPointInfo> = { [OVEN]: { ...point("Oven"), has_override: ovenOverride } };
   const mains: Record<string, MonitoringPointInfo> = { [MAINS]: point("Mains") };
   const saves: Message[] = [];
   let reads = 0;
@@ -87,7 +87,10 @@ function integration(): Integration {
     apply();
     return {};
   });
-  const hass = { states: {}, services: {}, language: "en", callService: async () => undefined, callWS } as unknown as HomeAssistant;
+  const callService = vi.fn(
+    async (domain: string, service: string, data: Message): Promise<unknown> => callWS({ type: "call_service", domain, service, service_data: data })
+  );
+  const hass = { states: {}, services: {}, language: "en", callService, callWS } as unknown as HomeAssistant;
   return {
     hass,
     saves,
@@ -436,5 +439,80 @@ describe("the Monitoring tab's global thresholds", () => {
 
     expect(container.innerHTML).toBe("<p>another tab</p>");
     expect(panel.reads()).toBe(reads);
+  });
+});
+
+describe("the Monitoring tab's other controls", () => {
+  /** Each control that saves and then reads the tab again, and how the user changes it. */
+  const CONTROLS: Array<[string, (container: HTMLElement) => void]> = [
+    [
+      "the Enabled switch",
+      container => {
+        const enabled = container.querySelector<HTMLInputElement>("#monitoring-enabled")!;
+        enabled.checked = false;
+        enabled.dispatchEvent(new Event("change"));
+      },
+    ],
+    [
+      "the notification priority",
+      container => {
+        const priority = container.querySelector<HTMLSelectElement>("#g-priority")!;
+        priority.value = "active";
+        priority.dispatchEvent(new Event("change"));
+      },
+    ],
+    [
+      "All / None",
+      container => {
+        const all = container.querySelector<HTMLInputElement>("#toggle-all-circuits")!;
+        all.checked = false;
+        all.dispatchEvent(new Event("change"));
+      },
+    ],
+    [
+      "a circuit's switch",
+      container => {
+        const toggle = container.querySelector<HTMLInputElement>(`.circuit-toggle[data-entity="${OVEN}"]`)!;
+        toggle.checked = false;
+        toggle.dispatchEvent(new Event("change"));
+      },
+    ],
+    [
+      "the mains' switch",
+      container => {
+        const toggle = container.querySelector<HTMLInputElement>(`.mains-toggle[data-entity="${MAINS}"]`)!;
+        toggle.checked = false;
+        toggle.dispatchEvent(new Event("change"));
+      },
+    ],
+    ["a point's Reset", container => container.querySelector<HTMLElement>(`.reset-btn[data-entity="${OVEN}"]`)!.click()],
+  ];
+
+  it.each(CONTROLS)("draw nothing once the tab is left while what %s saved is on its way", async (_name, change) => {
+    const panel = integration({ ovenOverride: true });
+    const { tab, container } = await shown(panel);
+    const pending = panel.holdSaves();
+    const reads = panel.reads();
+    change(container);
+    await vi.waitFor(() => expect(pending.length).toBeGreaterThan(0));
+
+    tab.stop();
+    container.innerHTML = "<p>another tab</p>";
+    for (const answer of pending) answer();
+    await settle();
+    await settle();
+
+    expect(container.innerHTML).toBe("<p>another tab</p>");
+    expect(panel.reads()).toBe(reads);
+  });
+
+  it.each(CONTROLS)("read the tab again once what %s saved is stored", async (_name, change) => {
+    const panel = integration({ ovenOverride: true });
+    const { container } = await shown(panel);
+    const reads = panel.reads();
+
+    change(container);
+
+    await vi.waitFor(() => expect(panel.reads()).toBe(reads + 1));
   });
 });
