@@ -40,7 +40,8 @@ interface Integration {
 
 /**
  * One panel's monitoring as the integration reports it: a threshold save becomes
- * the point's override, and a global save the thresholds of every point without one.
+ * the point's override, a clear takes it away, and a global save the thresholds of
+ * every point without one.
  * A service named in `refuse` is refused with the error given for it.
  */
 function integration({ ovenOverride = false, ovenName = "Oven", refuse = {} as Record<string, unknown> } = {}): Integration {
@@ -71,6 +72,12 @@ function integration({ ovenOverride = false, ovenName = "Oven", refuse = {} as R
       }
       if (msg.service === "set_mains_threshold" && typeof data.leg === "string") {
         mains[data.leg] = { ...mains[data.leg]!, ...fieldsOf(data), has_override: true };
+      }
+      if (msg.service === "clear_circuit_threshold" && typeof data.circuit_id === "string") {
+        circuits[data.circuit_id] = { ...circuits[data.circuit_id]!, ...globals, has_override: false };
+      }
+      if (msg.service === "clear_mains_threshold" && typeof data.leg === "string") {
+        mains[data.leg] = { ...mains[data.leg]!, ...globals, has_override: false };
       }
       if (msg.service === "set_global_monitoring") {
         Object.assign(globals, fieldsOf(data));
@@ -863,5 +870,56 @@ describe("the Monitoring tab's settings, as a screen reader names them", () => {
 
     expect(control.getAttribute("aria-label")).toBe(name);
     expect(control.parentElement!.querySelector("span")!.textContent).toBe(name);
+  });
+});
+
+describe("focus across the redraw after a row's control saves", () => {
+  it("moves from a Reset that went with the override to the row's first field", async () => {
+    const panel = integration({ ovenOverride: true });
+    const { container, root } = await shown(panel);
+    const reset = container.querySelector<HTMLElement>(`.reset-btn[data-entity="${OVEN}"]`)!;
+    reset.focus();
+
+    reset.click();
+    await vi.waitFor(() => expect(container.querySelector(`.reset-btn[data-entity="${OVEN}"]`)).toBeNull());
+
+    expect(root.activeElement).toBe(cell(container, OVEN, "continuous_threshold_pct"));
+  });
+
+  it("stays on a Reset that is still there after the redraw", async () => {
+    // The integration kept the override, so the redrawn row still offers its Reset.
+    const panel = integration({ ovenOverride: true });
+    const { container, root } = await shown(panel);
+    const reset = container.querySelector<HTMLElement>(`.reset-btn[data-entity="${OVEN}"]`)!;
+    reset.focus();
+    const reads = panel.reads();
+
+    // A redraw for another reason, a switch elsewhere saving, while the Reset has focus.
+    const all = container.querySelector<HTMLInputElement>(`.mains-toggle[data-entity="${MAINS}"]`)!;
+    all.checked = false;
+    all.dispatchEvent(new Event("change"));
+    await vi.waitFor(() => expect(panel.reads()).toBe(reads + 1));
+    await settle();
+
+    expect(root.activeElement).toBe(container.querySelector(`.reset-btn[data-entity="${OVEN}"]`));
+  });
+
+  it.each([
+    ["circuit", OVEN],
+    ["mains", MAINS],
+  ])("stays on the %s switch the user changed", async (kind, entity) => {
+    const panel = integration();
+    const { container, root } = await shown(panel);
+    const toggle = container.querySelector<HTMLInputElement>(`.${kind}-toggle[data-entity="${entity}"]`)!;
+    toggle.focus();
+    const reads = panel.reads();
+
+    toggle.checked = false;
+    toggle.dispatchEvent(new Event("change"));
+    await vi.waitFor(() => expect(panel.reads()).toBe(reads + 1));
+    await settle();
+
+    expect(root.activeElement).toBe(container.querySelector(`.${kind}-toggle[data-entity="${entity}"]`));
+    expect(root.activeElement).not.toBe(toggle);
   });
 });

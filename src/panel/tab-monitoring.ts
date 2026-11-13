@@ -82,16 +82,33 @@ function fieldFeedback(input: HTMLInputElement): (message: string | null) => voi
   };
 }
 
-/** A control's name across a redraw: its id, or the point and field a threshold cell is for. */
+/** The row controls the redraw keeps focus on, by class: each is named by the class and its point. */
+const ROW_CONTROLS = ["reset-btn", "circuit-toggle", "mains-toggle"] as const;
+
+/** The controls a redraw can put focus back on. */
+const KEPT_CONTROLS = ["[id]", ".threshold-input", ...ROW_CONTROLS.map(name => `.${name}`)].join(", ");
+
+/**
+ * A control's name across a redraw: its id; the point and field a threshold cell
+ * is for; or a row control's class and its point.
+ */
 function controlKey(el: HTMLElement): string | null {
   if (el.id) return `#${el.id}`;
   const { entity, field } = el.dataset;
-  return el.classList.contains("threshold-input") && entity !== undefined && field !== undefined ? `${entity}\u0000${field}` : null;
+  if (entity === undefined) return null;
+  if (el.classList.contains("threshold-input")) return field !== undefined ? fieldKey(entity, field) : null;
+  const control = ROW_CONTROLS.find(name => el.classList.contains(name));
+  return control ? `${control}\u0000${entity}` : null;
+}
+
+function fieldKey(entity: string, field: string): string {
+  return `${entity}\u0000${field}`;
 }
 
 /** The control focused in the tab, and what was typed in it and not yet stored. */
 interface KeptFocus {
-  readonly key: string;
+  /** The control, then where focus goes in its row should the redraw not draw it again. */
+  readonly keys: readonly string[];
   readonly draft: string | null;
 }
 
@@ -99,24 +116,32 @@ function keptFocus(container: HTMLElement): KeptFocus | null {
   const focused = focusedIn(container);
   const key = focused ? controlKey(focused) : null;
   if (!focused || key === null) return null;
+  // A Reset goes with the override it cleared: focus then goes to the row's first field.
+  const entity = focused.dataset.entity;
+  const keys = focused.classList.contains("reset-btn") && entity !== undefined ? [key, fieldKey(entity, "continuous_threshold_pct")] : [key];
   const draft = focused instanceof HTMLInputElement && focused.value !== focused.defaultValue ? focused.value : null;
-  return { key, draft };
+  return { keys, draft };
 }
 
 /**
  * Put focus back on the control that had it before a redraw, with what the user
  * had typed there and not yet stored: that typing is still theirs to commit, so
- * the redrawn field takes it as typing.
+ * the redrawn field takes it as typing. Where the redraw no longer draws that
+ * control, focus goes to the next place `kept` names.
  */
 function restoreFocus(container: HTMLElement, kept: KeptFocus | null): void {
   if (!kept) return;
-  const control = [...container.querySelectorAll<HTMLElement>("[id], .threshold-input")].find(el => controlKey(el) === kept.key);
-  if (!control) return;
-  if (kept.draft !== null && control instanceof HTMLInputElement && control.value !== kept.draft) {
-    control.value = kept.draft;
-    control.dispatchEvent(new Event("input"));
+  const drawn = [...container.querySelectorAll<HTMLElement>(KEPT_CONTROLS)];
+  for (const key of kept.keys) {
+    const control = drawn.find(el => controlKey(el) === key);
+    if (!control) continue;
+    if (kept.draft !== null && control instanceof HTMLInputElement && control.value !== kept.draft) {
+      control.value = kept.draft;
+      control.dispatchEvent(new Event("input"));
+    }
+    control.focus();
+    return;
   }
-  control.focus();
 }
 
 /**
