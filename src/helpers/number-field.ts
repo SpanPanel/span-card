@@ -41,6 +41,12 @@ export interface LimitFieldHandlers {
   save(amount: number): void;
 }
 
+/** A bound threshold or duration field, as its owner reads it. */
+export interface LimitFieldHandle {
+  /** Whether the field holds typing the user has not committed. */
+  readonly dirty: boolean;
+}
+
 /**
  * Make `input` send a threshold or duration only as the user entered it: when
  * they press Enter or leave the field, never while they type, step or scroll,
@@ -49,7 +55,7 @@ export interface LimitFieldHandlers {
  * sent nowhere. The field going from the page, as a redraw takes it, is not the
  * user leaving it (`onLeave`), so nothing half typed is sent then.
  */
-export function bindLimitField(input: HTMLInputElement, field: LimitField, handlers: LimitFieldHandlers): void {
+export function bindLimitField(input: HTMLInputElement, field: LimitField, handlers: LimitFieldHandlers): LimitFieldHandle {
   const { min, max } = LIMIT_RANGES[field];
   guardNumberWheel(input);
   let dirty = false;
@@ -77,4 +83,9 @@ export function bindLimitField(input: HTMLInputElement, field: LimitField, handl
     if (event.key === "Enter") commit();
   });
   onLeave(input, commit);
+  return {
+    get dirty(): boolean {
+      return dirty;
+    },
+  };
 }

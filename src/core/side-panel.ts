@@ -7,7 +7,8 @@ import { judgedAgainstSentence, monitoringRatingView } from "../helpers/monitori
 import { serviceErrorMessage } from "../helpers/error-text.js";
 import { occupiedSpaces, slotRatingText, type SlotMember } from "../helpers/shared-meters.js";
 import { PackageRatingsEditor, type PackageRatingsHost, type PackageRatingsState } from "./package-ratings-editor.js";
-import { bindLimitField, LIMIT_RANGES, type LimitField } from "../helpers/number-field.js";
+import { bindLimitField, LIMIT_RANGES, type LimitField, type LimitFieldHandle } from "../helpers/number-field.js";
+import { focusWithin } from "../helpers/focus.js";
 import { circuitMonitoringInfo, monitoringStatusFrom } from "./monitoring-status.js";
 import { addFavorite, removeFavorite } from "./favorites-store.js";
 import { sortedCircuitsForSection } from "./favorites-sections.js";
@@ -468,6 +469,8 @@ class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
   private _debounceTimers: Record<string, ReturnType<typeof setTimeout>>;
   /** Counts reads of the circuit's monitoring after a threshold save, so an earlier one answering late is ignored. */
   private _thresholdReads = 0;
+  /** The open circuit's custom threshold and duration fields. */
+  private _limitFields: LimitFieldHandle[] = [];
   constructor() {
     super();
     this.attachShadow({ mode: "open" });
@@ -1511,7 +1514,25 @@ class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
     const cfg = this._openCircuitConfig(uuid);
     if (!cfg) return;
     this._config = { ...cfg, monitoringInfo: info, monitoringGlobals: globals };
+    if (info.has_override !== true) this._showGlobalChoice();
     this._syncMonitoring();
+  }
+
+  /**
+   * Show Global as chosen, its fields hidden, where the integration says the
+   * circuit has no thresholds of its own, as after it dropped an override that
+   * matched the global ones; focus in the fields goes to Global. Custom stays
+   * while one of its fields holds typing not yet committed, which hiding them
+   * would take from the user.
+   */
+  private _showGlobalChoice(): void {
+    const shadow = this.shadowRoot;
+    const global = shadow?.querySelector<HTMLInputElement>('input[name="monitoring-mode"][value="global"]');
+    const fields = shadow?.querySelector<HTMLElement>('[data-role="threshold-fields"]');
+    if (!global || !fields || global.checked || this._limitFields.some(bound => bound.dirty)) return;
+    global.checked = true;
+    if (focusWithin(fields)) global.focus();
+    fields.style.display = "none";
   }
 
   /** The open panel's circuit config, where it is open on circuit `uuid`; null otherwise. */
@@ -1691,6 +1712,7 @@ class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
     detailsWrap.appendChild(radioGroup);
 
     // Threshold fields
+    this._limitFields = [];
     const thresholdsWrap = document.createElement("div");
     thresholdsWrap.dataset.role = "threshold-fields";
     thresholdsWrap.style.display = hasCustom ? "block" : "none";
@@ -1781,7 +1803,7 @@ class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
     feedback.dataset.role = `threshold-feedback-${key}`;
     feedback.setAttribute("aria-live", "polite");
 
-    bindLimitField(input, field, {
+    const bound = bindLimitField(input, field, {
       report: message => {
         feedback.textContent = message ?? "";
       },
@@ -1791,6 +1813,7 @@ class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
         this._saveThresholds(cfg, data);
       },
     });
+    this._limitFields.push(bound);
 
     row.append(labelEl, inputWrap, feedback);
     return row;

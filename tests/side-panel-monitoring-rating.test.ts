@@ -967,6 +967,77 @@ describe("thresholds above 100% under a copy", () => {
       expect(useGlobal(panel)).not.toBeNull();
     });
 
+    const radio = (p: SidePanel, mode: "global" | "custom"): HTMLInputElement =>
+      p.shadowRoot!.querySelector<HTMLInputElement>(`input[name="monitoring-mode"][value="${mode}"]`)!;
+    const fields = (p: SidePanel): HTMLElement => p.shadowRoot!.querySelector<HTMLElement>('[data-role="threshold-fields"]')!;
+    const spike = (p: SidePanel): HTMLInputElement => p.shadowRoot!.querySelector<HTMLInputElement>('[data-role="threshold-spike"]')!;
+    const dropped = async (message: Record<string, unknown>): Promise<unknown> =>
+      message.service === "get_monitoring_status" ? status({ monitoring_enabled: true, has_override: false, ...ABOVE_GLOBALS }) : undefined;
+
+    it("show Global as chosen, its fields hidden and focus on it, where the integration dropped the override", async () => {
+      const { panel } = open(COPIED, opening, dropped);
+
+      type(continuous(panel), "160");
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(radio(panel, "global").checked).toBe(true);
+      expect(radio(panel, "custom").checked).toBe(false);
+      expect(fields(panel).style.display).toBe("none");
+      expect(active(panel)).toBe(radio(panel, "global"));
+    });
+
+    it("keep Custom and its fields where the user is typing in one when the integration drops the override", async () => {
+      const { panel, callWS } = open(COPIED, opening, dropped);
+      typeOnly(continuous(panel), "160");
+      // Tab to Spike, which saves Continuous, and start typing before the answer.
+      spike(panel).focus();
+      spike(panel).value = "21";
+      spike(panel).dispatchEvent(new Event("input"));
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(radio(panel, "custom").checked).toBe(true);
+      expect(fields(panel).style.display).toBe("block");
+      expect(active(panel)).toBe(spike(panel));
+      expect(spike(panel).value).toBe("21");
+      expect(callWS.mock.calls.map(c => (c[0] as { service: string }).service)).toEqual(["set_circuit_threshold", "get_monitoring_status"]);
+    });
+
+    it("judge only the fields drawn now, not ones half typed in before the panel was drawn again", async () => {
+      const { panel } = open(COPIED, opening, dropped);
+      typeOnly(continuous(panel), "15");
+      // Drawn again on the same circuit: the field half typed in goes, uncommitted.
+      panel.open({
+        uuid: "c-1",
+        name: "Oven",
+        showMonitoring: true,
+        monitoringRatingOffered: true,
+        graphHorizonInfo: { horizon: "5m", has_override: false, globalHorizon: "5m" },
+        members: COPIED,
+        capacityA: null,
+        configEntryId: "entry-1",
+        ...opening,
+      });
+
+      type(continuous(panel), "160");
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(radio(panel, "global").checked).toBe(true);
+    });
+
+    it("keep Custom where the integration kept the override", async () => {
+      const { panel } = open(COPIED, opening, async message =>
+        message.service === "get_monitoring_status"
+          ? status({ monitoring_enabled: true, has_override: true, ...ABOVE_GLOBALS, continuous_threshold_pct: 180 })
+          : undefined
+      );
+
+      type(continuous(panel), "180");
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(radio(panel, "custom").checked).toBe(true);
+      expect(fields(panel).style.display).toBe("block");
+    });
+
     it("take the global thresholds the answer came with, which a reset then applies", async () => {
       // Since the panel opened, the global thresholds were brought back within 100%.
       const within = { continuous_threshold_pct: 80, spike_threshold_pct: 100, window_duration_m: 15, cooldown_duration_m: 15 };
