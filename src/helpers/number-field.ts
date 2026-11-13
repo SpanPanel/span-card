@@ -45,6 +45,8 @@ export interface LimitFieldHandlers {
 export interface LimitFieldHandle {
   /** Whether the field holds typing the user has not committed. */
   readonly dirty: boolean;
+  /** The field's value where it is a whole number in its range; otherwise null, the field marked as a commit would mark it. */
+  check(): number | null;
 }
 
 /**
@@ -64,13 +66,16 @@ export function bindLimitField(input: HTMLInputElement, field: LimitField, handl
     else input.removeAttribute("aria-invalid");
     handlers.report(message);
   };
+  const check = (): number | null => {
+    const amount = input.value.trim() === "" ? Number.NaN : Number(input.value);
+    if (Number.isSafeInteger(amount) && amount >= min && amount <= max) return amount;
+    say(tf("monitoring.limit_invalid", { min: String(min), max: String(max) }));
+    return null;
+  };
   const commit = (): void => {
     if (!dirty) return;
-    const amount = input.value.trim() === "" ? Number.NaN : Number(input.value);
-    if (!Number.isSafeInteger(amount) || amount < min || amount > max) {
-      say(tf("monitoring.limit_invalid", { min: String(min), max: String(max) }));
-      return;
-    }
+    const amount = check();
+    if (amount === null) return;
     dirty = false;
     say(null);
     handlers.save(amount);
@@ -87,5 +92,6 @@ export function bindLimitField(input: HTMLInputElement, field: LimitField, handl
     get dirty(): boolean {
       return dirty;
     },
+    check,
   };
 }

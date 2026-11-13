@@ -4,7 +4,7 @@ import { errorText, serviceErrorMessage } from "../helpers/error-text.js";
 import { t, tf } from "../i18n.js";
 import { monitoringRatingView, ratingLabelHTML, toggleRatingNote } from "../helpers/monitoring-rating.js";
 import { focusedIn } from "../helpers/focus.js";
-import { bindLimitField, isLimitField, LIMIT_RANGES, type LimitField } from "../helpers/number-field.js";
+import { bindLimitField, isLimitField, LIMIT_RANGES, type LimitField, type LimitFieldHandle } from "../helpers/number-field.js";
 import type { ErrorStore } from "../core/error-store.js";
 import type { HomeAssistant, MonitoringPointInfo, MonitoringStatusResponse, CallServiceResponse } from "../types.js";
 
@@ -687,18 +687,6 @@ export class MonitoringTab {
     const fieldsDiv = container.querySelector<HTMLElement>("#global-fields");
     const statusEl = container.querySelector<HTMLElement>("#global-status");
 
-    const readGlobalFields = (): Record<string, number> | null => {
-      const out: Record<string, number> = {};
-      for (const [key, sel] of GLOBAL_FIELDS) {
-        const input = container.querySelector<HTMLInputElement>(sel);
-        if (!input) return null;
-        const n = parseInt(input.value, 10);
-        if (Number.isNaN(n)) return null;
-        out[key] = n;
-      }
-      return out;
-    };
-
     const reportFailure = (target: HTMLElement | null, err: unknown, fallback: string): void => {
       if (!target) return;
       // `null` is a form that failed validation: there is no rejection to report.
@@ -719,20 +707,54 @@ export class MonitoringTab {
       await this._redraw(container, hass, epoch);
     };
 
+    // Each field saves as the table's fields do, only as the user entered it, and only itself.
+    const bound = new Map<LimitField, LimitFieldHandle>();
+    for (const [field, selector] of GLOBAL_FIELDS) {
+      const input = container.querySelector<HTMLInputElement>(selector);
+      if (!input) continue;
+      bound.set(field, bindLimitField(input, field, { report: fieldFeedback(input), save: amount => void saveGlobal({ [field]: amount }) }));
+    }
+
+    /**
+     * The four global fields as they stand, each checked as a commit checks it;
+     * null where one is not a whole number in its range, each such field marked.
+     */
+    const readGlobalFields = (): Record<string, number> | null => {
+      const out: Record<string, number> = {};
+      let valid = true;
+      for (const [field] of GLOBAL_FIELDS) {
+        const amount = bound.get(field)?.check() ?? null;
+        if (amount === null) valid = false;
+        else out[field] = amount;
+      }
+      return valid ? out : null;
+    };
+
+    /** Show the global fields as monitoring on or off: dimmed while off. */
+    const showFields = (on: boolean): void => {
+      if (!fieldsDiv) return;
+      fieldsDiv.style.opacity = on ? "" : "0.4";
+      fieldsDiv.style.pointerEvents = on ? "" : "none";
+    };
+
     if (enabledCheckbox) {
+      // Turning monitoring on sends the four global fields as they stand, so it is
+      // refused where one is not a whole number in its range; refused, or refused
+      // by the integration, the switch and the fields are put back as they were.
       enabledCheckbox.addEventListener("change", async () => {
         const epoch = this._epoch;
         const enabled = enabledCheckbox.checked;
-        if (fieldsDiv) {
-          fieldsDiv.style.opacity = enabled ? "" : "0.4";
-          fieldsDiv.style.pointerEvents = enabled ? "" : "none";
-        }
-        const statusEl2 = container.querySelector<HTMLElement>("#global-status");
+        const putBack = (): void => {
+          enabledCheckbox.checked = !enabled;
+          showFields(!enabled);
+        };
+        showFields(enabled);
         try {
           if (enabled) {
             const data = readGlobalFields();
             if (!data) {
-              reportFailure(statusEl2, null, t("error.failed"));
+              putBack();
+              reportFailure(statusEl, null, t("monitoring.enable_invalid"));
               return;
             }
             await this._callSetGlobal(hass, data);
@@ -740,20 +762,11 @@ export class MonitoringTab {
             await this._callSetGlobal(hass, { enabled: false });
           }
         } catch (err: unknown) {
-          reportFailure(statusEl2, err, t("error.failed"));
+          putBack();
+          reportFailure(statusEl, err, t("error.failed"));
           return;
         }
         await this._redraw(container, hass, epoch);
-      });
-    }
-
-    // Each saves as the table's fields do, only as the user entered it, and only itself.
-    for (const [field, selector] of GLOBAL_FIELDS) {
-      const input = container.querySelector<HTMLInputElement>(selector);
-      if (!input) continue;
-      bindLimitField(input, field, {
-        report: fieldFeedback(input),
-        save: amount => void saveGlobal({ [field]: amount }),
       });
     }
   }

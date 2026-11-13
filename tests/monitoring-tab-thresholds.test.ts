@@ -44,7 +44,7 @@ interface Integration {
  * every point without one.
  * A service named in `refuse` is refused with the error given for it.
  */
-function integration({ ovenOverride = false, ovenName = "Oven", refuse = {} as Record<string, unknown> } = {}): Integration {
+function integration({ ovenOverride = false, ovenName = "Oven", monitoringOn = true, refuse = {} as Record<string, unknown> } = {}): Integration {
   const globals: Fields = { ...GLOBALS };
   const circuits: Record<string, MonitoringPointInfo> = { [OVEN]: { ...point(ovenName), has_override: ovenOverride } };
   const mains: Record<string, MonitoringPointInfo> = { [MAINS]: point("Mains") };
@@ -53,7 +53,7 @@ function integration({ ovenOverride = false, ovenName = "Oven", refuse = {} as R
   let heldReads: Array<() => void> | null = null;
   let heldSaves: Array<() => void> | null = null;
   const status = (): unknown => ({
-    response: { enabled: true, global_settings: { ...globals }, circuits: structuredClone(circuits), mains: structuredClone(mains) },
+    response: { enabled: monitoringOn, global_settings: { ...globals }, circuits: structuredClone(circuits), mains: structuredClone(mains) },
   });
   const callWS = vi.fn(async (msg: Message): Promise<unknown> => {
     if (msg.service === "get_monitoring_status") {
@@ -921,5 +921,55 @@ describe("focus across the redraw after a row's control saves", () => {
 
     expect(root.activeElement).toBe(container.querySelector(`.${kind}-toggle[data-entity="${entity}"]`));
     expect(root.activeElement).not.toBe(toggle);
+  });
+});
+
+describe("turning monitoring on", () => {
+  const enabled = (container: HTMLElement): HTMLInputElement => container.querySelector<HTMLInputElement>("#monitoring-enabled")!;
+  const turnOn = (container: HTMLElement): void => {
+    enabled(container).checked = true;
+    enabled(container).dispatchEvent(new Event("change"));
+  };
+
+  it("sends the four global fields as they stand", async () => {
+    const panel = integration({ monitoringOn: false });
+    const { container } = await shown(panel);
+
+    turnOn(container);
+    await settle();
+
+    expect(panel.saves[0]).toEqual({ service: "set_global_monitoring", ...GLOBALS, config_entry_id: "entry-1" });
+  });
+
+  it.each([
+    ["g-spike", "250", "Enter a whole number from 1 to 200."],
+    ["g-continuous", "12.5", "Enter a whole number from 1 to 200."],
+    ["g-window", "", "Enter a whole number from 1 to 180."],
+  ])("is refused with %s set to %j, which is marked, and nothing is sent", async (id, value, message) => {
+    // Monitoring is off, its fields dimmed, but the keyboard still reaches them.
+    const panel = integration({ monitoringOn: false });
+    const { container } = await shown(panel);
+    typeOnly(global(container, id), value);
+
+    turnOn(container);
+    await settle();
+
+    expect(panel.saves).toEqual([]);
+    expect(enabled(container).checked).toBe(false);
+    expect(container.querySelector<HTMLElement>("#global-fields")!.style.pointerEvents).toBe("none");
+    expect(global(container, id).getAttribute("aria-invalid")).toBe("true");
+    expect(said(global(container, id))).toBe(message);
+    expect(container.querySelector("#global-status")!.textContent).toBe("Error: Monitoring was not turned on: correct the fields marked.");
+  });
+
+  it("is put back as it was where the integration refuses it", async () => {
+    const panel = integration({ monitoringOn: false, refuse: { set_global_monitoring: { message: "Not loaded" } } });
+    const { container } = await shown(panel);
+
+    turnOn(container);
+    await vi.waitFor(() => expect(container.querySelector("#global-status")!.textContent).toBe("Error: Not loaded"));
+
+    expect(enabled(container).checked).toBe(false);
+    expect(container.querySelector<HTMLElement>("#global-fields")!.style.pointerEvents).toBe("none");
   });
 });
