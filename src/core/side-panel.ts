@@ -976,7 +976,7 @@ class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
   }
 
   private _renderCircuitMode(panel: HTMLDivElement, cfg: CircuitModeConfig): void {
-    const header = this._createHeader(escapeHtml(cfg.name), this._circuitSubtitle(cfg));
+    const header = this._createHeader(cfg.name, this._circuitSubtitle(cfg));
     panel.appendChild(header);
 
     const body = document.createElement("div");
@@ -1183,7 +1183,7 @@ class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
   }
 
   private _renderSubDeviceMode(panel: HTMLDivElement, cfg: SubDeviceModeConfig): void {
-    const header = this._createHeader(escapeHtml(cfg.name), escapeHtml(cfg.deviceType));
+    const header = this._createHeader(cfg.name, cfg.deviceType);
     panel.appendChild(header);
 
     const body = document.createElement("div");
@@ -1295,14 +1295,22 @@ class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
     body.appendChild(section);
   }
 
+  /** The panel's header: `title` and `subtitle` are plain text, drawn as written; an empty subtitle draws no line. */
   private _createHeader(title: string, subtitle: string): HTMLDivElement {
     const header = document.createElement("div");
     header.className = "panel-header";
 
     const titleWrap = document.createElement("div");
-    const safeTitle = escapeHtml(title);
-    const safeSubtitle = escapeHtml(subtitle);
-    titleWrap.innerHTML = `<div class="title">${safeTitle}</div>` + (safeSubtitle ? `<div class="subtitle">${safeSubtitle}</div>` : "");
+    const titleEl = document.createElement("div");
+    titleEl.className = "title";
+    titleEl.textContent = title;
+    titleWrap.appendChild(titleEl);
+    if (subtitle) {
+      const subtitleEl = document.createElement("div");
+      subtitleEl.className = "subtitle";
+      subtitleEl.textContent = subtitle;
+      titleWrap.appendChild(subtitleEl);
+    }
 
     const closeBtn = document.createElement("button");
     closeBtn.className = "close-btn";
