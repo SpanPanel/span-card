@@ -113,7 +113,9 @@ section says what it is judged against, "Judged against 40 A: 20-20 from your SP
 and alerts use. The breaker labels on the grid, list and side panel keep showing the panel's own rating. The current chart's limit line, and the utilization the
 card works out when the monitor has no figure, use both breakers together only while that circuit's monitoring is on; with it off, or monitoring disabled, they
 use the panel's rating. A circuit with no rating shows "no rating". Every open view redraws when a copy changes, whether you changed it here, in another browser
-or from a service call, and a field you were typing in shows the copy the integration holds, not the value you typed.
+or from a service call: a field you have not touched shows the copy the integration now holds, and one you are typing in keeps what you typed until you press
+Enter or leave it. The Monitoring section's threshold and duration fields save the same way, on Enter or when you leave them, and only a whole number in their
+range.
 
 ### Finding Your Device ID
 
