@@ -141,6 +141,17 @@ interface FavoritesModeConfig {
 
 export type SidePanelConfig = PanelModeConfig | CircuitModeConfig | SubDeviceModeConfig | FavoritesModeConfig;
 
+/** A custom threshold or duration field's key, as its data-role names it. */
+type LimitKey = "continuous" | "spike" | "window-m" | "cooldown-m";
+
+/** Each field's service field and range, as `set_circuit_threshold`'s schema takes it. */
+const LIMIT_FIELDS: Readonly<Record<LimitKey, { field: string; min: number; max: number }>> = {
+  continuous: { field: "continuous_threshold_pct", min: 1, max: 200 },
+  spike: { field: "spike_threshold_pct", min: 1, max: 200 },
+  "window-m": { field: "window_duration_m", min: 1, max: 180 },
+  "cooldown-m": { field: "cooldown_duration_m", min: 1, max: 180 },
+};
+
 // ── Styles ────────────────────────────────────────────────────────────────
 
 const STYLES = `
@@ -376,6 +387,12 @@ const STYLES = `
 
   .rating-section {
     margin-bottom: 8px;
+  }
+  .limit-row {
+    flex-wrap: wrap;
+  }
+  .limit-feedback {
+    flex-basis: 100%;
   }
   .rating-row {
     flex-wrap: wrap;
@@ -1652,10 +1669,10 @@ class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
     const windowVal = info?.window_duration_m ?? 15;
     const cooldownVal = info?.cooldown_duration_m ?? 15;
 
-    thresholdsWrap.appendChild(this._createThresholdRow(t("sidepanel.continuous_pct"), "continuous", continuousVal, cfg));
-    thresholdsWrap.appendChild(this._createThresholdRow(t("sidepanel.spike_pct"), "spike", spikeVal, cfg));
-    thresholdsWrap.appendChild(this._createDurationRow(t("sidepanel.window_duration"), "window-m", windowVal, 1, 180, "m", cfg));
-    thresholdsWrap.appendChild(this._createDurationRow(t("sidepanel.cooldown"), "cooldown-m", cooldownVal, 1, 180, "m", cfg));
+    thresholdsWrap.appendChild(this._createLimitRow(t("sidepanel.continuous_pct"), "continuous", continuousVal, null, cfg));
+    thresholdsWrap.appendChild(this._createLimitRow(t("sidepanel.spike_pct"), "spike", spikeVal, null, cfg));
+    thresholdsWrap.appendChild(this._createLimitRow(t("sidepanel.window_duration"), "window-m", windowVal, "m", cfg));
+    thresholdsWrap.appendChild(this._createLimitRow(t("sidepanel.cooldown"), "cooldown-m", cooldownVal, "m", cfg));
     detailsWrap.appendChild(thresholdsWrap);
 
     // Event: monitoring enable toggle
@@ -1692,45 +1709,75 @@ class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
     body.appendChild(section);
   }
 
-  private _createThresholdRow(label: string, key: string, value: number, cfg: CircuitModeConfig): HTMLDivElement {
+  /**
+   * One of the circuit's custom threshold or duration fields. Like the package
+   * ratings field, it sends only what the user typed in it, when they press Enter
+   * or leave it, never while they type, step or scroll, and only a whole number in
+   * its field's range; anything else, an emptied field included, is shown as
+   * needing correction and sent nowhere. The service merges what it is sent into
+   * the circuit's override, so only the field changed is sent.
+   */
+  private _createLimitRow(label: string, key: LimitKey, value: number, unit: string | null, cfg: CircuitModeConfig): HTMLDivElement {
+    const { field, min, max } = LIMIT_FIELDS[key];
     const row = document.createElement("div");
-    row.className = "field-row";
+    row.className = "field-row limit-row";
 
     const labelEl = document.createElement("span");
     labelEl.className = "field-label";
     labelEl.textContent = label;
 
+    const inputWrap = document.createElement("div");
     const input = document.createElement("input");
     input.type = "number";
-    input.min = "0";
-    input.max = "200";
+    input.min = String(min);
+    input.max = String(max);
+    input.step = "1";
     input.value = String(value);
     input.dataset.role = `threshold-${key}`;
+    input.setAttribute("aria-describedby", `threshold-feedback-${key}`);
     guardNumberWheel(input);
+    inputWrap.appendChild(input);
+    if (unit) {
+      const unitSpan = document.createElement("span");
+      unitSpan.textContent = unit;
+      inputWrap.appendChild(unitSpan);
+    }
 
+    const feedback = document.createElement("div");
+    feedback.className = "field-label rating-feedback limit-feedback";
+    feedback.id = `threshold-feedback-${key}`;
+    feedback.dataset.role = `threshold-feedback-${key}`;
+    feedback.setAttribute("aria-live", "polite");
+
+    let dirty = false;
+    const say = (message: string | null): void => {
+      feedback.textContent = message ?? "";
+      if (message) input.setAttribute("aria-invalid", "true");
+      else input.removeAttribute("aria-invalid");
+    };
+    const commit = (): void => {
+      if (!dirty) return;
+      const amount = input.value.trim() === "" ? Number.NaN : Number(input.value);
+      if (!Number.isSafeInteger(amount) || amount < min || amount > max) {
+        say(tf("sidepanel.limit_invalid", { min: String(min), max: String(max) }));
+        return;
+      }
+      dirty = false;
+      say(null);
+      const data: Record<string, unknown> = { circuit_id: cfg.entities?.power || cfg.uuid, [field]: amount };
+      if (cfg.configEntryId) data.config_entry_id = cfg.configEntryId;
+      this._saveThresholds(cfg.uuid, data);
+    };
     input.addEventListener("input", () => {
-      this._debounce(`threshold-${key}`, INPUT_DEBOUNCE_MS, () => {
-        const shadow = this.shadowRoot;
-        if (!shadow) return;
-        const continuous = shadow.querySelector<HTMLInputElement>('[data-role="threshold-continuous"]');
-        const spike = shadow.querySelector<HTMLInputElement>('[data-role="threshold-spike"]');
-        const windowM = shadow.querySelector<HTMLInputElement>('[data-role="threshold-window-m"]');
-        const cooldownM = shadow.querySelector<HTMLInputElement>('[data-role="threshold-cooldown-m"]');
-        const entityId = cfg.entities?.power || cfg.uuid;
-        const data: Record<string, unknown> = {
-          circuit_id: entityId,
-          continuous_threshold_pct: continuous ? Number(continuous.value) : undefined,
-          spike_threshold_pct: spike ? Number(spike.value) : undefined,
-          window_duration_m: windowM ? Number(windowM.value) : undefined,
-          cooldown_duration_m: cooldownM ? Number(cooldownM.value) : undefined,
-        };
-        if (cfg.configEntryId) data.config_entry_id = cfg.configEntryId;
-        this._saveThresholds(cfg.uuid, data);
-      });
+      dirty = true;
+      say(null);
     });
+    input.addEventListener("keydown", event => {
+      if (event.key === "Enter") commit();
+    });
+    input.addEventListener("blur", commit);
 
-    row.appendChild(labelEl);
-    row.appendChild(input);
+    row.append(labelEl, inputWrap, feedback);
     return row;
   }
 
@@ -1757,67 +1804,6 @@ class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
         });
       }
     );
-  }
-
-  private _createDurationRow(
-    label: string,
-    key: string,
-    value: number,
-    min: number,
-    max: number,
-    unit: string,
-    cfg: CircuitModeConfig,
-    readOnly: boolean = false
-  ): HTMLDivElement {
-    const row = document.createElement("div");
-    row.className = "field-row";
-
-    const labelEl = document.createElement("span");
-    labelEl.className = "field-label";
-    labelEl.textContent = label;
-
-    const inputWrap = document.createElement("div");
-
-    const input = document.createElement("input");
-    input.type = "number";
-    input.min = String(min);
-    input.max = String(max);
-    input.value = String(value);
-    input.dataset.role = `threshold-${key}`;
-    guardNumberWheel(input);
-    if (readOnly) {
-      input.disabled = true;
-    }
-
-    const unitSpan = document.createElement("span");
-    unitSpan.textContent = unit;
-
-    inputWrap.appendChild(input);
-    inputWrap.appendChild(unitSpan);
-
-    if (!readOnly) {
-      input.addEventListener("input", () => {
-        this._debounce(`threshold-${key}`, INPUT_DEBOUNCE_MS, () => {
-          const shadow = this.shadowRoot;
-          if (!shadow) return;
-          const continuous = shadow.querySelector<HTMLInputElement>('[data-role="threshold-continuous"]');
-          const spike = shadow.querySelector<HTMLInputElement>('[data-role="threshold-spike"]');
-          const windowM = shadow.querySelector<HTMLInputElement>('[data-role="threshold-window-m"]');
-          const data: Record<string, unknown> = {
-            circuit_id: cfg.uuid,
-            continuous_threshold_pct: continuous ? Number(continuous.value) : undefined,
-            spike_threshold_pct: spike ? Number(spike.value) : undefined,
-            window_duration_m: windowM ? Number(windowM.value) : undefined,
-          };
-          if (cfg.configEntryId) data.config_entry_id = cfg.configEntryId;
-          this._saveThresholds(cfg.uuid, data);
-        });
-      });
-    }
-
-    row.appendChild(labelEl);
-    row.appendChild(inputWrap);
-    return row;
   }
 
   // ── Live state updates ──────────────────────────────────────────────

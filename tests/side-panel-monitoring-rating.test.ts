@@ -421,6 +421,79 @@ describe("the other breaker's input", () => {
   });
 });
 
+describe("the threshold and duration fields", () => {
+  const CUSTOM = {
+    monitoringInfo: {
+      monitoring_enabled: true,
+      has_override: true,
+      continuous_threshold_pct: 80,
+      spike_threshold_pct: 100,
+      window_duration_m: 15,
+      cooldown_duration_m: 15,
+    },
+  };
+  const field = (p: SidePanel, key: string): HTMLInputElement => p.shadowRoot!.querySelector<HTMLInputElement>(`[data-role="threshold-${key}"]`)!;
+  const said = (p: SidePanel, key: string): string | null | undefined => p.shadowRoot!.querySelector(`[data-role="threshold-feedback-${key}"]`)?.textContent;
+  const sent = (callWS: ReturnType<typeof vi.fn<CallWS>>): unknown[] => callWS.mock.calls.map(c => (c[0] as { service_data: unknown }).service_data);
+
+  it("send only on Enter or leaving the field, and only the field the user changed", () => {
+    const { panel, callWS } = open(OVEN, CUSTOM);
+    typeOnly(field(panel, "continuous"), "160");
+    vi.advanceTimersByTime(5000);
+    expect(callWS).not.toHaveBeenCalled();
+
+    field(panel, "continuous").dispatchEvent(new KeyboardEvent("keydown", { key: "Enter" }));
+    field(panel, "continuous").blur();
+
+    expect(sent(callWS)).toEqual([{ circuit_id: "c-1", continuous_threshold_pct: 160, config_entry_id: "entry-1" }]);
+  });
+
+  it("send nothing on leaving a field nobody touched", () => {
+    const { panel, callWS } = open(OVEN, CUSTOM);
+    field(panel, "spike").focus();
+    field(panel, "spike").blur();
+    expect(callWS).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["continuous", "", "Enter a whole number from 1 to 200."],
+    ["continuous", "0", "Enter a whole number from 1 to 200."],
+    ["spike", "201", "Enter a whole number from 1 to 200."],
+    ["spike", "12.5", "Enter a whole number from 1 to 200."],
+    ["window-m", "181", "Enter a whole number from 1 to 180."],
+    ["cooldown-m", "", "Enter a whole number from 1 to 180."],
+  ])("send nothing for %s set to %j, saying what to enter", (key, value, message) => {
+    const { panel, callWS } = open(OVEN, CUSTOM);
+    type(field(panel, key), value);
+    expect(callWS).not.toHaveBeenCalled();
+    expect(said(panel, key)).toBe(message);
+    expect(field(panel, key).getAttribute("aria-invalid")).toBe("true");
+    expect(field(panel, key).getAttribute("aria-describedby")).toBe(`threshold-feedback-${key}`);
+  });
+
+  it("send a duration the user changed, under its own field's name", () => {
+    const { panel, callWS } = open(OVEN, CUSTOM);
+    type(field(panel, "cooldown-m"), "30");
+    expect(sent(callWS)).toEqual([{ circuit_id: "c-1", cooldown_duration_m: 30, config_entry_id: "entry-1" }]);
+  });
+
+  it("clear what they said once the user types again", () => {
+    const { panel } = open(OVEN, CUSTOM);
+    type(field(panel, "window-m"), "0");
+    typeOnly(field(panel, "window-m"), "20");
+    expect(said(panel, "window-m")).toBe("");
+    expect(field(panel, "window-m").hasAttribute("aria-invalid")).toBe(false);
+  });
+
+  it.each(["window-m", "cooldown-m"])("keep the wheel from stepping the focused %s field", key => {
+    const { panel } = open(OVEN, CUSTOM);
+    field(panel, key).focus();
+    const wheel = new WheelEvent("wheel", { cancelable: true, deltaY: -100 });
+    field(panel, key).dispatchEvent(wheel);
+    expect(wheel.defaultPrevented).toBe(true);
+  });
+});
+
 describe("a refresh while the user is in the editor", () => {
   const refresh = (p: SidePanel, copied: number[] | null, panelAmps = 20): void =>
     (p as unknown as { refreshRating(view: unknown): void }).refreshRating({
@@ -822,14 +895,12 @@ describe("thresholds above 100% under a copy", () => {
     const continuous = panel.shadowRoot!.querySelector<HTMLInputElement>('[data-role="threshold-continuous"]')!;
     expect(warning(panel)).toBeNull();
 
-    continuous.value = "160";
-    continuous.dispatchEvent(new Event("input"));
-    await vi.advanceTimersByTimeAsync(600);
+    type(continuous, "160");
+    await vi.advanceTimersByTimeAsync(0);
     expect(useGlobal(panel)).not.toBeNull();
 
-    continuous.value = "90";
-    continuous.dispatchEvent(new Event("input"));
-    await vi.advanceTimersByTimeAsync(600);
+    type(continuous, "90");
+    await vi.advanceTimersByTimeAsync(0);
     expect(warning(panel)).toBeNull();
   });
 
@@ -838,9 +909,8 @@ describe("thresholds above 100% under a copy", () => {
       throw { message: "refused" };
     });
     const continuous = panel.shadowRoot!.querySelector<HTMLInputElement>('[data-role="threshold-continuous"]')!;
-    continuous.value = "90";
-    continuous.dispatchEvent(new Event("input"));
-    await vi.advanceTimersByTimeAsync(600);
+    type(continuous, "90");
+    await vi.advanceTimersByTimeAsync(0);
     expect(useGlobal(panel)).not.toBeNull();
   });
 

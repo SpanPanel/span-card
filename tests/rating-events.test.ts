@@ -303,7 +303,7 @@ describe("refreshCircuitSidePanel", () => {
     const after = circuit(20, 50, true);
     open.setStatus(after);
     await open.ctrl.refreshCircuitSidePanel(open.root, ENTRY, topologyOf(after));
-    vi.advanceTimersByTime(1000);
+    typing.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter" }));
 
     expect(threshold()).toBe(typing);
     expect(threshold().value).toBe("65");
