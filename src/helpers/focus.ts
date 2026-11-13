@@ -27,3 +27,19 @@ export function focusedIn(container: Element | null): HTMLElement | null {
 export function focusedRole(container: Element | null): string | null {
   return focusedIn(container)?.dataset.role ?? null;
 }
+
+/**
+ * Call `leave` when the user leaves `field`, and never when the field is removed
+ * or replaced while focused. Chromium fires blur on a focused element as the DOM
+ * holding it goes, before it is detached, so a redraw, a panel opening on another
+ * circuit, or the dashboard clearing a tab would read as the user leaving and
+ * commit whatever was half typed. A removal is over by the next microtask, so the
+ * field is still connected then only where the user left it.
+ */
+export function onLeave(field: HTMLElement, leave: () => void): void {
+  field.addEventListener("blur", () => {
+    queueMicrotask(() => {
+      if (field.isConnected) leave();
+    });
+  });
+}

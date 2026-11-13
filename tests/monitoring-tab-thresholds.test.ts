@@ -1,6 +1,7 @@
-import { describe, it, expect, afterEach, vi } from "vitest";
+import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 import { MonitoringTab } from "../src/panel/tab-monitoring.js";
 import { ErrorStore } from "../src/core/error-store.js";
+import { blurOnRemoval } from "./removal-blur.js";
 import type { HomeAssistant, MonitoringPointInfo } from "../src/types.js";
 
 type Message = Record<string, unknown>;
@@ -121,6 +122,9 @@ async function shown(panel: Integration): Promise<{ tab: MonitoringTab; containe
   await tab.render(container, panel.hass, "entry-1");
   return { tab, container, root };
 }
+
+/** A Global Settings field, by its id, as drawn now. */
+const global = (container: HTMLElement, id: string): HTMLInputElement => container.querySelector<HTMLInputElement>(`#${id}`)!;
 
 /** The table's field for a point's threshold or duration, as drawn now. */
 const cell = (container: HTMLElement, entity: string, field: string): HTMLInputElement =>
@@ -347,8 +351,6 @@ describe("the Monitoring tab's threshold table", () => {
 });
 
 describe("the Monitoring tab's global thresholds", () => {
-  const global = (container: HTMLElement, id: string): HTMLInputElement => container.querySelector<HTMLInputElement>(`#${id}`)!;
-
   it("saves a global threshold only on Enter, never while it is typed or stepped, and only the one changed", async () => {
     vi.useFakeTimers();
     const panel = integration();
@@ -725,5 +727,71 @@ describe("the Monitoring tab's table, as a screen reader names it", () => {
     expect(cell(container, OVEN, "spike_threshold_pct").getAttribute("aria-label")).toBe(`Spike (%) for ${written}`);
     expect(container.querySelector(`.reset-btn[data-entity="${OVEN}"]`)!.getAttribute("aria-label")).toBe(`Reset ${written}`);
     expect(container.querySelector("b")).toBeNull();
+  });
+});
+
+describe("a redraw, which in Chromium blurs a focused field as it removes it", () => {
+  let undo: () => void = () => {};
+  beforeEach(() => (undo = blurOnRemoval()));
+  afterEach(() => undo());
+
+  it("sends nothing for a global field half typed as the tab is drawn again, keeping what was typed", async () => {
+    const panel = integration();
+    const { container, root } = await shown(panel);
+    typeOnly(global(container, "g-continuous"), "85");
+    // Tab to Spike, which saves Continuous, and start typing as the tab is read again.
+    const next = global(container, "g-spike");
+    next.focus();
+    next.value = "1";
+    next.dispatchEvent(new Event("input"));
+
+    await vi.waitFor(() => expect(global(container, "g-spike")).not.toBe(next));
+    await settle();
+
+    expect(panel.saves).toEqual([{ service: "set_global_monitoring", continuous_threshold_pct: 85, config_entry_id: "entry-1" }]);
+    expect(global(container, "g-spike").value).toBe("1");
+    expect(root.activeElement).toBe(global(container, "g-spike"));
+  });
+
+  it("sends nothing for a table field half typed as the tab is drawn again, keeping what was typed", async () => {
+    const panel = integration();
+    const { container } = await shown(panel);
+    typeOnly(cell(container, OVEN, "continuous_threshold_pct"), "85");
+    const next = cell(container, OVEN, "spike_threshold_pct");
+    next.focus();
+    next.value = "1";
+    next.dispatchEvent(new Event("input"));
+
+    await vi.waitFor(() => expect(cell(container, OVEN, "spike_threshold_pct")).not.toBe(next));
+    await settle();
+
+    expect(panel.saves).toEqual([{ service: "set_circuit_threshold", circuit_id: OVEN, continuous_threshold_pct: 85, config_entry_id: "entry-1" }]);
+    expect(cell(container, OVEN, "spike_threshold_pct").value).toBe("1");
+  });
+
+  it.each([
+    ["a table field", (container: HTMLElement) => cell(container, OVEN, "spike_threshold_pct")],
+    ["a global field", (container: HTMLElement) => global(container, "g-window")],
+  ])("sends nothing for %s half typed as the dashboard clears the tab", async (_name, fieldOf) => {
+    const panel = integration();
+    const { tab, container } = await shown(panel);
+    typeOnly(fieldOf(container), "15");
+
+    tab.stop();
+    container.innerHTML = "";
+    await settle();
+
+    expect(panel.saves).toEqual([]);
+  });
+
+  it("still saves a field the user leaves", async () => {
+    const panel = integration();
+    const { container } = await shown(panel);
+    typeOnly(cell(container, OVEN, "window_duration_m"), "20");
+
+    cell(container, OVEN, "window_duration_m").blur();
+    await settle();
+
+    expect(panel.saves).toEqual([{ service: "set_circuit_threshold", circuit_id: OVEN, window_duration_m: 20, config_entry_id: "entry-1" }]);
   });
 });

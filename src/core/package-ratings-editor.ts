@@ -2,7 +2,7 @@
 import { t, tf } from "../i18n.js";
 import { occupiedSpaces, type SlotMember } from "../helpers/shared-meters.js";
 import { thresholdWarning, type ThresholdWarning } from "../helpers/monitoring-rating.js";
-import { focusedRole, focusWithin, isFocused } from "../helpers/focus.js";
+import { focusedRole, focusWithin, isFocused, onLeave } from "../helpers/focus.js";
 import { guardNumberWheel } from "../helpers/number-field.js";
 import type { MonitoringPointInfo } from "../types.js";
 
@@ -195,7 +195,8 @@ export class PackageRatingsEditor {
     input.addEventListener("keydown", event => {
       if (event.key === "Enter") this._commit(input);
     });
-    input.addEventListener("blur", () => this._commit(input));
+    // Leaving the field commits it; the field going from the page, as a redraw takes it, does not.
+    onLeave(input, () => this._commit(input));
     input.addEventListener("input", () => {
       this._dirty = true;
       this._showFeedback(input, null);

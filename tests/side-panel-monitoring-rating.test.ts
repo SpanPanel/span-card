@@ -2,6 +2,7 @@ import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 import { DashboardController } from "../src/core/dashboard-controller.js";
 import { ErrorStore } from "../src/core/error-store.js";
 import "../src/core/side-panel.js";
+import { blurOnRemoval } from "./removal-blur.js";
 import type { CardConfig, Circuit, HomeAssistant, PanelTopology } from "../src/types.js";
 
 type CallWS = (message: Record<string, unknown>) => Promise<unknown>;
@@ -302,14 +303,16 @@ describe("the other breaker's input", () => {
     });
   });
 
-  it("sends it when the field is left, and once only when Enter came first", () => {
+  it("sends it when the field is left, and once only when Enter came first", async () => {
     const { panel, callWS } = open(OVEN);
     typeOnly(input(panel), "30");
     input(panel).blur();
+    await vi.advanceTimersByTimeAsync(0);
     expect(callWS).toHaveBeenCalledTimes(1);
 
     type(input(panel), "25");
     input(panel).blur();
+    await vi.advanceTimersByTimeAsync(0);
     expect(callWS.mock.calls.map(c => (c[0] as { service_data: { package_ratings_a: number[] } }).service_data.package_ratings_a)).toEqual([
       [20, 30],
       [20, 25],
@@ -364,10 +367,11 @@ describe("the other breaker's input", () => {
     expect(callWS.mock.calls[0]![0]).toMatchObject({ service_data: { package_ratings_a: [20, 13] } });
   });
 
-  it("puts the copy in force back when the field is left empty, sending nothing", () => {
+  it("puts the copy in force back when the field is left empty, sending nothing", async () => {
     const { panel, callWS } = open(COPIED);
     typeOnly(input(panel), "");
     input(panel).blur();
+    await vi.advanceTimersByTimeAsync(0);
     expect(callWS).not.toHaveBeenCalled();
     expect(input(panel).value).toBe("30");
   });
@@ -1160,5 +1164,87 @@ describe("the gear", () => {
     };
     expect((await opened("p-1|c-m", true, merged, configure(true))).monitoringRatingOffered).toBe(true);
     expect((await opened("p-1|c-m", true, merged, configure(false))).monitoringRatingOffered).toBe(false);
+  });
+});
+
+describe("a field half typed as the side panel's DOM goes, which in Chromium blurs it", () => {
+  let undo: () => void = () => {};
+  beforeEach(() => (undo = blurOnRemoval()));
+  afterEach(() => undo());
+
+  const CUSTOM = {
+    monitoringInfo: {
+      monitoring_enabled: true,
+      has_override: true,
+      continuous_threshold_pct: 80,
+      spike_threshold_pct: 100,
+      window_duration_m: 15,
+      cooldown_duration_m: 15,
+    },
+  };
+  const threshold = (p: SidePanel): HTMLInputElement => p.shadowRoot!.querySelector<HTMLInputElement>('[data-role="threshold-continuous"]')!;
+
+  /** The panel, moved into a container of the dashboard's, which clears it as it draws another tab. */
+  function inContainer(panel: SidePanel): HTMLElement {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    mounted.push(container);
+    container.appendChild(panel);
+    return container;
+  }
+
+  it("sends nothing for a threshold as the panel opens on another circuit", async () => {
+    const { panel, callWS } = open(OVEN, CUSTOM);
+    typeOnly(threshold(panel), "15");
+
+    panel.open({
+      uuid: "c-2",
+      name: "Dryer",
+      entities: {},
+      showMonitoring: true,
+      monitoringRatingOffered: true,
+      monitoringInfo: { monitoring_enabled: true },
+      graphHorizonInfo: { horizon: "5m", has_override: false, globalHorizon: "5m" },
+      members: [{ uuid: "c-2", circuit: circuit("Dryer", 30) }],
+      capacityA: null,
+      configEntryId: "entry-1",
+    });
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(callWS).not.toHaveBeenCalled();
+  });
+
+  it("sends nothing for a threshold as the dashboard clears the panel away", async () => {
+    const { panel, callWS } = open(OVEN, CUSTOM);
+    const container = inContainer(panel);
+    typeOnly(threshold(panel), "15");
+
+    container.innerHTML = "";
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(callWS).not.toHaveBeenCalled();
+  });
+
+  it("sends nothing for a copied rating as the panel is taken off the page", async () => {
+    const { panel, callWS } = open(OVEN);
+    typeOnly(input(panel), "3");
+
+    panel.remove();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(callWS).not.toHaveBeenCalled();
+  });
+
+  it("still sends a threshold and a copied rating the user leaves", async () => {
+    const { panel, callWS } = open(OVEN, CUSTOM);
+    typeOnly(threshold(panel), "150");
+    threshold(panel).blur();
+    typeOnly(input(panel), "30");
+    input(panel).blur();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(callWS.mock.calls.map(c => (c[0] as { service: string }).service)).toEqual(
+      expect.arrayContaining(["set_circuit_threshold", "set_circuit_package_ratings"])
+    );
   });
 });

@@ -1,5 +1,5 @@
 import { tf } from "../i18n.js";
-import { isFocused } from "./focus.js";
+import { isFocused, onLeave } from "./focus.js";
 
 /** A monitored point's threshold or duration, by the name the monitoring services give it. */
 export type LimitField = "continuous_threshold_pct" | "spike_threshold_pct" | "window_duration_m" | "cooldown_duration_m";
@@ -46,7 +46,8 @@ export interface LimitFieldHandlers {
  * they press Enter or leave the field, never while they type, step or scroll,
  * only where they changed it, and only a whole number in the field's range.
  * Anything else, an emptied field included, is marked invalid, reported, and
- * sent nowhere.
+ * sent nowhere. The field going from the page, as a redraw takes it, is not the
+ * user leaving it (`onLeave`), so nothing half typed is sent then.
  */
 export function bindLimitField(input: HTMLInputElement, field: LimitField, handlers: LimitFieldHandlers): void {
   const { min, max } = LIMIT_RANGES[field];
@@ -75,5 +76,5 @@ export function bindLimitField(input: HTMLInputElement, field: LimitField, handl
   input.addEventListener("keydown", event => {
     if (event.key === "Enter") commit();
   });
-  input.addEventListener("blur", commit);
+  onLeave(input, commit);
 }
