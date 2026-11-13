@@ -19,6 +19,7 @@ import "../src/core/side-panel.js";
 import "../src/card/span-panel-card.js";
 import "../src/panel/span-panel.js";
 import { FakeConnection, flush, hassWith } from "./fake-connection.js";
+import { blurOnRemoval } from "./removal-blur.js";
 
 const mockDiscover = vi.mocked(discoverTopology);
 const mockFallback = vi.mocked(discoverEntitiesFallback);
@@ -161,25 +162,28 @@ function topologyOf(c: Circuit, entryId = ENTRY): PanelTopology {
   } as unknown as PanelTopology;
 }
 
-/** A `get_monitoring_status` answer with the circuit monitored, keyed as the integration keys it: its current sensor, else its power sensor. */
-function monitoringFor(c: Circuit): Record<string, unknown> {
+/** The key the integration gives a circuit's entry in `get_monitoring_status`: its current sensor, else its power sensor. */
+function pointKey(c: Circuit): string {
+  return c.entities.current ?? c.entities.power!;
+}
+
+/** A circuit's entry in a `get_monitoring_status` answer, monitored. */
+function pointOf(c: Circuit): Record<string, unknown> {
   return {
-    response: {
-      enabled: true,
-      circuits: {
-        [c.entities.current ?? c.entities.power!]: {
-          name: "Oven",
-          breaker_rating_a: c.breaker_rating_a,
-          monitoring_rating_a: c.monitoring_rating_a,
-          monitoring_rating_user_set: c.monitoring_rating_user_set,
-          package_ratings_a: c.package_ratings_a,
-          package_ratings_form: c.package_ratings_form,
-          package_ratings_state: c.package_ratings_state,
-          monitoring_enabled: true,
-        },
-      },
-    },
+    name: c.name,
+    breaker_rating_a: c.breaker_rating_a,
+    monitoring_rating_a: c.monitoring_rating_a,
+    monitoring_rating_user_set: c.monitoring_rating_user_set,
+    package_ratings_a: c.package_ratings_a,
+    package_ratings_form: c.package_ratings_form,
+    package_ratings_state: c.package_ratings_state,
+    monitoring_enabled: true,
   };
+}
+
+/** A `get_monitoring_status` answer with the circuit monitored. */
+function monitoringFor(c: Circuit): Record<string, unknown> {
+  return { response: { enabled: true, circuits: { [pointKey(c)]: pointOf(c) } } };
 }
 
 interface OpenPanel {
@@ -640,6 +644,12 @@ describe("the sidebar dashboard", () => {
   let rendered: PanelTopology;
   /** What `get_monitoring_status` answers for the Oven; null answers nothing. */
   let status: Circuit | null;
+  /** What `get_monitoring_status` answers in full, over `status`, where set. */
+  let table: Record<string, unknown> | null;
+  /** While set, each `get_monitoring_status` read waits for it. */
+  let statusGate: Promise<void> | null;
+  /** Every message the dashboard sent Home Assistant, in order. */
+  let sent: Record<string, unknown>[];
   /** The entity states Home Assistant holds. */
   let states: HomeAssistant["states"];
   let render: ReturnType<typeof vi.spyOn>;
@@ -651,9 +661,14 @@ describe("the sidebar dashboard", () => {
       states,
       user: { is_admin: isAdmin },
       callWS: (async (msg: Record<string, unknown>) => {
+        sent.push(msg);
         if (msg.type === "config/device_registry/list") return [device(1), device(2)];
         if (msg.service === "get_favorites") return { response: { favorites } };
-        if (msg.service === "get_monitoring_status" && status) return monitoringFor(status);
+        if (msg.service === "get_monitoring_status") {
+          if (statusGate) await statusGate;
+          if (table) return table;
+          if (status) return monitoringFor(status);
+        }
         return {};
       }) as HomeAssistant["callWS"],
     });
@@ -679,6 +694,9 @@ describe("the sidebar dashboard", () => {
     localStorage.clear();
     rendered = topologyOf(circuit(20, 20));
     status = null;
+    table = null;
+    statusGate = null;
+    sent = [];
     states = {};
     mockDiscover.mockImplementation(async () => ({ topology: rendered, panelDevice: null, panelSize: 32 }));
     render = vi.spyOn(DashboardTab.prototype, "render").mockImplementation(async () => rendered);
@@ -928,5 +946,124 @@ describe("the sidebar dashboard", () => {
     await flush();
 
     expect(connection.live(PACKAGE_RATINGS_CHANGED)).toBe(0);
+  });
+
+  describe("the Monitoring tab's other-breaker fields", () => {
+    const OVEN = "sensor.oven_power";
+    const DRYER = "sensor.dryer_power";
+    let undoBlur: () => void;
+
+    beforeEach(() => {
+      // A redraw blurs the field it takes, as Chromium does.
+      undoBlur = blurOnRemoval();
+    });
+    afterEach(() => undoBlur());
+
+    /** The Dryer, in its own space beside the Oven. */
+    const dryerOf = (c: Circuit): Circuit => ({ ...c, name: "Dryer", entities: { power: DRYER } });
+
+    /**
+     * The Oven (c-1) and the Dryer (c-2) as the topology and the Monitoring tab's
+     * table show them, the integration offering a copy on each; a point's id is
+     * the circuit id the package-ratings services and events name it by.
+     */
+    function holds(oven: Circuit, dryer: Circuit): void {
+      rendered = { ...topologyOf(oven), circuits: { "c-1": oven, "c-2": dryer } };
+      table = {
+        response: {
+          enabled: true,
+          monitoring_rating_offered: true,
+          circuits: { [pointKey(oven)]: { ...pointOf(oven), point_id: "c-1" }, [pointKey(dryer)]: { ...pointOf(dryer), point_id: "c-2" } },
+        },
+      };
+    }
+
+    const content = (panel: Panel): HTMLElement => panel.shadowRoot!.getElementById("tab-content")!;
+    const fieldOf = (panel: Panel, entity: string): HTMLInputElement | null =>
+      content(panel).querySelector<HTMLInputElement>(`.rating-input[data-entity="${entity}"]`);
+    const callsTo = (service: string): Record<string, unknown>[] => sent.filter(m => m.service === service);
+    const packageSaves = (): unknown[] => callsTo("set_circuit_package_ratings").map(m => m.service_data);
+
+    /** Type `value` into `field`, as keystrokes do, without committing it. */
+    function typeOnly(field: HTMLInputElement, value: string): void {
+      field.focus();
+      field.value = value;
+      field.dispatchEvent(new Event("input"));
+    }
+
+    /** What the tab content holds while the status read `act` starts is on its way; the read is then answered and the table drawn. */
+    async function shownWhileLoading(panel: Panel, act: () => void): Promise<string> {
+      let release: () => void = () => {};
+      statusGate = new Promise<void>(resolve => (release = resolve));
+      const reads = callsTo("get_monitoring_status").length;
+      act();
+      await vi.waitFor(() => expect(callsTo("get_monitoring_status")).toHaveLength(reads + 1));
+      const shown = content(panel).innerHTML;
+      statusGate = null;
+      release();
+      await vi.waitFor(() => expect(fieldOf(panel, OVEN)).not.toBeNull());
+      return shown;
+    }
+
+    it("keeps what is typed in one row's field, and its focus, across a refresh for a copy changed in another row", async () => {
+      holds(circuit(20, 20), dryerOf(circuit(20, 20)));
+      const connection = new FakeConnection();
+      const panel = await mount(connection);
+      showTab(panel, "monitoring");
+      await vi.waitFor(() => expect(fieldOf(panel, OVEN)).not.toBeNull());
+      typeOnly(fieldOf(panel, OVEN)!, "3");
+
+      // Another browser copies the Dryer's 20-20 tandem from the SPAN app.
+      holds(circuit(20, 20), dryerOf(circuit(20, 40, true)));
+      connection.emit(PACKAGE_RATINGS_CHANGED, ratingEvent("entry-1", ["c-2"]));
+      await vi.waitFor(() => expect(fieldOf(panel, DRYER)!.value).toBe("20"));
+
+      const field = fieldOf(panel, OVEN)!;
+      expect(field.value).toBe("3");
+      expect(panel.shadowRoot!.activeElement).toBe(field);
+      expect(packageSaves()).toEqual([]);
+
+      // What was typed is still the user's to commit.
+      field.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter" }));
+      expect(packageSaves()).toEqual([{ circuit_id: "c-1", package_ratings_a: [20, 3], config_entry_id: "entry-1" }]);
+    });
+
+    it("starts from a cleared container, while the status loads, when switched to from another tab and back", async () => {
+      holds(circuit(20, 20), dryerOf(circuit(20, 20)));
+      render.mockImplementation(async (container: HTMLElement) => {
+        container.innerHTML = `<p class="by-panel">By Panel</p>`;
+        return rendered;
+      });
+      const connection = new FakeConnection();
+      const panel = await mount(connection);
+      expect(content(panel).querySelector(".by-panel")).not.toBeNull();
+
+      expect(await shownWhileLoading(panel, () => showTab(panel, "monitoring"))).toBe("");
+
+      showTab(panel, "dashboard");
+      await vi.waitFor(() => expect(content(panel).querySelector(".by-panel")).not.toBeNull());
+      expect(await shownWhileLoading(panel, () => showTab(panel, "monitoring"))).toBe("");
+    });
+
+    it("starts from a cleared container, while the status loads, when switched to another panel, carrying nothing typed on the first", async () => {
+      holds(circuit(20, 20), dryerOf(circuit(20, 20)));
+      const connection = new FakeConnection();
+      const panel = await mount(connection);
+      showTab(panel, "monitoring");
+      await vi.waitFor(() => expect(fieldOf(panel, OVEN)).not.toBeNull());
+      typeOnly(fieldOf(panel, OVEN)!, "3");
+      const select = panel.shadowRoot!.getElementById("panel-select") as HTMLSelectElement;
+
+      const shown = await shownWhileLoading(panel, () => {
+        select.value = "panel-2";
+        select.dispatchEvent(new Event("change"));
+      });
+
+      const reads = callsTo("get_monitoring_status");
+      expect(shown).toBe("");
+      expect(reads[reads.length - 1]!.service_data).toEqual({ config_entry_id: "entry-2" });
+      expect(fieldOf(panel, OVEN)!.value).toBe("");
+      expect(packageSaves()).toEqual([]);
+    });
   });
 });

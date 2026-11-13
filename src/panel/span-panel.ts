@@ -56,6 +56,12 @@ function isPanelOnlyTab(tab: TabName): tab is "dashboard" | "adopted" {
   return tab === "dashboard" || tab === "adopted";
 }
 
+/** The tab, and the panel, a render of the tab content is for. */
+interface TabView {
+  readonly tab: TabName;
+  readonly panelId: string | null;
+}
+
 @customElement("span-panel")
 export class SpanPanelElement extends LitElement {
   @property({ attribute: false })
@@ -122,6 +128,12 @@ export class SpanPanelElement extends LitElement {
    * none, because a reload refreshes its rows instead.
    */
   private readonly _renderedTopologies = new Map<string, PanelTopology>();
+  /**
+   * The view `#tab-content` was last rendered for. A re-render of the same
+   * panel's Monitoring tab draws over the table it shows, so the tab keeps focus,
+   * and what is typed and not yet stored, across it.
+   */
+  private _renderedView: TabView | null = null;
   /** What the favorites view last passed to `watchPanelStatuses`, re-applied on re-attach. */
   private _favoritesWatchEntries: { entityId: string; panelName: string }[] = [];
   private readonly _panelsRefresh = coalesceRuns(() => this._refreshPanels());
@@ -1181,6 +1193,10 @@ export class SpanPanelElement extends LitElement {
 
     const container = this._root.getElementById("tab-content");
     if (!container) return;
+    const shown = this._renderedView;
+    const view: TabView = { tab: this._activeTab, panelId: this._selectedPanelId };
+    const sameView = shown !== null && shown.tab === view.tab && shown.panelId === view.panelId;
+    this._renderedView = view;
 
     if (this._isFavoritesView) {
       await this._renderFavoritesTab(container, superseded);
@@ -1274,7 +1290,11 @@ export class SpanPanelElement extends LitElement {
         break;
       }
       case "monitoring": {
-        container.innerHTML = "";
+        // A re-render of this panel's tab, as a ratings change or an entry reload
+        // makes, is the tab's to draw over whole: it keeps focus, and what is typed
+        // in any row, across it (`MonitoringTab.render`). Another tab's content, or
+        // another panel's, is cleared so none of it shows while the status loads.
+        if (!sameView) container.innerHTML = "";
         const monDevice = this._panels.find(p => p.id === this._selectedPanelId);
         const monEntryId = monDevice?.config_entry_id ?? null;
         // Monitoring is a pure configuration view — no panel-stats header. It
