@@ -6,7 +6,8 @@ import { t, tf } from "../i18n.js";
 import { judgedAgainstSentence, monitoringRatingView } from "../helpers/monitoring-rating.js";
 import { serviceErrorMessage } from "../helpers/error-text.js";
 import { occupiedSpaces, slotRatingText, type SlotMember } from "../helpers/shared-meters.js";
-import { guardNumberWheel, PackageRatingsEditor, type PackageRatingsHost, type PackageRatingsState } from "./package-ratings-editor.js";
+import { PackageRatingsEditor, type PackageRatingsHost, type PackageRatingsState } from "./package-ratings-editor.js";
+import { bindLimitField, LIMIT_RANGES, type LimitField } from "../helpers/number-field.js";
 import { addFavorite, removeFavorite } from "./favorites-store.js";
 import { sortedCircuitsForSection } from "./favorites-sections.js";
 import { subDeviceCharts } from "../helpers/sub-device-power.js";
@@ -144,12 +145,12 @@ export type SidePanelConfig = PanelModeConfig | CircuitModeConfig | SubDeviceMod
 /** A custom threshold or duration field's key, as its data-role names it. */
 type LimitKey = "continuous" | "spike" | "window-m" | "cooldown-m";
 
-/** Each field's service field and range, as `set_circuit_threshold`'s schema takes it. */
-const LIMIT_FIELDS: Readonly<Record<LimitKey, { field: string; min: number; max: number }>> = {
-  continuous: { field: "continuous_threshold_pct", min: 1, max: 200 },
-  spike: { field: "spike_threshold_pct", min: 1, max: 200 },
-  "window-m": { field: "window_duration_m", min: 1, max: 180 },
-  "cooldown-m": { field: "cooldown_duration_m", min: 1, max: 180 },
+/** The service field each custom threshold or duration field sets. */
+const LIMIT_FIELDS: Readonly<Record<LimitKey, LimitField>> = {
+  continuous: "continuous_threshold_pct",
+  spike: "spike_threshold_pct",
+  "window-m": "window_duration_m",
+  "cooldown-m": "cooldown_duration_m",
 };
 
 // ── Styles ────────────────────────────────────────────────────────────────
@@ -1712,13 +1713,12 @@ class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
   /**
    * One of the circuit's custom threshold or duration fields. Like the package
    * ratings field, it sends only what the user typed in it, when they press Enter
-   * or leave it, never while they type, step or scroll, and only a whole number in
-   * its field's range; anything else, an emptied field included, is shown as
-   * needing correction and sent nowhere. The service merges what it is sent into
-   * the circuit's override, so only the field changed is sent.
+   * or leave it (`bindLimitField`). The service merges what it is sent into the
+   * circuit's override, so only the field changed is sent.
    */
   private _createLimitRow(label: string, key: LimitKey, value: number, unit: string | null, cfg: CircuitModeConfig): HTMLDivElement {
-    const { field, min, max } = LIMIT_FIELDS[key];
+    const field = LIMIT_FIELDS[key];
+    const { min, max } = LIMIT_RANGES[field];
     const row = document.createElement("div");
     row.className = "field-row limit-row";
 
@@ -1735,7 +1735,6 @@ class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
     input.value = String(value);
     input.dataset.role = `threshold-${key}`;
     input.setAttribute("aria-describedby", `threshold-feedback-${key}`);
-    guardNumberWheel(input);
     inputWrap.appendChild(input);
     if (unit) {
       const unitSpan = document.createElement("span");
@@ -1749,33 +1748,16 @@ class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
     feedback.dataset.role = `threshold-feedback-${key}`;
     feedback.setAttribute("aria-live", "polite");
 
-    let dirty = false;
-    const say = (message: string | null): void => {
-      feedback.textContent = message ?? "";
-      if (message) input.setAttribute("aria-invalid", "true");
-      else input.removeAttribute("aria-invalid");
-    };
-    const commit = (): void => {
-      if (!dirty) return;
-      const amount = input.value.trim() === "" ? Number.NaN : Number(input.value);
-      if (!Number.isSafeInteger(amount) || amount < min || amount > max) {
-        say(tf("sidepanel.limit_invalid", { min: String(min), max: String(max) }));
-        return;
-      }
-      dirty = false;
-      say(null);
-      const data: Record<string, unknown> = { circuit_id: cfg.entities?.power || cfg.uuid, [field]: amount };
-      if (cfg.configEntryId) data.config_entry_id = cfg.configEntryId;
-      this._saveThresholds(cfg.uuid, data);
-    };
-    input.addEventListener("input", () => {
-      dirty = true;
-      say(null);
+    bindLimitField(input, field, {
+      report: message => {
+        feedback.textContent = message ?? "";
+      },
+      save: amount => {
+        const data: Record<string, unknown> = { circuit_id: cfg.entities?.power || cfg.uuid, [field]: amount };
+        if (cfg.configEntryId) data.config_entry_id = cfg.configEntryId;
+        this._saveThresholds(cfg.uuid, data);
+      },
     });
-    input.addEventListener("keydown", event => {
-      if (event.key === "Enter") commit();
-    });
-    input.addEventListener("blur", commit);
 
     row.append(labelEl, inputWrap, feedback);
     return row;

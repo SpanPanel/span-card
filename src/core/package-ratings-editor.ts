@@ -2,6 +2,8 @@
 import { t, tf } from "../i18n.js";
 import { occupiedSpaces, type SlotMember } from "../helpers/shared-meters.js";
 import { thresholdWarning, type ThresholdWarning } from "../helpers/monitoring-rating.js";
+import { focusedRole, focusWithin, isFocused } from "../helpers/focus.js";
+import { guardNumberWheel } from "../helpers/number-field.js";
 import type { MonitoringPointInfo } from "../types.js";
 
 /** What the editor draws from: the slot a circuit side panel is open on, and its monitoring. */
@@ -49,44 +51,6 @@ function shapeOf(state: PackageRatingsState | null): Shape | null {
 /** The other breaker of the package stored for a circuit, or null where none is. */
 function storedOther(member: SlotMember): number | null {
   return member.circuit.package_ratings_a?.[1] ?? null;
-}
-
-/** Whether `el` holds keyboard focus in the document or shadow root it is drawn in. */
-function isFocused(el: Element | null): boolean {
-  if (!el) return false;
-  const root = el.getRootNode();
-  const active = root instanceof Document || root instanceof ShadowRoot ? root.activeElement : null;
-  return active === el;
-}
-
-/** Whether keyboard focus is on `container` or inside it. */
-function focusWithin(container: Element | null): boolean {
-  if (!container) return false;
-  const root = container.getRootNode();
-  const active = root instanceof Document || root instanceof ShadowRoot ? root.activeElement : null;
-  return active !== null && container.contains(active);
-}
-
-/** The data-role of the focused control inside `container`, or null where focus is elsewhere. */
-function focusedRole(container: Element | null): string | null {
-  if (!container) return null;
-  const root = container.getRootNode();
-  const active = root instanceof Document || root instanceof ShadowRoot ? root.activeElement : null;
-  return active instanceof HTMLElement && container.contains(active) ? (active.dataset.role ?? null) : null;
-}
-
-/**
- * Keep a number field's value from changing under the wheel: a scroll over the
- * focused field would otherwise step it, and a step is a value nobody entered.
- */
-export function guardNumberWheel(input: HTMLInputElement): void {
-  input.addEventListener(
-    "wheel",
-    event => {
-      if (isFocused(input)) event.preventDefault();
-    },
-    { passive: false }
-  );
 }
 
 /**
