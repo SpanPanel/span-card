@@ -846,3 +846,22 @@ describe("a field's border, as Chromium reads it", () => {
     expect(field.style.getPropertyValue("border-color")).toBe("var(--divider-color)");
   });
 });
+
+describe("the Monitoring tab's settings, as a screen reader names them", () => {
+  it.each([
+    ["#g-continuous", "Continuous (%)"],
+    ["#g-spike", "Spike (%)"],
+    ["#g-window", "Window (min)"],
+    ["#g-cooldown", "Cooldown (min)"],
+    ["#g-priority", "Priority"],
+    ["#g-title-template", "Title Template"],
+    ["#g-message-template", "Message Template"],
+  ])("names %s by the label shown beside it", async (selector, name) => {
+    const panel = integration();
+    const { container } = await shown(panel);
+    const control = container.querySelector<HTMLElement>(selector)!;
+
+    expect(control.getAttribute("aria-label")).toBe(name);
+    expect(control.parentElement!.querySelector("span")!.textContent).toBe(name);
+  });
+});

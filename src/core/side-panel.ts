@@ -1752,13 +1752,16 @@ class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
     const row = document.createElement("div");
     row.className = "field-row limit-row";
 
+    // The field is named by the label shown beside it.
     const labelEl = document.createElement("span");
     labelEl.className = "field-label";
+    labelEl.id = `threshold-label-${key}`;
     labelEl.textContent = label;
 
     const inputWrap = document.createElement("div");
     const input = document.createElement("input");
     input.type = "number";
+    input.setAttribute("aria-labelledby", labelEl.id);
     input.min = String(min);
     input.max = String(max);
     input.step = "1";

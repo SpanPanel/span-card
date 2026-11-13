@@ -489,6 +489,18 @@ describe("the threshold and duration fields", () => {
     expect(field(panel, "window-m").hasAttribute("aria-invalid")).toBe(false);
   });
 
+  it.each([
+    ["continuous", "Continuous %"],
+    ["spike", "Spike %"],
+    ["window-m", "Window duration"],
+    ["cooldown-m", "Cooldown"],
+  ])("name the %s field by the label shown beside it", (key, name) => {
+    const { panel } = open(OVEN, CUSTOM);
+    const id = field(panel, key).getAttribute("aria-labelledby")!;
+
+    expect(panel.shadowRoot!.getElementById(id)!.textContent).toBe(name);
+  });
+
   it.each(["window-m", "cooldown-m"])("keep the wheel from stepping the focused %s field", key => {
     const { panel } = open(OVEN, CUSTOM);
     field(panel, key).focus();

@@ -399,25 +399,25 @@ export class MonitoringTab {
           <div id="global-fields" style="${isEnabled ? "" : "opacity:0.4;pointer-events:none;"}">
             <div style="${FIELD_STYLE}">
               <span style="${LABEL_STYLE}">${t("monitoring.continuous")}</span>
-              <input type="number" id="g-continuous" min="${LIMIT_RANGES.continuous_threshold_pct.min}" max="${LIMIT_RANGES.continuous_threshold_pct.max}" step="1"
+              <input type="number" id="g-continuous" aria-label="${escapeHtml(t("monitoring.continuous"))}" min="${LIMIT_RANGES.continuous_threshold_pct.min}" max="${LIMIT_RANGES.continuous_threshold_pct.max}" step="1"
                      value="${globalSettings.continuous_threshold_pct ?? 80}"
                      style="${INPUT_STYLE}">
             </div>
             <div style="${FIELD_STYLE}">
               <span style="${LABEL_STYLE}">${t("monitoring.spike")}</span>
-              <input type="number" id="g-spike" min="${LIMIT_RANGES.spike_threshold_pct.min}" max="${LIMIT_RANGES.spike_threshold_pct.max}" step="1"
+              <input type="number" id="g-spike" aria-label="${escapeHtml(t("monitoring.spike"))}" min="${LIMIT_RANGES.spike_threshold_pct.min}" max="${LIMIT_RANGES.spike_threshold_pct.max}" step="1"
                      value="${globalSettings.spike_threshold_pct ?? 100}"
                      style="${INPUT_STYLE}">
             </div>
             <div style="${FIELD_STYLE}">
               <span style="${LABEL_STYLE}">${t("monitoring.window")}</span>
-              <input type="number" id="g-window" min="${LIMIT_RANGES.window_duration_m.min}" max="${LIMIT_RANGES.window_duration_m.max}" step="1"
+              <input type="number" id="g-window" aria-label="${escapeHtml(t("monitoring.window"))}" min="${LIMIT_RANGES.window_duration_m.min}" max="${LIMIT_RANGES.window_duration_m.max}" step="1"
                      value="${globalSettings.window_duration_m ?? 5}"
                      style="${INPUT_STYLE}">
             </div>
             <div style="${FIELD_STYLE}">
               <span style="${LABEL_STYLE}">${t("monitoring.cooldown")}</span>
-              <input type="number" id="g-cooldown" min="${LIMIT_RANGES.cooldown_duration_m.min}" max="${LIMIT_RANGES.cooldown_duration_m.max}" step="1"
+              <input type="number" id="g-cooldown" aria-label="${escapeHtml(t("monitoring.cooldown"))}" min="${LIMIT_RANGES.cooldown_duration_m.min}" max="${LIMIT_RANGES.cooldown_duration_m.max}" step="1"
                      value="${globalSettings.cooldown_duration_m ?? 15}"
                      style="${INPUT_STYLE}">
             </div>
@@ -479,7 +479,7 @@ export class MonitoringTab {
 
             <div style="${FIELD_STYLE}">
               <span style="${WIDE_LABEL_STYLE}">${t("notification.priority")}</span>
-              <select id="g-priority" style="
+              <select id="g-priority" aria-label="${escapeHtml(t("notification.priority"))}" style="
                 background:var(--secondary-background-color,#333);
                 border:1px solid var(--divider-color);
                 color:var(--primary-text-color);
@@ -505,7 +505,7 @@ export class MonitoringTab {
 
             <div style="${FIELD_STYLE}">
               <span style="${WIDE_LABEL_STYLE}">${t("notification.title_template")}</span>
-              <input type="text" id="g-title-template"
+              <input type="text" id="g-title-template" aria-label="${escapeHtml(t("notification.title_template"))}"
                      value="${escapeHtml(titleTemplate)}"
                      placeholder="SPAN: {name} {alert_type}"
                      style="${TEXT_INPUT_STYLE}">
@@ -513,7 +513,7 @@ export class MonitoringTab {
 
             <div style="${FIELD_STYLE}">
               <span style="${WIDE_LABEL_STYLE}">${t("notification.message_template")}</span>
-              <input type="text" id="g-message-template"
+              <input type="text" id="g-message-template" aria-label="${escapeHtml(t("notification.message_template"))}"
                      value="${escapeHtml(messageTemplate)}"
                      placeholder="{name} at {current_a}A ({utilization_pct}% of {breaker_rating_a}A) at {local_time}"
                      style="${TEXT_INPUT_STYLE}">
