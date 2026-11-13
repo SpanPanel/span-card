@@ -1,5 +1,7 @@
 import { describe, it, expect, afterEach } from "vitest";
 import {
+  copyWarning,
+  isMonitored,
   judgedAgainstSentence,
   limitRatingA,
   monitoringRatingView,
@@ -214,6 +216,44 @@ describe("warnsOfAveragedLegs", () => {
       expect(warnsOfAveragedLegs({ package_ratings_form: "two_spaces", package_ratings_state: state }, { monitoring_enabled: true })).toBe(false);
     }
     expect(warnsOfAveragedLegs(null, { monitoring_enabled: true })).toBe(false);
+  });
+});
+
+describe("copyWarning", () => {
+  const AVERAGED: PackageCopyFields = { package_ratings_form: "two_spaces", package_ratings_state: "averaged_legs" };
+  const APPLIES: PackageCopyFields = { package_ratings_form: "one_space", package_ratings_state: "applies" };
+  const ABOVE = { has_override: true, continuous_threshold_pct: 160, spike_threshold_pct: 200 };
+
+  it("is the averaged-legs warning for a copy kept on averaged legs while the circuit is monitored, however high its thresholds", () => {
+    expect(copyWarning(AVERAGED, { ...ABOVE, monitoring_enabled: true })).toBe("averaged_legs");
+  });
+
+  it("is nothing for a copy on averaged legs once monitoring is off for the circuit", () => {
+    expect(copyWarning(AVERAGED, { ...ABOVE, monitoring_enabled: false })).toBeNull();
+  });
+
+  it("is the threshold warning for a copy monitoring judges by, as thresholdWarning names it", () => {
+    expect(copyWarning(APPLIES, ABOVE)).toBe("own");
+    expect(copyWarning(APPLIES, { ...ABOVE, has_override: false })).toBe("global");
+    expect(copyWarning(APPLIES, { has_override: true, continuous_threshold_pct: 80, spike_threshold_pct: 100 })).toBeNull();
+  });
+
+  it("is nothing without a copy or a status", () => {
+    expect(copyWarning(null, ABOVE)).toBeNull();
+    expect(copyWarning(APPLIES, null)).toBeNull();
+  });
+});
+
+describe("isMonitored", () => {
+  it("is true for a point a status reports with monitoring on, or with the switch left out", () => {
+    expect(isMonitored({ monitoring_enabled: true })).toBe(true);
+    expect(isMonitored({})).toBe(true);
+  });
+
+  it("is false once monitoring is off for the point, or where no status reports it", () => {
+    expect(isMonitored({ monitoring_enabled: false })).toBe(false);
+    expect(isMonitored(null)).toBe(false);
+    expect(isMonitored(undefined)).toBe(false);
   });
 });
 

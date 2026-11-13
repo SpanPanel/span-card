@@ -3,8 +3,8 @@ import { escapeHtml } from "../helpers/sanitize.js";
 import { loadListColumns, saveListColumns } from "../helpers/list-columns.js";
 import { INTEGRATION_DOMAIN, SHEDDING_PRIORITIES, SELECTABLE_PRIORITY_KEYS, GRAPH_HORIZONS, DEFAULT_GRAPH_HORIZON, INPUT_DEBOUNCE_MS } from "../constants.js";
 import { t, tf } from "../i18n.js";
-import { judgedAgainstSentence, monitoringRatingView } from "../helpers/monitoring-rating.js";
-import { serviceErrorMessage } from "../helpers/error-text.js";
+import { isMonitored, judgedAgainstSentence, monitoringRatingView } from "../helpers/monitoring-rating.js";
+import { reportPackageRatingsFailure } from "../helpers/other-breaker-field.js";
 import { occupiedSpaces, slotRatingText, type SlotMember } from "../helpers/shared-meters.js";
 import { PackageRatingsEditor, type PackageRatingsHost, type PackageRatingsView } from "./package-ratings-editor.js";
 import { bindLimitField, LIMIT_RANGES, type LimitField, type LimitFieldHandle } from "../helpers/number-field.js";
@@ -1428,12 +1428,9 @@ class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
     return this._callDomainService("clear_circuit_package_ratings", this._ratingsPayload(uuid, {}));
   }
 
-  /** A refusal shows the integration's message in the user's language (`serviceErrorMessage`), else the generic one. */
+  /** A refusal shows the integration's message in the user's language, else the generic one (`reportPackageRatingsFailure`). */
   reportRatingsFailure(err: unknown): void {
-    console.warn("SPAN Panel: package ratings update failed", err);
-    void serviceErrorMessage(this._hass, err, INTEGRATION_DOMAIN, t("error.package_ratings_failed")).then(message => {
-      this.errorStore?.add({ key: "service:package-ratings", level: "error", message, persistent: false });
-    });
+    reportPackageRatingsFailure(this._hass, this.errorStore, err);
   }
 
   /**
@@ -1689,7 +1686,7 @@ class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
     enableToggle.dataset.role = "monitoring-toggle";
 
     const info = cfg.monitoringInfo;
-    const isEnabled = info != null && info.monitoring_enabled !== false;
+    const isEnabled = isMonitored(info);
     if (isEnabled) {
       enableToggle.setAttribute("checked", "");
     }

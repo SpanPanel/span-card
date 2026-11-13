@@ -2,9 +2,18 @@ import { INTEGRATION_DOMAIN, INPUT_DEBOUNCE_MS } from "../constants.js";
 import { escapeHtml } from "../helpers/sanitize.js";
 import { errorText, serviceErrorMessage } from "../helpers/error-text.js";
 import { t, tf } from "../i18n.js";
-import { monitoringRatingView, ratingLabelHTML, toggleRatingNote } from "../helpers/monitoring-rating.js";
-import { focusedIn } from "../helpers/focus.js";
+import {
+  copyWarning,
+  isMonitored,
+  judgedRatingA,
+  monitoringRatingView,
+  ratingLabelHTML,
+  toggleRatingNote,
+  type CopyWarning,
+} from "../helpers/monitoring-rating.js";
+import { focusedIn, isFocusLost } from "../helpers/focus.js";
 import { bindLimitField, isLimitField, LIMIT_RANGES, type LimitField, type LimitFieldHandle } from "../helpers/number-field.js";
+import { bindOtherBreakerField, reportPackageRatingsFailure, type OtherBreakerFieldHandle } from "../helpers/other-breaker-field.js";
 import type { ErrorStore } from "../core/error-store.js";
 import type { HomeAssistant, MonitoringPointInfo, MonitoringStatusResponse, CallServiceResponse, PackageRatingsForm, PackageRatingsState } from "../types.js";
 
@@ -45,6 +54,35 @@ const FEEDBACK_STYLE = `
   max-width:10em;white-space:normal;line-height:1.3;
 `;
 const ERROR_BORDER = "var(--error-color,#f44336)";
+/** A row's text button: its Reset, and the averaged-legs warning's Turn off monitoring. */
+const ROW_BUTTON_STYLE = `
+  background:none;border:1px solid var(--divider-color);color:var(--primary-text-color);
+  border-radius:4px;padding:3px 6px;cursor:pointer;font-size:0.75em;
+`;
+/** A copy's ✕, a touch target of at least 24 by 24 px. */
+const CLEAR_STYLE = `
+  background:none;border:none;color:var(--secondary-text-color);
+  min-width:24px;min-height:24px;padding:0 4px;cursor:pointer;font-size:0.85em;vertical-align:middle;
+`;
+const NOTE_STYLE = `
+  margin:0 0 12px;padding:12px 16px;max-width:60em;box-sizing:border-box;
+  border-left:3px solid var(--primary-color,#4dd9af);border-radius:4px;
+  background:var(--secondary-background-color,#252530);
+  font-size:0.85em;line-height:1.45;
+`;
+/**
+ * A row's warning, under its cells. A table too wide for a phone scrolls across,
+ * so the warning keeps to the left of the view, as wide as the screen, and wraps.
+ */
+const WARNING_STYLE = `
+  display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;
+  position:sticky;left:16px;max-width:min(48em, calc(100vw - 48px));box-sizing:border-box;
+  padding:8px;border-left:3px solid var(--warning-color,#ffa600);border-radius:4px;
+  background:color-mix(in srgb, var(--warning-color,#ffa600) 12%, transparent);
+  font-size:0.8em;line-height:1.4;white-space:normal;
+`;
+/** The table's columns: the name, the rating, the four thresholds and durations, and the Reset. */
+const TABLE_COLUMNS = 7;
 
 let feedbackSerial = 0;
 
@@ -83,26 +121,53 @@ function fieldFeedback(input: HTMLInputElement): (message: string | null) => voi
 }
 
 /** The row controls the redraw keeps focus on, by class: each is named by the class and its point. */
-const ROW_CONTROLS = ["reset-btn", "circuit-toggle", "mains-toggle"] as const;
+const ROW_CONTROLS = ["reset-btn", "circuit-toggle", "mains-toggle", "rating-clear", "rating-turn-off"] as const;
+type RowControl = (typeof ROW_CONTROLS)[number];
+
+/** The field a circuit's other breaker is typed in, as a redraw names it beside the point's threshold fields. */
+const OTHER_BREAKER = "other_breaker";
 
 /** The controls a redraw can put focus back on. */
-const KEPT_CONTROLS = ["[id]", ".threshold-input", ...ROW_CONTROLS.map(name => `.${name}`)].join(", ");
+const KEPT_CONTROLS = ["[id]", ".threshold-input", ".rating-input", ...ROW_CONTROLS.map(name => `.${name}`)].join(", ");
+
+/**
+ * Where focus goes in a row once the control that had it is drawn no more, gone
+ * with what it acted on, by the control's class.
+ */
+const FOCUS_AFTER: Partial<Record<RowControl, (entity: string) => string>> = {
+  // A Reset goes with the override it cleared: focus goes to the row's first field.
+  "reset-btn": entity => fieldKey(entity, "continuous_threshold_pct"),
+  // A ✕ goes with the copy it removed: focus goes to the field the copy was in.
+  "rating-clear": entity => fieldKey(entity, OTHER_BREAKER),
+  // Turn off monitoring goes with its warning once monitoring is off: focus goes to the row's switch, which shows it off.
+  "rating-turn-off": entity => rowControlKey("circuit-toggle", entity),
+};
 
 /**
  * A control's name across a redraw: its id; the point and field a threshold cell
- * is for; or a row control's class and its point.
+ * or an other-breaker field is for; or a row control's class and its point.
  */
 function controlKey(el: HTMLElement): string | null {
   if (el.id) return `#${el.id}`;
   const { entity, field } = el.dataset;
   if (entity === undefined) return null;
   if (el.classList.contains("threshold-input")) return field !== undefined ? fieldKey(entity, field) : null;
-  const control = ROW_CONTROLS.find(name => el.classList.contains(name));
-  return control ? `${control}\u0000${entity}` : null;
+  if (el.classList.contains("rating-input")) return fieldKey(entity, OTHER_BREAKER);
+  const control = rowControlOf(el);
+  return control ? rowControlKey(control, entity) : null;
 }
 
 function fieldKey(entity: string, field: string): string {
   return `${entity}\u0000${field}`;
+}
+
+function rowControlKey(control: RowControl, entity: string): string {
+  return `${control}\u0000${entity}`;
+}
+
+/** The row control `el` is, by its class; undefined for any other element. */
+function rowControlOf(el: HTMLElement): RowControl | undefined {
+  return ROW_CONTROLS.find(name => el.classList.contains(name));
 }
 
 /** The control focused in the tab, and what was typed in it and not yet stored. */
@@ -116,9 +181,10 @@ function keptFocus(container: HTMLElement): KeptFocus | null {
   const focused = focusedIn(container);
   const key = focused ? controlKey(focused) : null;
   if (!focused || key === null) return null;
-  // A Reset goes with the override it cleared: focus then goes to the row's first field.
   const entity = focused.dataset.entity;
-  const keys = focused.classList.contains("reset-btn") && entity !== undefined ? [key, fieldKey(entity, "continuous_threshold_pct")] : [key];
+  const control = rowControlOf(focused);
+  const after = control !== undefined && entity !== undefined ? FOCUS_AFTER[control]?.(entity) : undefined;
+  const keys = after !== undefined ? [key, after] : [key];
   const draft = focused instanceof HTMLInputElement && focused.value !== focused.defaultValue ? focused.value : null;
   return { keys, draft };
 }
@@ -231,6 +297,133 @@ function ratingCell(info: MonitoringPointInfo, isMains: boolean): string {
   const label = ratingLabelHTML({ ...view, userSet: !isMains && view.userSet });
   const content = label || `<span style="color:var(--secondary-text-color);">${escapeHtml(t("monitoringRating.none"))}</span>`;
   return `<td class="rating-cell" style="padding:6px 4px;white-space:nowrap;">${content}</td>`;
+}
+
+/**
+ * A circuit row's copy of its package from the SPAN app, where the row takes
+ * one: the circuit the package-ratings services name, the panel's own rating,
+ * which is the package's first, and the package stored.
+ */
+interface RowCopy {
+  readonly circuitId: string;
+  readonly panelA: number;
+  /** The package stored, in the SPAN app's order; null where none is. */
+  readonly ratings: readonly number[] | null;
+}
+
+/**
+ * The copy a circuit row holds, or null where it draws its rating as before.
+ * Whether a circuit takes a copy, and in which form, is the integration's to say
+ * (`package_ratings_form`), and only on a panel where it offers copies at all;
+ * an integration that predates either says neither, and gets no field. A form is
+ * named only where the panel rates the circuit, whose rating is the copy's
+ * first, and only on an entry naming the circuit by its point: one lacking
+ * either has nothing to send.
+ */
+function rowCopyOf(info: MonitoringPointInfo, offered: boolean): RowCopy | null {
+  const { package_ratings_form: form, breaker_rating_a: panelA, point_id: circuitId } = info;
+  if (!offered || !form || panelA == null || typeof circuitId !== "string") return null;
+  return { circuitId, panelA, ratings: info.package_ratings_a ?? null };
+}
+
+/** The other breaker of a row's copy, the package's second rating; null where none is stored. */
+function otherOf(copy: RowCopy): number | null {
+  return copy.ratings?.[1] ?? null;
+}
+
+/**
+ * A circuit's Rating cell where it takes a copy (spec §14.6): "20 A +" and the
+ * other breaker's field, then "= 40 A" while the copy applies, and a ✕ while
+ * one is stored. The field shows the copy, so no ✎ marks it. The field and the
+ * ✕ are named by the circuit (`written`, as written; it is escaped here).
+ */
+function copyCell(eid: string, written: string, info: MonitoringPointInfo, copy: RowCopy): string {
+  const judged = info.package_ratings_state === "applies" ? judgedRatingA(info) : null;
+  const panel = tf("monitoringRating.panel_plus", { panel: String(copy.panelA) });
+  const fieldName = tf("monitoringRating.other_breaker_label", { circuit: written });
+  const equals = judged ? `<span>${escapeHtml(tf("monitoringRating.judged_equals", { rating: String(judged) }))}</span>` : "";
+  const clear = copy.ratings
+    ? `<button type="button" class="rating-clear" data-entity="${eid}"
+         aria-label="${escapeHtml(tf("monitoringRating.clear_label", { circuit: written }))}" style="${CLEAR_STYLE}">✕</button>`
+    : "";
+  return `<td class="rating-cell" style="padding:6px 4px;white-space:nowrap;">
+    <span>${escapeHtml(panel)}</span>
+    <input type="number" class="rating-input" data-entity="${eid}" data-circuit="${escapeHtml(copy.circuitId)}"
+           value="${escapeHtml(otherOf(copy) ?? "")}" min="1" step="1" inputmode="numeric" aria-label="${escapeHtml(fieldName)}"
+           style="${CELL_INPUT_STYLE}">
+    ${equals}
+    ${clear}
+  </td>`;
+}
+
+/** What a row's warning says (spec §14.6), naming the Reset and the global settings by the labels the tab shows. */
+function warningText(warning: CopyWarning): string {
+  if (warning === "averaged_legs") return t("monitoringRating.averaged_legs");
+  if (warning === "own") return tf("monitoringRating.table_threshold_warning", { reset: t("monitoring.reset") });
+  return tf("monitoringRating.table_threshold_warning_global", { settings: t("monitoring.global_settings") });
+}
+
+/**
+ * The row under a circuit's cells for the warning its copy calls for
+ * (`copyWarning`), dimmed with the circuit's row. The averaged-legs one carries
+ * a button that turns monitoring off for the circuit, named by it as the row's
+ * fields are (`written`, as written; it is escaped here).
+ */
+function warningRow(eid: string, written: string, warning: CopyWarning, dimStyle: string): string {
+  const label = t("monitoringRating.turn_off_monitoring");
+  const action =
+    warning === "averaged_legs"
+      ? `<button type="button" class="rating-turn-off" data-entity="${eid}"
+           aria-label="${escapeHtml(tf("monitoring.point_field", { field: label, name: written }))}" style="${ROW_BUTTON_STYLE}">${escapeHtml(label)}</button>`
+      : "";
+  return `<tr class="rating-warning-row" style="${dimStyle}">
+    <td colspan="${TABLE_COLUMNS}" style="padding:0 8px 8px;">
+      <div class="rating-warning" role="note" data-kind="${warning}" style="${WARNING_STYLE}"><span>${escapeHtml(warningText(warning))}</span>${action}</div>
+    </td>
+  </tr>`;
+}
+
+/**
+ * The note above the table on a panel that takes copies (spec §14.6): why a
+ * MAIN 32's tandems raise false alerts, and how to copy their ratings from the
+ * SPAN app into the table. It names the column and the Reset by the labels the
+ * tab shows.
+ */
+function ratingNoteHTML(): string {
+  const paragraph = (text: string): string => `<p style="margin:8px 0 0;">${escapeHtml(text)}</p>`;
+  const steps = [
+    t("monitoringRating.note_step_find"),
+    tf("monitoringRating.note_step_enter", { column: t("monitoring.rating") }),
+    t("monitoringRating.note_step_single"),
+  ]
+    .map(step => `<li>${escapeHtml(step)}</li>`)
+    .join("");
+  return `<div class="rating-note" role="note" style="${NOTE_STYLE}">
+    <h4 style="margin:0;font-size:1em;">${escapeHtml(t("monitoringRating.note_title"))}</h4>
+    ${paragraph(t("monitoringRating.note_problem"))}
+    ${paragraph(t("monitoringRating.note_steps"))}
+    <ol style="margin:4px 0 0;padding-left:1.5em;">${steps}</ol>
+    ${paragraph(t("monitoringRating.note_judged"))}
+    ${paragraph(tf("monitoringRating.note_thresholds", { reset: t("monitoring.reset") }))}
+    ${paragraph(t("monitoringRating.note_two_spaces"))}
+  </div>`;
+}
+
+/**
+ * Make `button` carry out `act` on a click. While it is on its way the button
+ * is marked busy, not disabled, so it keeps focus, and a second click sends
+ * nothing; where it fails (`act` resolves false), the button is usable again.
+ * One that succeeds stays busy until the redraw that follows replaces it.
+ */
+function bindBusyButton(button: HTMLElement, act: () => Promise<boolean>): void {
+  button.addEventListener("click", async () => {
+    if (button.getAttribute("aria-disabled") === "true") return;
+    button.setAttribute("aria-disabled", "true");
+    button.style.opacity = "0.6";
+    if (await act()) return;
+    button.removeAttribute("aria-disabled");
+    button.style.opacity = "";
+  });
 }
 
 /** The notify targets button's text: the targets chosen, the event bus by its name, or that none is. */
@@ -424,17 +617,27 @@ export class MonitoringTab {
     const circuitEntries = Object.entries(circuits).sort(([, a], [, b]) => (a.name ?? "").localeCompare(b.name ?? ""));
     const mainsEntries = Object.entries(mains);
     const allPoints: [string, MonitoringPointInfo][] = [...circuitEntries, ...mainsEntries];
-    const allEnabled = allPoints.length > 0 && allPoints.every(([, c]) => c.monitoring_enabled !== false);
-    const someEnabled = allPoints.some(([, c]) => c.monitoring_enabled !== false);
+    const allEnabled = allPoints.length > 0 && allPoints.every(([, c]) => isMonitored(c));
+    const someEnabled = allPoints.some(([, c]) => isMonitored(c));
+
+    // The copy each circuit row holds of its package from the SPAN app, by entity id, for the rows that take one.
+    const offered = status?.monitoring_rating_offered === true;
+    const copies = new Map<string, RowCopy>();
+    for (const [entityId, info] of circuitEntries) {
+      const copy = rowCopyOf(info, offered);
+      if (copy) copies.set(entityId, copy);
+    }
 
     const circuitRows = circuitEntries
       .map(([entityId, info]) => {
         const written = info.name ?? entityId;
         const name = escapeHtml(written);
-        const enabled = info.monitoring_enabled !== false;
+        const enabled = isMonitored(info);
         const hasOverride = info.has_override === true;
         const dimStyle = enabled ? "" : "opacity:0.4;";
         const eid = escapeHtml(entityId);
+        const copy = copies.get(entityId) ?? null;
+        const warning = copy ? copyWarning(info, info) : null;
         return `
           <tr style="${dimStyle}">
             <td style="padding:6px 8px;">
@@ -445,7 +648,7 @@ export class MonitoringTab {
                 <span>${name}</span>
               </label>
             </td>
-            ${ratingCell(info, false)}
+            ${copy ? copyCell(eid, written, info, copy) : ratingCell(info, false)}
             ${thresholdCell(eid, written, "continuous_threshold_pct", info.continuous_threshold_pct, "%", "circuit")}
             ${thresholdCell(eid, written, "spike_threshold_pct", info.spike_threshold_pct, "%", "circuit")}
             ${thresholdCell(eid, written, "window_duration_m", info.window_duration_m, "m", "circuit")}
@@ -455,13 +658,14 @@ export class MonitoringTab {
                 hasOverride
                   ? `<button class="reset-btn" data-entity="${eid}" data-type="circuit"
                        aria-label="${escapeHtml(tf("monitoring.reset_point", { name: written }))}"
-                       style="background:none;border:1px solid var(--divider-color);color:var(--primary-text-color);border-radius:4px;padding:3px 6px;cursor:pointer;font-size:0.75em;">
+                       style="${ROW_BUTTON_STYLE}">
                     ${t("monitoring.reset")}
                   </button>`
                   : ""
               }
             </td>
           </tr>
+          ${warning ? warningRow(eid, written, warning, dimStyle) : ""}
         `;
       })
       .join("");
@@ -470,7 +674,7 @@ export class MonitoringTab {
       .map(([entityId, info]) => {
         const written = info.name ?? entityId;
         const name = escapeHtml(written);
-        const enabled = info.monitoring_enabled !== false;
+        const enabled = isMonitored(info);
         const hasOverride = info.has_override === true;
         const dimStyle = enabled ? "" : "opacity:0.4;";
         const eid = escapeHtml(entityId);
@@ -494,7 +698,7 @@ export class MonitoringTab {
                 hasOverride
                   ? `<button class="reset-btn" data-entity="${eid}" data-type="mains"
                        aria-label="${escapeHtml(tf("monitoring.reset_point", { name: written }))}"
-                       style="background:none;border:1px solid var(--divider-color);color:var(--primary-text-color);border-radius:4px;padding:3px 6px;cursor:pointer;font-size:0.75em;">
+                       style="${ROW_BUTTON_STYLE}">
                     ${t("monitoring.reset")}
                   </button>`
                   : ""
@@ -673,6 +877,7 @@ export class MonitoringTab {
         </div>
 
         <h3>${t("monitoring.monitored_points")}</h3>
+        ${offered ? ratingNoteHTML() : ""}
         <table style="width:100%;border-collapse:collapse;">
           <thead>
             <tr style="text-align:left;border-bottom:1px solid var(--divider-color);">
@@ -725,6 +930,8 @@ export class MonitoringTab {
     this._bindCircuitToggles(container, hass);
     this._bindMainsToggles(container, hass);
     this._bindThresholdInputs(container, hass);
+    this._bindPackageRatings(container, hass, copies);
+    this._bindTurnOffButtons(container, hass);
     this._bindResetButtons(container, hass);
     this._bindRatingMarks(container);
     restoreFocus(container, kept);
@@ -744,13 +951,18 @@ export class MonitoringTab {
     return data;
   }
 
-  private _callSetGlobal(hass: HomeAssistant, data: Record<string, unknown>): Promise<unknown> {
+  /** Call the integration's `service` with `data` for the panel this tab shows (`_serviceData`). */
+  private _callService(hass: HomeAssistant, service: string, data: Record<string, unknown>): Promise<unknown> {
     return hass.callWS({
       type: "call_service",
       domain: INTEGRATION_DOMAIN,
-      service: "set_global_monitoring",
+      service,
       service_data: this._serviceData({ ...data }),
     });
+  }
+
+  private _callSetGlobal(hass: HomeAssistant, data: Record<string, unknown>): Promise<unknown> {
+    return this._callService(hass, "set_global_monitoring", data);
   }
 
   /**
@@ -1093,33 +1305,48 @@ export class MonitoringTab {
     }
   }
 
+  /** A circuit's switch turns monitoring on or off for it (`_setCircuitMonitoring`), and goes back where that fails. */
   private _bindCircuitToggles(container: HTMLElement, hass: HomeAssistant): void {
     for (const cb of container.querySelectorAll<HTMLInputElement>(".circuit-toggle")) {
+      const entityId = cb.dataset.entity;
+      if (entityId === undefined) continue;
       cb.addEventListener("change", async () => {
-        const epoch = this._epoch;
-        const entityId = cb.dataset.entity;
         const enabled = cb.checked;
-        try {
-          await hass.callWS({
-            type: "call_service",
-            domain: INTEGRATION_DOMAIN,
-            service: "set_circuit_threshold",
-            service_data: this._serviceData({ circuit_id: entityId, monitoring_enabled: enabled }),
-          });
-        } catch (err) {
-          console.warn("SPAN Panel: circuit threshold toggle failed", err);
-          this.errorStore?.add({
-            key: "service:monitoring",
-            level: "error",
-            message: t("error.threshold_failed"),
-            persistent: false,
-          });
-          cb.checked = !enabled;
-          return;
-        }
-        await this._redraw(container, hass, epoch);
+        if (!(await this._setCircuitMonitoring(container, hass, entityId, enabled))) cb.checked = !enabled;
       });
     }
+  }
+
+  /** The averaged-legs warning's button turns monitoring off for its circuit, as the row's switch does. */
+  private _bindTurnOffButtons(container: HTMLElement, hass: HomeAssistant): void {
+    for (const btn of container.querySelectorAll<HTMLElement>(".rating-turn-off")) {
+      const entityId = btn.dataset.entity;
+      if (entityId === undefined) continue;
+      bindBusyButton(btn, () => this._setCircuitMonitoring(container, hass, entityId, false));
+    }
+  }
+
+  /**
+   * Turn monitoring on or off for circuit `entityId`, the one call the row's
+   * switch and the averaged-legs warning's button both send, then read the tab
+   * again. Resolves whether it was stored; a failure is said, and nothing redrawn.
+   */
+  private async _setCircuitMonitoring(container: HTMLElement, hass: HomeAssistant, entityId: string, enabled: boolean): Promise<boolean> {
+    const epoch = this._epoch;
+    try {
+      await this._callService(hass, "set_circuit_threshold", { circuit_id: entityId, monitoring_enabled: enabled });
+    } catch (err) {
+      console.warn("SPAN Panel: circuit threshold toggle failed", err);
+      this.errorStore?.add({
+        key: "service:monitoring",
+        level: "error",
+        message: t("error.threshold_failed"),
+        persistent: false,
+      });
+      return false;
+    }
+    await this._redraw(container, hass, epoch);
+    return true;
   }
 
   /**
@@ -1175,6 +1402,71 @@ export class MonitoringTab {
     await this._redraw(container, hass, epoch);
   }
 
+  /**
+   * Each circuit's other-breaker field stores the package as the side panel's
+   * does, only as the user entered it (`bindOtherBreakerField`), saying beside
+   * it what it needs correcting; its ✕ removes the copy, what the field held
+   * going with it. Either reads the table again once stored: the integration
+   * says what the copy does, which only its answer shows.
+   */
+  private _bindPackageRatings(container: HTMLElement, hass: HomeAssistant, copies: ReadonlyMap<string, RowCopy>): void {
+    for (const input of container.querySelectorAll<HTMLInputElement>(".rating-input")) {
+      const entityId = input.dataset.entity;
+      const copy = entityId !== undefined ? copies.get(entityId) : undefined;
+      if (!copy) continue;
+      const field = bindOtherBreakerField(input, {
+        report: fieldFeedback(input),
+        stored: () => otherOf(copy),
+        save: amps => void this._savePackageRatings(container, hass, input, field, copy, amps),
+      });
+      const clear = input.closest("td")?.querySelector<HTMLElement>(".rating-clear");
+      if (!clear) continue;
+      bindBusyButton(clear, () => {
+        field.revert();
+        return this._clearPackageRatings(container, hass, copy);
+      });
+    }
+  }
+
+  /**
+   * Store `copy`'s package with `amps` as its other breaker, then read the tab
+   * again. A refusal says why, and `field` shows the copy in force again unless
+   * the user has typed or saved there since (`answerRefusal`); where focus was
+   * lost meanwhile, it goes to the field, to correct it. Anywhere else, focus is
+   * the user's.
+   */
+  private async _savePackageRatings(
+    container: HTMLElement,
+    hass: HomeAssistant,
+    input: HTMLInputElement,
+    field: OtherBreakerFieldHandle,
+    copy: RowCopy,
+    amps: number
+  ): Promise<void> {
+    const epoch = this._epoch;
+    try {
+      await this._callService(hass, "set_circuit_package_ratings", { circuit_id: copy.circuitId, package_ratings_a: [copy.panelA, amps] });
+    } catch (err: unknown) {
+      reportPackageRatingsFailure(hass, this.errorStore, err);
+      if (field.answerRefusal(amps) && input.isConnected && isFocusLost()) input.focus();
+      return;
+    }
+    await this._redraw(container, hass, epoch);
+  }
+
+  /** Remove `copy`, then read the tab again. Resolves whether it was removed; a refusal says why, and nothing is redrawn. */
+  private async _clearPackageRatings(container: HTMLElement, hass: HomeAssistant, copy: RowCopy): Promise<boolean> {
+    const epoch = this._epoch;
+    try {
+      await this._callService(hass, "clear_circuit_package_ratings", { circuit_id: copy.circuitId });
+    } catch (err: unknown) {
+      reportPackageRatingsFailure(hass, this.errorStore, err);
+      return false;
+    }
+    await this._redraw(container, hass, epoch);
+    return true;
+  }
+
   /** A rating mark's note shows on a tap or a key press, where its tooltip cannot be hovered. */
   private _bindRatingMarks(container: HTMLElement): void {
     for (const mark of container.querySelectorAll<HTMLElement>(".rating-user-set")) {
@@ -1183,33 +1475,30 @@ export class MonitoringTab {
   }
 
   /**
-   * A point's Reset clears its override. While the reset is on its way the button
-   * is marked busy, not disabled, so it keeps focus, and a second click sends
-   * nothing; where it fails, the row is left as it was, the button is usable
-   * again, and the integration's reason is shown.
+   * A point's Reset clears its override, busy while it is on its way
+   * (`bindBusyButton`); where it fails, the row is left as it was, the button is
+   * usable again, and the integration's reason is shown.
    */
   private _bindResetButtons(container: HTMLElement, hass: HomeAssistant): void {
     for (const btn of container.querySelectorAll<HTMLElement>(".reset-btn")) {
-      btn.addEventListener("click", async () => {
-        const entityId = btn.dataset.entity;
-        if (!entityId || btn.getAttribute("aria-disabled") === "true") return;
+      const entityId = btn.dataset.entity;
+      if (!entityId) continue;
+      const isMains = btn.dataset.type === "mains";
+      bindBusyButton(btn, async () => {
         const epoch = this._epoch;
-        const type = btn.dataset.type;
-        const service = type === "mains" ? "clear_mains_threshold" : "clear_circuit_threshold";
-        const param = this._serviceData(type === "mains" ? { leg: entityId } : { circuit_id: entityId });
-        btn.setAttribute("aria-disabled", "true");
-        btn.style.opacity = "0.6";
+        const service = isMains ? "clear_mains_threshold" : "clear_circuit_threshold";
+        const param = this._serviceData(isMains ? { leg: entityId } : { circuit_id: entityId });
         try {
           await hass.callService(INTEGRATION_DOMAIN, service, param);
         } catch (err: unknown) {
           console.warn("SPAN Panel: threshold reset failed", err);
-          btn.removeAttribute("aria-disabled");
-          btn.style.opacity = "";
-          const message = await serviceErrorMessage(hass, err, INTEGRATION_DOMAIN, t("error.threshold_failed"));
-          this.errorStore?.add({ key: "service:monitoring", level: "error", message, persistent: false });
-          return;
+          void serviceErrorMessage(hass, err, INTEGRATION_DOMAIN, t("error.threshold_failed")).then(message => {
+            this.errorStore?.add({ key: "service:monitoring", level: "error", message, persistent: false });
+          });
+          return false;
         }
         await this._redraw(container, hass, epoch);
+        return true;
       });
     }
   }

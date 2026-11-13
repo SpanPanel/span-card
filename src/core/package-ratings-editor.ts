@@ -1,8 +1,8 @@
 // src/core/package-ratings-editor.ts
 import { t, tf } from "../i18n.js";
 import type { SlotMember } from "../helpers/shared-meters.js";
-import { thresholdWarning, warnsOfAveragedLegs, type ThresholdWarning } from "../helpers/monitoring-rating.js";
-import { focusedRole, focusWithin, isFocused } from "../helpers/focus.js";
+import { copyWarning, type CopyWarning, type ThresholdWarning } from "../helpers/monitoring-rating.js";
+import { focusedRole, focusWithin, isFocused, isFocusLost } from "../helpers/focus.js";
 import { bindOtherBreakerField, type OtherBreakerFieldHandle } from "../helpers/other-breaker-field.js";
 import type { MonitoringPointInfo, PackageRatingsForm } from "../types.js";
 
@@ -33,9 +33,6 @@ export interface PackageRatingsHost {
 /** The editor for one circuit: the form its copy takes, and the panel's rating, the copy's first. */
 type Shape = { readonly kind: PackageRatingsForm; readonly member: SlotMember; readonly panelA: number };
 
-/** The warning a stored copy calls for, by the rules the Monitoring tab draws its own by. */
-type Warning = ThresholdWarning | "averaged_legs";
-
 /**
  * What the editor shows for a view, or null where it has nothing to offer.
  * Whether a circuit takes a copy, and in which form, is the integration's to say
@@ -65,16 +62,6 @@ function storedOther(member: SlotMember): number | null {
 /** The guidance for a copy of this form, as approved for the side panel (spec §14.6). */
 function guidanceText(kind: PackageRatingsForm): string {
   return kind === "one_space" ? t("monitoringRating.guidance") : t("monitoringRating.guidance_two_spaces");
-}
-
-/**
- * The warning a circuit's stored copy calls for: the averaged-legs one for a copy
- * kept across two spaces while the circuit is monitored, else the threshold one
- * for a copy monitoring judges by (`thresholdWarning`); null for none.
- */
-function warningFor(member: SlotMember, info: MonitoringPointInfo | null): Warning | null {
-  if (warnsOfAveragedLegs(member.circuit, info)) return "averaged_legs";
-  return thresholdWarning(member.circuit, info);
 }
 
 /**
@@ -285,8 +272,7 @@ export class PackageRatingsEditor {
     if (!section || !input || !field || section.dataset.uuid !== uuid || shapeOf(this._host.ratingsView)?.member.uuid !== uuid) return;
     if (!field.answerRefusal(amps)) return;
     // Focus lost, as to the page's body, or still in the editor: the field, to correct. Anywhere else is the user's.
-    const lost = document.activeElement === null || document.activeElement === document.body;
-    if (lost || focusWithin(section)) input.focus();
+    if (isFocusLost() || focusWithin(section)) input.focus();
   }
 
   // ── Warnings ────────────────────────────────────────────────────────
@@ -304,7 +290,7 @@ export class PackageRatingsEditor {
   private _syncWarning(section: HTMLDivElement, member: SlotMember): void {
     const region = section.querySelector<HTMLElement>('[data-role="rating-warning-region"]');
     if (!region) return;
-    const wanted = warningFor(member, this._host.ratingsView?.monitoringInfo ?? null);
+    const wanted = copyWarning(member.circuit, this._host.ratingsView?.monitoringInfo ?? null);
     const current = region.firstElementChild instanceof HTMLElement ? region.firstElementChild : null;
     if (current && current.dataset.kind === wanted) return;
     const hadFocus = focusWithin(current);
@@ -333,7 +319,7 @@ export class PackageRatingsEditor {
     return warning;
   }
 
-  private _buildWarning(role: string, kind: Warning, text: string): HTMLDivElement {
+  private _buildWarning(role: string, kind: CopyWarning, text: string): HTMLDivElement {
     const warning = document.createElement("div");
     warning.className = "field-label rating-warning";
     warning.dataset.role = role;

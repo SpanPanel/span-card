@@ -65,7 +65,7 @@ async function leave(el: HTMLInputElement): Promise<void> {
 }
 
 /** What the field last said, null where it said nothing or cleared it. */
-const said = (b: Bound): string | null | undefined => b.report.mock.calls.at(-1)?.[0];
+const said = (b: Bound): string | null | undefined => b.report.mock.lastCall?.[0];
 
 describe("committing the other breaker", () => {
   it("saves what was typed when Enter is pressed, once", async () => {

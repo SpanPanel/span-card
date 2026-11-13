@@ -1,6 +1,10 @@
+import { INTEGRATION_DOMAIN } from "../constants.js";
 import { t } from "../i18n.js";
+import { serviceErrorMessage } from "./error-text.js";
 import { onLeave } from "./focus.js";
 import { guardNumberWheel } from "./number-field.js";
+import type { ErrorStore } from "../core/error-store.js";
+import type { HomeAssistant } from "../types.js";
 
 /** Where an other-breaker field's value goes, what it is checked against, and where what it needs correcting is said. */
 export interface OtherBreakerFieldHandlers {
@@ -104,4 +108,16 @@ export function bindOtherBreakerField(input: HTMLInputElement, handlers: OtherBr
       return true;
     },
   };
+}
+
+/**
+ * Show in `errors` why the integration refused a change to a circuit's copy, as
+ * every view that holds the field shows it: the integration's message in the
+ * user's language (`serviceErrorMessage`), else that the copy could not be updated.
+ */
+export function reportPackageRatingsFailure(hass: HomeAssistant | null, errors: ErrorStore | null, err: unknown): void {
+  console.warn("SPAN Panel: package ratings update failed", err);
+  void serviceErrorMessage(hass, err, INTEGRATION_DOMAIN, t("error.package_ratings_failed")).then(message => {
+    errors?.add({ key: "service:package-ratings", level: "error", message, persistent: false });
+  });
 }

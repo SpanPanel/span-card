@@ -23,6 +23,11 @@ export function focusedIn(container: Element | null): HTMLElement | null {
   return active instanceof HTMLElement && container.contains(active) ? active : null;
 }
 
+/** Whether keyboard focus is on no control of the page: on none, or on the page's body, as after the control holding it went. */
+export function isFocusLost(): boolean {
+  return document.activeElement === null || document.activeElement === document.body;
+}
+
 /** The data-role of the focused control inside `container`, or null where focus is elsewhere. */
 export function focusedRole(container: Element | null): string | null {
   return focusedIn(container)?.dataset.role ?? null;
