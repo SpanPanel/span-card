@@ -1024,6 +1024,28 @@ describe("thresholds above 100% under a copy", () => {
       expect(radio(panel, "global").checked).toBe(true);
     });
 
+    it("ignore a read from a save before the reset to the global thresholds, which answers after it", async () => {
+      let answer: () => void = () => {};
+      const { panel } = open(COPIED, opening, message =>
+        message.service === "get_monitoring_status"
+          ? new Promise(
+              resolve => (answer = () => resolve(status({ monitoring_enabled: true, has_override: true, ...ABOVE_GLOBALS, continuous_threshold_pct: 180 })))
+            )
+          : Promise.resolve(undefined)
+      );
+      type(continuous(panel), "180");
+      await vi.advanceTimersByTimeAsync(0);
+
+      useGlobal(panel)!.click();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(warning(panel)!.textContent).toBe(GLOBAL_TEXT);
+      answer();
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(warning(panel)!.textContent).toBe(GLOBAL_TEXT);
+      expect(useGlobal(panel)).toBeNull();
+    });
+
     it("keep Custom where the integration kept the override", async () => {
       const { panel } = open(COPIED, opening, async message =>
         message.service === "get_monitoring_status"

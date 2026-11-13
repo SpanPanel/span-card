@@ -1452,6 +1452,8 @@ class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
     const fields = shadow.querySelector<HTMLElement>('[data-role="threshold-fields"]');
     if (global) global.checked = true;
     if (fields) fields.style.display = "none";
+    // A read a save before this started answers for thresholds the reset is about to clear: it is ignored.
+    this._thresholdReads += 1;
     const data: Record<string, unknown> = { circuit_id: cfg.entities?.power || cfg.uuid };
     if (cfg.configEntryId) data.config_entry_id = cfg.configEntryId;
     try {
