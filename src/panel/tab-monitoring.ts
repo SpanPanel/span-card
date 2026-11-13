@@ -11,9 +11,12 @@ import type { HomeAssistant, MonitoringPointInfo, MonitoringStatusResponse, Call
 const FIELD_STYLE = `
   display:flex;align-items:center;gap:8px;margin-bottom:8px;
 `;
+/** The colour a field's border is drawn in, and goes back to once it no longer needs correcting. */
+const FIELD_BORDER = "var(--divider-color)";
+
 const INPUT_STYLE = `
   background:var(--secondary-background-color,#333);
-  border:1px solid var(--divider-color);
+  border:1px solid ${FIELD_BORDER};
   color:var(--primary-text-color);
   border-radius:4px;padding:6px 10px;width:80px;font-size:0.85em;
 `;
@@ -32,7 +35,7 @@ const TEXT_INPUT_STYLE = `
 `;
 const CELL_INPUT_STYLE = `
   background:var(--secondary-background-color,#333);
-  border:1px solid var(--divider-color);
+  border:1px solid ${FIELD_BORDER};
   color:var(--primary-text-color);
   border-radius:3px;padding:3px 6px;width:50px;font-size:0.8em;
   text-align:center;
@@ -71,10 +74,11 @@ function fieldFeedback(input: HTMLInputElement): (message: string | null) => voi
   feedback.style.cssText = FEEDBACK_STYLE;
   input.setAttribute("aria-describedby", feedback.id);
   input.parentElement?.appendChild(feedback);
-  const border = input.style.borderColor;
+  // The colour goes back to the one the field is drawn in, never to what the border reads: Chromium reads a
+  // longhand of a shorthand holding var() as "", and setting that would drop the colour.
   return message => {
     feedback.textContent = message ?? "";
-    input.style.borderColor = message ? ERROR_BORDER : border;
+    input.style.borderColor = message ? ERROR_BORDER : FIELD_BORDER;
   };
 }
 

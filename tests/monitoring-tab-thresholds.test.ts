@@ -795,3 +795,54 @@ describe("a redraw, which in Chromium blurs a focused field as it removes it", (
     expect(panel.saves).toEqual([{ service: "set_circuit_threshold", circuit_id: OVEN, window_duration_m: 20, config_entry_id: "entry-1" }]);
   });
 });
+
+describe("a field's border, as Chromium reads it", () => {
+  // Chromium reads a longhand of a shorthand holding var() as "": `border: 1px solid var(--divider-color)`
+  // gives a borderColor of "" until the colour is set on its own. happy-dom reads the colour.
+  let undo: () => void = () => {};
+  beforeEach(() => {
+    const style = document.createElement("input").style;
+    let owner: object | null = style;
+    let descriptor: PropertyDescriptor | undefined;
+    while (owner && !(descriptor = Object.getOwnPropertyDescriptor(owner, "borderColor"))) owner = Object.getPrototypeOf(owner);
+    const original = descriptor!;
+    const setOwn = new WeakSet<object>();
+    Object.defineProperty(owner!, "borderColor", {
+      ...original,
+      get(this: CSSStyleDeclaration) {
+        const value = original.get!.call(this) as string;
+        return !setOwn.has(this) && value.includes("var(") ? "" : value;
+      },
+      set(this: CSSStyleDeclaration, value: string) {
+        setOwn.add(this);
+        original.set!.call(this, value);
+      },
+    });
+    undo = () => Object.defineProperty(owner!, "borderColor", original);
+  });
+  afterEach(() => undo());
+
+  it.each([
+    ["a table field", (container: HTMLElement) => cell(container, OVEN, "window_duration_m")],
+    ["a global field", (container: HTMLElement) => global(container, "g-window")],
+  ])("takes the divider colour back on %s once what it said is cleared", async (_name, fieldOf) => {
+    const panel = integration();
+    const { container } = await shown(panel);
+    const field = fieldOf(container);
+
+    type(field, "0");
+    typeOnly(field, "20");
+
+    expect(field.style.getPropertyValue("border-color")).toBe("var(--divider-color)");
+  });
+
+  it("leaves a field nobody marked with the colour it was drawn with", async () => {
+    const panel = integration();
+    const { container } = await shown(panel);
+    const field = cell(container, OVEN, "window_duration_m");
+
+    typeOnly(field, "20");
+
+    expect(field.style.getPropertyValue("border-color")).toBe("var(--divider-color)");
+  });
+});
