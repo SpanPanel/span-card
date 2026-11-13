@@ -223,7 +223,9 @@ describe("FavoritesController.build", () => {
     const grouped = (rating: number): PanelTopology => {
       const topology = makeTopology({ "circuit-52": { name: "Bath" }, "circuit-53": { name: "Fan" } });
       for (const uuid of ["circuit-52", "circuit-53"]) topology.circuits[uuid]!.shared_meter_group = "circuit-52";
-      topology.shared_meter_groups = { "circuit-52": { members: ["circuit-52", "circuit-53"], breaker_rating_a: rating } };
+      topology.shared_meter_groups = {
+        "circuit-52": { members: ["circuit-52", "circuit-53"], breaker_rating_a: rating, monitoring_rating_a: rating, monitoring_rating_user_set: false },
+      };
       return topology;
     };
     const topologies: Record<string, PanelTopology> = { "panel-1": grouped(30), "panel-2": grouped(25) };
@@ -241,7 +243,12 @@ describe("FavoritesController.build", () => {
     const key2 = buildCompositeId("panel-2", "circuit-52");
     expect(merged.circuits[buildCompositeId("panel-1", "circuit-53")]!.shared_meter_group).toBe(key1);
     expect(merged.circuits[key2]!.shared_meter_group).toBe(key2);
-    expect(merged.shared_meter_groups?.[key1]).toEqual({ members: [key1, buildCompositeId("panel-1", "circuit-53")], breaker_rating_a: 30 });
+    expect(merged.shared_meter_groups?.[key1]).toEqual({
+      members: [key1, buildCompositeId("panel-1", "circuit-53")],
+      breaker_rating_a: 30,
+      monitoring_rating_a: 30,
+      monitoring_rating_user_set: false,
+    });
     expect(merged.shared_meter_groups?.[key2]?.breaker_rating_a).toBe(25);
   });
 

@@ -22,7 +22,7 @@ export class FakeConnection {
   hold = false;
   private readonly _held: Array<() => void> = [];
 
-  subscribeEvents = (callback: () => void, event: string): Promise<() => void> =>
+  subscribeEvents = (callback: Callback, event: string): Promise<() => void> =>
     this._subscribe(event, null, callback, sub => () => {
       sub.unsubscribed = true;
     });

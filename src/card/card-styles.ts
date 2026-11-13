@@ -329,6 +329,39 @@ export const CARD_STYLES: string = `
     flex-shrink: 0;
   }
 
+  /* The pencil that marks a rating from a copied package, a button so a tap or a key can show what it says. */
+  .rating-user-set {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 24px;
+    min-height: 24px;
+    margin-left: 2px;
+    padding: 0 2px;
+    border: none;
+    border-radius: 3px;
+    background: none;
+    color: inherit;
+    font: inherit;
+    font-weight: 400;
+    line-height: inherit;
+    cursor: help;
+  }
+  .rating-user-set:focus-visible {
+    outline: 2px solid var(--primary-color, #03a9f4);
+    outline-offset: 1px;
+  }
+  .rating-copied-note {
+    display: block;
+    margin-top: 2px;
+    font-size: 0.85em;
+    color: var(--secondary-text-color, #727272);
+    white-space: normal;
+  }
+  .rating-copied-note[hidden] {
+    display: none;
+  }
+
   .circuit-name {
     font-size: 0.9em;
     font-weight: 500;

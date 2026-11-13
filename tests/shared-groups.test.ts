@@ -3,7 +3,7 @@ import { buildGridHTML } from "../src/core/grid-renderer.js";
 import { buildPanelStatsHTML } from "../src/core/header-renderer.js";
 import { updateCircuitDOM } from "../src/core/dom-updater.js";
 import { positionRange } from "../src/helpers/layout.js";
-import { meterSlots } from "../src/helpers/shared-meters.js";
+import { judgedAs, meterSlots, slotRatingText } from "../src/helpers/shared-meters.js";
 import { t } from "../src/i18n.js";
 import type { CardConfig, Circuit, HomeAssistant, PanelTopology, SharedMeterGroup } from "../src/types.js";
 
@@ -16,6 +16,8 @@ function circuit(slug: string, name: string, tab: number, rating: number, group:
     name,
     tabs: [tab],
     breaker_rating_a: rating,
+    monitoring_rating_a: rating,
+    monitoring_rating_user_set: false,
     relay_state: "CLOSED",
     is_user_controllable: true,
     shared_meter_group: group,
@@ -35,9 +37,9 @@ const CIRCUITS: Record<string, Circuit> = {
   "c-48b": circuit("lights_c", "Lights C", 48, 10, "c-48a"),
 };
 
-/** What the integration rates a group against; the card adds nothing up where it has this. */
-function group(members: string[], rating: number | null): SharedMeterGroup {
-  return { members, breaker_rating_a: rating };
+/** What the integration rates and judges a group against; the card adds nothing up itself. */
+function group(members: string[], rating: number | null, monitoring: number | null = rating, userSet = false): SharedMeterGroup {
+  return { members, breaker_rating_a: rating, monitoring_rating_a: monitoring, monitoring_rating_user_set: userSet };
 }
 
 /** Each pair's capacity as the integration publishes it: both members on one space, so their ratings add. */
@@ -90,6 +92,26 @@ function slotAt(root: ParentNode, uuid: string): HTMLElement {
   return root.querySelector<HTMLElement>(`.circuit-slot[data-uuid="${uuid}"]`)!;
 }
 
+describe("judgedAs", () => {
+  it("carries the slot's ratings, the monitoring ones included, onto a member, its own name and spaces kept", () => {
+    const member: Circuit = { name: "Lights", tabs: [7], entities: {}, breaker_rating_a: 15, monitoring_rating_a: 15, monitoring_rating_user_set: false };
+    const slot = {
+      memberIds: ["a", "b"],
+      members: [member],
+      circuit: { name: "Lights + Outlets", tabs: [7], entities: {}, breaker_rating_a: 30, monitoring_rating_a: 35, monitoring_rating_user_set: true },
+    } as unknown as Parameters<typeof judgedAs>[1];
+
+    const judged = judgedAs(member, slot);
+
+    expect(judged).toMatchObject({ name: "Lights", tabs: [7], breaker_rating_a: 30, monitoring_rating_a: 35, monitoring_rating_user_set: true });
+  });
+
+  it("is the circuit itself where it has no slot", () => {
+    const circuit: Circuit = { name: "Oven", tabs: [1], entities: {}, breaker_rating_a: 20, monitoring_rating_a: 40 };
+    expect(judgedAs(circuit, undefined)).toBe(circuit);
+  });
+});
+
 describe("meterSlots", () => {
   it("gives each group one slot, read through its first member, and every other circuit its own", () => {
     const slots = meterSlots(topology());
@@ -105,14 +127,16 @@ describe("meterSlots", () => {
 
   it("has no rating where the integration reports the group's capacity as unknown, and adds nothing up in its place", () => {
     const unknown = { ...topology(), shared_meter_groups: { ...GROUPS, "c-48a": group(["c-48a", "c-48b"], null) } };
-    expect(meterSlots(unknown).find(s => s.uuid === "c-48a")!.circuit.breaker_rating_a).toBeNull();
+    const slot = meterSlots(unknown).find(s => s.uuid === "c-48a")!.circuit;
+    expect([slot.breaker_rating_a, slot.monitoring_rating_a, slot.monitoring_rating_user_set]).toEqual([null, null, false]);
   });
 
-  it("falls back to the members' sum only for a group with no record, as from an older integration", () => {
+  it("falls back to the members' sum only for a group with no record, as from an older integration, with no monitoring rating", () => {
     expect(meterSlots({ circuits: CIRCUITS }).map(s => s.circuit.breaker_rating_a)).toEqual([20, 30, 40, 25]);
     // c-48a has no record, so its members' 15 + 10 A stand; c-46a's record is read as published, not summed.
     const unlisted = { ...topology(), shared_meter_groups: { "c-44a": GROUPS["c-44a"]!, "c-46a": group(["c-46a", "c-46b"], 12) } };
     expect(meterSlots(unlisted).map(s => s.circuit.breaker_rating_a)).toEqual([20, 30, 12, 25]);
+    expect(meterSlots(unlisted).find(s => s.uuid === "c-48a")!.circuit.monitoring_rating_a).toBeUndefined();
     const circuits = { ...CIRCUITS, "c-48b": { ...CIRCUITS["c-48b"]!, breaker_rating_a: null } };
     expect(meterSlots({ circuits }).find(s => s.uuid === "c-48a")!.circuit.breaker_rating_a).toBeNull();
   });
@@ -190,8 +214,8 @@ describe("a group whose members occupy different spaces", () => {
       "q-36": { ...TANDEM_QUAD["q-36"]!, breaker_rating_a: 15 },
       "q-2p": { ...TANDEM_QUAD["q-2p"]!, breaker_rating_a: 35 },
     };
-    const slots = meterSlots({ circuits, shared_meter_groups: { "q-34": group(["q-34", "q-36", "q-2p"], 55) } });
-    expect(slots[0]!.circuit.breaker_rating_a).toBe(55);
+    const slot = meterSlots({ circuits, shared_meter_groups: { "q-34": group(["q-34", "q-36", "q-2p"], 55) } })[0]!.circuit;
+    expect([slot.breaker_rating_a, slot.monitoring_rating_a]).toEqual([55, 55]);
     expect(slotAt(gridOf(circuits), "q-34").querySelector(".breaker-badge")!.textContent).toBe("20·15·35 A");
   });
 
@@ -213,5 +237,57 @@ describe("the site sum", () => {
     // With no site reading the header falls back to the circuits' sum: 1000 + 300 + 500 + 0 W, each pair once.
     updateCircuitDOM(root, hassWith(), topology(), CONFIG, new Map(), undefined, null);
     expect(root.querySelector(".stat-consumption .stat-value")!.textContent).toBe("1.8");
+  });
+});
+
+/** The pair at c-48 with `a` and `b` overlaid on its members. */
+function pair(a: Partial<Circuit>, b: Partial<Circuit>): Record<string, Circuit> {
+  return { ...CIRCUITS, "c-48a": { ...CIRCUITS["c-48a"]!, ...a }, "c-48b": { ...CIRCUITS["c-48b"]!, ...b } };
+}
+
+describe("a shared slot's breaker label", () => {
+  const userSet = { monitoring_rating_a: 25, monitoring_rating_user_set: true };
+
+  it("reads each panel rating, as before the monitoring rating existed", () => {
+    const badge = slotAt(gridOf(pair({}, {})), "c-48a").querySelector(".breaker-badge")!;
+    expect(badge.innerHTML).toBe("15·10 A");
+  });
+
+  it("stays the panel's ratings, unmarked, when a member has a monitoring rating", () => {
+    const badge = slotAt(gridOf(pair(userSet, {})), "c-48a").querySelector(".breaker-badge")!;
+    expect(badge.innerHTML).toBe("15·10 A");
+    expect(badge.querySelector(".rating-user-set")).toBeNull();
+  });
+});
+
+describe("a shared slot's rating as text", () => {
+  const members = (a: Partial<Circuit>, b: Partial<Circuit>): Circuit[] => [
+    { ...CIRCUITS["c-48a"]!, ...a },
+    { ...CIRCUITS["c-48b"]!, ...b },
+  ];
+
+  it("reads like the grid's label, whatever monitoring rating a member has", () => {
+    expect(slotRatingText(members({}, {}))).toBe("15·10 A");
+    expect(slotRatingText(members({ monitoring_rating_a: 40, monitoring_rating_user_set: true }, {}))).toBe("15·10 A");
+  });
+
+  it("is empty while a member's rating is unknown, and a lone circuit reads as a single rating", () => {
+    expect(slotRatingText(members({}, { breaker_rating_a: null }))).toBe("");
+    expect(slotRatingText([CIRCUITS["c-1"]!])).toBe("20A");
+  });
+});
+
+describe("a shared group's ratings", () => {
+  it("take the panel's capacity and the judged-against capacity from the integration, whatever the members carry", () => {
+    const circuits = pair({ monitoring_rating_a: 30, monitoring_rating_user_set: true }, { monitoring_rating_a: 10 });
+    const groups = { ...GROUPS, "c-48a": group(["c-48a", "c-48b"], 25, 35, true) };
+    const slot = meterSlots({ circuits, shared_meter_groups: groups }).find(s => s.uuid === "c-48a")!.circuit;
+    expect([slot.breaker_rating_a, slot.monitoring_rating_a, slot.monitoring_rating_user_set]).toEqual([25, 35, true]);
+  });
+
+  it("are unmarked where the integration says no member's monitoring rating applies", () => {
+    const circuits = pair({ monitoring_rating_user_set: true }, {});
+    const slot = meterSlots({ circuits, shared_meter_groups: GROUPS }).find(s => s.uuid === "c-48a")!.circuit;
+    expect(slot.monitoring_rating_user_set).toBe(false);
   });
 });

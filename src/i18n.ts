@@ -39,13 +39,19 @@ const translations: Record<string, Record<string, string>> = {
     "monitoring.col.spike": "Spike",
     "monitoring.col.window": "Window",
     "monitoring.col.cooldown": "Cooldown",
+    "monitoring.rating": "Rating",
     "monitoring.all_none": "All / None",
     "monitoring.reset": "Reset",
+    "monitoring.limit_invalid": "Enter a whole number from {min} to {max}.",
+    "monitoring.enable_invalid": "Monitoring was not turned on: correct the fields marked.",
+    "monitoring.point_field": "{field} for {name}",
+    "monitoring.reset_point": "Reset {name}",
 
     // Notification settings
     "notification.heading": "Notification Settings",
     "notification.targets": "Notify Targets",
     "notification.none_selected": "None selected",
+    "notification.targets_button": "Notify Targets: {targets}",
     "notification.no_targets": "No notify targets found",
     "notification.all_targets": "All",
     "notification.event_bus_target": "Event Bus (HA event bus)",
@@ -90,6 +96,12 @@ const translations: Record<string, Record<string, string>> = {
     "error.areas_failed": "Area assignments may be out of sync",
     "error.retry": "Retry",
     "card.connecting": "Connecting to SPAN Panel...",
+
+    // Monitoring rating
+    "monitoringRating.none": "no rating",
+    "monitoringRating.copied": "{package} from your SPAN app (the panel publishes {panel} A)",
+    "monitoringRating.copied_unnamed": "Copied from your SPAN app",
+    "monitoringRating.judged_copied": "Judged against {rating} A: {copied}",
 
     // Settings tab
     "settings.heading": "Settings",
@@ -219,6 +231,23 @@ const translations: Record<string, Record<string, string>> = {
     "sidepanel.relay": "Relay",
     "sidepanel.breaker": "Breaker",
     "sidepanel.capacity": "{amps} A capacity",
+    "monitoringRating.title": "Breaker ratings from the SPAN app",
+    "monitoringRating.panel_rating": "Panel publishes {panel} A",
+    "monitoringRating.other_breaker": "Other breaker (A)",
+    "monitoringRating.other_breaker_label": "Other breaker in the space of {circuit}",
+    "monitoringRating.reset": "Remove copied ratings",
+    "monitoringRating.invalid_other": "Enter the other breaker's rating as a whole number of amps, 1 or more.",
+    "monitoringRating.guidance":
+      "Enter the other breaker in this space exactly as your SPAN app shows this circuit (for example 20-20A). The panel publishes only the first; monitoring then judges this space against both breakers together.",
+    "monitoringRating.multi_space":
+      "This circuit spans more than one space. The panel reports the average of its legs, so one leg can carry more than its breaker while the reading stays under the rating, and no ratings copied from the SPAN app can show it. Turning monitoring off for this circuit is the safer choice.",
+    "monitoringRating.threshold_warning":
+      "This circuit's custom thresholds are above 100%. With the copied ratings they now apply to both breakers together, which can let a real overload pass.",
+    "monitoringRating.threshold_warning_global":
+      "The global thresholds this circuit uses are above 100%. With the copied ratings they now apply to both breakers together, which can let a real overload pass; change them under {settings} on the {tab} tab.",
+    "monitoringRating.use_global_thresholds": "Use global thresholds",
+    "error.package_ratings_failed": "Unable to update the ratings copied from the SPAN app",
+    "sidepanel.judged_against": "Judged against: {rating}",
     "sidepanel.shedding_priority": "Shedding Priority",
     "sidepanel.priority_label": "Priority",
     "sidepanel.monitoring": "Monitoring",
@@ -308,11 +337,17 @@ const translations: Record<string, Record<string, string>> = {
     "monitoring.col.spike": "Pico",
     "monitoring.col.window": "Ventana",
     "monitoring.col.cooldown": "Enfriamiento",
+    "monitoring.rating": "Calibre",
     "monitoring.all_none": "Todos / Ninguno",
     "monitoring.reset": "Restablecer",
+    "monitoring.limit_invalid": "Introduzca un n\u00famero entero de {min} a {max}.",
+    "monitoring.enable_invalid": "No se activ\u00f3 el monitoreo: corrija los campos marcados.",
+    "monitoring.point_field": "{field} de {name}",
+    "monitoring.reset_point": "Restablecer {name}",
     "notification.heading": "Configuraci\u00f3n de Notificaciones",
     "notification.targets": "Destinos de Notificaci\u00f3n",
     "notification.none_selected": "Ninguno seleccionado",
+    "notification.targets_button": "Destinos de Notificaci\u00f3n: {targets}",
     "notification.no_targets": "No se encontraron destinos de notificaci\u00f3n",
     "notification.all_targets": "Todos",
     "notification.event_bus_target": "Bus de Eventos (bus de eventos de HA)",
@@ -355,6 +390,12 @@ const translations: Record<string, Record<string, string>> = {
     "error.areas_failed": "Las asignaciones de \u00e1reas pueden estar desincronizadas",
     "error.retry": "Reintentar",
     "card.connecting": "Conectando al SPAN Panel...",
+
+    // Monitoring rating
+    "monitoringRating.none": "sin calibre",
+    "monitoringRating.copied": "{package} de su app de SPAN (el panel publica {panel} A)",
+    "monitoringRating.copied_unnamed": "Copiado de su app de SPAN",
+    "monitoringRating.judged_copied": "Evaluado seg\u00fan {rating} A: {copied}",
     "settings.heading": "Configuraci\u00f3n",
     "settings.description":
       "La configuraci\u00f3n general de la integraci\u00f3n (nombres de entidades, prefijo de dispositivo, n\u00fameros de circuito) se administra a trav\u00e9s del flujo de opciones de la integraci\u00f3n.",
@@ -471,6 +512,23 @@ const translations: Record<string, Record<string, string>> = {
     "sidepanel.relay": "Rel\u00e9",
     "sidepanel.breaker": "Interruptor",
     "sidepanel.capacity": "capacidad de {amps} A",
+    "monitoringRating.title": "Calibres de interruptor de la app de SPAN",
+    "monitoringRating.panel_rating": "El panel publica {panel} A",
+    "monitoringRating.other_breaker": "Otro interruptor (A)",
+    "monitoringRating.other_breaker_label": "Otro interruptor en el espacio de {circuit}",
+    "monitoringRating.reset": "Quitar los calibres copiados",
+    "monitoringRating.invalid_other": "Introduzca el calibre del otro interruptor como un n\u00famero entero de amperios, 1 o m\u00e1s.",
+    "monitoringRating.guidance":
+      "Introduzca el otro interruptor de este espacio tal como la app de SPAN muestra este circuito (por ejemplo, 20-20A). El panel publica solo el primero; el monitoreo juzga entonces este espacio seg\u00fan ambos interruptores juntos.",
+    "monitoringRating.multi_space":
+      "Este circuito ocupa varios espacios. El panel informa el promedio de sus fases, por lo que una fase puede llevar m\u00e1s corriente que su interruptor mientras la lectura queda por debajo del calibre, y ning\u00fan calibre copiado de la app de SPAN puede mostrarlo. Desactivar el monitoreo de este circuito es la opci\u00f3n m\u00e1s segura.",
+    "monitoringRating.threshold_warning":
+      "Los umbrales personalizados de este circuito superan el 100 %. Con los calibres copiados se aplican ahora a ambos interruptores juntos, lo que puede dejar pasar una sobrecarga real.",
+    "monitoringRating.threshold_warning_global":
+      "Los umbrales globales que usa este circuito superan el 100 %. Con los calibres copiados se aplican ahora a ambos interruptores juntos, lo que puede dejar pasar una sobrecarga real; c\u00e1mbielos en {settings}, en la pesta\u00f1a {tab}.",
+    "monitoringRating.use_global_thresholds": "Usar los umbrales globales",
+    "error.package_ratings_failed": "No se pudieron actualizar los calibres copiados de la app de SPAN",
+    "sidepanel.judged_against": "Evaluado seg\u00fan: {rating}",
     "sidepanel.shedding_priority": "Prioridad de Desconexci\u00f3n",
     "sidepanel.priority_label": "Prioridad",
     "sidepanel.monitoring": "Monitoreo",
@@ -550,11 +608,17 @@ const translations: Record<string, Record<string, string>> = {
     "monitoring.col.spike": "Pic",
     "monitoring.col.window": "Fen\u00eatre",
     "monitoring.col.cooldown": "Refroidissement",
+    "monitoring.rating": "Calibre",
     "monitoring.all_none": "Tous / Aucun",
     "monitoring.reset": "R\u00e9initialiser",
+    "monitoring.limit_invalid": "Saisissez un nombre entier de {min} \u00e0 {max}.",
+    "monitoring.enable_invalid": "La surveillance n'a pas \u00e9t\u00e9 activ\u00e9e : corrigez les champs signal\u00e9s.",
+    "monitoring.point_field": "{field} de {name}",
+    "monitoring.reset_point": "R\u00e9initialiser {name}",
     "notification.heading": "Param\u00e8tres de Notification",
     "notification.targets": "Cibles de Notification",
     "notification.none_selected": "Aucune s\u00e9lection",
+    "notification.targets_button": "Cibles de Notification : {targets}",
     "notification.no_targets": "Aucune cible de notification trouv\u00e9e",
     "notification.all_targets": "Tous",
     "notification.event_bus_target": "Bus d'\u00e9v\u00e9nements (bus d'\u00e9v\u00e9nements HA)",
@@ -597,6 +661,12 @@ const translations: Record<string, Record<string, string>> = {
     "error.areas_failed": "Les affectations de zones peuvent \u00eatre d\u00e9synchronis\u00e9es",
     "error.retry": "R\u00e9essayer",
     "card.connecting": "Connexion au SPAN Panel...",
+
+    // Monitoring rating
+    "monitoringRating.none": "aucun calibre",
+    "monitoringRating.copied": "{package} depuis votre application SPAN (le panneau publie {panel} A)",
+    "monitoringRating.copied_unnamed": "Copi\u00e9 depuis votre application SPAN",
+    "monitoringRating.judged_copied": "\u00c9valu\u00e9 selon {rating} A : {copied}",
     "settings.heading": "Param\u00e8tres",
     "settings.description":
       "Les param\u00e8tres g\u00e9n\u00e9raux de l'int\u00e9gration (noms d'entit\u00e9s, pr\u00e9fixe de l'appareil, num\u00e9ros de circuit) sont g\u00e9r\u00e9s via le flux d'options de l'int\u00e9gration.",
@@ -714,6 +784,23 @@ const translations: Record<string, Record<string, string>> = {
     "sidepanel.relay": "Relais",
     "sidepanel.breaker": "Disjoncteur",
     "sidepanel.capacity": "capacit\u00e9 de {amps} A",
+    "monitoringRating.title": "Calibres des disjoncteurs dans l'application SPAN",
+    "monitoringRating.panel_rating": "Le panneau publie {panel} A",
+    "monitoringRating.other_breaker": "Autre disjoncteur (A)",
+    "monitoringRating.other_breaker_label": "Autre disjoncteur dans l'emplacement de {circuit}",
+    "monitoringRating.reset": "Supprimer les calibres copi\u00e9s",
+    "monitoringRating.invalid_other": "Saisissez le calibre de l'autre disjoncteur en nombre entier d'amp\u00e8res, 1 ou plus.",
+    "monitoringRating.guidance":
+      "Saisissez l'autre disjoncteur de cet emplacement exactement comme l'application SPAN affiche ce circuit (par exemple 20-20A). Le panneau ne publie que le premier ; la surveillance juge alors cet emplacement par rapport aux deux disjoncteurs ensemble.",
+    "monitoringRating.multi_space":
+      "Ce circuit occupe plusieurs emplacements. Le panneau indique la moyenne de ses phases ; une phase peut donc d\u00e9passer son disjoncteur alors que la mesure reste sous le calibre, et aucun calibre copi\u00e9 depuis l'application SPAN ne peut le montrer. D\u00e9sactiver la surveillance de ce circuit est le choix le plus s\u00fbr.",
+    "monitoringRating.threshold_warning":
+      "Les seuils personnalis\u00e9s de ce circuit d\u00e9passent 100 %. Avec les calibres copi\u00e9s, ils s'appliquent d\u00e9sormais aux deux disjoncteurs ensemble, ce qui peut laisser passer une vraie surcharge.",
+    "monitoringRating.threshold_warning_global":
+      "Les seuils globaux qu'utilise ce circuit d\u00e9passent 100 %. Avec les calibres copi\u00e9s, ils s'appliquent d\u00e9sormais aux deux disjoncteurs ensemble, ce qui peut laisser passer une vraie surcharge ; modifiez-les dans {settings}, onglet {tab}.",
+    "monitoringRating.use_global_thresholds": "Utiliser les seuils globaux",
+    "error.package_ratings_failed": "Impossible de mettre \u00e0 jour les calibres copi\u00e9s depuis l'application SPAN",
+    "sidepanel.judged_against": "\u00c9valu\u00e9 selon : {rating}",
     "sidepanel.shedding_priority": "Priorit\u00e9 de D\u00e9lestage",
     "sidepanel.priority_label": "Priorit\u00e9",
     "sidepanel.monitoring": "Surveillance",
@@ -795,11 +882,18 @@ const translations: Record<string, Record<string, string>> = {
     "monitoring.col.spike": "\u30b9\u30d1\u30a4\u30af",
     "monitoring.col.window": "\u30a6\u30a3\u30f3\u30c9\u30a6",
     "monitoring.col.cooldown": "\u30af\u30fc\u30eb\u30c0\u30a6\u30f3",
+    "monitoring.rating": "\u5b9a\u683c",
     "monitoring.all_none": "\u5168\u9078\u629e / \u5168\u89e3\u9664",
     "monitoring.reset": "\u30ea\u30bb\u30c3\u30c8",
+    "monitoring.limit_invalid": "{min} \u304b\u3089 {max} \u307e\u3067\u306e\u6574\u6570\u3092\u5165\u529b\u3057\u3066\u304f\u3060\u3055\u3044\u3002",
+    "monitoring.enable_invalid":
+      "\u30e2\u30cb\u30bf\u30ea\u30f3\u30b0\u306f\u6709\u52b9\u306b\u306a\u3063\u3066\u3044\u307e\u305b\u3093\u3002\u30de\u30fc\u30af\u3055\u308c\u305f\u9805\u76ee\u3092\u4fee\u6b63\u3057\u3066\u304f\u3060\u3055\u3044\u3002",
+    "monitoring.point_field": "{name}\u306e{field}",
+    "monitoring.reset_point": "{name}\u3092\u30ea\u30bb\u30c3\u30c8",
     "notification.heading": "\u901a\u77e5\u8a2d\u5b9a",
     "notification.targets": "\u901a\u77e5\u5148",
     "notification.none_selected": "\u672a\u9078\u629e",
+    "notification.targets_button": "\u901a\u77e5\u5148: {targets}",
     "notification.no_targets": "\u901a\u77e5\u5148\u304c\u898b\u3064\u304b\u308a\u307e\u305b\u3093",
     "notification.all_targets": "\u3059\u3079\u3066",
     "notification.event_bus_target": "\u30a4\u30d9\u30f3\u30c8\u30d0\u30b9 (HA\u30a4\u30d9\u30f3\u30c8\u30d0\u30b9)",
@@ -843,6 +937,12 @@ const translations: Record<string, Record<string, string>> = {
       "\u30a8\u30ea\u30a2\u5272\u308a\u5f53\u3066\u304c\u540c\u671f\u3055\u308c\u3066\u3044\u306a\u3044\u53ef\u80fd\u6027\u304c\u3042\u308a\u307e\u3059",
     "error.retry": "\u518d\u8a66\u884c",
     "card.connecting": "SPAN\u30d1\u30cd\u30eb\u306b\u63a5\u7d9a\u4e2d...",
+
+    // Monitoring rating
+    "monitoringRating.none": "\u5b9a\u683c\u306a\u3057",
+    "monitoringRating.copied": "SPAN \u30a2\u30d7\u30ea\u306e {package}(\u30d1\u30cd\u30eb\u306e\u516c\u958b\u5024 {panel} A)",
+    "monitoringRating.copied_unnamed": "SPAN \u30a2\u30d7\u30ea\u304b\u3089\u30b3\u30d4\u30fc",
+    "monitoringRating.judged_copied": "\u5224\u5b9a\u57fa\u6e96 {rating} A: {copied}",
     "settings.heading": "\u8a2d\u5b9a",
     "settings.description":
       "\u7d71\u5408\u306e\u4e00\u822c\u8a2d\u5b9a\uff08\u30a8\u30f3\u30c6\u30a3\u30c6\u30a3\u540d\u3001\u30c7\u30d0\u30a4\u30b9\u30d7\u30ec\u30d5\u30a3\u30c3\u30af\u30b9\u3001\u56de\u8def\u756a\u53f7\uff09\u306f\u7d71\u5408\u306e\u30aa\u30d7\u30b7\u30e7\u30f3\u30d5\u30ed\u30fc\u3067\u7ba1\u7406\u3055\u308c\u307e\u3059\u3002",
@@ -967,6 +1067,26 @@ const translations: Record<string, Record<string, string>> = {
     "sidepanel.relay": "\u30ea\u30ec\u30fc",
     "sidepanel.breaker": "\u30d6\u30ec\u30fc\u30ab\u30fc",
     "sidepanel.capacity": "\u5bb9\u91cf {amps} A",
+    "monitoringRating.title": "SPAN \u30a2\u30d7\u30ea\u306e\u30d6\u30ec\u30fc\u30ab\u30fc\u5b9a\u683c",
+    "monitoringRating.panel_rating": "\u30d1\u30cd\u30eb\u306e\u516c\u958b\u5024 {panel} A",
+    "monitoringRating.other_breaker": "\u3082\u3046\u4e00\u65b9\u306e\u30d6\u30ec\u30fc\u30ab\u30fc (A)",
+    "monitoringRating.other_breaker_label":
+      "{circuit} \u306e\u30b9\u30da\u30fc\u30b9\u306b\u3042\u308b\u3082\u3046\u4e00\u65b9\u306e\u30d6\u30ec\u30fc\u30ab\u30fc",
+    "monitoringRating.reset": "\u30b3\u30d4\u30fc\u3057\u305f\u5b9a\u683c\u3092\u524a\u9664",
+    "monitoringRating.invalid_other":
+      "\u3082\u3046\u4e00\u65b9\u306e\u30d6\u30ec\u30fc\u30ab\u30fc\u306e\u5b9a\u683c\u3092 1 \u4ee5\u4e0a\u306e\u6574\u6570\u306e\u30a2\u30f3\u30da\u30a2\u3067\u5165\u529b\u3057\u3066\u304f\u3060\u3055\u3044\u3002",
+    "monitoringRating.guidance":
+      "\u3053\u306e\u30b9\u30da\u30fc\u30b9\u306e\u3082\u3046\u4e00\u65b9\u306e\u30d6\u30ec\u30fc\u30ab\u30fc\u3092\u3001SPAN \u30a2\u30d7\u30ea\u304c\u3053\u306e\u56de\u8def\u306b\u3064\u3044\u3066\u8868\u793a\u3059\u308b\u3068\u304a\u308a\u306b\u5165\u529b\u3057\u3066\u304f\u3060\u3055\u3044(\u4f8b: 20-20A)\u3002\u30d1\u30cd\u30eb\u304c\u516c\u958b\u3059\u308b\u306e\u306f\u6700\u521d\u306e\u5b9a\u683c\u3060\u3051\u3067\u3059\u3002\u30e2\u30cb\u30bf\u30ea\u30f3\u30b0\u306f\u3053\u306e\u30b9\u30da\u30fc\u30b9\u3092\u4e21\u65b9\u306e\u30d6\u30ec\u30fc\u30ab\u30fc\u306e\u5408\u8a08\u3067\u5224\u5b9a\u3057\u307e\u3059\u3002",
+    "monitoringRating.multi_space":
+      "\u3053\u306e\u56de\u8def\u306f\u8907\u6570\u306e\u30b9\u30da\u30fc\u30b9\u306b\u307e\u305f\u304c\u3063\u3066\u3044\u307e\u3059\u3002\u30d1\u30cd\u30eb\u306f\u5404\u7dda\u306e\u5e73\u5747\u5024\u3092\u5831\u544a\u3059\u308b\u305f\u3081\u3001\u6e2c\u5b9a\u5024\u304c\u5b9a\u683c\u3092\u4e0b\u56de\u3063\u3066\u3044\u3066\u3082\u3001\u4e00\u65b9\u306e\u7dda\u304c\u30d6\u30ec\u30fc\u30ab\u30fc\u306e\u5b9a\u683c\u3092\u8d85\u3048\u308b\u3053\u3068\u304c\u3042\u308a\u3001SPAN \u30a2\u30d7\u30ea\u304b\u3089\u30b3\u30d4\u30fc\u3057\u305f\u5b9a\u683c\u3067\u306f\u305d\u308c\u3092\u793a\u305b\u307e\u305b\u3093\u3002\u3053\u306e\u56de\u8def\u306e\u30e2\u30cb\u30bf\u30ea\u30f3\u30b0\u3092\u30aa\u30d5\u306b\u3059\u308b\u306e\u304c\u3088\u308a\u5b89\u5168\u3067\u3059\u3002",
+    "monitoringRating.threshold_warning":
+      "\u3053\u306e\u56de\u8def\u306e\u30ab\u30b9\u30bf\u30e0\u3057\u304d\u3044\u5024\u306f 100% \u3092\u8d85\u3048\u3066\u3044\u307e\u3059\u3002\u30b3\u30d4\u30fc\u3057\u305f\u5b9a\u683c\u306b\u3088\u308a\u3001\u3057\u304d\u3044\u5024\u306f\u4e21\u65b9\u306e\u30d6\u30ec\u30fc\u30ab\u30fc\u306e\u5408\u8a08\u306b\u9069\u7528\u3055\u308c\u308b\u3088\u3046\u306b\u306a\u3063\u305f\u305f\u3081\u3001\u5b9f\u969b\u306e\u904e\u8ca0\u8377\u3092\u898b\u9003\u3059\u304a\u305d\u308c\u304c\u3042\u308a\u307e\u3059\u3002",
+    "monitoringRating.threshold_warning_global":
+      "\u3053\u306e\u56de\u8def\u304c\u4f7f\u7528\u3059\u308b\u30b0\u30ed\u30fc\u30d0\u30eb\u3057\u304d\u3044\u5024\u306f 100% \u3092\u8d85\u3048\u3066\u3044\u307e\u3059\u3002\u30b3\u30d4\u30fc\u3057\u305f\u5b9a\u683c\u306b\u3088\u308a\u3001\u3057\u304d\u3044\u5024\u306f\u4e21\u65b9\u306e\u30d6\u30ec\u30fc\u30ab\u30fc\u306e\u5408\u8a08\u306b\u9069\u7528\u3055\u308c\u308b\u3088\u3046\u306b\u306a\u3063\u305f\u305f\u3081\u3001\u5b9f\u969b\u306e\u904e\u8ca0\u8377\u3092\u898b\u9003\u3059\u304a\u305d\u308c\u304c\u3042\u308a\u307e\u3059\u3002{tab}\u30bf\u30d6\u306e{settings}\u3067\u5909\u66f4\u3057\u3066\u304f\u3060\u3055\u3044\u3002",
+    "monitoringRating.use_global_thresholds": "\u30b0\u30ed\u30fc\u30d0\u30eb\u3057\u304d\u3044\u5024\u3092\u4f7f\u7528",
+    "error.package_ratings_failed":
+      "SPAN \u30a2\u30d7\u30ea\u304b\u3089\u30b3\u30d4\u30fc\u3057\u305f\u5b9a\u683c\u306e\u66f4\u65b0\u306b\u5931\u6557\u3057\u307e\u3057\u305f",
+    "sidepanel.judged_against": "\u5224\u5b9a\u57fa\u6e96: {rating}",
     "sidepanel.shedding_priority": "\u30b7\u30a7\u30c7\u30a3\u30f3\u30b0\u512a\u5148\u5ea6",
     "sidepanel.priority_label": "\u512a\u5148\u5ea6",
     "sidepanel.monitoring": "\u30e2\u30cb\u30bf\u30ea\u30f3\u30b0",
@@ -1050,11 +1170,17 @@ const translations: Record<string, Record<string, string>> = {
     "monitoring.col.spike": "Pico",
     "monitoring.col.window": "Janela",
     "monitoring.col.cooldown": "Resfriamento",
+    "monitoring.rating": "Corrente nominal",
     "monitoring.all_none": "Todos / Nenhum",
     "monitoring.reset": "Redefinir",
+    "monitoring.limit_invalid": "Digite um n\u00famero inteiro de {min} a {max}.",
+    "monitoring.enable_invalid": "O monitoramento n\u00e3o foi ativado: corrija os campos marcados.",
+    "monitoring.point_field": "{field} de {name}",
+    "monitoring.reset_point": "Redefinir {name}",
     "notification.heading": "Configura\u00e7\u00f5es de Notifica\u00e7\u00e3o",
     "notification.targets": "Destinos de Notifica\u00e7\u00e3o",
     "notification.none_selected": "Nenhum selecionado",
+    "notification.targets_button": "Destinos de Notifica\u00e7\u00e3o: {targets}",
     "notification.no_targets": "Nenhum destino de notifica\u00e7\u00e3o encontrado",
     "notification.all_targets": "Todos",
     "notification.event_bus_target": "Barramento de Eventos (barramento de eventos do HA)",
@@ -1097,6 +1223,12 @@ const translations: Record<string, Record<string, string>> = {
     "error.areas_failed": "As atribui\u00e7\u00f5es de \u00e1reas podem estar fora de sincroniza\u00e7\u00e3o",
     "error.retry": "Tentar novamente",
     "card.connecting": "Conectando ao SPAN Panel...",
+
+    // Monitoring rating
+    "monitoringRating.none": "sem corrente nominal",
+    "monitoringRating.copied": "{package} do seu app SPAN (o painel publica {panel} A)",
+    "monitoringRating.copied_unnamed": "Copiado do seu app SPAN",
+    "monitoringRating.judged_copied": "Avaliado com base em {rating} A: {copied}",
     "settings.heading": "Configura\u00e7\u00f5es",
     "settings.description":
       "As configura\u00e7\u00f5es gerais da integra\u00e7\u00e3o (nomes de entidades, prefixo do dispositivo, n\u00fameros de circuito) s\u00e3o gerenciadas atrav\u00e9s do fluxo de op\u00e7\u00f5es da integra\u00e7\u00e3o.",
@@ -1213,6 +1345,23 @@ const translations: Record<string, Record<string, string>> = {
     "sidepanel.relay": "Rel\u00e9",
     "sidepanel.breaker": "Disjuntor",
     "sidepanel.capacity": "capacidade de {amps} A",
+    "monitoringRating.title": "Correntes nominais dos disjuntores no app SPAN",
+    "monitoringRating.panel_rating": "O painel publica {panel} A",
+    "monitoringRating.other_breaker": "Outro disjuntor (A)",
+    "monitoringRating.other_breaker_label": "Outro disjuntor no espa\u00e7o de {circuit}",
+    "monitoringRating.reset": "Remover as correntes nominais copiadas",
+    "monitoringRating.invalid_other": "Digite a corrente nominal do outro disjuntor como um n\u00famero inteiro de amperes, 1 ou mais.",
+    "monitoringRating.guidance":
+      "Digite o outro disjuntor deste espa\u00e7o exatamente como o app SPAN mostra este circuito (por exemplo, 20-20A). O painel publica apenas o primeiro; o monitoramento ent\u00e3o avalia este espa\u00e7o pelos dois disjuntores juntos.",
+    "monitoringRating.multi_space":
+      "Este circuito ocupa v\u00e1rios espa\u00e7os. O painel informa a m\u00e9dia das suas fases, ent\u00e3o uma fase pode passar da capacidade do seu disjuntor enquanto a leitura fica abaixo da corrente nominal, e nenhuma corrente nominal copiada do app SPAN consegue mostrar isso. Desativar o monitoramento deste circuito \u00e9 a escolha mais segura.",
+    "monitoringRating.threshold_warning":
+      "Os limites personalizados deste circuito passam de 100%. Com as correntes nominais copiadas, eles agora se aplicam aos dois disjuntores juntos, o que pode deixar passar uma sobrecarga real.",
+    "monitoringRating.threshold_warning_global":
+      "Os limites globais que este circuito usa passam de 100%. Com as correntes nominais copiadas, eles agora se aplicam aos dois disjuntores juntos, o que pode deixar passar uma sobrecarga real; altere-os em {settings}, na aba {tab}.",
+    "monitoringRating.use_global_thresholds": "Usar os limites globais",
+    "error.package_ratings_failed": "N\u00e3o foi poss\u00edvel atualizar as correntes nominais copiadas do app SPAN",
+    "sidepanel.judged_against": "Avaliado com base em: {rating}",
     "sidepanel.shedding_priority": "Prioridade de Desligamento",
     "sidepanel.priority_label": "Prioridade",
     "sidepanel.monitoring": "Monitoramento",

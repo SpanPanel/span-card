@@ -156,6 +156,16 @@ export class DashboardTab {
     return topology;
   }
 
+  /** Drop the monitoring status cached for this tab, so the next read asks the integration again. */
+  invalidateMonitoring(): void {
+    this._ctrl.monitoringCache.invalidate();
+  }
+
+  /** Redraw the circuit side panel left open in this tab after a rating change on `entryId` naming `circuitIds` (null for any). */
+  async refreshSidePanel(entryId: string, topology: PanelTopology, circuitIds: ReadonlySet<string> | null = null): Promise<void> {
+    if (this._container) await this._ctrl.refreshCircuitSidePanel(this._container, entryId, topology, circuitIds);
+  }
+
   stop(): void {
     this._ctrl.stopIntervals();
     if (this._foldUnobserve) {

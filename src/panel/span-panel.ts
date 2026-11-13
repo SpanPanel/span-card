@@ -17,6 +17,7 @@ import { DashboardController } from "../core/dashboard-controller.js";
 import { buildTabBarHTML } from "../core/tab-bar-renderer.js";
 import { subscribeAreaUpdates } from "../core/area-resolver.js";
 import { subscribeEntryReloads } from "../core/entry-reload.js";
+import { mergeCircuitIds, subscribePackageRatingChanges } from "../core/rating-events.js";
 import { sameTopologyStructure } from "../core/topology-structure.js";
 import { discoverTopology } from "../card/card-discovery.js";
 import { RetryManager } from "../core/retry-manager.js";
@@ -108,6 +109,12 @@ export class SpanPanelElement extends LitElement {
   /** The topology the area tab last rendered; the area subscription reads it through a getter. */
   private _areaTopology: PanelTopology | null = null;
   private _reloadSub: Promise<() => Promise<void>> | null = null;
+  /** One package ratings subscription per panel entry, each held as the promise it was handed. */
+  private readonly _ratingSubs = new Map<string, Promise<() => void>>();
+  /** Per panel, the rating refresh: a burst of events is one fetch in flight and at most one trailing, which sees the last change. */
+  private readonly _ratingRefreshes = new Map<string, () => Promise<void>>();
+  /** Per panel, the circuits the rating events since its last refresh named; null when one named none. */
+  private readonly _ratingChangedIds = new Map<string, ReadonlySet<string> | null>();
   /**
    * The topology the current view rendered, by panel device id. An entry reload
    * re-renders the view only when its panel's topology changed structure since.
@@ -270,6 +277,7 @@ export class SpanPanelElement extends LitElement {
 
     this._subscribeDeviceRegistry();
     this._subscribeEntryReloads();
+    this._syncRatingSubscriptions();
     // `disconnectedCallback` disposed the error store, and nothing else re-watches:
     // `_updatePanelStatusWatch` runs only when the selected panel changes.
     if (this._discovered) {
@@ -293,6 +301,7 @@ export class SpanPanelElement extends LitElement {
     }
     this._unsubscribeDeviceRegistry();
     this._unsubscribeEntryReloads();
+    this._unsubscribeRatingChanges();
     this._watchedPanelId = null;
     if (this._persistFavoritesViewStateTimer) {
       clearTimeout(this._persistFavoritesViewStateTimer);
@@ -327,6 +336,8 @@ export class SpanPanelElement extends LitElement {
         this._subscribeEntryReloads();
       }
     }
+
+    if (changedProps.has("_panels") || changedProps.has("hass")) this._syncRatingSubscriptions();
 
     // Render tab content when discovery completes or active tab/panel/metric changes
     if (
@@ -640,6 +651,92 @@ export class SpanPanelElement extends LitElement {
   }
 
   /**
+   * Keep one package ratings subscription per panel entry, adding those a refreshed
+   * panel list brought in and dropping those it lost. An administrator-only event:
+   * a non-admin's views read the entity fallback, which carries no rating.
+   */
+  private _syncRatingSubscriptions(): void {
+    const hass = this.hass;
+    // A panel-list refresh that lands after a detach must not subscribe: nothing would remove it.
+    if (!this.isConnected || !hass?.connection || hass.user?.is_admin === false) return;
+    const wanted = new Set<string>();
+    for (const panel of this._panels) {
+      if (panel.id !== FAVORITES_PANEL_ID && panel.config_entry_id) wanted.add(panel.config_entry_id);
+    }
+    for (const [entryId, sub] of this._ratingSubs) {
+      if (wanted.has(entryId)) continue;
+      this._ratingSubs.delete(entryId);
+      void sub.then(unsubscribe => unsubscribe());
+    }
+    for (const entryId of wanted) {
+      if (this._ratingSubs.has(entryId)) continue;
+      this._ratingSubs.set(
+        entryId,
+        subscribePackageRatingChanges(hass, entryId, circuitIds => this._onRatingChanged(entryId, circuitIds)).catch((err: unknown): (() => void) => {
+          console.warn("SPAN Panel: monitoring rating subscription failed", err);
+          return () => {};
+        })
+      );
+    }
+  }
+
+  private _unsubscribeRatingChanges(): void {
+    const subs = [...this._ratingSubs.values()];
+    this._ratingSubs.clear();
+    for (const sub of subs) void sub.then(unsubscribe => unsubscribe());
+  }
+
+  /**
+   * A breaker rating changed on `entryId`. Whatever view shows that panel redraws
+   * from the integration's answer: the monitoring caches are dropped, the topology
+   * is re-fetched through the same check an entry reload uses (a rating is part of
+   * the structure it compares, so a changed one re-renders the view), and an open
+   * circuit panel has its rating-bearing parts rebuilt in place where the events
+   * since the last refresh name a circuit it draws. A re-render waits for an open
+   * side panel to close, as any deferred render does.
+   */
+  private _onRatingChanged(entryId: string, circuitIds: ReadonlySet<string> | null): void {
+    const panel = this._panels.find(p => p.id !== FAVORITES_PANEL_ID && p.config_entry_id === entryId);
+    if (!panel) return;
+    this._dashboardTab.invalidateMonitoring();
+    this._listDashCtrl.monitoringCache.invalidate();
+    this._listDashCtrl.monitoringMultiCache.invalidate();
+    const shown = this._isFavoritesView ? this._renderedTopologies.has(panel.id) : panel.id === this._selectedPanelId;
+    // The Adopted tab renders rows of its own, and an open editor keeps what the user typed.
+    if (!shown || (!this._isFavoritesView && this._activeTab === "adopted")) return;
+    const pending = this._ratingChangedIds.has(panel.id) ? (this._ratingChangedIds.get(panel.id) ?? null) : new Set<string>();
+    this._ratingChangedIds.set(panel.id, mergeCircuitIds(pending, circuitIds));
+    let refresh = this._ratingRefreshes.get(panel.id);
+    if (!refresh) {
+      const panelId = panel.id;
+      // A run answers the events before it started; one arriving during it is the follow-up's.
+      refresh = coalesceRuns(() => {
+        const named = this._takeRatingChangedIds(panelId);
+        return this._renderIfRestructured(panelId, topology => this._refreshOpenSidePanel(entryId, topology, named));
+      });
+      this._ratingRefreshes.set(panelId, refresh);
+    }
+    void refresh();
+  }
+
+  /** The circuits the rating events for `panelId` named since its last refresh, which this refresh now answers. */
+  private _takeRatingChangedIds(panelId: string): ReadonlySet<string> | null {
+    const named = this._ratingChangedIds.has(panelId) ? (this._ratingChangedIds.get(panelId) ?? null) : null;
+    this._ratingChangedIds.delete(panelId);
+    return named;
+  }
+
+  private async _refreshOpenSidePanel(entryId: string, topology: PanelTopology, circuitIds: ReadonlySet<string> | null): Promise<void> {
+    const container = this._root.getElementById("tab-content");
+    if (!container) return;
+    if (this._activeTab === "dashboard" && !this._isFavoritesView) {
+      await this._dashboardTab.refreshSidePanel(entryId, topology, circuitIds);
+    } else {
+      await this._listDashCtrl.refreshCircuitSidePanel(container, entryId, topology, circuitIds);
+    }
+  }
+
+  /**
    * A panel's entry finished loading, so its controls may have changed. A panel
    * the view shows -- the selected one, or any in the favorites view -- is
    * checked for a change of structure; any other panel may have been added or
@@ -677,7 +774,7 @@ export class SpanPanelElement extends LitElement {
    * structure. A view that rendered no topology for the panel re-renders; a
    * failed fetch keeps the view and is only logged.
    */
-  private async _renderIfRestructured(panelId: string): Promise<void> {
+  private async _renderIfRestructured(panelId: string, onTopology?: (topology: PanelTopology) => Promise<void>): Promise<void> {
     const rendered = this._renderedTopologies.get(panelId);
     if (!rendered || !this.hass) {
       this._requestTabRender();
@@ -692,6 +789,10 @@ export class SpanPanelElement extends LitElement {
     }
     // The view re-rendered meanwhile, from a topology at least as new.
     if (this._renderedTopologies.get(panelId) !== rendered) return;
+    if (topology && onTopology) {
+      await onTopology(topology);
+      if (this._renderedTopologies.get(panelId) !== rendered) return;
+    }
     if (topology && sameTopologyStructure(topology, rendered)) return;
     this._requestTabRender();
   }

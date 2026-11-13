@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
 import "../src/core/side-panel.js";
 import "../src/core/span-switch.js";
-import type { HomeAssistant } from "../src/types.js";
+import type { Circuit, HomeAssistant } from "../src/types.js";
 
 const SWITCH = "switch.kitchen_breaker";
 const SELECT = "select.kitchen_circuit_priority";
@@ -23,7 +23,10 @@ afterEach(() => {
   for (const el of mounted.splice(0)) el.remove();
 });
 
-function openFor(states: Record<string, string>, priority?: string, callService?: CallService): SidePanel {
+/** The kitchen circuit alone, as the panel publishes it. */
+const KITCHEN: Circuit = { name: "Kitchen", tabs: [2], voltage: 240, breaker_rating_a: 20, entities: { switch: SWITCH, select: SELECT, power: POWER } };
+
+function openFor(states: Record<string, string>, priority?: string, callService?: CallService, slot: readonly Circuit[] = [KITCHEN]): SidePanel {
   const panel = document.createElement("span-side-panel") as SidePanel;
   document.body.appendChild(panel);
   mounted.push(panel);
@@ -31,7 +34,7 @@ function openFor(states: Record<string, string>, priority?: string, callService?
   panel.open({
     uuid: "kitchen",
     name: "Kitchen",
-    members: [{ uuid: "kitchen", circuit: { name: "Kitchen", tabs: [2], entities: { switch: SWITCH, select: SELECT, power: POWER } } }],
+    members: slot.map((circuit, i) => ({ uuid: i === 0 ? "kitchen" : `kitchen-${i}`, circuit })),
     capacityA: null,
     entities: { switch: SWITCH, select: SELECT, power: POWER },
     is_user_controllable: true,
@@ -102,5 +105,24 @@ describe("the side panel's relay switch", () => {
     const panel = openFor({ [SWITCH]: "off", [SELECT]: "never" }, undefined, callService);
     relay(panel).click();
     expect(callService).toHaveBeenCalledWith("switch", "turn_on", { entity_id: SWITCH });
+  });
+});
+
+describe("the side panel's subtitle", () => {
+  it("shows the panel's ratings, unmarked, whatever monitoring judges against", () => {
+    const userSet = { ...KITCHEN, monitoring_rating_a: 50, monitoring_rating_user_set: true };
+    const pair = [
+      { ...KITCHEN, breaker_rating_a: 15, monitoring_rating_a: 15, monitoring_rating_user_set: false },
+      { ...KITCHEN, name: "Kitchen 2", breaker_rating_a: 10, monitoring_rating_a: 25, monitoring_rating_user_set: true },
+    ];
+    const cases: [readonly Circuit[], string][] = [
+      [[KITCHEN], "20A"],
+      [[userSet], "20A"],
+      [pair, "15·10 A"],
+    ];
+    for (const [slot, text] of cases) {
+      const panel = openFor({ [SWITCH]: "on", [SELECT]: "never" }, undefined, undefined, slot);
+      expect(panel.shadowRoot!.querySelector(".subtitle")!.textContent).toBe(`${text} \u00b7 240V \u00b7 Tabs [2]`);
+    }
   });
 });

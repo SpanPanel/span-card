@@ -9,8 +9,9 @@ export interface MeterSlot {
   /** The circuit the slot reads and switches through: the group's key when that is a member, else its first. */
   readonly uuid: string;
   /**
-   * That circuit, carrying the group's rating as the integration reports it in `shared_meter_groups`, which is what
-   * the group is judged against, and every space its members occupy, which is where the group is drawn.
+   * That circuit, carrying the group's panel and monitoring ratings as the integration reports them in
+   * `shared_meter_groups`, the monitoring one being what the group is judged against, and every space its members
+   * occupy, which is where the group is drawn.
    */
   readonly circuit: Circuit;
   /** Every circuit drawn in the slot, in topology order. */
@@ -36,22 +37,25 @@ export function slotsByMember(slots: readonly MeterSlot[]): Map<string, MeterSlo
 }
 
 /**
- * A circuit as current monitoring judges it: itself, carrying the rating of the slot it is drawn in, which for a
- * member of a shared meter is the group's capacity, since every member reads the one meter. Its name, spaces and
+ * A circuit as current monitoring judges it: itself, carrying the ratings of the slot it is drawn in, which for a
+ * member of a shared meter are the group's capacities, since every member reads the one meter. Its name, spaces and
  * entities stay its own. A circuit with no slot is judged as it is.
  */
 export function judgedAs(circuit: Circuit, slot: MeterSlot | undefined): Circuit {
-  return slot ? { ...circuit, breaker_rating_a: slot.circuit.breaker_rating_a } : circuit;
+  if (!slot) return circuit;
+  const { breaker_rating_a, monitoring_rating_a, monitoring_rating_user_set } = slot.circuit;
+  return { ...circuit, breaker_rating_a, monitoring_rating_a, monitoring_rating_user_set };
 }
 
 /**
  * One slot per meter, in topology order: each group of circuits that share a
  * meter once, at its first member's place, and every other circuit by itself.
- * A circuit with no group is its own slot, unchanged. A group's rating is the
+ * A circuit with no group is its own slot, unchanged. A group's ratings are the
  * integration's, from `shared_meter_groups`; only a group with no record there,
- * as from an integration that predates it, falls back to the members' sum. A
- * member drawn without the others, as one favorited alone is, is still rated by
- * its group's record, since it still reads the one meter.
+ * as from an integration that predates it, falls back to its members' panel
+ * ratings summed, and has no monitoring rating. A member drawn without the
+ * others, as one favorited alone is, is still rated by its group's record, since
+ * it still reads the one meter.
  */
 export function meterSlots(topology: Pick<PanelTopology, "circuits" | "shared_meter_groups">): MeterSlot[] {
   const circuits = topology.circuits;
@@ -73,7 +77,15 @@ export function meterSlots(topology: Pick<PanelTopology, "circuits" | "shared_me
       const rated = topology.shared_meter_groups?.[key];
       slots.push({
         uuid: throughId,
-        circuit: { ...through, tabs: occupiedSpaces(members), breaker_rating_a: rated ? rated.breaker_rating_a : combinedRating(members) },
+        circuit: {
+          ...through,
+          tabs: occupiedSpaces(members),
+          breaker_rating_a: rated ? rated.breaker_rating_a : combinedRating(members),
+          // The group's, never the key member's own: absent where the record carries none (an integration that
+          // predates monitoring ratings) or there is no record, so the group is then judged by its capacity.
+          monitoring_rating_a: rated?.monitoring_rating_a,
+          monitoring_rating_user_set: rated?.monitoring_rating_user_set === true,
+        },
         members,
         memberIds: group.map(([id]) => id),
       });
@@ -98,21 +110,13 @@ function slotAmpsText(members: readonly Circuit[]): string {
 
 /**
  * A slot's breaker label as the grid and list draw it: "20A" for a circuit alone, "15·10 A" for circuits that
- * share a meter. It is each breaker's own rating, never the group's capacity; empty while any rating is unknown.
+ * share a meter. It is each breaker's own rating as the panel publishes it, never the group's capacity nor a
+ * monitoring rating; empty while any rating is unknown.
  */
 export function slotRatingLabel(members: readonly Circuit[]): string {
   const text = slotAmpsText(members);
   if (!text) return "";
   return members.length === 1 ? `${text}A` : `${text} A`;
-}
-
-/** The same label for the side panel's subtitle: a circuit alone reads its rating as published. */
-export function slotRatingText(members: readonly Circuit[]): string {
-  if (members.length === 1) {
-    const amps = members[0]!.breaker_rating_a;
-    return amps ? `${amps}A` : "";
-  }
-  return slotRatingLabel(members);
 }
 
 /**
@@ -126,4 +130,13 @@ function combinedRating(members: readonly Circuit[]): number | null {
     total += member.breaker_rating_a;
   }
   return total;
+}
+
+/** The same label for the side panel's subtitle: a circuit alone reads its rating as published. */
+export function slotRatingText(members: readonly Circuit[]): string {
+  if (members.length === 1) {
+    const amps = members[0]!.breaker_rating_a;
+    return amps ? `${amps}A` : "";
+  }
+  return slotRatingLabel(members);
 }

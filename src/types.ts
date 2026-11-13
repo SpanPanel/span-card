@@ -8,6 +8,9 @@ export interface HassEntity {
   last_updated: string;
 }
 
+/** Home Assistant's frontend translator: a key and its placeholders to text, "" where it holds no such key. */
+export type LocalizeFunc = (key: string, values?: Record<string, string | number>) => string;
+
 export interface HomeAssistant {
   states: Record<string, HassEntity>;
   services: Record<string, Record<string, unknown>>;
@@ -16,8 +19,12 @@ export interface HomeAssistant {
   callService: (domain: string, service: string, data?: Record<string, unknown>, target?: Record<string, unknown>) => Promise<void>;
   callWS: <T = unknown>(msg: Record<string, unknown>) => Promise<T>;
   formatEntityState?: (entity: HassEntity) => string;
+  /** The frontend's translator for the strings it has loaded; "" for a key it does not hold. */
+  localize?: LocalizeFunc;
+  /** Load a backend translation category, as the frontend does, resolving to a translator that holds it. */
+  loadBackendTranslation?: (category: string, integration?: string | string[], configFlow?: boolean) => Promise<LocalizeFunc>;
   connection?: {
-    subscribeEvents: (callback: () => void, event: string) => Promise<() => void>;
+    subscribeEvents: <T = unknown>(callback: (event: T) => void, event: string) => Promise<() => void>;
     /** home-assistant-js-websocket's: replays the subscription on reconnect, and the unsubscribe stays valid. */
     subscribeMessage: <T>(callback: (message: T) => void, subscribeMessage: Record<string, unknown>) => Promise<() => Promise<void>>;
   };
@@ -37,7 +44,20 @@ export interface Circuit {
   name: string;
   tabs: number[];
   entities: CircuitEntities;
+  /** The panel's own breaker rating; null when it publishes none. */
   breaker_rating_a?: number | null;
+  /**
+   * What monitoring judges the circuit against: both breakers of the package copied from the SPAN app where it
+   * applies, else the panel's rating; null where nothing is judged.
+   */
+  monitoring_rating_a?: number | null;
+  /** True when `monitoring_rating_a` comes from the package the user copied. */
+  monitoring_rating_user_set?: boolean;
+  /**
+   * The package's breaker ratings the user copied from the SPAN app, in its order, the first the panel's; kept while
+   * it waits on a value not yet arrived. Null where there is none; absent from an integration that predates them.
+   */
+  package_ratings_a?: number[] | null;
   device_type?: string;
   relay_state?: string;
   relay_state_target?: string;
@@ -134,6 +154,12 @@ export interface PanelTopology {
   /** The config entry that owns the panel. */
   config_entry_id?: string;
   /**
+   * Whether the integration takes package ratings on this panel at all: false where the panel publishes each circuit
+   * of a multi-load breaker with its own rating. Absent from an integration that predates package ratings, which has
+   * no service to take them, so the editor is offered only where this is true.
+   */
+  monitoring_rating_offered?: boolean;
+  /**
    * Each group of circuits that share a meter, by the key its members carry in `shared_meter_group`. A group with no
    * record here, as from an integration that predates the map, falls back to its members' ratings added up.
    */
@@ -141,12 +167,15 @@ export interface PanelTopology {
 }
 
 /**
- * One shared meter as the integration rates it. `breaker_rating_a` is the group's capacity, what its heaviest space can
- * carry, which the integration computes and current monitoring judges against; null where unknown.
+ * One shared meter as the integration rates and judges it. The ratings are capacities the integration computes, what
+ * the group's heaviest space can carry, so the card reads them and adds nothing up itself; null where unknown. The
+ * monitoring fields are absent from an integration that predates monitoring ratings.
  */
 export interface SharedMeterGroup {
   members: string[];
   breaker_rating_a: number | null;
+  monitoring_rating_a?: number | null;
+  monitoring_rating_user_set?: boolean;
 }
 
 export interface PanelDevice {
@@ -325,6 +354,14 @@ export interface MonitoringPointInfo {
    * circuit's own id. Absent from an integration that predates it.
    */
   point_id?: string;
+  /** The panel's own breaker rating (for a shared meter, the group's capacity over those ratings); null when it publishes none. */
+  breaker_rating_a?: number | null;
+  /** What monitoring judges this point against; null when nothing is judged. */
+  monitoring_rating_a?: number | null;
+  /** True when `monitoring_rating_a` comes from a package the user copied; always false for the mains. */
+  monitoring_rating_user_set?: boolean;
+  /** The package the user copied from the SPAN app for this circuit; null for none, a shared meter and the mains. */
+  package_ratings_a?: number[] | null;
   monitoring_enabled?: boolean;
   /** Null while the circuit has no current reading or no breaker rating. */
   utilization_pct?: number | null;
@@ -363,6 +400,8 @@ export interface CallServiceResponse {
 export interface MonitoringStatus {
   circuits?: Record<string, MonitoringPointInfo>;
   mains?: Record<string, MonitoringPointInfo>;
+  /** The panel's global settings, from one panel's answer; absent where statuses of several panels are merged. */
+  global_settings?: MonitoringGlobalSettings;
 }
 
 // -- Graph horizon preset --

@@ -1,7 +1,7 @@
 import { t } from "./i18n.js";
 import type { ChartMetricDef, GraphHorizonPreset, SheddingPriorityDef } from "./types.js";
 
-export const CARD_VERSION = "0.10.0-beta.2";
+export const CARD_VERSION = "0.11.0-beta.1";
 
 // -- Defaults --
 
@@ -53,7 +53,6 @@ export const MIN_HISTORY_DURATION_MS = 60_000;
 // -- UI debounce / timing --
 
 export const INPUT_DEBOUNCE_MS = 500;
-export const THRESHOLD_DEBOUNCE_MS = 800;
 
 // -- Chart metric definitions --
 

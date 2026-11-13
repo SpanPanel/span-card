@@ -1,16 +1,22 @@
-import { INTEGRATION_DOMAIN, INPUT_DEBOUNCE_MS, THRESHOLD_DEBOUNCE_MS } from "../constants.js";
+import { INTEGRATION_DOMAIN, INPUT_DEBOUNCE_MS } from "../constants.js";
 import { escapeHtml } from "../helpers/sanitize.js";
-import { errorText } from "../helpers/error-text.js";
-import { t } from "../i18n.js";
+import { errorText, serviceErrorMessage } from "../helpers/error-text.js";
+import { t, tf } from "../i18n.js";
+import { monitoringRatingView, ratingLabelHTML, toggleRatingNote } from "../helpers/monitoring-rating.js";
+import { focusedIn } from "../helpers/focus.js";
+import { bindLimitField, isLimitField, LIMIT_RANGES, type LimitField, type LimitFieldHandle } from "../helpers/number-field.js";
 import type { ErrorStore } from "../core/error-store.js";
 import type { HomeAssistant, MonitoringPointInfo, MonitoringStatusResponse, CallServiceResponse } from "../types.js";
 
 const FIELD_STYLE = `
   display:flex;align-items:center;gap:8px;margin-bottom:8px;
 `;
+/** The colour a field's border is drawn in, and goes back to once it no longer needs correcting. */
+const FIELD_BORDER = "var(--divider-color)";
+
 const INPUT_STYLE = `
   background:var(--secondary-background-color,#333);
-  border:1px solid var(--divider-color);
+  border:1px solid ${FIELD_BORDER};
   color:var(--primary-text-color);
   border-radius:4px;padding:6px 10px;width:80px;font-size:0.85em;
 `;
@@ -29,11 +35,114 @@ const TEXT_INPUT_STYLE = `
 `;
 const CELL_INPUT_STYLE = `
   background:var(--secondary-background-color,#333);
-  border:1px solid var(--divider-color);
+  border:1px solid ${FIELD_BORDER};
   color:var(--primary-text-color);
   border-radius:3px;padding:3px 6px;width:50px;font-size:0.8em;
   text-align:center;
 `;
+const FEEDBACK_STYLE = `
+  font-size:0.75em;color:var(--error-color,#f44336);
+  max-width:10em;white-space:normal;line-height:1.3;
+`;
+const ERROR_BORDER = "var(--error-color,#f44336)";
+
+let feedbackSerial = 0;
+
+/** An id for a field's feedback, unique in the shadow root every panel's tab is drawn in. */
+function nextFeedbackId(): string {
+  feedbackSerial += 1;
+  return `span-monitoring-feedback-${feedbackSerial}`;
+}
+
+/** The global settings' threshold and duration fields, by the field each sets. */
+const GLOBAL_FIELDS: ReadonlyArray<readonly [LimitField, string]> = [
+  ["continuous_threshold_pct", "#g-continuous"],
+  ["spike_threshold_pct", "#g-spike"],
+  ["window_duration_m", "#g-window"],
+  ["cooldown_duration_m", "#g-cooldown"],
+];
+
+/**
+ * Give a threshold or duration field a place after it that says what it needs
+ * correcting, as its description and a polite live region, with its border
+ * marked while it does; answers what reports into it.
+ */
+function fieldFeedback(input: HTMLInputElement): (message: string | null) => void {
+  const feedback = document.createElement("div");
+  feedback.id = nextFeedbackId();
+  feedback.setAttribute("aria-live", "polite");
+  feedback.style.cssText = FEEDBACK_STYLE;
+  input.setAttribute("aria-describedby", feedback.id);
+  input.parentElement?.appendChild(feedback);
+  // The colour goes back to the one the field is drawn in, never to what the border reads: Chromium reads a
+  // longhand of a shorthand holding var() as "", and setting that would drop the colour.
+  return message => {
+    feedback.textContent = message ?? "";
+    input.style.borderColor = message ? ERROR_BORDER : FIELD_BORDER;
+  };
+}
+
+/** The row controls the redraw keeps focus on, by class: each is named by the class and its point. */
+const ROW_CONTROLS = ["reset-btn", "circuit-toggle", "mains-toggle"] as const;
+
+/** The controls a redraw can put focus back on. */
+const KEPT_CONTROLS = ["[id]", ".threshold-input", ...ROW_CONTROLS.map(name => `.${name}`)].join(", ");
+
+/**
+ * A control's name across a redraw: its id; the point and field a threshold cell
+ * is for; or a row control's class and its point.
+ */
+function controlKey(el: HTMLElement): string | null {
+  if (el.id) return `#${el.id}`;
+  const { entity, field } = el.dataset;
+  if (entity === undefined) return null;
+  if (el.classList.contains("threshold-input")) return field !== undefined ? fieldKey(entity, field) : null;
+  const control = ROW_CONTROLS.find(name => el.classList.contains(name));
+  return control ? `${control}\u0000${entity}` : null;
+}
+
+function fieldKey(entity: string, field: string): string {
+  return `${entity}\u0000${field}`;
+}
+
+/** The control focused in the tab, and what was typed in it and not yet stored. */
+interface KeptFocus {
+  /** The control, then where focus goes in its row should the redraw not draw it again. */
+  readonly keys: readonly string[];
+  readonly draft: string | null;
+}
+
+function keptFocus(container: HTMLElement): KeptFocus | null {
+  const focused = focusedIn(container);
+  const key = focused ? controlKey(focused) : null;
+  if (!focused || key === null) return null;
+  // A Reset goes with the override it cleared: focus then goes to the row's first field.
+  const entity = focused.dataset.entity;
+  const keys = focused.classList.contains("reset-btn") && entity !== undefined ? [key, fieldKey(entity, "continuous_threshold_pct")] : [key];
+  const draft = focused instanceof HTMLInputElement && focused.value !== focused.defaultValue ? focused.value : null;
+  return { keys, draft };
+}
+
+/**
+ * Put focus back on the control that had it before a redraw, with what the user
+ * had typed there and not yet stored: that typing is still theirs to commit, so
+ * the redrawn field takes it as typing. Where the redraw no longer draws that
+ * control, focus goes to the next place `kept` names.
+ */
+function restoreFocus(container: HTMLElement, kept: KeptFocus | null): void {
+  if (!kept) return;
+  const drawn = [...container.querySelectorAll<HTMLElement>(KEPT_CONTROLS)];
+  for (const key of kept.keys) {
+    const control = drawn.find(el => controlKey(el) === key);
+    if (!control) continue;
+    if (kept.draft !== null && control instanceof HTMLInputElement && control.value !== kept.draft) {
+      control.value = kept.draft;
+      control.dispatchEvent(new Event("input"));
+    }
+    control.focus();
+    return;
+  }
+}
 
 /**
  * Lightweight runtime-coerce for the ``get_monitoring_status`` response.
@@ -58,46 +167,180 @@ function coerceMonitoringStatusResponse(resp: unknown): MonitoringStatusResponse
   return out;
 }
 
-function thresholdCell(entityId: string, field: string, value: number | undefined, unit: string, type: string): string {
+/** The label each threshold and duration field goes by, its unit included. */
+const FIELD_LABELS: Readonly<Record<LimitField, string>> = {
+  continuous_threshold_pct: "monitoring.continuous",
+  spike_threshold_pct: "monitoring.spike",
+  window_duration_m: "monitoring.window",
+  cooldown_duration_m: "monitoring.cooldown",
+};
+
+/**
+ * A point's threshold or duration field. The column header does not name a field
+ * for a screen reader, so the field is named by what it sets and the point's
+ * name (`name`, as written; it is escaped here).
+ */
+function thresholdCell(entityId: string, name: string, field: LimitField, value: number | undefined, unit: string, type: string): string {
+  const { min, max } = LIMIT_RANGES[field];
+  const label = escapeHtml(tf("monitoring.point_field", { field: t(FIELD_LABELS[field]), name }));
   return `<td style="padding:6px 4px;">
     <input type="number" class="threshold-input" data-entity="${entityId}" data-field="${field}" data-type="${type}"
-           value="${value ?? ""}" min="1" max="${field === "window_duration_m" || field === "cooldown_duration_m" ? 180 : 200}"
+           value="${value ?? ""}" min="${min}" max="${max}" step="1" aria-label="${label}"
            style="${CELL_INPUT_STYLE}"><span style="font-size:0.75em;color:var(--secondary-text-color);">${unit}</span>
   </td>`;
 }
 
+/**
+ * The rating a point is judged against, with the user-set mark; "no rating" for a
+ * point with none, which the monitor skips. The mains has no monitoring rating, so it is never marked.
+ */
+function ratingCell(info: MonitoringPointInfo, isMains: boolean): string {
+  const view = monitoringRatingView(info);
+  const label = ratingLabelHTML({ ...view, userSet: !isMains && view.userSet });
+  const content = label || `<span style="color:var(--secondary-text-color);">${escapeHtml(t("monitoringRating.none"))}</span>`;
+  return `<td class="rating-cell" style="padding:6px 4px;white-space:nowrap;">${content}</td>`;
+}
+
+/** The notify targets button's text: the targets chosen, the event bus by its name, or that none is. */
+function targetsText(targets: readonly string[]): string {
+  return targets.length
+    ? targets.map(target => (target === "event_bus" ? t("notification.event_bus_target") : target)).join(", ")
+    : t("notification.none_selected");
+}
+
+/** The notify targets button's accessible name: its label, then the targets it shows. */
+function targetsName(text: string): string {
+  return tf("notification.targets_button", { targets: text });
+}
+
+/** The longest a redraw waits on a press whose release never arrives. */
+const PRESS_WAIT_MS = 3000;
+
+/**
+ * Watches pointer presses in a tab's container, so a redraw can wait for one to
+ * end. Pressing a control takes focus from a field being typed in, which saves
+ * it, and the tab is read again; drawn while the press is down, the control
+ * pressed is replaced, and the click the release would make never lands.
+ */
+class PressWatch {
+  private static readonly _watches = new WeakMap<HTMLElement, PressWatch>();
+  private _pressed = false;
+  private _waiting: Array<() => void> = [];
+
+  /** The watch on `container`, started on first use. */
+  static of(container: HTMLElement): PressWatch {
+    let watch = PressWatch._watches.get(container);
+    if (!watch) {
+      watch = new PressWatch(container);
+      PressWatch._watches.set(container, watch);
+    }
+    return watch;
+  }
+
+  private constructor(container: HTMLElement) {
+    container.addEventListener("pointerdown", () => this._press(), true);
+  }
+
+  /** Resolves once no press is down, after the click its release makes has been handled. */
+  settled(): Promise<void> {
+    return this._pressed ? new Promise(resolve => this._waiting.push(resolve)) : Promise.resolve();
+  }
+
+  private _press(): void {
+    this._pressed = true;
+    const cap = setTimeout(() => release(), PRESS_WAIT_MS);
+    const release = (): void => {
+      clearTimeout(cap);
+      window.removeEventListener("pointerup", release, true);
+      window.removeEventListener("pointercancel", release, true);
+      // The click a release makes is dispatched with it: the redraw waits for it to be handled.
+      setTimeout(() => this._release(), 0);
+    };
+    window.addEventListener("pointerup", release, true);
+    window.addEventListener("pointercancel", release, true);
+  }
+
+  private _release(): void {
+    this._pressed = false;
+    for (const go of this._waiting.splice(0)) go();
+  }
+}
+
+/** A notification setting saved once the user pauses: its targets or one of its templates. */
+type PausedSetting = "notify_targets" | "notification_title_template" | "notification_message_template";
+
+/**
+ * A save that waits for the user to pause, as a run of target choices or a
+ * typed template does. Each setting has its own, so a change to one never
+ * cancels another's; a later change to the same setting replaces what waits.
+ * A flush sends what waits at once rather than dropping it.
+ */
+class PendingSave {
+  private _timer: ReturnType<typeof setTimeout> | null = null;
+  private _send: (() => Promise<void>) | null = null;
+
+  /** Send `send` once `ms` pass with no other change to this setting. */
+  schedule(send: () => Promise<void>, ms: number): void {
+    this._clear();
+    this._send = send;
+    this._timer = setTimeout(() => {
+      // A save that fails has said so where it failed.
+      this.flush().catch(() => undefined);
+    }, ms);
+  }
+
+  /** Send what waits now, if anything: resolves once it is stored, rejects where it could not be. */
+  flush(): Promise<void> {
+    const send = this._send;
+    this._clear();
+    return send ? send() : Promise.resolve();
+  }
+
+  private _clear(): void {
+    if (this._timer) clearTimeout(this._timer);
+    this._timer = null;
+    this._send = null;
+  }
+}
+
 export class MonitoringTab {
   errorStore: ErrorStore | null = null;
-  private _debounceTimer: ReturnType<typeof setTimeout> | null;
+  private readonly _pendingSaves = new Map<PausedSetting, PendingSave>();
   private _configEntryId: string | null;
   private _notifyCloseHandler: ((e: MouseEvent) => void) | null;
   private _headerHTML: string;
+  /** Moves on each stop, so what a save started before the user left the tab draws nothing after. */
+  private _epoch = 0;
+  /** Counts reads of the table, so an earlier read answering late cannot draw over a later one. */
+  private _renderSeq = 0;
 
   constructor() {
-    this._debounceTimer = null;
     this._configEntryId = null;
     this._notifyCloseHandler = null;
     this._headerHTML = "";
   }
 
   stop(): void {
+    this._epoch += 1;
     if (this._notifyCloseHandler) {
       document.removeEventListener("click", this._notifyCloseHandler as EventListener);
       this._notifyCloseHandler = null;
     }
-    if (this._debounceTimer) {
-      clearTimeout(this._debounceTimer);
-      this._debounceTimer = null;
-    }
+    // What the user changed and is waiting to be saved is sent, not dropped, as they leave.
+    this._flushPendingSaves().catch(() => undefined);
   }
 
   async render(container: HTMLElement, hass: HomeAssistant, configEntryId?: string, headerHTML: string = ""): Promise<void> {
+    // Focus, and what was typed, is kept across a redraw of the same panel's settings, never carried to another's.
+    const samePanel = configEntryId === undefined || configEntryId === this._configEntryId;
     if (configEntryId !== undefined) this._configEntryId = configEntryId;
     this._headerHTML = headerHTML;
     if (this._notifyCloseHandler) {
       document.removeEventListener("click", this._notifyCloseHandler as EventListener);
       this._notifyCloseHandler = null;
     }
+    const epoch = this._epoch;
+    const seq = ++this._renderSeq;
     let status: MonitoringStatusResponse | null;
     try {
       const serviceData: Record<string, unknown> = {};
@@ -114,6 +357,10 @@ export class MonitoringTab {
       console.warn("SPAN Panel: monitoring status fetch failed", err);
       status = null;
     }
+    if (epoch !== this._epoch || seq !== this._renderSeq) return;
+    // A press under way lands on the control pressed before that control is drawn again.
+    await PressWatch.of(container).settled();
+    if (epoch !== this._epoch || seq !== this._renderSeq) return;
 
     const globalSettings = status?.global_settings ?? {};
     const isEnabled = status?.enabled === true;
@@ -150,7 +397,8 @@ export class MonitoringTab {
 
     const circuitRows = circuitEntries
       .map(([entityId, info]) => {
-        const name = escapeHtml(info.name ?? entityId);
+        const written = info.name ?? entityId;
+        const name = escapeHtml(written);
         const enabled = info.monitoring_enabled !== false;
         const hasOverride = info.has_override === true;
         const dimStyle = enabled ? "" : "opacity:0.4;";
@@ -165,14 +413,16 @@ export class MonitoringTab {
                 <span>${name}</span>
               </label>
             </td>
-            ${thresholdCell(eid, "continuous_threshold_pct", info.continuous_threshold_pct, "%", "circuit")}
-            ${thresholdCell(eid, "spike_threshold_pct", info.spike_threshold_pct, "%", "circuit")}
-            ${thresholdCell(eid, "window_duration_m", info.window_duration_m, "m", "circuit")}
-            ${thresholdCell(eid, "cooldown_duration_m", info.cooldown_duration_m, "m", "circuit")}
+            ${ratingCell(info, false)}
+            ${thresholdCell(eid, written, "continuous_threshold_pct", info.continuous_threshold_pct, "%", "circuit")}
+            ${thresholdCell(eid, written, "spike_threshold_pct", info.spike_threshold_pct, "%", "circuit")}
+            ${thresholdCell(eid, written, "window_duration_m", info.window_duration_m, "m", "circuit")}
+            ${thresholdCell(eid, written, "cooldown_duration_m", info.cooldown_duration_m, "m", "circuit")}
             <td style="padding:6px 4px;">
               ${
                 hasOverride
                   ? `<button class="reset-btn" data-entity="${eid}" data-type="circuit"
+                       aria-label="${escapeHtml(tf("monitoring.reset_point", { name: written }))}"
                        style="background:none;border:1px solid var(--divider-color);color:var(--primary-text-color);border-radius:4px;padding:3px 6px;cursor:pointer;font-size:0.75em;">
                     ${t("monitoring.reset")}
                   </button>`
@@ -186,7 +436,8 @@ export class MonitoringTab {
 
     const mainsRows = Object.entries(mains)
       .map(([entityId, info]) => {
-        const name = escapeHtml(info.name ?? entityId);
+        const written = info.name ?? entityId;
+        const name = escapeHtml(written);
         const enabled = info.monitoring_enabled !== false;
         const hasOverride = info.has_override === true;
         const dimStyle = enabled ? "" : "opacity:0.4;";
@@ -201,14 +452,16 @@ export class MonitoringTab {
                 <span>${name}</span>
               </label>
             </td>
-            ${thresholdCell(eid, "continuous_threshold_pct", info.continuous_threshold_pct, "%", "mains")}
-            ${thresholdCell(eid, "spike_threshold_pct", info.spike_threshold_pct, "%", "mains")}
-            ${thresholdCell(eid, "window_duration_m", info.window_duration_m, "m", "mains")}
-            ${thresholdCell(eid, "cooldown_duration_m", info.cooldown_duration_m, "m", "mains")}
+            ${ratingCell(info, true)}
+            ${thresholdCell(eid, written, "continuous_threshold_pct", info.continuous_threshold_pct, "%", "mains")}
+            ${thresholdCell(eid, written, "spike_threshold_pct", info.spike_threshold_pct, "%", "mains")}
+            ${thresholdCell(eid, written, "window_duration_m", info.window_duration_m, "m", "mains")}
+            ${thresholdCell(eid, written, "cooldown_duration_m", info.cooldown_duration_m, "m", "mains")}
             <td style="padding:6px 4px;">
               ${
                 hasOverride
                   ? `<button class="reset-btn" data-entity="${eid}" data-type="mains"
+                       aria-label="${escapeHtml(tf("monitoring.reset_point", { name: written }))}"
                        style="background:none;border:1px solid var(--divider-color);color:var(--primary-text-color);border-radius:4px;padding:3px 6px;cursor:pointer;font-size:0.75em;">
                     ${t("monitoring.reset")}
                   </button>`
@@ -220,6 +473,7 @@ export class MonitoringTab {
       })
       .join("");
 
+    const kept = samePanel ? keptFocus(container) : null;
     container.innerHTML = `
       ${this._headerHTML}
       <div style="padding:16px;">
@@ -238,25 +492,25 @@ export class MonitoringTab {
           <div id="global-fields" style="${isEnabled ? "" : "opacity:0.4;pointer-events:none;"}">
             <div style="${FIELD_STYLE}">
               <span style="${LABEL_STYLE}">${t("monitoring.continuous")}</span>
-              <input type="number" id="g-continuous" min="1" max="200"
+              <input type="number" id="g-continuous" aria-label="${escapeHtml(t("monitoring.continuous"))}" min="${LIMIT_RANGES.continuous_threshold_pct.min}" max="${LIMIT_RANGES.continuous_threshold_pct.max}" step="1"
                      value="${globalSettings.continuous_threshold_pct ?? 80}"
                      style="${INPUT_STYLE}">
             </div>
             <div style="${FIELD_STYLE}">
               <span style="${LABEL_STYLE}">${t("monitoring.spike")}</span>
-              <input type="number" id="g-spike" min="1" max="200"
+              <input type="number" id="g-spike" aria-label="${escapeHtml(t("monitoring.spike"))}" min="${LIMIT_RANGES.spike_threshold_pct.min}" max="${LIMIT_RANGES.spike_threshold_pct.max}" step="1"
                      value="${globalSettings.spike_threshold_pct ?? 100}"
                      style="${INPUT_STYLE}">
             </div>
             <div style="${FIELD_STYLE}">
               <span style="${LABEL_STYLE}">${t("monitoring.window")}</span>
-              <input type="number" id="g-window" min="1" max="180"
+              <input type="number" id="g-window" aria-label="${escapeHtml(t("monitoring.window"))}" min="${LIMIT_RANGES.window_duration_m.min}" max="${LIMIT_RANGES.window_duration_m.max}" step="1"
                      value="${globalSettings.window_duration_m ?? 5}"
                      style="${INPUT_STYLE}">
             </div>
             <div style="${FIELD_STYLE}">
               <span style="${LABEL_STYLE}">${t("monitoring.cooldown")}</span>
-              <input type="number" id="g-cooldown" min="1" max="180"
+              <input type="number" id="g-cooldown" aria-label="${escapeHtml(t("monitoring.cooldown"))}" min="${LIMIT_RANGES.cooldown_duration_m.min}" max="${LIMIT_RANGES.cooldown_duration_m.max}" step="1"
                      value="${globalSettings.cooldown_duration_m ?? 15}"
                      style="${INPUT_STYLE}">
             </div>
@@ -272,14 +526,14 @@ export class MonitoringTab {
                 <span style="font-size:0.8em;color:var(--secondary-text-color);">${t("notification.all_targets")}</span>
               </label>
               <div id="notify-target-select" style="position:relative;flex:1;">
-                <button id="notify-target-btn" type="button" style="
+                <button id="notify-target-btn" type="button" aria-label="${escapeHtml(targetsName(targetsText(selectedTargets)))}" style="
                   background:var(--secondary-background-color,#333);
                   border:1px solid var(--divider-color);
                   color:var(--primary-text-color);
                   border-radius:4px;padding:6px 10px;width:100%;font-size:0.85em;
                   text-align:left;cursor:pointer;display:flex;align-items:center;justify-content:space-between;
                   ${allTargetsSelected ? "opacity:0.4;pointer-events:none;" : ""}">
-                  <span id="notify-target-label">${selectedTargets.length ? selectedTargets.map((s: string) => (s === "event_bus" ? t("notification.event_bus_target") : escapeHtml(s))).join(", ") : t("notification.none_selected")}</span>
+                  <span id="notify-target-label">${escapeHtml(targetsText(selectedTargets))}</span>
                   <span style="font-size:0.7em;margin-left:8px;">&#9660;</span>
                 </button>
                 <div id="notify-target-dropdown" style="
@@ -318,7 +572,7 @@ export class MonitoringTab {
 
             <div style="${FIELD_STYLE}">
               <span style="${WIDE_LABEL_STYLE}">${t("notification.priority")}</span>
-              <select id="g-priority" style="
+              <select id="g-priority" aria-label="${escapeHtml(t("notification.priority"))}" style="
                 background:var(--secondary-background-color,#333);
                 border:1px solid var(--divider-color);
                 color:var(--primary-text-color);
@@ -344,7 +598,7 @@ export class MonitoringTab {
 
             <div style="${FIELD_STYLE}">
               <span style="${WIDE_LABEL_STYLE}">${t("notification.title_template")}</span>
-              <input type="text" id="g-title-template"
+              <input type="text" id="g-title-template" aria-label="${escapeHtml(t("notification.title_template"))}"
                      value="${escapeHtml(titleTemplate)}"
                      placeholder="SPAN: {name} {alert_type}"
                      style="${TEXT_INPUT_STYLE}">
@@ -352,7 +606,7 @@ export class MonitoringTab {
 
             <div style="${FIELD_STYLE}">
               <span style="${WIDE_LABEL_STYLE}">${t("notification.message_template")}</span>
-              <input type="text" id="g-message-template"
+              <input type="text" id="g-message-template" aria-label="${escapeHtml(t("notification.message_template"))}"
                      value="${escapeHtml(messageTemplate)}"
                      placeholder="{name} at {current_a}A ({utilization_pct}% of {breaker_rating_a}A) at {local_time}"
                      style="${TEXT_INPUT_STYLE}">
@@ -391,6 +645,7 @@ export class MonitoringTab {
           <thead>
             <tr style="text-align:left;border-bottom:1px solid var(--divider-color);">
               <th style="padding:6px 8px;">${t("monitoring.col.name")}</th>
+              <th style="padding:6px 8px;">${t("monitoring.rating")}</th>
               <th style="padding:6px 8px;">${t("monitoring.col.continuous")}</th>
               <th style="padding:6px 8px;">${t("monitoring.col.spike")}</th>
               <th style="padding:6px 8px;">${t("monitoring.col.window")}</th>
@@ -400,7 +655,7 @@ export class MonitoringTab {
           </thead>
           <tbody>
             <tr style="border-bottom:1px solid var(--divider-color,#333);">
-              <td style="padding:6px 8px;" colspan="5">
+              <td style="padding:6px 8px;" colspan="6">
                 <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
                   <input type="checkbox" id="toggle-all-circuits"
                          ${allEnabled ? "checked" : ""}
@@ -439,6 +694,17 @@ export class MonitoringTab {
     this._bindMainsToggles(container, hass);
     this._bindThresholdInputs(container, hass);
     this._bindResetButtons(container, hass);
+    this._bindRatingMarks(container);
+    restoreFocus(container, kept);
+  }
+
+  /**
+   * Read and draw the tab again, unless the user has left it since `epoch`, when
+   * a save began: the container is another tab's by then. Every redraw after a
+   * save comes through here.
+   */
+  private async _redraw(container: HTMLElement, hass: HomeAssistant, epoch: number): Promise<void> {
+    if (epoch === this._epoch) await this.render(container, hass);
   }
 
   private _serviceData(data: Record<string, unknown>): Record<string, unknown> {
@@ -455,28 +721,39 @@ export class MonitoringTab {
     });
   }
 
+  /**
+   * Save notification setting `setting` as `value` once the user pauses. The
+   * panel it is for is taken now, so a save still waiting as the tab is drawn
+   * for another panel goes to the one it was made for.
+   */
+  private _saveOnPause(hass: HomeAssistant, setting: PausedSetting, value: string): void {
+    const serviceData = this._serviceData({ [setting]: value });
+    const send = async (): Promise<void> => {
+      try {
+        await hass.callWS({ type: "call_service", domain: INTEGRATION_DOMAIN, service: "set_global_monitoring", service_data: serviceData });
+      } catch (err: unknown) {
+        console.warn(`SPAN Panel: ${setting} save failed`, err);
+        this.errorStore?.add({ key: "service:monitoring", level: "error", message: t("error.threshold_failed"), persistent: false });
+        throw err;
+      }
+    };
+    let pending = this._pendingSaves.get(setting);
+    if (!pending) {
+      pending = new PendingSave();
+      this._pendingSaves.set(setting, pending);
+    }
+    pending.schedule(send, INPUT_DEBOUNCE_MS);
+  }
+
+  /** Send every notification setting waiting to be saved; rejects where one could not be. */
+  private async _flushPendingSaves(): Promise<void> {
+    await Promise.all([...this._pendingSaves.values()].map(pending => pending.flush()));
+  }
+
   private _bindGlobalControls(container: HTMLElement, hass: HomeAssistant): void {
     const enabledCheckbox = container.querySelector<HTMLInputElement>("#monitoring-enabled");
     const fieldsDiv = container.querySelector<HTMLElement>("#global-fields");
     const statusEl = container.querySelector<HTMLElement>("#global-status");
-
-    const readGlobalFields = (): Record<string, number> | null => {
-      const fields: Array<[string, string]> = [
-        ["continuous_threshold_pct", "#g-continuous"],
-        ["spike_threshold_pct", "#g-spike"],
-        ["window_duration_m", "#g-window"],
-        ["cooldown_duration_m", "#g-cooldown"],
-      ];
-      const out: Record<string, number> = {};
-      for (const [key, sel] of fields) {
-        const input = container.querySelector<HTMLInputElement>(sel);
-        if (!input) return null;
-        const n = parseInt(input.value, 10);
-        if (Number.isNaN(n)) return null;
-        out[key] = n;
-      }
-      return out;
-    };
 
     const reportFailure = (target: HTMLElement | null, err: unknown, fallback: string): void => {
       if (!target) return;
@@ -486,36 +763,66 @@ export class MonitoringTab {
       target.style.color = "var(--error-color, #f44336)";
     };
 
-    const saveGlobal = (): void => {
-      if (this._debounceTimer) clearTimeout(this._debounceTimer);
-      this._debounceTimer = setTimeout(async () => {
-        const data = readGlobalFields();
-        if (!data) {
-          reportFailure(statusEl, null, t("error.failed_save"));
-          return;
-        }
-        try {
-          await this._callSetGlobal(hass, data);
-          await this.render(container, hass);
-        } catch (err: unknown) {
-          reportFailure(statusEl, err, t("error.failed_save"));
-        }
-      }, INPUT_DEBOUNCE_MS);
+    // The tab is read again after a save, since every point on the global thresholds shows them.
+    const saveGlobal = async (data: Record<string, number>): Promise<void> => {
+      const epoch = this._epoch;
+      try {
+        await this._callSetGlobal(hass, data);
+      } catch (err: unknown) {
+        reportFailure(statusEl, err, t("error.failed_save"));
+        return;
+      }
+      await this._redraw(container, hass, epoch);
+    };
+
+    // Each field saves as the table's fields do, only as the user entered it, and only itself.
+    const bound = new Map<LimitField, LimitFieldHandle>();
+    for (const [field, selector] of GLOBAL_FIELDS) {
+      const input = container.querySelector<HTMLInputElement>(selector);
+      if (!input) continue;
+      bound.set(field, bindLimitField(input, field, { report: fieldFeedback(input), save: amount => void saveGlobal({ [field]: amount }) }));
+    }
+
+    /**
+     * The four global fields as they stand, each checked as a commit checks it;
+     * null where one is not a whole number in its range, each such field marked.
+     */
+    const readGlobalFields = (): Record<string, number> | null => {
+      const out: Record<string, number> = {};
+      let valid = true;
+      for (const [field] of GLOBAL_FIELDS) {
+        const amount = bound.get(field)?.check() ?? null;
+        if (amount === null) valid = false;
+        else out[field] = amount;
+      }
+      return valid ? out : null;
+    };
+
+    /** Show the global fields as monitoring on or off: dimmed while off. */
+    const showFields = (on: boolean): void => {
+      if (!fieldsDiv) return;
+      fieldsDiv.style.opacity = on ? "" : "0.4";
+      fieldsDiv.style.pointerEvents = on ? "" : "none";
     };
 
     if (enabledCheckbox) {
+      // Turning monitoring on sends the four global fields as they stand, so it is
+      // refused where one is not a whole number in its range; refused, or refused
+      // by the integration, the switch and the fields are put back as they were.
       enabledCheckbox.addEventListener("change", async () => {
+        const epoch = this._epoch;
         const enabled = enabledCheckbox.checked;
-        if (fieldsDiv) {
-          fieldsDiv.style.opacity = enabled ? "" : "0.4";
-          fieldsDiv.style.pointerEvents = enabled ? "" : "none";
-        }
-        const statusEl2 = container.querySelector<HTMLElement>("#global-status");
+        const putBack = (): void => {
+          enabledCheckbox.checked = !enabled;
+          showFields(!enabled);
+        };
+        showFields(enabled);
         try {
           if (enabled) {
             const data = readGlobalFields();
             if (!data) {
-              reportFailure(statusEl2, null, t("error.failed"));
+              putBack();
+              reportFailure(statusEl, null, t("monitoring.enable_invalid"));
               return;
             }
             await this._callSetGlobal(hass, data);
@@ -523,15 +830,12 @@ export class MonitoringTab {
             await this._callSetGlobal(hass, { enabled: false });
           }
         } catch (err: unknown) {
-          reportFailure(statusEl2, err, t("error.failed"));
+          putBack();
+          reportFailure(statusEl, err, t("error.failed"));
           return;
         }
-        await this.render(container, hass);
+        await this._redraw(container, hass, epoch);
       });
-    }
-
-    for (const input of container.querySelectorAll<HTMLInputElement>("#global-fields input[type=number]")) {
-      input.addEventListener("input", saveGlobal);
     }
   }
 
@@ -561,10 +865,9 @@ export class MonitoringTab {
     const saveTargets = (): void => {
       const checked = [...container.querySelectorAll<HTMLInputElement>(".notify-target-cb:checked")];
       const targets = checked.map(c => c.value);
-      if (label) {
-        const displayTargets = targets.map(v => (v === "event_bus" ? t("notification.event_bus_target") : v));
-        label.textContent = displayTargets.length ? displayTargets.join(", ") : t("notification.none_selected");
-      }
+      const text = targetsText(targets);
+      if (label) label.textContent = text;
+      btn.setAttribute("aria-label", targetsName(text));
       // Sync the "All Targets" checkbox state
       const allCb = container.querySelector<HTMLInputElement>("#notify-all-targets");
       if (allCb) {
@@ -572,20 +875,7 @@ export class MonitoringTab {
         allCb.checked = allCbs.length > 0 && allCbs.every(c => c.checked);
         allCb.indeterminate = !allCb.checked && allCbs.some(c => c.checked);
       }
-      if (this._debounceTimer) clearTimeout(this._debounceTimer);
-      this._debounceTimer = setTimeout(async () => {
-        try {
-          await this._callSetGlobal(hass, { notify_targets: targets.join(", ") });
-        } catch (err) {
-          console.warn("SPAN Panel: notification targets save failed", err);
-          this.errorStore?.add({
-            key: "service:monitoring",
-            level: "error",
-            message: t("error.threshold_failed"),
-            persistent: false,
-          });
-        }
-      }, INPUT_DEBOUNCE_MS);
+      this._saveOnPause(hass, "notify_targets", targets.join(", "));
     };
 
     // "All Targets" toggle
@@ -619,28 +909,12 @@ export class MonitoringTab {
     const titleInput = container.querySelector<HTMLInputElement>("#g-title-template");
     const messageInput = container.querySelector<HTMLInputElement>("#g-message-template");
 
-    const saveField = (field: string, value: string | boolean): void => {
-      if (this._debounceTimer) clearTimeout(this._debounceTimer);
-      this._debounceTimer = setTimeout(async () => {
-        try {
-          await this._callSetGlobal(hass, { [field]: value });
-        } catch (err) {
-          console.warn("SPAN Panel: notification settings save failed", err);
-          this.errorStore?.add({
-            key: "service:monitoring",
-            level: "error",
-            message: t("error.threshold_failed"),
-            persistent: false,
-          });
-        }
-      }, INPUT_DEBOUNCE_MS);
-    };
-
     if (prioritySelect) {
       prioritySelect.addEventListener("change", async () => {
+        const epoch = this._epoch;
         try {
           await this._callSetGlobal(hass, { notification_priority: prioritySelect.value });
-          await this.render(container, hass);
+          await this._redraw(container, hass, epoch);
         } catch (err) {
           console.warn("SPAN Panel: notification priority change failed", err);
           this.errorStore?.add({
@@ -654,12 +928,12 @@ export class MonitoringTab {
     }
     if (titleInput) {
       titleInput.addEventListener("input", () => {
-        saveField("notification_title_template", titleInput.value);
+        this._saveOnPause(hass, "notification_title_template", titleInput.value);
       });
     }
     if (messageInput) {
       messageInput.addEventListener("input", () => {
-        saveField("notification_message_template", messageInput.value);
+        this._saveOnPause(hass, "notification_message_template", messageInput.value);
       });
     }
 
@@ -673,15 +947,11 @@ export class MonitoringTab {
           testStatus.style.color = "var(--secondary-text-color)";
         }
         try {
-          // Flush any pending settings save before testing
-          if (this._debounceTimer) {
-            clearTimeout(this._debounceTimer);
-            this._debounceTimer = null;
-          }
-          // Save current notify_targets so the test uses the latest selections
+          // The test uses what is stored, so what waits to be saved is sent first, with the target
+          // choices as they stand, in place of any still waiting; one that fails stops the test.
           const checked = [...container.querySelectorAll<HTMLInputElement>(".notify-target-cb:checked")];
-          const currentTargets = checked.map(c => c.value).join(", ");
-          await this._callSetGlobal(hass, { notify_targets: currentTargets });
+          this._saveOnPause(hass, "notify_targets", checked.map(c => c.value).join(", "));
+          await this._flushPendingSaves();
 
           const serviceData: Record<string, unknown> = {};
           if (this._configEntryId) serviceData.config_entry_id = this._configEntryId;
@@ -717,6 +987,7 @@ export class MonitoringTab {
     const toggleAll = container.querySelector<HTMLInputElement>("#toggle-all-circuits");
     if (!toggleAll) return;
     toggleAll.addEventListener("change", async () => {
+      const epoch = this._epoch;
       const enabled = toggleAll.checked;
       const calls: Promise<unknown>[] = [
         ...Object.keys(circuits).map(entityId =>
@@ -757,13 +1028,14 @@ export class MonitoringTab {
         ),
       ];
       await Promise.all(calls);
-      await this.render(container, hass);
+      await this._redraw(container, hass, epoch);
     });
   }
 
   private _bindMainsToggles(container: HTMLElement, hass: HomeAssistant): void {
     for (const cb of container.querySelectorAll<HTMLInputElement>(".mains-toggle")) {
       cb.addEventListener("change", async () => {
+        const epoch = this._epoch;
         const entityId = cb.dataset.entity;
         const enabled = cb.checked;
         try {
@@ -784,7 +1056,7 @@ export class MonitoringTab {
           cb.checked = !enabled;
           return;
         }
-        await this.render(container, hass);
+        await this._redraw(container, hass, epoch);
       });
     }
   }
@@ -792,6 +1064,7 @@ export class MonitoringTab {
   private _bindCircuitToggles(container: HTMLElement, hass: HomeAssistant): void {
     for (const cb of container.querySelectorAll<HTMLInputElement>(".circuit-toggle")) {
       cb.addEventListener("change", async () => {
+        const epoch = this._epoch;
         const entityId = cb.dataset.entity;
         const enabled = cb.checked;
         try {
@@ -812,63 +1085,99 @@ export class MonitoringTab {
           cb.checked = !enabled;
           return;
         }
-        await this.render(container, hass);
+        await this._redraw(container, hass, epoch);
       });
     }
   }
 
+  /**
+   * The table's threshold and duration fields save as the side panel's do, only
+   * as the user entered them (`bindLimitField`), each saying under it what it
+   * needs correcting. A save reads the table again rather than patching its row:
+   * the integration drops an override that matches the global settings, and a
+   * shared meter's members share one, so only its answer says what each row holds.
+   */
   private _bindThresholdInputs(container: HTMLElement, hass: HomeAssistant): void {
-    const timers = new Map<string, ReturnType<typeof setTimeout>>();
     for (const input of container.querySelectorAll<HTMLInputElement>(".threshold-input")) {
-      input.addEventListener("input", () => {
-        const key = `${input.dataset.entity}-${input.dataset.field}`;
-        const existing = timers.get(key);
-        if (existing) clearTimeout(existing);
-        timers.set(
-          key,
-          setTimeout(async () => {
-            const val = parseInt(input.value, 10);
-            if (!val || val < 1) return;
-            const entityId = input.dataset.entity;
-            const field = input.dataset.field;
-            const type = input.dataset.type;
-            const service = type === "mains" ? "set_mains_threshold" : "set_circuit_threshold";
-            const idField = type === "mains" ? "leg" : "circuit_id";
-            try {
-              await hass.callWS({
-                type: "call_service",
-                domain: INTEGRATION_DOMAIN,
-                service,
-                service_data: this._serviceData({ [idField]: entityId, [field!]: val }),
-              });
-              // Re-render to update Custom badge and Reset button
-              await this.render(container, hass);
-            } catch (err) {
-              console.warn("SPAN Panel: threshold input save failed", err);
-              this.errorStore?.add({
-                key: "service:monitoring",
-                level: "error",
-                message: t("error.threshold_failed"),
-                persistent: false,
-              });
-              input.style.borderColor = "var(--error-color, #f44336)";
-            }
-          }, THRESHOLD_DEBOUNCE_MS)
-        );
+      const field = input.dataset.field;
+      const entityId = input.dataset.entity;
+      if (!isLimitField(field) || entityId === undefined) continue;
+      const isMains = input.dataset.type === "mains";
+      bindLimitField(input, field, {
+        report: fieldFeedback(input),
+        save: amount => {
+          const service = isMains ? "set_mains_threshold" : "set_circuit_threshold";
+          const data = isMains ? { leg: entityId, [field]: amount } : { circuit_id: entityId, [field]: amount };
+          void this._saveThreshold(container, hass, input, service, data);
+        },
       });
     }
   }
 
+  private async _saveThreshold(
+    container: HTMLElement,
+    hass: HomeAssistant,
+    input: HTMLInputElement,
+    service: string,
+    data: Record<string, unknown>
+  ): Promise<void> {
+    const epoch = this._epoch;
+    try {
+      await hass.callWS({
+        type: "call_service",
+        domain: INTEGRATION_DOMAIN,
+        service,
+        service_data: this._serviceData(data),
+      });
+    } catch (err) {
+      console.warn("SPAN Panel: threshold input save failed", err);
+      this.errorStore?.add({
+        key: "service:monitoring",
+        level: "error",
+        message: t("error.threshold_failed"),
+        persistent: false,
+      });
+      input.style.borderColor = ERROR_BORDER;
+      return;
+    }
+    await this._redraw(container, hass, epoch);
+  }
+
+  /** A rating mark's note shows on a tap or a key press, where its tooltip cannot be hovered. */
+  private _bindRatingMarks(container: HTMLElement): void {
+    for (const mark of container.querySelectorAll<HTMLElement>(".rating-user-set")) {
+      mark.addEventListener("click", () => toggleRatingNote(mark));
+    }
+  }
+
+  /**
+   * A point's Reset clears its override. While the reset is on its way the button
+   * is marked busy, not disabled, so it keeps focus, and a second click sends
+   * nothing; where it fails, the row is left as it was, the button is usable
+   * again, and the integration's reason is shown.
+   */
   private _bindResetButtons(container: HTMLElement, hass: HomeAssistant): void {
     for (const btn of container.querySelectorAll<HTMLElement>(".reset-btn")) {
       btn.addEventListener("click", async () => {
         const entityId = btn.dataset.entity;
-        if (!entityId) return;
+        if (!entityId || btn.getAttribute("aria-disabled") === "true") return;
+        const epoch = this._epoch;
         const type = btn.dataset.type;
         const service = type === "mains" ? "clear_mains_threshold" : "clear_circuit_threshold";
         const param = this._serviceData(type === "mains" ? { leg: entityId } : { circuit_id: entityId });
-        await hass.callService(INTEGRATION_DOMAIN, service, param);
-        await this.render(container, hass);
+        btn.setAttribute("aria-disabled", "true");
+        btn.style.opacity = "0.6";
+        try {
+          await hass.callService(INTEGRATION_DOMAIN, service, param);
+        } catch (err: unknown) {
+          console.warn("SPAN Panel: threshold reset failed", err);
+          btn.removeAttribute("aria-disabled");
+          btn.style.opacity = "";
+          const message = await serviceErrorMessage(hass, err, INTEGRATION_DOMAIN, t("error.threshold_failed"));
+          this.errorStore?.add({ key: "service:monitoring", level: "error", message, persistent: false });
+          return;
+        }
+        await this._redraw(container, hass, epoch);
       });
     }
   }

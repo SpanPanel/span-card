@@ -94,7 +94,7 @@ export class FavoritesController {
         const compositeId = buildCompositeId(panelDeviceId, uuid);
         const name = includePanelPrefix && panelLabel ? `${panelLabel} \u00b7 ${circuit.name}` : circuit.name;
         // A group key is one panel's circuit id, so it is made composite as the circuit's own is: two panels'
-        // groups then never draw as one, and the group's rating, which the integration computes, comes along.
+        // groups then never draw as one, and the group's ratings, which the integration computes, come along.
         const groupKey = circuit.shared_meter_group;
         const compositeGroup = groupKey ? buildCompositeId(panelDeviceId, groupKey) : groupKey;
         const group = groupKey ? topology.shared_meter_groups?.[groupKey] : undefined;

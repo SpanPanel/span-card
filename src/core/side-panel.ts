@@ -3,14 +3,30 @@ import { escapeHtml } from "../helpers/sanitize.js";
 import { loadListColumns, saveListColumns } from "../helpers/list-columns.js";
 import { INTEGRATION_DOMAIN, SHEDDING_PRIORITIES, SELECTABLE_PRIORITY_KEYS, GRAPH_HORIZONS, DEFAULT_GRAPH_HORIZON, INPUT_DEBOUNCE_MS } from "../constants.js";
 import { t, tf } from "../i18n.js";
+import { judgedAgainstSentence, monitoringRatingView } from "../helpers/monitoring-rating.js";
+import { serviceErrorMessage } from "../helpers/error-text.js";
 import { occupiedSpaces, slotRatingText, type SlotMember } from "../helpers/shared-meters.js";
+import { PackageRatingsEditor, type PackageRatingsHost, type PackageRatingsState } from "./package-ratings-editor.js";
+import { bindLimitField, LIMIT_RANGES, type LimitField, type LimitFieldHandle } from "../helpers/number-field.js";
+import { focusWithin } from "../helpers/focus.js";
+import { circuitMonitoringInfo, monitoringStatusFrom } from "./monitoring-status.js";
 import { addFavorite, removeFavorite } from "./favorites-store.js";
 import { sortedCircuitsForSection } from "./favorites-sections.js";
 import { subDeviceCharts } from "../helpers/sub-device-power.js";
 import { subDeviceFavoriteEntityId } from "../helpers/sub-device-settings.js";
 import { relayClosed, selectOperable, shedPriorityKey, switchPresence, type CircuitControlFields } from "./circuit-state.js";
 import type { SpanSwitch } from "./span-switch.js";
-import type { HomeAssistant, PanelTopology, GraphSettings, CircuitEntities, CircuitGraphOverride, MonitoringPointInfo } from "../types.js";
+import type {
+  HomeAssistant,
+  PanelTopology,
+  GraphSettings,
+  CircuitEntities,
+  CircuitGraphOverride,
+  MonitoringGlobalSettings,
+  MonitoringPointInfo,
+  MonitoringStatus,
+  MonitoringStatusResponse,
+} from "../types.js";
 import type { ErrorStore } from "./error-store.js";
 
 // ── Interfaces for config shapes passed to open() ────────────────────────
@@ -48,6 +64,15 @@ interface PanelModeConfig {
   configEntryId?: string | null;
 }
 
+/** What a rating change redraws in an open circuit side panel: the slot's members, its subtitle text, and the monitoring point it is judged as. */
+export interface CircuitRatingView {
+  members: readonly SlotMember[];
+  capacityA: number | null;
+  monitoringInfo: MonitoringPointInfo | null;
+  /** The panel's global thresholds, from the status `monitoringInfo` came from; null where not known. */
+  monitoringGlobals: MonitoringGlobalSettings | null;
+}
+
 export type CircuitModeConfig = CircuitControlFields & {
   panelMode?: undefined;
   subDeviceMode?: undefined;
@@ -63,6 +88,13 @@ export type CircuitModeConfig = CircuitControlFields & {
   capacityA: number | null;
   monitoringInfo: MonitoringPointInfo | null;
   showMonitoring?: boolean;
+  /** The panel's global thresholds, from the `get_monitoring_status` answer `monitoringInfo` came from; null where not known. */
+  monitoringGlobals?: MonitoringGlobalSettings | null;
+  /**
+   * True where the circuit's panel takes package ratings copied from the SPAN app (topology
+   * `monitoring_rating_offered`); anything else, an older integration's silence included, draws no editor.
+   */
+  monitoringRatingOffered?: boolean;
   graphHorizonInfo: GraphHorizonInfo;
   /** Dashboard-only: render the Favorite section on this side panel. */
   showFavorites?: boolean;
@@ -113,6 +145,17 @@ interface FavoritesModeConfig {
 }
 
 export type SidePanelConfig = PanelModeConfig | CircuitModeConfig | SubDeviceModeConfig | FavoritesModeConfig;
+
+/** A custom threshold or duration field's key, as its data-role names it. */
+type LimitKey = "continuous" | "spike" | "window-m" | "cooldown-m";
+
+/** The service field each custom threshold or duration field sets. */
+const LIMIT_FIELDS: Readonly<Record<LimitKey, LimitField>> = {
+  continuous: "continuous_threshold_pct",
+  spike: "spike_threshold_pct",
+  "window-m": "window_duration_m",
+  "cooldown-m": "cooldown_duration_m",
+};
 
 // ── Styles ────────────────────────────────────────────────────────────────
 
@@ -347,6 +390,64 @@ const STYLES = `
     --mdc-icon-size: 16px;
   }
 
+  .rating-section {
+    margin-bottom: 8px;
+  }
+  .limit-row {
+    flex-wrap: wrap;
+  }
+  .limit-feedback {
+    flex-basis: 100%;
+  }
+  .rating-row {
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    gap: 6px 8px;
+  }
+  .rating-row [data-role="rating-panel-rating"] {
+    flex-basis: 100%;
+  }
+  .rating-feedback {
+    font-size: 13px;
+    color: var(--error-color, #db4437);
+  }
+  .rating-warning {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 8px;
+    margin-top: 6px;
+    padding: 8px;
+    border-left: 3px solid var(--warning-color, #ffa600);
+    border-radius: 4px;
+    background: color-mix(in srgb, var(--warning-color, #ffa600) 12%, transparent);
+    font-size: 13px;
+  }
+
+  .text-btn {
+    background: none;
+    border: 1px solid var(--divider-color, #e0e0e0);
+    color: var(--primary-text-color, #212121);
+    border-radius: 4px;
+    padding: 4px 8px;
+    font: inherit;
+    font-size: 13px;
+    line-height: 1.3;
+    cursor: pointer;
+  }
+  .text-btn:hover:not(:disabled):not([aria-disabled="true"]) {
+    background: var(--secondary-background-color, #f5f5f5);
+  }
+  .text-btn:focus-visible {
+    outline: 2px solid var(--primary-color, #03a9f4);
+    outline-offset: 1px;
+  }
+  .text-btn:disabled,
+  .text-btn[aria-disabled="true"] {
+    opacity: 0.5;
+    cursor: default;
+  }
+
   .panel-mode-info {
     font-size: 14px;
     color: var(--primary-text-color, #212121);
@@ -360,17 +461,23 @@ const STYLES = `
 
 // ── Component ─────────────────────────────────────────────────────────────
 
-class SpanSidePanel extends HTMLElement {
+class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
   errorStore: ErrorStore | null = null;
   private _hass: HomeAssistant | null;
   private _config: SidePanelConfig | null;
+  private readonly _ratingsEditor: PackageRatingsEditor;
   private _debounceTimers: Record<string, ReturnType<typeof setTimeout>>;
+  /** Counts reads of the circuit's monitoring after a threshold save, so an earlier one answering late is ignored. */
+  private _thresholdReads = 0;
+  /** The open circuit's custom threshold and duration fields. */
+  private _limitFields: LimitFieldHandle[] = [];
   constructor() {
     super();
     this.attachShadow({ mode: "open" });
     this._hass = null;
     this._config = null;
     this._debounceTimers = {};
+    this._ratingsEditor = new PackageRatingsEditor(this);
   }
 
   set hass(val: HomeAssistant | null) {
@@ -399,6 +506,39 @@ class SpanSidePanel extends HTMLElement {
     // which sidebar variant is open (e.g. to defer tab re-renders while
     // a favorites-mode sidebar is live).
     this.setAttribute("data-mode", this._modeFor(config));
+  }
+
+  /** The circuit this side panel is open on, with the config entry its services target; null when closed or in another mode. */
+  get openCircuit(): { uuid: string; configEntryId: string | null } | null {
+    const cfg = this._config;
+    if (!cfg || !this.hasAttribute("open") || cfg.panelMode || cfg.subDeviceMode || cfg.favoritesMode) return null;
+    return { uuid: cfg.uuid, configEntryId: cfg.configEntryId ?? null };
+  }
+
+  /**
+   * Redraw what a rating change touches in the open circuit panel, from the
+   * integration's answer: the subtitle, the "judged against" line, and the package
+   * ratings editor in the Monitoring section, which patches itself in place, so a
+   * focused control keeps focus and a field being typed in keeps what was typed.
+   * Nothing else is rebuilt, so a threshold the user is typing keeps its value.
+   */
+  refreshRating(view: CircuitRatingView): void {
+    const cfg = this._config;
+    const shadow = this.shadowRoot;
+    if (!cfg || !shadow || !this.hasAttribute("open") || cfg.panelMode || cfg.subDeviceMode || cfg.favoritesMode) return;
+
+    const next: CircuitModeConfig = {
+      ...cfg,
+      members: view.members,
+      capacityA: view.capacityA,
+      monitoringInfo: view.monitoringInfo,
+      monitoringGlobals: view.monitoringGlobals,
+    };
+    this._config = next;
+
+    const subtitle = shadow.querySelector(".subtitle");
+    if (subtitle) subtitle.textContent = this._circuitSubtitle(next);
+    this._syncMonitoring();
   }
 
   close(): void {
@@ -1267,11 +1407,163 @@ class SpanSidePanel extends HTMLElement {
     this._applySheddingSelect(selectEl, cfg);
   }
 
+  // ── Package ratings editor (inside the Monitoring section) ──────────
+
+  /** What the package ratings editor draws from: the open circuit's slot and monitoring; null in any other mode. */
+  get ratingsState(): PackageRatingsState | null {
+    const cfg = this._config;
+    if (!cfg || cfg.panelMode || cfg.subDeviceMode || cfg.favoritesMode || !cfg.showMonitoring) return null;
+    return {
+      members: cfg.members ?? [],
+      monitoringInfo: cfg.monitoringInfo,
+      offered: cfg.monitoringRatingOffered === true,
+    };
+  }
+
+  setPackageRatings(uuid: string, ratings: readonly number[]): Promise<void> {
+    return this._callDomainService("set_circuit_package_ratings", this._ratingsPayload(uuid, { package_ratings_a: [...ratings] }));
+  }
+
+  clearPackageRatings(uuid: string): Promise<void> {
+    return this._callDomainService("clear_circuit_package_ratings", this._ratingsPayload(uuid, {}));
+  }
+
+  /** A refusal shows the integration's message in the user's language (`serviceErrorMessage`), else the generic one. */
+  reportRatingsFailure(err: unknown): void {
+    console.warn("SPAN Panel: package ratings update failed", err);
+    void serviceErrorMessage(this._hass, err, INTEGRATION_DOMAIN, t("error.package_ratings_failed")).then(message => {
+      this.errorStore?.add({ key: "service:package-ratings", level: "error", message, persistent: false });
+    });
+  }
+
+  /**
+   * Choose the global thresholds for the open circuit, as the Global choice does:
+   * the choice and the hidden fields show it at once, and they are put back if
+   * clearing the override fails. Resolves whether it succeeded; on success the
+   * circuit's monitoring reads as having no override, so the editor's warning
+   * follows without waiting for a refresh.
+   */
+  async useGlobalThresholds(): Promise<boolean> {
+    const cfg = this._config;
+    const shadow = this.shadowRoot;
+    if (!cfg || !shadow || cfg.panelMode || cfg.subDeviceMode || cfg.favoritesMode) return false;
+    const global = shadow.querySelector<HTMLInputElement>('input[name="monitoring-mode"][value="global"]');
+    const custom = shadow.querySelector<HTMLInputElement>('input[name="monitoring-mode"][value="custom"]');
+    const fields = shadow.querySelector<HTMLElement>('[data-role="threshold-fields"]');
+    if (global) global.checked = true;
+    if (fields) fields.style.display = "none";
+    // A read a save before this started answers for thresholds the reset is about to clear: it is ignored.
+    this._thresholdReads += 1;
+    const data: Record<string, unknown> = { circuit_id: cfg.entities?.power || cfg.uuid };
+    if (cfg.configEntryId) data.config_entry_id = cfg.configEntryId;
+    try {
+      await this._callDomainService("clear_circuit_threshold", data);
+    } catch (err: unknown) {
+      console.warn("SPAN Panel: monitoring update failed", err);
+      this.errorStore?.add({ key: "service:monitoring", level: "error", message: t("error.threshold_failed"), persistent: false });
+      if (this._config === cfg) {
+        if (custom) custom.checked = true;
+        if (fields) fields.style.display = "block";
+      }
+      return false;
+    }
+    // The circuit now takes the global thresholds, where they are known.
+    const globals = this._config === cfg ? (cfg.monitoringGlobals ?? null) : null;
+    this._thresholdsChanged(cfg.uuid, {
+      has_override: false,
+      continuous_threshold_pct: globals?.continuous_threshold_pct,
+      spike_threshold_pct: globals?.spike_threshold_pct,
+    });
+    return true;
+  }
+
+  /** Focus the Global/Custom choice that follows the editor, the one now chosen. */
+  focusAfterRatingsEditor(): void {
+    const shadow = this.shadowRoot;
+    const radio =
+      shadow?.querySelector<HTMLInputElement>('input[name="monitoring-mode"]:checked') ??
+      shadow?.querySelector<HTMLInputElement>('input[name="monitoring-mode"]');
+    radio?.focus();
+  }
+
+  private _ratingsPayload(uuid: string, data: Record<string, unknown>): Record<string, unknown> {
+    const payload: Record<string, unknown> = { circuit_id: uuid, ...data };
+    const cfg = this._config;
+    const entryId = cfg && !cfg.panelMode && !cfg.subDeviceMode && !cfg.favoritesMode ? cfg.configEntryId : null;
+    if (entryId) payload.config_entry_id = entryId;
+    return payload;
+  }
+
+  /**
+   * Fold a threshold change the integration accepted for circuit `uuid` into the
+   * open circuit's monitoring, so what reads it, the editor's warning, follows at
+   * once rather than at the next refresh. Ignored where the panel has since closed
+   * or moved to another circuit.
+   */
+  private _thresholdsChanged(uuid: string, change: Partial<MonitoringPointInfo>): void {
+    const cfg = this._openCircuitConfig(uuid);
+    if (!cfg) return;
+    this._config = { ...cfg, monitoringInfo: { ...(cfg.monitoringInfo ?? {}), ...change } };
+    this._syncMonitoring();
+  }
+
+  /**
+   * Take the integration's answer for circuit `uuid`'s monitoring, and the global
+   * thresholds it came with, in place of what the open panel held. Ignored where the
+   * panel has since closed or moved to another circuit.
+   */
+  private _monitoringAnswered(uuid: string, info: MonitoringPointInfo, globals: MonitoringGlobalSettings | null): void {
+    const cfg = this._openCircuitConfig(uuid);
+    if (!cfg) return;
+    this._config = { ...cfg, monitoringInfo: info, monitoringGlobals: globals };
+    if (info.has_override !== true) this._showGlobalChoice();
+    this._syncMonitoring();
+  }
+
+  /**
+   * Show Global as chosen, its fields hidden, where the integration says the
+   * circuit has no thresholds of its own, as after it dropped an override that
+   * matched the global ones; focus in the fields goes to Global. Custom stays
+   * while one of its fields holds typing not yet committed, which hiding them
+   * would take from the user.
+   */
+  private _showGlobalChoice(): void {
+    const shadow = this.shadowRoot;
+    const global = shadow?.querySelector<HTMLInputElement>('input[name="monitoring-mode"][value="global"]');
+    const fields = shadow?.querySelector<HTMLElement>('[data-role="threshold-fields"]');
+    if (!global || !fields || global.checked || this._limitFields.some(bound => bound.dirty)) return;
+    global.checked = true;
+    if (focusWithin(fields)) global.focus();
+    fields.style.display = "none";
+  }
+
+  /** The open panel's circuit config, where it is open on circuit `uuid`; null otherwise. */
+  private _openCircuitConfig(uuid: string): CircuitModeConfig | null {
+    const cfg = this._config;
+    if (!cfg || cfg.panelMode || cfg.subDeviceMode || cfg.favoritesMode || cfg.uuid !== uuid || !this.hasAttribute("open")) return null;
+    return cfg;
+  }
+
+  /**
+   * Redraw what reads the open circuit's monitoring: the "judged against" line, set
+   * only on a change, so the live region announces a change and nothing else, and
+   * the package ratings editor.
+   */
+  private _syncMonitoring(): void {
+    const cfg = this._config;
+    const judged = this.shadowRoot?.querySelector('[data-role="judged-against"]');
+    if (!cfg || cfg.panelMode || cfg.subDeviceMode || cfg.favoritesMode || !judged) return;
+    const text = this._judgedAgainstText(cfg.monitoringInfo);
+    if (judged.textContent !== text) judged.textContent = text;
+    this._ratingsEditor.sync(judged);
+  }
+
   // ── Graph horizon section ──────────────────────────────────────────
 
   private _renderGraphHorizonSection(body: HTMLDivElement, cfg: CircuitModeConfig): void {
     const section = document.createElement("div");
     section.className = "section";
+    section.dataset.role = "horizon-section";
 
     const sectionLabel = document.createElement("div");
     sectionLabel.className = "section-label";
@@ -1362,6 +1654,11 @@ class SpanSidePanel extends HTMLElement {
 
   // ── Monitoring section ──────────────────────────────────────────────
 
+  /** "Judged against 40 A: 20-20 from your SPAN app (the panel publishes 20 A)", or "Judged against: no rating" when the point has none. */
+  private _judgedAgainstText(info: MonitoringPointInfo | null): string {
+    return judgedAgainstSentence(monitoringRatingView(info));
+  }
+
   private _renderMonitoringSection(body: HTMLDivElement, cfg: CircuitModeConfig): void {
     const section = document.createElement("div");
     section.className = "section";
@@ -1394,6 +1691,19 @@ class SpanSidePanel extends HTMLElement {
 
     const hasCustom = info?.has_override === true;
 
+    // The rating the monitor judges this point against; textContent, so the text needs no escaping.
+    // A polite live region: a copy applying or going is announced as the line changes.
+    const judged = document.createElement("div");
+    judged.className = "field-label";
+    judged.dataset.role = "judged-against";
+    judged.setAttribute("aria-live", "polite");
+    judged.style.marginBottom = "8px";
+    judged.textContent = this._judgedAgainstText(info);
+    detailsWrap.appendChild(judged);
+
+    // The package ratings editor: above Global/Custom, shown in both modes, hidden with the details.
+    this._ratingsEditor.mount(judged);
+
     // Global / Custom radio
     const radioGroup = document.createElement("div");
     radioGroup.className = "radio-group";
@@ -1404,6 +1714,7 @@ class SpanSidePanel extends HTMLElement {
     detailsWrap.appendChild(radioGroup);
 
     // Threshold fields
+    this._limitFields = [];
     const thresholdsWrap = document.createElement("div");
     thresholdsWrap.dataset.role = "threshold-fields";
     thresholdsWrap.style.display = hasCustom ? "block" : "none";
@@ -1413,10 +1724,10 @@ class SpanSidePanel extends HTMLElement {
     const windowVal = info?.window_duration_m ?? 15;
     const cooldownVal = info?.cooldown_duration_m ?? 15;
 
-    thresholdsWrap.appendChild(this._createThresholdRow(t("sidepanel.continuous_pct"), "continuous", continuousVal, cfg));
-    thresholdsWrap.appendChild(this._createThresholdRow(t("sidepanel.spike_pct"), "spike", spikeVal, cfg));
-    thresholdsWrap.appendChild(this._createDurationRow(t("sidepanel.window_duration"), "window-m", windowVal, 1, 180, "m", cfg));
-    thresholdsWrap.appendChild(this._createDurationRow(t("sidepanel.cooldown"), "cooldown-m", cooldownVal, 1, 180, "m", cfg));
+    thresholdsWrap.appendChild(this._createLimitRow(t("sidepanel.continuous_pct"), "continuous", continuousVal, null, cfg));
+    thresholdsWrap.appendChild(this._createLimitRow(t("sidepanel.spike_pct"), "spike", spikeVal, null, cfg));
+    thresholdsWrap.appendChild(this._createLimitRow(t("sidepanel.window_duration"), "window-m", windowVal, "m", cfg));
+    thresholdsWrap.appendChild(this._createLimitRow(t("sidepanel.cooldown"), "cooldown-m", cooldownVal, "m", cfg));
     detailsWrap.appendChild(thresholdsWrap);
 
     // Event: monitoring enable toggle
@@ -1440,147 +1751,94 @@ class SpanSidePanel extends HTMLElement {
       });
     });
 
-    // Event: radio change
+    // Event: radio change. Choosing Global is the threshold reset, which puts the choice back if it fails.
     const radios = radioGroup.querySelectorAll<HTMLInputElement>('input[type="radio"]');
     for (const radio of radios) {
       radio.addEventListener("change", () => {
-        const isCustom = radio.value === "custom" && radio.checked;
-        thresholdsWrap.style.display = isCustom ? "block" : "none";
-        if (!isCustom && radio.checked) {
-          const entityId = cfg.entities?.power || cfg.uuid;
-          const data: Record<string, unknown> = { circuit_id: entityId };
-          if (cfg.configEntryId) data.config_entry_id = cfg.configEntryId;
-          this._callDomainService("clear_circuit_threshold", data).catch((err: Error) => {
-            console.warn("SPAN Panel: monitoring update failed", err);
-            this.errorStore?.add({
-              key: "service:monitoring",
-              level: "error",
-              message: t("error.threshold_failed"),
-              persistent: false,
-            });
-          });
-        }
+        if (!radio.checked) return;
+        if (radio.value === "custom") thresholdsWrap.style.display = "block";
+        else void this.useGlobalThresholds();
       });
     }
 
     body.appendChild(section);
   }
 
-  private _createThresholdRow(label: string, key: string, value: number, cfg: CircuitModeConfig): HTMLDivElement {
+  /**
+   * One of the circuit's custom threshold or duration fields. Like the package
+   * ratings field, it sends only what the user typed in it, when they press Enter
+   * or leave it (`bindLimitField`). The service merges what it is sent into the
+   * circuit's override, so only the field changed is sent.
+   */
+  private _createLimitRow(label: string, key: LimitKey, value: number, unit: string | null, cfg: CircuitModeConfig): HTMLDivElement {
+    const field = LIMIT_FIELDS[key];
+    const { min, max } = LIMIT_RANGES[field];
     const row = document.createElement("div");
-    row.className = "field-row";
+    row.className = "field-row limit-row";
 
+    // The field is named by the label shown beside it.
     const labelEl = document.createElement("span");
     labelEl.className = "field-label";
-    labelEl.textContent = label;
-
-    const input = document.createElement("input");
-    input.type = "number";
-    input.min = "0";
-    input.max = "200";
-    input.value = String(value);
-    input.dataset.role = `threshold-${key}`;
-
-    input.addEventListener("input", () => {
-      this._debounce(`threshold-${key}`, INPUT_DEBOUNCE_MS, () => {
-        const shadow = this.shadowRoot;
-        if (!shadow) return;
-        const continuous = shadow.querySelector<HTMLInputElement>('[data-role="threshold-continuous"]');
-        const spike = shadow.querySelector<HTMLInputElement>('[data-role="threshold-spike"]');
-        const windowM = shadow.querySelector<HTMLInputElement>('[data-role="threshold-window-m"]');
-        const cooldownM = shadow.querySelector<HTMLInputElement>('[data-role="threshold-cooldown-m"]');
-        const entityId = cfg.entities?.power || cfg.uuid;
-        const data: Record<string, unknown> = {
-          circuit_id: entityId,
-          continuous_threshold_pct: continuous ? Number(continuous.value) : undefined,
-          spike_threshold_pct: spike ? Number(spike.value) : undefined,
-          window_duration_m: windowM ? Number(windowM.value) : undefined,
-          cooldown_duration_m: cooldownM ? Number(cooldownM.value) : undefined,
-        };
-        if (cfg.configEntryId) data.config_entry_id = cfg.configEntryId;
-        this._callDomainService("set_circuit_threshold", data).catch((err: Error) => {
-          console.warn("SPAN Panel: monitoring update failed", err);
-          this.errorStore?.add({
-            key: "service:monitoring",
-            level: "error",
-            message: t("error.threshold_failed"),
-            persistent: false,
-          });
-        });
-      });
-    });
-
-    row.appendChild(labelEl);
-    row.appendChild(input);
-    return row;
-  }
-
-  private _createDurationRow(
-    label: string,
-    key: string,
-    value: number,
-    min: number,
-    max: number,
-    unit: string,
-    cfg: CircuitModeConfig,
-    readOnly: boolean = false
-  ): HTMLDivElement {
-    const row = document.createElement("div");
-    row.className = "field-row";
-
-    const labelEl = document.createElement("span");
-    labelEl.className = "field-label";
+    labelEl.id = `threshold-label-${key}`;
     labelEl.textContent = label;
 
     const inputWrap = document.createElement("div");
-
     const input = document.createElement("input");
     input.type = "number";
+    input.setAttribute("aria-labelledby", labelEl.id);
     input.min = String(min);
     input.max = String(max);
+    input.step = "1";
     input.value = String(value);
     input.dataset.role = `threshold-${key}`;
-    if (readOnly) {
-      input.disabled = true;
-    }
-
-    const unitSpan = document.createElement("span");
-    unitSpan.textContent = unit;
-
+    input.setAttribute("aria-describedby", `threshold-feedback-${key}`);
     inputWrap.appendChild(input);
-    inputWrap.appendChild(unitSpan);
-
-    if (!readOnly) {
-      input.addEventListener("input", () => {
-        this._debounce(`threshold-${key}`, INPUT_DEBOUNCE_MS, () => {
-          const shadow = this.shadowRoot;
-          if (!shadow) return;
-          const continuous = shadow.querySelector<HTMLInputElement>('[data-role="threshold-continuous"]');
-          const spike = shadow.querySelector<HTMLInputElement>('[data-role="threshold-spike"]');
-          const windowM = shadow.querySelector<HTMLInputElement>('[data-role="threshold-window-m"]');
-          const data: Record<string, unknown> = {
-            circuit_id: cfg.uuid,
-            continuous_threshold_pct: continuous ? Number(continuous.value) : undefined,
-            spike_threshold_pct: spike ? Number(spike.value) : undefined,
-            window_duration_m: windowM ? Number(windowM.value) : undefined,
-          };
-          if (cfg.configEntryId) data.config_entry_id = cfg.configEntryId;
-          this._callDomainService("set_circuit_threshold", data).catch((err: Error) => {
-            console.warn("SPAN Panel: monitoring update failed", err);
-            this.errorStore?.add({
-              key: "service:monitoring",
-              level: "error",
-              message: t("error.threshold_failed"),
-              persistent: false,
-            });
-          });
-        });
-      });
+    if (unit) {
+      const unitSpan = document.createElement("span");
+      unitSpan.textContent = unit;
+      inputWrap.appendChild(unitSpan);
     }
 
-    row.appendChild(labelEl);
-    row.appendChild(inputWrap);
+    const feedback = document.createElement("div");
+    feedback.className = "field-label rating-feedback limit-feedback";
+    feedback.id = `threshold-feedback-${key}`;
+    feedback.dataset.role = `threshold-feedback-${key}`;
+    feedback.setAttribute("aria-live", "polite");
+
+    const bound = bindLimitField(input, field, {
+      report: message => {
+        feedback.textContent = message ?? "";
+      },
+      save: amount => {
+        const data: Record<string, unknown> = { circuit_id: cfg.entities?.power || cfg.uuid, [field]: amount };
+        if (cfg.configEntryId) data.config_entry_id = cfg.configEntryId;
+        this._saveThresholds(cfg, data);
+      },
+    });
+    this._limitFields.push(bound);
+
+    row.append(labelEl, inputWrap, feedback);
     return row;
+  }
+
+  /**
+   * Save the circuit's custom thresholds, then read its monitoring as the
+   * integration now reports it, so what depends on it, the package ratings
+   * editor's warning, follows without waiting for a refresh.
+   */
+  private _saveThresholds(cfg: CircuitModeConfig, data: Record<string, unknown>): void {
+    this._callDomainService("set_circuit_threshold", data).then(
+      () => this._readThresholds(cfg, data),
+      (err: unknown) => {
+        console.warn("SPAN Panel: monitoring update failed", err);
+        this.errorStore?.add({
+          key: "service:monitoring",
+          level: "error",
+          message: t("error.threshold_failed"),
+          persistent: false,
+        });
+      }
+    );
   }
 
   // ── Live state updates ──────────────────────────────────────────────
@@ -1622,7 +1880,48 @@ class SpanSidePanel extends HTMLElement {
     selectEl.disabled = !selectOperable(cfg, this._hass);
   }
 
+  /**
+   * The answer is read rather than assumed: the integration drops an override
+   * whose values match the global thresholds, and the circuit then uses those, so
+   * only its answer says whether the circuit still has thresholds of its own. A
+   * later read wins over an earlier one that answers after it. Where the status
+   * cannot be read, or says nothing of the circuit, the values entered are taken
+   * as the circuit's own, which they are unless they match the global ones.
+   */
+  private async _readThresholds(cfg: CircuitModeConfig, entered: Record<string, unknown>): Promise<void> {
+    const read = ++this._thresholdReads;
+    let status: MonitoringStatus | null = null;
+    try {
+      status = await this._readMonitoringStatus(cfg.configEntryId ?? null);
+    } catch (err: unknown) {
+      console.warn("SPAN Panel: monitoring status read failed", err);
+    }
+    if (read !== this._thresholdReads) return;
+    const answer = circuitMonitoringInfo(status, cfg);
+    if (answer) {
+      this._monitoringAnswered(cfg.uuid, answer, status?.global_settings ?? null);
+      return;
+    }
+    const change: Partial<MonitoringPointInfo> = { has_override: true };
+    if (typeof entered.continuous_threshold_pct === "number") change.continuous_threshold_pct = entered.continuous_threshold_pct;
+    if (typeof entered.spike_threshold_pct === "number") change.spike_threshold_pct = entered.spike_threshold_pct;
+    this._thresholdsChanged(cfg.uuid, change);
+  }
+
   // ── Service calls ───────────────────────────────────────────────────
+
+  /** The monitoring status of the panel config entry `entryId` (the caller's own where null), or null with monitoring off. */
+  private async _readMonitoringStatus(entryId: string | null): Promise<MonitoringStatus | null> {
+    if (!this._hass) return null;
+    const resp = await this._hass.callWS<{ response?: MonitoringStatusResponse }>({
+      type: "call_service",
+      domain: INTEGRATION_DOMAIN,
+      service: "get_monitoring_status",
+      service_data: entryId ? { config_entry_id: entryId } : {},
+      return_response: true,
+    });
+    return monitoringStatusFrom(resp?.response);
+  }
 
   private _callService(domain: string, service: string, data: Record<string, unknown>): Promise<void> {
     if (!this._hass) return Promise.resolve();

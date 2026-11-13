@@ -39,7 +39,7 @@ describe("buildChartOptions", () => {
     expect(result.series).toHaveLength(3);
     // Continuous load line (80% of 20A = 16A)
     expect(result.series[1]!.data[0]![1]).toBe(16);
-    // Trip rating line (breaker rating = 20A)
+    // Trip rating line (at the limit rating, 20A)
     expect(result.series[2]!.data[0]![1]).toBe(20);
     // Y-axis max should be ceil(20 * 1.25) = 25
     expect(result.options.yAxis.max).toBe(25);

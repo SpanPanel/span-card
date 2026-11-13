@@ -4,7 +4,7 @@ import { formatCircuitCurrentHTML, formatCircuitPowerHTML } from "../helpers/for
 import { getChartMetric } from "../helpers/chart.js";
 import { judgedAs, meterSlots, slotsByMember } from "../helpers/shared-meters.js";
 import { t } from "../i18n.js";
-import { getCircuitMonitoringInfo } from "./monitoring-status.js";
+import { circuitMonitoringInfo } from "./monitoring-status.js";
 import { circuitCurrentA, circuitPowerW, drawsAsOn, shedPriorityKey, switchPresence } from "./circuit-state.js";
 import { applySheddingIcon, applyTogglePill } from "./circuit-controls.js";
 import { buildSearchBarHTML, buildListRowHTML, buildExpandedChartHTML, buildAreaHeaderHTML } from "./list-renderer.js";
@@ -110,10 +110,6 @@ function reorderListRows(root: Element | ShadowRoot, hass: HomeAssistant, topolo
   }
 }
 
-function getCircuitEntityId(circuit: Circuit): string {
-  return circuit.entities?.current ?? circuit.entities?.power ?? "";
-}
-
 export const FAVORITES_VIEW_STATE_CHANGED_EVENT = "favorites-view-state-changed";
 
 export interface FavoritesViewStateDetail {
@@ -215,7 +211,7 @@ export class ListViewController {
     html += `<div class="list-view" data-columns="${this._columns}" style="--list-cols:${this._columns};">`;
 
     for (const [uuid, circuit] of sorted) {
-      const monitoringInfo = getCircuitMonitoringInfo(monitoringStatus, getCircuitEntityId(circuit));
+      const monitoringInfo = circuitMonitoringInfo(monitoringStatus, circuit);
       const sheddingPriority = shedPriorityKey(circuit, hass);
       const isExpanded = this._expandedUuids.has(uuid);
       html += `<div class="list-cell" data-cell-uuid="${escapeHtml(uuid)}">`;
@@ -288,7 +284,7 @@ export class ListViewController {
       html += buildAreaHeaderHTML(areaName);
 
       for (const [uuid, circuit] of sorted) {
-        const monitoringInfo = getCircuitMonitoringInfo(monitoringStatus, getCircuitEntityId(circuit));
+        const monitoringInfo = circuitMonitoringInfo(monitoringStatus, circuit);
         const sheddingPriority = shedPriorityKey(circuit, hass);
         const isExpanded = this._expandedUuids.has(uuid);
         html += `<div class="list-cell" data-cell-uuid="${escapeHtml(uuid)}">`;
@@ -571,7 +567,7 @@ export class ListViewController {
       const circuit = this._topology.circuits[uuid];
       if (!circuit) return;
 
-      const monitoringInfo = getCircuitMonitoringInfo(this._monitoringStatus, getCircuitEntityId(circuit));
+      const monitoringInfo = circuitMonitoringInfo(this._monitoringStatus, circuit);
       const html = buildExpandedChartHTML(uuid, circuit, this._hass, this._config, monitoringInfo);
       row.insertAdjacentHTML("afterend", html);
       if (chevron) chevron.classList.add("expanded");
