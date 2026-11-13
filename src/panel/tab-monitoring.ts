@@ -201,6 +201,18 @@ function ratingCell(info: MonitoringPointInfo, isMains: boolean): string {
   return `<td class="rating-cell" style="padding:6px 4px;white-space:nowrap;">${content}</td>`;
 }
 
+/** The notify targets button's text: the targets chosen, the event bus by its name, or that none is. */
+function targetsText(targets: readonly string[]): string {
+  return targets.length
+    ? targets.map(target => (target === "event_bus" ? t("notification.event_bus_target") : target)).join(", ")
+    : t("notification.none_selected");
+}
+
+/** The notify targets button's accessible name: its label, then the targets it shows. */
+function targetsName(text: string): string {
+  return tf("notification.targets_button", { targets: text });
+}
+
 /** The longest a redraw waits on a press whose release never arrives. */
 const PRESS_WAIT_MS = 3000;
 
@@ -514,14 +526,14 @@ export class MonitoringTab {
                 <span style="font-size:0.8em;color:var(--secondary-text-color);">${t("notification.all_targets")}</span>
               </label>
               <div id="notify-target-select" style="position:relative;flex:1;">
-                <button id="notify-target-btn" type="button" style="
+                <button id="notify-target-btn" type="button" aria-label="${escapeHtml(targetsName(targetsText(selectedTargets)))}" style="
                   background:var(--secondary-background-color,#333);
                   border:1px solid var(--divider-color);
                   color:var(--primary-text-color);
                   border-radius:4px;padding:6px 10px;width:100%;font-size:0.85em;
                   text-align:left;cursor:pointer;display:flex;align-items:center;justify-content:space-between;
                   ${allTargetsSelected ? "opacity:0.4;pointer-events:none;" : ""}">
-                  <span id="notify-target-label">${selectedTargets.length ? selectedTargets.map((s: string) => (s === "event_bus" ? t("notification.event_bus_target") : escapeHtml(s))).join(", ") : t("notification.none_selected")}</span>
+                  <span id="notify-target-label">${escapeHtml(targetsText(selectedTargets))}</span>
                   <span style="font-size:0.7em;margin-left:8px;">&#9660;</span>
                 </button>
                 <div id="notify-target-dropdown" style="
@@ -853,10 +865,9 @@ export class MonitoringTab {
     const saveTargets = (): void => {
       const checked = [...container.querySelectorAll<HTMLInputElement>(".notify-target-cb:checked")];
       const targets = checked.map(c => c.value);
-      if (label) {
-        const displayTargets = targets.map(v => (v === "event_bus" ? t("notification.event_bus_target") : v));
-        label.textContent = displayTargets.length ? displayTargets.join(", ") : t("notification.none_selected");
-      }
+      const text = targetsText(targets);
+      if (label) label.textContent = text;
+      btn.setAttribute("aria-label", targetsName(text));
       // Sync the "All Targets" checkbox state
       const allCb = container.querySelector<HTMLInputElement>("#notify-all-targets");
       if (allCb) {

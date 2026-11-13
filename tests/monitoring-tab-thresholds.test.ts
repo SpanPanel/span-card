@@ -1038,3 +1038,28 @@ describe("a press that leaving a field ends", () => {
     await vi.waitFor(() => expect(cell(container, OVEN, "cooldown_duration_m")).not.toBe(field));
   });
 });
+
+describe("the notify targets button, as a screen reader names it", () => {
+  const button = (container: HTMLElement): HTMLElement => container.querySelector<HTMLElement>("#notify-target-btn")!;
+  const showing = (container: HTMLElement): string => container.querySelector("#notify-target-label")!.textContent!;
+
+  it("is named by its label and the targets chosen, which it shows", async () => {
+    const panel = integration();
+    const { container } = await shown(panel);
+
+    expect(button(container).getAttribute("aria-label")).toBe("Notify Targets: None selected");
+    expect(button(container).getAttribute("aria-label")).toContain(showing(container));
+  });
+
+  it("is named afresh as a target is chosen", async () => {
+    const panel = integration();
+    const { container } = await shown(panel);
+    const target = container.querySelector<HTMLInputElement>('.notify-target-cb[value="event_bus"]')!;
+
+    target.checked = true;
+    target.dispatchEvent(new Event("change"));
+
+    expect(showing(container)).toBe("Event Bus (HA event bus)");
+    expect(button(container).getAttribute("aria-label")).toBe("Notify Targets: Event Bus (HA event bus)");
+  });
+});
