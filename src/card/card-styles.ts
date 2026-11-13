@@ -331,6 +331,11 @@ export const CARD_STYLES: string = `
 
   /* The pencil that marks a rating from a copied package, a button so a tap or a key can show what it says. */
   .rating-user-set {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 24px;
+    min-height: 24px;
     margin-left: 2px;
     padding: 0 2px;
     border: none;

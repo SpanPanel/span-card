@@ -389,9 +389,6 @@ const STYLES = `
     font-size: 13px;
     color: var(--error-color, #db4437);
   }
-  .rating-feedback:empty {
-    display: none;
-  }
   .rating-warning {
     display: flex;
     flex-wrap: wrap;

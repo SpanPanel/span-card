@@ -8,6 +8,7 @@ import {
   type RatingView,
 } from "../src/helpers/monitoring-rating.js";
 import { setLanguage, t, tf } from "../src/i18n.js";
+import { CARD_STYLES } from "../src/card/card-styles.js";
 
 afterEach(() => setLanguage("en"));
 
@@ -101,6 +102,15 @@ describe("monitoringRatingView", () => {
     expect(monitoringRatingView({ breaker_rating_a: 20, monitoring_rating_a: 20, monitoring_rating_user_set: false }).userSet).toBe(false);
     expect(monitoringRatingView({ breaker_rating_a: 20, monitoring_rating_a: null }).amps).toBeNull();
     expect(monitoringRatingView(undefined)).toEqual({ amps: undefined, panelAmps: undefined, userSet: false, packageRatings: null });
+  });
+});
+
+describe("the mark's style", () => {
+  it("gives the mark a touch target of at least 24 by 24 px", () => {
+    const at = CARD_STYLES.indexOf(".rating-user-set {");
+    const rule = CARD_STYLES.slice(at, CARD_STYLES.indexOf("}", at));
+    expect(rule).toContain("min-width: 24px");
+    expect(rule).toContain("min-height: 24px");
   });
 });
 

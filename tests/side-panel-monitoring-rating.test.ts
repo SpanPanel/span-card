@@ -210,6 +210,11 @@ describe("the editor's layout", () => {
     return at < 0 ? "" : css(p).slice(at, css(p).indexOf("}", at));
   };
 
+  it("keeps the feedback in the layout while empty, so a screen reader hears it once it speaks", () => {
+    const { panel } = open(COPIED);
+    expect(css(panel)).not.toContain(".rating-feedback:empty");
+  });
+
   it("lets the row wrap, so the field and the reset fit the 360 px panel", () => {
     const { panel } = open(COPIED);
     expect(row(panel)!.classList.contains("rating-row")).toBe(true);
