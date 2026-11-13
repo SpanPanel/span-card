@@ -201,6 +201,59 @@ function ratingCell(info: MonitoringPointInfo, isMains: boolean): string {
   return `<td class="rating-cell" style="padding:6px 4px;white-space:nowrap;">${content}</td>`;
 }
 
+/** The longest a redraw waits on a press whose release never arrives. */
+const PRESS_WAIT_MS = 3000;
+
+/**
+ * Watches pointer presses in a tab's container, so a redraw can wait for one to
+ * end. Pressing a control takes focus from a field being typed in, which saves
+ * it, and the tab is read again; drawn while the press is down, the control
+ * pressed is replaced, and the click the release would make never lands.
+ */
+class PressWatch {
+  private static readonly _watches = new WeakMap<HTMLElement, PressWatch>();
+  private _pressed = false;
+  private _waiting: Array<() => void> = [];
+
+  /** The watch on `container`, started on first use. */
+  static of(container: HTMLElement): PressWatch {
+    let watch = PressWatch._watches.get(container);
+    if (!watch) {
+      watch = new PressWatch(container);
+      PressWatch._watches.set(container, watch);
+    }
+    return watch;
+  }
+
+  private constructor(container: HTMLElement) {
+    container.addEventListener("pointerdown", () => this._press(), true);
+  }
+
+  /** Resolves once no press is down, after the click its release makes has been handled. */
+  settled(): Promise<void> {
+    return this._pressed ? new Promise(resolve => this._waiting.push(resolve)) : Promise.resolve();
+  }
+
+  private _press(): void {
+    this._pressed = true;
+    const cap = setTimeout(() => release(), PRESS_WAIT_MS);
+    const release = (): void => {
+      clearTimeout(cap);
+      window.removeEventListener("pointerup", release, true);
+      window.removeEventListener("pointercancel", release, true);
+      // The click a release makes is dispatched with it: the redraw waits for it to be handled.
+      setTimeout(() => this._release(), 0);
+    };
+    window.addEventListener("pointerup", release, true);
+    window.addEventListener("pointercancel", release, true);
+  }
+
+  private _release(): void {
+    this._pressed = false;
+    for (const go of this._waiting.splice(0)) go();
+  }
+}
+
 /** A notification setting saved once the user pauses: its targets or one of its templates. */
 type PausedSetting = "notify_targets" | "notification_title_template" | "notification_message_template";
 
@@ -292,6 +345,9 @@ export class MonitoringTab {
       console.warn("SPAN Panel: monitoring status fetch failed", err);
       status = null;
     }
+    if (epoch !== this._epoch || seq !== this._renderSeq) return;
+    // A press under way lands on the control pressed before that control is drawn again.
+    await PressWatch.of(container).settled();
     if (epoch !== this._epoch || seq !== this._renderSeq) return;
 
     const globalSettings = status?.global_settings ?? {};

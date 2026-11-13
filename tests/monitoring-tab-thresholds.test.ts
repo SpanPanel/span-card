@@ -973,3 +973,68 @@ describe("turning monitoring on", () => {
     expect(container.querySelector<HTMLElement>("#global-fields")!.style.pointerEvents).toBe("none");
   });
 });
+
+describe("a press that leaving a field ends", () => {
+  /**
+   * Press the pointer on `target`, which takes focus from the field being typed in,
+   * as a mouse press does; the click lands only if `target` is still the element
+   * there when the press ends, as in a browser, where a click needs the press and
+   * the release on one element.
+   */
+  async function click(container: HTMLElement, selector: string, from: HTMLInputElement, act: (el: HTMLElement) => void): Promise<void> {
+    const target = container.querySelector<HTMLElement>(selector)!;
+    target.dispatchEvent(new Event("pointerdown", { bubbles: true, composed: true }));
+    from.blur();
+    await settle();
+    await settle();
+    window.dispatchEvent(new Event("pointerup"));
+    if (container.querySelector<HTMLElement>(selector) === target) act(target);
+    await settle();
+  }
+
+  it("lets the click land on the switch pressed before the tab is drawn again", async () => {
+    const panel = integration();
+    const { container } = await shown(panel);
+    const field = cell(container, OVEN, "cooldown_duration_m");
+    typeOnly(field, "20");
+
+    await click(container, `.circuit-toggle[data-entity="${OVEN}"]`, field, el => {
+      (el as HTMLInputElement).checked = false;
+      el.dispatchEvent(new Event("change"));
+    });
+    await vi.waitFor(() => expect(cell(container, OVEN, "cooldown_duration_m")).not.toBe(field));
+
+    expect(panel.saves).toEqual([
+      { service: "set_circuit_threshold", circuit_id: OVEN, cooldown_duration_m: 20, config_entry_id: "entry-1" },
+      { service: "set_circuit_threshold", circuit_id: OVEN, monitoring_enabled: false, config_entry_id: "entry-1" },
+    ]);
+  });
+
+  it("lets the click land on a Reset pressed before the tab is drawn again", async () => {
+    const panel = integration({ ovenOverride: true });
+    const { container } = await shown(panel);
+    const field = global(container, "g-cooldown");
+    typeOnly(field, "20");
+
+    await click(container, `.reset-btn[data-entity="${OVEN}"]`, field, el => el.click());
+
+    await vi.waitFor(() => expect(panel.saves.map(save => save.service)).toEqual(["set_global_monitoring", "clear_circuit_threshold"]));
+  });
+
+  it("draws the tab once the press is over", async () => {
+    const panel = integration();
+    const { container } = await shown(panel);
+    const field = cell(container, OVEN, "cooldown_duration_m");
+    typeOnly(field, "20");
+    const target = container.querySelector<HTMLElement>(`.circuit-toggle[data-entity="${OVEN}"]`)!;
+
+    target.dispatchEvent(new Event("pointerdown", { bubbles: true, composed: true }));
+    field.blur();
+    await settle();
+    await settle();
+    expect(cell(container, OVEN, "cooldown_duration_m")).toBe(field);
+
+    window.dispatchEvent(new Event("pointerup"));
+    await vi.waitFor(() => expect(cell(container, OVEN, "cooldown_duration_m")).not.toBe(field));
+  });
+});
