@@ -11,8 +11,11 @@
 - **A meter with no breaker space, such as a remote current transformer, is drawn in a Meters strip above the grid** with its import and export, and is left out
   of the circuits' total.
 - **A circuit the panel marks as solar is drawn and totalled as generation.**
-- **On MAIN 32, a circuit's Monitoring section takes a tandem's other breaker rating, copied from the SPAN app**, beside the panel's own rating, so current
-  monitoring judges that space against both breakers together.
+- **On MAIN 32, a tandem's other breaker rating, copied from the SPAN app, can be entered in the Monitoring tab's Rating column or in a circuit's Monitoring
+  section**, beside the panel's own rating, so current monitoring judges that space against both breakers together; instructions above the table say what to
+  copy.
+- **On MAIN 32, a circuit across two spaces takes the copy too**, kept without being applied because the panel reports only the average of its two legs, with a
+  recommendation and a button to turn monitoring off for that circuit.
 - **What current monitoring judges a circuit against is shown in its Monitoring section and in a Rating column on the Monitoring tab**, marked where it comes
   from ratings you copied.
 - **Every open view redraws when copied ratings change**, whether the change came from the dashboard, another browser or a service call.
@@ -27,6 +30,7 @@
   and 100% of the breaker rating.
 - **Threshold and duration fields in the side panel and the Monitoring tab save when you press Enter or leave them**, and only a whole number in their range, so
   stepping or scrolling a field no longer saves every value it passes through and an emptied field no longer saves 0.
+- **A circuit's name shows as written in its side panel's title**, so a name containing &, < or > no longer appears as `&amp;` and the like.
 
 ## 0.9.6
 

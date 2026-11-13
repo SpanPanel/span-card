@@ -11,6 +11,7 @@ vi.mock("../src/card/card-discovery.js", async importOriginal => ({
 import { discoverEntitiesFallback, discoverTopology } from "../src/card/card-discovery.js";
 import { DashboardController } from "../src/core/dashboard-controller.js";
 import { FavoritesController } from "../src/core/favorites-controller.js";
+import { FAVORITES_CHANGED_EVENT } from "../src/core/favorites-store.js";
 import { mergeCircuitIds, PACKAGE_RATINGS_CHANGED, subscribePackageRatingChanges } from "../src/core/rating-events.js";
 import { ErrorStore } from "../src/core/error-store.js";
 import { DashboardTab } from "../src/panel/tab-dashboard.js";
@@ -19,6 +20,7 @@ import "../src/core/side-panel.js";
 import "../src/card/span-panel-card.js";
 import "../src/panel/span-panel.js";
 import { FakeConnection, flush, hassWith } from "./fake-connection.js";
+import { blurOnRemoval } from "./removal-blur.js";
 
 const mockDiscover = vi.mocked(discoverTopology);
 const mockFallback = vi.mocked(discoverEntitiesFallback);
@@ -132,7 +134,10 @@ type SidePanel = HTMLElement & {
 
 const ENTRY = "entry-1";
 
-/** The Oven as the topology describes it; a user-set rating is a tandem copied from the SPAN app, the panel's rating first. */
+/**
+ * The Oven, in one space, as the topology describes it; a user-set rating is a tandem copied from the SPAN app, the
+ * panel's rating first, which applies. The integration offers a copy wherever the panel rates the circuit.
+ */
 function circuit(panel: number | null, monitoring: number | null, userSet = false): Circuit {
   return {
     name: "Oven",
@@ -143,6 +148,8 @@ function circuit(panel: number | null, monitoring: number | null, userSet = fals
     monitoring_rating_a: monitoring,
     monitoring_rating_user_set: userSet,
     package_ratings_a: userSet && panel !== null && monitoring !== null ? [panel, monitoring - panel] : null,
+    package_ratings_form: panel === null ? null : "one_space",
+    package_ratings_state: userSet ? "applies" : null,
   };
 }
 
@@ -156,23 +163,28 @@ function topologyOf(c: Circuit, entryId = ENTRY): PanelTopology {
   } as unknown as PanelTopology;
 }
 
-/** A `get_monitoring_status` answer with the circuit monitored, keyed as the integration keys it: its current sensor, else its power sensor. */
-function monitoringFor(c: Circuit): Record<string, unknown> {
+/** The key the integration gives a circuit's entry in `get_monitoring_status`: its current sensor, else its power sensor. */
+function pointKey(c: Circuit): string {
+  return c.entities.current ?? c.entities.power!;
+}
+
+/** A circuit's entry in a `get_monitoring_status` answer, monitored. */
+function pointOf(c: Circuit): Record<string, unknown> {
   return {
-    response: {
-      enabled: true,
-      circuits: {
-        [c.entities.current ?? c.entities.power!]: {
-          name: "Oven",
-          breaker_rating_a: c.breaker_rating_a,
-          monitoring_rating_a: c.monitoring_rating_a,
-          monitoring_rating_user_set: c.monitoring_rating_user_set,
-          package_ratings_a: c.package_ratings_a,
-          monitoring_enabled: true,
-        },
-      },
-    },
+    name: c.name,
+    breaker_rating_a: c.breaker_rating_a,
+    monitoring_rating_a: c.monitoring_rating_a,
+    monitoring_rating_user_set: c.monitoring_rating_user_set,
+    package_ratings_a: c.package_ratings_a,
+    package_ratings_form: c.package_ratings_form,
+    package_ratings_state: c.package_ratings_state,
+    monitoring_enabled: true,
   };
+}
+
+/** A `get_monitoring_status` answer with the circuit monitored. */
+function monitoringFor(c: Circuit): Record<string, unknown> {
+  return { response: { enabled: true, circuits: { [pointKey(c)]: pointOf(c) } } };
 }
 
 interface OpenPanel {
@@ -633,6 +645,14 @@ describe("the sidebar dashboard", () => {
   let rendered: PanelTopology;
   /** What `get_monitoring_status` answers for the Oven; null answers nothing. */
   let status: Circuit | null;
+  /** What `get_monitoring_status` answers in full, over `status`, where set. */
+  let table: Record<string, unknown> | null;
+  /** What `get_monitoring_status` answers in full for the entry it names, over `table`. */
+  let tables: Record<string, Record<string, unknown>>;
+  /** While set, each `get_monitoring_status` read waits for it. */
+  let statusGate: Promise<void> | null;
+  /** Every message the dashboard sent Home Assistant, in order. */
+  let sent: Record<string, unknown>[];
   /** The entity states Home Assistant holds. */
   let states: HomeAssistant["states"];
   let render: ReturnType<typeof vi.spyOn>;
@@ -644,9 +664,16 @@ describe("the sidebar dashboard", () => {
       states,
       user: { is_admin: isAdmin },
       callWS: (async (msg: Record<string, unknown>) => {
+        sent.push(msg);
         if (msg.type === "config/device_registry/list") return [device(1), device(2)];
         if (msg.service === "get_favorites") return { response: { favorites } };
-        if (msg.service === "get_monitoring_status" && status) return monitoringFor(status);
+        if (msg.service === "get_monitoring_status") {
+          if (statusGate) await statusGate;
+          const entry = (msg.service_data as { config_entry_id?: unknown } | undefined)?.config_entry_id;
+          if (typeof entry === "string" && entry in tables) return tables[entry];
+          if (table) return table;
+          if (status) return monitoringFor(status);
+        }
         return {};
       }) as HomeAssistant["callWS"],
     });
@@ -672,6 +699,10 @@ describe("the sidebar dashboard", () => {
     localStorage.clear();
     rendered = topologyOf(circuit(20, 20));
     status = null;
+    table = null;
+    tables = {};
+    statusGate = null;
+    sent = [];
     states = {};
     mockDiscover.mockImplementation(async () => ({ topology: rendered, panelDevice: null, panelSize: 32 }));
     render = vi.spyOn(DashboardTab.prototype, "render").mockImplementation(async () => rendered);
@@ -921,5 +952,420 @@ describe("the sidebar dashboard", () => {
     await flush();
 
     expect(connection.live(PACKAGE_RATINGS_CHANGED)).toBe(0);
+  });
+
+  describe("the Monitoring tab's other-breaker fields", () => {
+    const OVEN = "sensor.oven_power";
+    const DRYER = "sensor.dryer_power";
+    let undoBlur: () => void;
+
+    beforeEach(() => {
+      // A redraw blurs the field it takes, as Chromium does.
+      undoBlur = blurOnRemoval();
+    });
+    afterEach(() => undoBlur());
+
+    /** The Dryer, in its own space beside the Oven. */
+    const dryerOf = (c: Circuit): Circuit => ({ ...c, name: "Dryer", entities: { power: DRYER } });
+
+    /**
+     * The Oven (c-1) and the Dryer (c-2) as the topology and the Monitoring tab's
+     * table show them, the integration offering a copy on each; a point's id is
+     * the circuit id the package-ratings services and events name it by.
+     */
+    function holds(oven: Circuit, dryer: Circuit): void {
+      rendered = { ...topologyOf(oven), circuits: { "c-1": oven, "c-2": dryer } };
+      table = {
+        response: {
+          enabled: true,
+          monitoring_rating_offered: true,
+          circuits: { [pointKey(oven)]: { ...pointOf(oven), point_id: "c-1" }, [pointKey(dryer)]: { ...pointOf(dryer), point_id: "c-2" } },
+        },
+      };
+    }
+
+    const content = (panel: Panel): HTMLElement => panel.shadowRoot!.getElementById("tab-content")!;
+    const fieldOf = (panel: Panel, entity: string): HTMLInputElement | null =>
+      content(panel).querySelector<HTMLInputElement>(`.rating-input[data-entity="${entity}"]`);
+    const callsTo = (service: string): Record<string, unknown>[] => sent.filter(m => m.service === service);
+    const packageSaves = (): unknown[] => callsTo("set_circuit_package_ratings").map(m => m.service_data);
+
+    /** Type `value` into `field`, as keystrokes do, without committing it. */
+    function typeOnly(field: HTMLInputElement, value: string): void {
+      field.focus();
+      field.value = value;
+      field.dispatchEvent(new Event("input"));
+    }
+
+    /** What the tab content holds while the status read `act` starts is on its way; the read is then answered and the table drawn. */
+    async function shownWhileLoading(panel: Panel, act: () => void): Promise<string> {
+      let release: () => void = () => {};
+      statusGate = new Promise<void>(resolve => (release = resolve));
+      const reads = callsTo("get_monitoring_status").length;
+      act();
+      await vi.waitFor(() => expect(callsTo("get_monitoring_status")).toHaveLength(reads + 1));
+      const shown = content(panel).innerHTML;
+      statusGate = null;
+      release();
+      await vi.waitFor(() => expect(fieldOf(panel, OVEN)).not.toBeNull());
+      return shown;
+    }
+
+    it("keeps what is typed in one row's field, and its focus, across a refresh for a copy changed in another row", async () => {
+      holds(circuit(20, 20), dryerOf(circuit(20, 20)));
+      const connection = new FakeConnection();
+      const panel = await mount(connection);
+      showTab(panel, "monitoring");
+      await vi.waitFor(() => expect(fieldOf(panel, OVEN)).not.toBeNull());
+      typeOnly(fieldOf(panel, OVEN)!, "3");
+
+      // Another browser copies the Dryer's 20-20 tandem from the SPAN app.
+      holds(circuit(20, 20), dryerOf(circuit(20, 40, true)));
+      connection.emit(PACKAGE_RATINGS_CHANGED, ratingEvent("entry-1", ["c-2"]));
+      await vi.waitFor(() => expect(fieldOf(panel, DRYER)!.value).toBe("20"));
+
+      const field = fieldOf(panel, OVEN)!;
+      expect(field.value).toBe("3");
+      expect(panel.shadowRoot!.activeElement).toBe(field);
+      expect(packageSaves()).toEqual([]);
+
+      // What was typed is still the user's to commit.
+      field.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter" }));
+      expect(packageSaves()).toEqual([{ circuit_id: "c-1", package_ratings_a: [20, 3], config_entry_id: "entry-1" }]);
+    });
+
+    it("starts from a cleared container, while the status loads, when switched to from another tab and back", async () => {
+      holds(circuit(20, 20), dryerOf(circuit(20, 20)));
+      render.mockImplementation(async (container: HTMLElement) => {
+        container.innerHTML = `<p class="by-panel">By Panel</p>`;
+        return rendered;
+      });
+      const connection = new FakeConnection();
+      const panel = await mount(connection);
+      expect(content(panel).querySelector(".by-panel")).not.toBeNull();
+
+      expect(await shownWhileLoading(panel, () => showTab(panel, "monitoring"))).toBe("");
+
+      showTab(panel, "dashboard");
+      await vi.waitFor(() => expect(content(panel).querySelector(".by-panel")).not.toBeNull());
+      expect(await shownWhileLoading(panel, () => showTab(panel, "monitoring"))).toBe("");
+    });
+
+    it("starts from a cleared container, while the status loads, when switched to another panel, carrying nothing typed on the first", async () => {
+      holds(circuit(20, 20), dryerOf(circuit(20, 20)));
+      const connection = new FakeConnection();
+      const panel = await mount(connection);
+      showTab(panel, "monitoring");
+      await vi.waitFor(() => expect(fieldOf(panel, OVEN)).not.toBeNull());
+      typeOnly(fieldOf(panel, OVEN)!, "3");
+      const select = panel.shadowRoot!.getElementById("panel-select") as HTMLSelectElement;
+
+      const shown = await shownWhileLoading(panel, () => {
+        select.value = "panel-2";
+        select.dispatchEvent(new Event("change"));
+      });
+
+      const reads = callsTo("get_monitoring_status");
+      expect(shown).toBe("");
+      expect(reads[reads.length - 1]!.service_data).toEqual({ config_entry_id: "entry-2" });
+      expect(fieldOf(panel, OVEN)!.value).toBe("");
+      expect(packageSaves()).toEqual([]);
+    });
+
+    it("leaves the tab running across a re-render of the view it shows, and stops it once the user leaves", async () => {
+      holds(circuit(20, 20), dryerOf(circuit(20, 20)));
+      const connection = new FakeConnection();
+      const panel = await mount(connection);
+      showTab(panel, "monitoring");
+      await vi.waitFor(() => expect(fieldOf(panel, OVEN)).not.toBeNull());
+      const stop = vi.spyOn(MonitoringTab.prototype, "stop");
+
+      holds(circuit(20, 20), dryerOf(circuit(20, 40, true)));
+      connection.emit(PACKAGE_RATINGS_CHANGED, ratingEvent("entry-1", ["c-2"]));
+      await vi.waitFor(() => expect(fieldOf(panel, DRYER)!.value).toBe("20"));
+      expect(stop).not.toHaveBeenCalled();
+
+      showTab(panel, "dashboard");
+      await vi.waitFor(() => expect(stop).toHaveBeenCalled());
+    });
+
+    describe("in the Favorites view", () => {
+      /** What `get_favorites` answers, by panel; a test changes it as a heart toggled elsewhere would. */
+      let favorites: Record<string, { circuits: string[]; sub_devices: string[] }>;
+
+      /** The Heater, panel 2's one circuit, with its id and its entry's table. */
+      const HEATER = "sensor.heater_power";
+      const heater: Circuit = { ...circuit(20, 20), name: "Heater", entities: { power: HEATER } };
+
+      beforeEach(() => {
+        favorites = { "panel-1": { circuits: ["c-1"], sub_devices: [] } };
+        localStorage.setItem("span_panel_selected", "favorites");
+        localStorage.setItem("span_panel_favorites_view_state", JSON.stringify({ activeTab: "monitoring", expanded: { activity: [], area: [] } }));
+        const second = { ...topologyOf(heater, "entry-2"), panel_device_id: "panel-2" } as PanelTopology;
+        mockDiscover.mockImplementation(async (_hass, panelId) => ({ topology: panelId === "panel-2" ? second : rendered, panelDevice: null, panelSize: 32 }));
+        tables = {
+          "entry-2": { response: { enabled: true, monitoring_rating_offered: true, circuits: { [HEATER]: { ...pointOf(heater), point_id: "c-1" } } } },
+        };
+      });
+
+      /** The dashboard, opened on the Favorites view's Monitoring tab, as the user last left it. */
+      async function mountFavorites(connection: FakeConnection): Promise<Panel> {
+        const panel = document.createElement("span-panel") as Panel;
+        panel.hass = panelHass(connection, true, favorites);
+        document.body.appendChild(panel);
+        mounted.push(panel);
+        await vi.waitFor(() => expect(fieldOf(panel, OVEN)).not.toBeNull());
+        return panel;
+      }
+
+      /** The panels the view's Monitoring stack shows, by the heading over each one's table. */
+      const headings = (panel: Panel): string[] =>
+        [...content(panel).querySelectorAll(".favorites-monitoring-block > h2")].map(heading => heading.textContent ?? "");
+
+      /** Tell the dashboard the favorites changed, as a heart toggled in a side panel does. */
+      const favoritesChanged = (): void => void document.dispatchEvent(new CustomEvent(FAVORITES_CHANGED_EVENT));
+
+      /** Pick `id` in the panel selector, as the user does. */
+      function choose(panel: Panel, id: string): void {
+        const select = panel.shadowRoot!.getElementById("panel-select") as HTMLSelectElement;
+        select.value = id;
+        select.dispatchEvent(new Event("change"));
+      }
+
+      /** Let every callback a settled read or save queued run. */
+      const settled = async (): Promise<void> => {
+        for (let i = 0; i < 3; i += 1) await new Promise(resolve => setTimeout(resolve, 0));
+      };
+
+      /** Navigate away from the dashboard and back, as the user does in Home Assistant: `#tab-content` survives. */
+      async function detachAndAttach(panel: Panel, connection: FakeConnection): Promise<void> {
+        panel.remove();
+        await settled();
+        document.body.appendChild(panel);
+        await vi.waitFor(() => expect(connection.live(PACKAGE_RATINGS_CHANGED)).toBe(2));
+      }
+
+      /** The click listeners on the page from now on that are still there: each tab's own, while it listens. */
+      function pageClickListeners(): () => unknown[] {
+        const added = vi.spyOn(document, "addEventListener");
+        const removed = vi.spyOn(document, "removeEventListener");
+        return () => {
+          const gone = new Set(removed.mock.calls.filter(([type]) => type === "click").map(([, listener]) => listener));
+          return added.mock.calls.filter(([type, listener]) => type === "click" && !gone.has(listener)).map(([, listener]) => listener);
+        };
+      }
+
+      it("keeps what is typed in one row's field, and its focus, across a refresh for a copy changed in another row", async () => {
+        holds(circuit(20, 20), dryerOf(circuit(20, 20)));
+        const connection = new FakeConnection();
+        const panel = await mountFavorites(connection);
+        typeOnly(fieldOf(panel, OVEN)!, "3");
+
+        // Another browser copies the Dryer's 20-20 tandem from the SPAN app.
+        holds(circuit(20, 20), dryerOf(circuit(20, 40, true)));
+        connection.emit(PACKAGE_RATINGS_CHANGED, ratingEvent("entry-1", ["c-2"]));
+        await vi.waitFor(() => expect(fieldOf(panel, DRYER)!.value).toBe("20"));
+
+        const field = fieldOf(panel, OVEN)!;
+        expect(field.value).toBe("3");
+        expect(panel.shadowRoot!.activeElement).toBe(field);
+        expect(packageSaves()).toEqual([]);
+
+        // What was typed is still the user's to commit.
+        field.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter" }));
+        expect(packageSaves()).toEqual([{ circuit_id: "c-1", package_ratings_a: [20, 3], config_entry_id: "entry-1" }]);
+      });
+
+      it("keeps each panel's table, and what is typed in it, as another panel joins the view and leaves it", async () => {
+        holds(circuit(20, 20), dryerOf(circuit(20, 20)));
+        const connection = new FakeConnection();
+        const panel = await mountFavorites(connection);
+        typeOnly(fieldOf(panel, OVEN)!, "3");
+
+        favorites["panel-2"] = { circuits: ["c-1"], sub_devices: [] };
+        favoritesChanged();
+        await vi.waitFor(() => expect(fieldOf(panel, HEATER)).not.toBeNull());
+        expect(headings(panel)).toEqual(["Panel 1", "Panel 2"]);
+        expect(fieldOf(panel, OVEN)!.value).toBe("3");
+        expect(panel.shadowRoot!.activeElement).toBe(fieldOf(panel, OVEN));
+
+        delete favorites["panel-2"];
+        favoritesChanged();
+        await vi.waitFor(() => expect(headings(panel)).toEqual(["Panel 1"]));
+        expect(fieldOf(panel, HEATER)).toBeNull();
+        const field = fieldOf(panel, OVEN)!;
+        expect(field.value).toBe("3");
+        expect(panel.shadowRoot!.activeElement).toBe(field);
+        expect(packageSaves()).toEqual([]);
+
+        field.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter" }));
+        expect(packageSaves()).toEqual([{ circuit_id: "c-1", package_ratings_a: [20, 3], config_entry_id: "entry-1" }]);
+      });
+
+      it("starts from a cleared container, while the status loads, when switched out of the view and back into it", async () => {
+        holds(circuit(20, 20), dryerOf(circuit(20, 20)));
+        const connection = new FakeConnection();
+        const panel = await mountFavorites(connection);
+        typeOnly(fieldOf(panel, OVEN)!, "3");
+
+        expect(await shownWhileLoading(panel, () => choose(panel, "panel-1"))).toBe("");
+        typeOnly(fieldOf(panel, OVEN)!, "4");
+
+        // Back in the view, nothing of panel 1's own tab shows while the stack's first table loads.
+        const shown = await shownWhileLoading(panel, () => choose(panel, "favorites"));
+        expect(shown).not.toContain("<table");
+        expect(shown).not.toContain("rating-input");
+        expect(headings(panel)).toEqual(["Panel 1"]);
+        expect(fieldOf(panel, OVEN)!.value).toBe("");
+        expect(packageSaves()).toEqual([]);
+      });
+
+      it("leaves each panel's tab running across a re-render of the view, and stops it once the user leaves", async () => {
+        holds(circuit(20, 20), dryerOf(circuit(20, 20)));
+        const draws = vi.spyOn(MonitoringTab.prototype, "render");
+        const connection = new FakeConnection();
+        const panel = await mountFavorites(connection);
+        const [favoritesTab] = draws.mock.contexts;
+        const stop = vi.spyOn(MonitoringTab.prototype, "stop");
+
+        holds(circuit(20, 20), dryerOf(circuit(20, 40, true)));
+        connection.emit(PACKAGE_RATINGS_CHANGED, ratingEvent("entry-1", ["c-2"]));
+        await vi.waitFor(() => expect(fieldOf(panel, DRYER)!.value).toBe("20"));
+        expect(draws.mock.contexts.every(tab => tab === favoritesTab)).toBe(true);
+        expect(stop).not.toHaveBeenCalled();
+
+        choose(panel, "panel-1");
+        await vi.waitFor(() => expect(stop.mock.contexts).toContain(favoritesTab));
+      });
+
+      it("stops the tab of a panel that leaves the view, and only that one", async () => {
+        holds(circuit(20, 20), dryerOf(circuit(20, 20)));
+        favorites["panel-2"] = { circuits: ["c-1"], sub_devices: [] };
+        const draws = vi.spyOn(MonitoringTab.prototype, "render");
+        const connection = new FakeConnection();
+        const panel = await mountFavorites(connection);
+        await vi.waitFor(() => expect(fieldOf(panel, HEATER)).not.toBeNull());
+        const leaving = draws.mock.contexts[draws.mock.calls.findIndex(([, , entryId]) => entryId === "entry-2")];
+        const stop = vi.spyOn(MonitoringTab.prototype, "stop");
+
+        delete favorites["panel-2"];
+        favoritesChanged();
+        await vi.waitFor(() => expect(headings(panel)).toEqual(["Panel 1"]));
+
+        expect(leaving).toBeInstanceOf(MonitoringTab);
+        expect(stop.mock.contexts).toEqual([leaving]);
+      });
+
+      it("keeps what is typed in one row's field, and its focus, across a refresh once the dashboard is detached and attached again", async () => {
+        holds(circuit(20, 20), dryerOf(circuit(20, 20)));
+        const connection = new FakeConnection();
+        const panel = await mountFavorites(connection);
+        await detachAndAttach(panel, connection);
+        typeOnly(fieldOf(panel, OVEN)!, "3");
+
+        // Another browser copies the Dryer's 20-20 tandem from the SPAN app.
+        holds(circuit(20, 20), dryerOf(circuit(20, 40, true)));
+        connection.emit(PACKAGE_RATINGS_CHANGED, ratingEvent("entry-1", ["c-2"]));
+        await vi.waitFor(() => expect(fieldOf(panel, DRYER)!.value).toBe("20"));
+
+        const field = fieldOf(panel, OVEN)!;
+        expect(field.value).toBe("3");
+        expect(panel.shadowRoot!.activeElement).toBe(field);
+        expect(packageSaves()).toEqual([]);
+
+        field.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter" }));
+        expect(packageSaves()).toEqual([{ circuit_id: "c-1", package_ratings_a: [20, 3], config_entry_id: "entry-1" }]);
+      });
+
+      it("leaves no tab listening on the page once the user leaves the view, after a save across a detach and attach", async () => {
+        holds(circuit(20, 20), dryerOf(circuit(20, 20)));
+        const listening = pageClickListeners();
+        const connection = new FakeConnection();
+        const panel = await mountFavorites(connection);
+        await detachAndAttach(panel, connection);
+
+        // A save in a table drawn before the detach draws that table again.
+        const reads = callsTo("get_monitoring_status").length;
+        const field = fieldOf(panel, OVEN)!;
+        typeOnly(field, "20");
+        field.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter" }));
+        await vi.waitFor(() => expect(callsTo("get_monitoring_status").length).toBeGreaterThan(reads));
+        await settled();
+        // A refresh for another circuit's copy draws the view again.
+        holds(circuit(20, 20), dryerOf(circuit(20, 40, true)));
+        connection.emit(PACKAGE_RATINGS_CHANGED, ratingEvent("entry-1", ["c-2"]));
+        await vi.waitFor(() => expect(fieldOf(panel, DRYER)!.value).toBe("20"));
+
+        // The user leaves for a panel's Monitoring tab, then its By Panel tab.
+        choose(panel, "panel-1");
+        await vi.waitFor(() => expect(headings(panel)).toEqual([]));
+        await vi.waitFor(() => expect(fieldOf(panel, OVEN)).not.toBeNull());
+        const renders = render.mock.calls.length;
+        showTab(panel, "dashboard");
+        await vi.waitFor(() => expect(render.mock.calls.length).toBeGreaterThan(renders));
+        await settled();
+
+        expect(packageSaves()).toEqual([{ circuit_id: "c-1", package_ratings_a: [20, 20], config_entry_id: "entry-1" }]);
+        expect(listening()).toEqual([]);
+      });
+
+      it("draws nothing while detached as the view loads, leaving no tab listening, and draws the rest once attached again", async () => {
+        holds(circuit(20, 20), dryerOf(circuit(20, 20)));
+        favorites["panel-2"] = { circuits: ["c-1"], sub_devices: [] };
+        const listening = pageClickListeners();
+        let release: () => void = () => {};
+        statusGate = new Promise<void>(resolve => (release = resolve));
+        const connection = new FakeConnection();
+        const panel = document.createElement("span-panel") as Panel;
+        panel.hass = panelHass(connection, true, favorites);
+        document.body.appendChild(panel);
+        mounted.push(panel);
+        // Panel 1's table is being read as the user navigates away.
+        await vi.waitFor(() => expect(callsTo("get_monitoring_status")).toHaveLength(1));
+
+        panel.remove();
+        statusGate = null;
+        release();
+        await settled();
+
+        expect(headings(panel)).toEqual(["Panel 1"]);
+        expect(fieldOf(panel, OVEN)).toBeNull();
+        expect(callsTo("get_monitoring_status")).toHaveLength(1);
+        expect(listening()).toEqual([]);
+
+        document.body.appendChild(panel);
+        await vi.waitFor(() => expect(fieldOf(panel, HEATER)).not.toBeNull());
+        expect(headings(panel)).toEqual(["Panel 1", "Panel 2"]);
+        expect(fieldOf(panel, OVEN)).not.toBeNull();
+      });
+
+      it("draws the view once attached again after a detach while its panels' topologies load", async () => {
+        holds(circuit(20, 20), dryerOf(circuit(20, 20)));
+        const listening = pageClickListeners();
+        let open: () => void = () => {};
+        const loading = new Promise<void>(resolve => (open = resolve));
+        mockDiscover.mockImplementation(async () => {
+          await loading;
+          return { topology: rendered, panelDevice: null, panelSize: 32 };
+        });
+        const connection = new FakeConnection();
+        const panel = document.createElement("span-panel") as Panel;
+        panel.hass = panelHass(connection, true, favorites);
+        document.body.appendChild(panel);
+        mounted.push(panel);
+        await vi.waitFor(() => expect(mockDiscover).toHaveBeenCalled());
+
+        panel.remove();
+        open();
+        await settled();
+
+        expect(callsTo("get_monitoring_status")).toEqual([]);
+        expect(listening()).toEqual([]);
+
+        document.body.appendChild(panel);
+        await vi.waitFor(() => expect(fieldOf(panel, OVEN)).not.toBeNull());
+        expect(headings(panel)).toEqual(["Panel 1"]);
+      });
+    });
   });
 });

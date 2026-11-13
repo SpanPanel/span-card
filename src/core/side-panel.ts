@@ -3,10 +3,10 @@ import { escapeHtml } from "../helpers/sanitize.js";
 import { loadListColumns, saveListColumns } from "../helpers/list-columns.js";
 import { INTEGRATION_DOMAIN, SHEDDING_PRIORITIES, SELECTABLE_PRIORITY_KEYS, GRAPH_HORIZONS, DEFAULT_GRAPH_HORIZON, INPUT_DEBOUNCE_MS } from "../constants.js";
 import { t, tf } from "../i18n.js";
-import { judgedAgainstSentence, monitoringRatingView } from "../helpers/monitoring-rating.js";
-import { serviceErrorMessage } from "../helpers/error-text.js";
+import { isMonitored, judgedAgainstSentence, monitoringRatingView } from "../helpers/monitoring-rating.js";
+import { reportPackageRatingsFailure } from "../helpers/other-breaker-field.js";
 import { occupiedSpaces, slotRatingText, type SlotMember } from "../helpers/shared-meters.js";
-import { PackageRatingsEditor, type PackageRatingsHost, type PackageRatingsState } from "./package-ratings-editor.js";
+import { PackageRatingsEditor, type PackageRatingsHost, type PackageRatingsView } from "./package-ratings-editor.js";
 import { bindLimitField, LIMIT_RANGES, type LimitField, type LimitFieldHandle } from "../helpers/number-field.js";
 import { focusWithin } from "../helpers/focus.js";
 import { circuitMonitoringInfo, monitoringStatusFrom } from "./monitoring-status.js";
@@ -976,7 +976,7 @@ class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
   }
 
   private _renderCircuitMode(panel: HTMLDivElement, cfg: CircuitModeConfig): void {
-    const header = this._createHeader(escapeHtml(cfg.name), this._circuitSubtitle(cfg));
+    const header = this._createHeader(cfg.name, this._circuitSubtitle(cfg));
     panel.appendChild(header);
 
     const body = document.createElement("div");
@@ -1183,7 +1183,7 @@ class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
   }
 
   private _renderSubDeviceMode(panel: HTMLDivElement, cfg: SubDeviceModeConfig): void {
-    const header = this._createHeader(escapeHtml(cfg.name), escapeHtml(cfg.deviceType));
+    const header = this._createHeader(cfg.name, cfg.deviceType);
     panel.appendChild(header);
 
     const body = document.createElement("div");
@@ -1295,14 +1295,22 @@ class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
     body.appendChild(section);
   }
 
+  /** The panel's header: `title` and `subtitle` are plain text, drawn as written; an empty subtitle draws no line. */
   private _createHeader(title: string, subtitle: string): HTMLDivElement {
     const header = document.createElement("div");
     header.className = "panel-header";
 
     const titleWrap = document.createElement("div");
-    const safeTitle = escapeHtml(title);
-    const safeSubtitle = escapeHtml(subtitle);
-    titleWrap.innerHTML = `<div class="title">${safeTitle}</div>` + (safeSubtitle ? `<div class="subtitle">${safeSubtitle}</div>` : "");
+    const titleEl = document.createElement("div");
+    titleEl.className = "title";
+    titleEl.textContent = title;
+    titleWrap.appendChild(titleEl);
+    if (subtitle) {
+      const subtitleEl = document.createElement("div");
+      subtitleEl.className = "subtitle";
+      subtitleEl.textContent = subtitle;
+      titleWrap.appendChild(subtitleEl);
+    }
 
     const closeBtn = document.createElement("button");
     closeBtn.className = "close-btn";
@@ -1410,7 +1418,7 @@ class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
   // ── Package ratings editor (inside the Monitoring section) ──────────
 
   /** What the package ratings editor draws from: the open circuit's slot and monitoring; null in any other mode. */
-  get ratingsState(): PackageRatingsState | null {
+  get ratingsView(): PackageRatingsView | null {
     const cfg = this._config;
     if (!cfg || cfg.panelMode || cfg.subDeviceMode || cfg.favoritesMode || !cfg.showMonitoring) return null;
     return {
@@ -1428,12 +1436,9 @@ class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
     return this._callDomainService("clear_circuit_package_ratings", this._ratingsPayload(uuid, {}));
   }
 
-  /** A refusal shows the integration's message in the user's language (`serviceErrorMessage`), else the generic one. */
+  /** A refusal shows the integration's message in the user's language, else the generic one (`reportPackageRatingsFailure`). */
   reportRatingsFailure(err: unknown): void {
-    console.warn("SPAN Panel: package ratings update failed", err);
-    void serviceErrorMessage(this._hass, err, INTEGRATION_DOMAIN, t("error.package_ratings_failed")).then(message => {
-      this.errorStore?.add({ key: "service:package-ratings", level: "error", message, persistent: false });
-    });
+    reportPackageRatingsFailure(this._hass, this.errorStore, err);
   }
 
   /**
@@ -1469,11 +1474,25 @@ class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
     }
     // The circuit now takes the global thresholds, where they are known.
     const globals = this._config === cfg ? (cfg.monitoringGlobals ?? null) : null;
-    this._thresholdsChanged(cfg.uuid, {
+    this._monitoringChanged(cfg.uuid, {
       has_override: false,
       continuous_threshold_pct: globals?.continuous_threshold_pct,
       spike_threshold_pct: globals?.spike_threshold_pct,
     });
+    return true;
+  }
+
+  /**
+   * Turn monitoring off for the open circuit with the Monitoring switch's own call
+   * (`_sendMonitoringEnabled`), as the averaged-legs warning recommends. Resolves
+   * whether it succeeded; only then is monitoring shown off, as the switch shows
+   * it (`_showMonitoringEnabled`), so the warning goes with the details holding it.
+   */
+  async turnOffMonitoring(): Promise<boolean> {
+    const cfg = this._config;
+    if (!cfg || cfg.panelMode || cfg.subDeviceMode || cfg.favoritesMode) return false;
+    if (!(await this._sendMonitoringEnabled(cfg, false))) return false;
+    this._showMonitoringEnabled(cfg.uuid, false);
     return true;
   }
 
@@ -1495,12 +1514,12 @@ class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
   }
 
   /**
-   * Fold a threshold change the integration accepted for circuit `uuid` into the
-   * open circuit's monitoring, so what reads it, the editor's warning, follows at
-   * once rather than at the next refresh. Ignored where the panel has since closed
-   * or moved to another circuit.
+   * Fold a change to circuit `uuid`'s monitoring into the open circuit's: thresholds
+   * the integration accepted, or monitoring turned on or off. What reads it, the
+   * editor's warnings, then follows at once rather than at the next refresh.
+   * Ignored where the panel has since closed or moved to another circuit.
    */
-  private _thresholdsChanged(uuid: string, change: Partial<MonitoringPointInfo>): void {
+  private _monitoringChanged(uuid: string, change: Partial<MonitoringPointInfo>): void {
     const cfg = this._openCircuitConfig(uuid);
     if (!cfg) return;
     this._config = { ...cfg, monitoringInfo: { ...(cfg.monitoringInfo ?? {}), ...change } };
@@ -1675,7 +1694,7 @@ class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
     enableToggle.dataset.role = "monitoring-toggle";
 
     const info = cfg.monitoringInfo;
-    const isEnabled = info != null && info.monitoring_enabled !== false;
+    const isEnabled = isMonitored(info);
     if (isEnabled) {
       enableToggle.setAttribute("checked", "");
     }
@@ -1730,25 +1749,11 @@ class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
     thresholdsWrap.appendChild(this._createLimitRow(t("sidepanel.cooldown"), "cooldown-m", cooldownVal, "m", cfg));
     detailsWrap.appendChild(thresholdsWrap);
 
-    // Event: monitoring enable toggle
+    // Event: monitoring enable toggle, shown at once as the user set it.
     enableToggle.addEventListener("change", () => {
       const checked = enableToggle.checked;
-      detailsWrap.style.display = checked ? "block" : "none";
-      const entityId = cfg.entities?.power || cfg.uuid;
-      const data: Record<string, unknown> = {
-        circuit_id: entityId,
-        monitoring_enabled: checked,
-      };
-      if (cfg.configEntryId) data.config_entry_id = cfg.configEntryId;
-      this._callDomainService("set_circuit_threshold", data).catch((err: Error) => {
-        console.warn("SPAN Panel: monitoring update failed", err);
-        this.errorStore?.add({
-          key: "service:monitoring",
-          level: "error",
-          message: t("error.threshold_failed"),
-          persistent: false,
-        });
-      });
+      this._showMonitoringEnabled(cfg.uuid, checked);
+      void this._sendMonitoringEnabled(cfg, checked);
     });
 
     // Event: radio change. Choosing Global is the threshold reset, which puts the choice back if it fails.
@@ -1762,6 +1767,47 @@ class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
     }
 
     body.appendChild(section);
+  }
+
+  /**
+   * Send whether monitoring is on for the circuit, the Monitoring switch's call,
+   * which the averaged-legs warning's button sends too. Resolves whether it
+   * succeeded; a failure is shown as the switch has always shown one.
+   */
+  private async _sendMonitoringEnabled(cfg: CircuitModeConfig, enabled: boolean): Promise<boolean> {
+    const data: Record<string, unknown> = { circuit_id: cfg.entities?.power || cfg.uuid, monitoring_enabled: enabled };
+    if (cfg.configEntryId) data.config_entry_id = cfg.configEntryId;
+    try {
+      await this._callDomainService("set_circuit_threshold", data);
+      return true;
+    } catch (err: unknown) {
+      console.warn("SPAN Panel: monitoring update failed", err);
+      this.errorStore?.add({ key: "service:monitoring", level: "error", message: t("error.threshold_failed"), persistent: false });
+      return false;
+    }
+  }
+
+  /**
+   * Show monitoring on or off for circuit `uuid` as the Monitoring switch shows
+   * it: the switch itself; the details under it, the package ratings editor and
+   * the thresholds, shown only while monitoring is on; and the circuit's
+   * monitoring as the editor reads it, so its warnings follow, the averaged-legs
+   * one going while monitoring is off. Focus in the details as they hide goes to
+   * the switch. Ignored where the panel has since closed or moved to another circuit.
+   */
+  private _showMonitoringEnabled(uuid: string, enabled: boolean): void {
+    const shadow = this.shadowRoot;
+    if (!this._openCircuitConfig(uuid) || !shadow) return;
+    // The attribute, as for the relay switch, which the switch reads as its state.
+    const toggle = shadow.querySelector<HTMLElement>('[data-role="monitoring-toggle"]');
+    toggle?.toggleAttribute("checked", enabled);
+    const details = shadow.querySelector<HTMLElement>('[data-role="monitoring-details"]');
+    if (details) {
+      const hadFocus = !enabled && focusWithin(details);
+      details.style.display = enabled ? "block" : "none";
+      if (hadFocus) toggle?.focus();
+    }
+    this._monitoringChanged(uuid, { monitoring_enabled: enabled });
   }
 
   /**
@@ -1905,7 +1951,7 @@ class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
     const change: Partial<MonitoringPointInfo> = { has_override: true };
     if (typeof entered.continuous_threshold_pct === "number") change.continuous_threshold_pct = entered.continuous_threshold_pct;
     if (typeof entered.spike_threshold_pct === "number") change.spike_threshold_pct = entered.spike_threshold_pct;
-    this._thresholdsChanged(cfg.uuid, change);
+    this._monitoringChanged(cfg.uuid, change);
   }
 
   // ── Service calls ───────────────────────────────────────────────────

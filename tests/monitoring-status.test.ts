@@ -9,6 +9,7 @@ import {
   buildMonitoringSummaryHTML,
   utilizationLevel,
 } from "../src/core/monitoring-status.js";
+import { coerceMonitoringStatusResponse } from "../src/panel/tab-monitoring.js";
 import type { MonitoringPointInfo, MonitoringStatus } from "../src/types.js";
 
 describe("getCircuitMonitoringInfo", () => {
@@ -283,5 +284,67 @@ describe("the monitoring summary's counts", () => {
 
   it("counts a point that reports no thresholds against 80 % and 100 %", () => {
     expect(counts([{ utilization_pct: 85 }, { utilization_pct: 120 }])).toEqual({ warnings: 1, alerts: 1 });
+  });
+});
+
+describe("coerceMonitoringStatusResponse", () => {
+  /** A circuit entry as an integration that publishes package-ratings forms and states reports it. */
+  const ENTRY = { name: "Oven", point_id: "c-1", breaker_rating_a: 20, monitoring_rating_a: 40, package_ratings_a: [20, 20] };
+
+  it("keeps whether the panel takes package ratings", () => {
+    expect(coerceMonitoringStatusResponse({ enabled: true, monitoring_rating_offered: true })).toEqual({ enabled: true, monitoring_rating_offered: true });
+    expect(coerceMonitoringStatusResponse({ enabled: true, monitoring_rating_offered: false })).toEqual({ enabled: true, monitoring_rating_offered: false });
+  });
+
+  it("drops a monitoring_rating_offered that is not a boolean, which offers nothing", () => {
+    expect(coerceMonitoringStatusResponse({ enabled: true, monitoring_rating_offered: "true" })).toEqual({ enabled: true });
+  });
+
+  it.each([
+    ["one_space", "applies"],
+    ["two_spaces", "averaged_legs"],
+    ["one_space", "pending"],
+    [null, null],
+  ])("keeps a circuit entry's form %j and state %j, and the rest of the entry", (form, state) => {
+    const entry = { ...ENTRY, package_ratings_form: form, package_ratings_state: state };
+    expect(coerceMonitoringStatusResponse({ circuits: { "sensor.oven_current": entry } })?.circuits).toEqual({ "sensor.oven_current": entry });
+  });
+
+  it("keeps the form and state on the mains' entries, where the integration publishes them null", () => {
+    const leg = { name: "Mains", package_ratings_form: null, package_ratings_state: null };
+    expect(coerceMonitoringStatusResponse({ mains: { "sensor.mains_current": leg } })?.mains).toEqual({ "sensor.mains_current": leg });
+  });
+
+  it("drops a form or state outside its type, keeping the rest of the entry", () => {
+    const status = coerceMonitoringStatusResponse({
+      circuits: {
+        "sensor.oven_current": { ...ENTRY, package_ratings_form: "three", package_ratings_state: "applies" },
+        "sensor.dryer_current": { ...ENTRY, package_ratings_form: "two_spaces", package_ratings_state: "judged" },
+        "sensor.range_current": { ...ENTRY, package_ratings_form: 1, package_ratings_state: true },
+      },
+    });
+    expect(status?.circuits).toEqual({
+      "sensor.oven_current": { ...ENTRY, package_ratings_state: "applies" },
+      "sensor.dryer_current": { ...ENTRY, package_ratings_form: "two_spaces" },
+      "sensor.range_current": ENTRY,
+    });
+  });
+
+  it("leaves an entry from an integration that predates forms and states without them", () => {
+    const entry = coerceMonitoringStatusResponse({ circuits: { "sensor.oven_current": ENTRY } })?.circuits?.["sensor.oven_current"];
+    expect(entry).toEqual(ENTRY);
+    expect(entry).not.toHaveProperty("package_ratings_form");
+    expect(entry).not.toHaveProperty("package_ratings_state");
+  });
+
+  it("drops an entry that is not an object, keeping the others", () => {
+    expect(coerceMonitoringStatusResponse({ circuits: { "sensor.a": null, "sensor.b": "x", "sensor.oven_current": ENTRY } })?.circuits).toEqual({
+      "sensor.oven_current": ENTRY,
+    });
+  });
+
+  it("is null for an answer that is not an object", () => {
+    expect(coerceMonitoringStatusResponse(null)).toBeNull();
+    expect(coerceMonitoringStatusResponse("enabled")).toBeNull();
   });
 });

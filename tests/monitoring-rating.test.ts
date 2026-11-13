@@ -1,10 +1,14 @@
 import { describe, it, expect, afterEach } from "vitest";
 import {
+  copyWarning,
+  isMonitored,
   judgedAgainstSentence,
   limitRatingA,
   monitoringRatingView,
   ratingLabelHTML,
   thresholdWarning,
+  warnsOfAveragedLegs,
+  type PackageCopyFields,
   type RatingView,
 } from "../src/helpers/monitoring-rating.js";
 import { setLanguage, t, tf } from "../src/i18n.js";
@@ -83,6 +87,37 @@ describe("rating strings", () => {
     expect(t("monitoringRating.copied_unnamed")).not.toBe("monitoringRating.copied_unnamed");
     expect(t("monitoringRating.none")).not.toBe("monitoringRating.none");
   });
+
+  it.each(["en", "es", "fr", "ja", "pt"])("%s has the side panel's guidance for each form, and the averaged-legs warning, in its own words", lang => {
+    setLanguage(lang);
+    const keys = ["guidance", "guidance_two_spaces", "averaged_legs", "turn_off_monitoring"].map(key => `monitoringRating.${key}`);
+    for (const key of keys) expect(t(key)).not.toBe(key);
+    if (lang !== "en") {
+      setLanguage("en");
+      const english = keys.map(key => t(key));
+      setLanguage(lang);
+      expect(keys.map(key => t(key)).filter((text, i) => text === english[i])).toEqual([]);
+    }
+  });
+
+  it("has no note for a circuit across several spaces, which now takes a copy", () => {
+    expect(t("monitoringRating.multi_space")).toBe("monitoringRating.multi_space");
+  });
+});
+
+describe("the side panel's text, as approved", () => {
+  it("is the approved line for each form, and the approved averaged-legs warning", () => {
+    expect(t("monitoringRating.guidance")).toBe(
+      "If your SPAN app shows two ratings for this circuit, such as 20-20A, enter the second one here. SPAN Panel MAIN 32 panels report " +
+        "only the first, and monitoring then judges this space against both breakers together."
+    );
+    expect(t("monitoringRating.guidance_two_spaces")).toBe("If your SPAN app shows two ratings for this circuit, such as 20-30A, enter the second one here.");
+    expect(t("monitoringRating.averaged_legs")).toBe(
+      "SPAN Panel MAIN 32 panels report only the average of this circuit's two legs, which can hide an overloaded leg. We recommend " +
+        "turning monitoring off for this circuit."
+    );
+    expect(t("monitoringRating.turn_off_monitoring")).toBe("Turn off monitoring");
+  });
 });
 
 describe("monitoringRatingView", () => {
@@ -124,23 +159,107 @@ describe("the mark's style", () => {
 });
 
 describe("thresholdWarning", () => {
-  const COPY = [20, 20];
+  const APPLIES: PackageCopyFields = { package_ratings_form: "one_space", package_ratings_state: "applies" };
+  const ABOVE = { has_override: true, continuous_threshold_pct: 160, spike_threshold_pct: 200 };
 
   it("is nothing without a copy, or with every threshold at 100% or below", () => {
-    expect(thresholdWarning(null, { has_override: true, continuous_threshold_pct: 160 })).toBeNull();
-    expect(thresholdWarning(COPY, { has_override: true, continuous_threshold_pct: 100, spike_threshold_pct: 100 })).toBeNull();
-    expect(thresholdWarning(COPY, null)).toBeNull();
+    expect(thresholdWarning(null, ABOVE)).toBeNull();
+    expect(thresholdWarning({ package_ratings_form: "one_space", package_ratings_state: null }, ABOVE)).toBeNull();
+    expect(thresholdWarning(APPLIES, { has_override: true, continuous_threshold_pct: 100, spike_threshold_pct: 100 })).toBeNull();
+    expect(thresholdWarning(APPLIES, null)).toBeNull();
   });
 
   it("is the circuit's own wherever it has an override, its values the global ones or not", () => {
     // Beside a checked Custom choice, the reset to the global thresholds is what the user can act on here.
-    expect(thresholdWarning(COPY, { has_override: true, continuous_threshold_pct: 160, spike_threshold_pct: 100 })).toBe("own");
-    expect(thresholdWarning(COPY, { has_override: true, spike_threshold_pct: 200 })).toBe("own");
+    expect(thresholdWarning(APPLIES, { has_override: true, continuous_threshold_pct: 160, spike_threshold_pct: 100 })).toBe("own");
+    expect(thresholdWarning(APPLIES, { has_override: true, spike_threshold_pct: 200 })).toBe("own");
   });
 
   it("is the global one where the circuit has no override", () => {
-    expect(thresholdWarning(COPY, { has_override: false, continuous_threshold_pct: 160, spike_threshold_pct: 200 })).toBe("global");
-    expect(thresholdWarning(COPY, { continuous_threshold_pct: 160 })).toBe("global");
+    expect(thresholdWarning(APPLIES, { has_override: false, continuous_threshold_pct: 160, spike_threshold_pct: 200 })).toBe("global");
+    expect(thresholdWarning(APPLIES, { continuous_threshold_pct: 160 })).toBe("global");
+  });
+
+  it("is given for a copy in one space waiting on a value not yet arrived, which applies once it does", () => {
+    expect(thresholdWarning({ package_ratings_form: "one_space", package_ratings_state: "pending" }, ABOVE)).toBe("own");
+  });
+
+  it("is nothing for a copy kept on averaged legs, which changes no threshold's meaning, however high they are", () => {
+    expect(thresholdWarning({ package_ratings_form: "two_spaces", package_ratings_state: "averaged_legs" }, ABOVE)).toBeNull();
+  });
+
+  it("is nothing for a two-space copy waiting on a value, which never applies once it arrives", () => {
+    expect(thresholdWarning({ package_ratings_form: "two_spaces", package_ratings_state: "pending" }, ABOVE)).toBeNull();
+    expect(thresholdWarning({ package_ratings_form: null, package_ratings_state: "pending" }, ABOVE)).toBeNull();
+  });
+
+  it("is nothing where an integration that predates states says nothing of the copy's", () => {
+    expect(thresholdWarning({}, ABOVE)).toBeNull();
+  });
+});
+
+describe("warnsOfAveragedLegs", () => {
+  const AVERAGED: PackageCopyFields = { package_ratings_form: "two_spaces", package_ratings_state: "averaged_legs" };
+
+  it("warns of a copy kept on averaged legs while the circuit is monitored", () => {
+    expect(warnsOfAveragedLegs(AVERAGED, { monitoring_enabled: true })).toBe(true);
+    expect(warnsOfAveragedLegs(AVERAGED, {})).toBe(true);
+  });
+
+  it("is quiet once monitoring is off for the circuit, or while no status says it is monitored", () => {
+    expect(warnsOfAveragedLegs(AVERAGED, { monitoring_enabled: false })).toBe(false);
+    expect(warnsOfAveragedLegs(AVERAGED, null)).toBe(false);
+  });
+
+  it("is quiet for any other copy, or none", () => {
+    for (const state of ["applies", "pending", null] as const) {
+      expect(warnsOfAveragedLegs({ package_ratings_form: "two_spaces", package_ratings_state: state }, { monitoring_enabled: true })).toBe(false);
+    }
+    expect(warnsOfAveragedLegs(null, { monitoring_enabled: true })).toBe(false);
+  });
+});
+
+describe("copyWarning", () => {
+  const AVERAGED: PackageCopyFields = { package_ratings_form: "two_spaces", package_ratings_state: "averaged_legs" };
+  const APPLIES: PackageCopyFields = { package_ratings_form: "one_space", package_ratings_state: "applies" };
+  const ABOVE = { has_override: true, continuous_threshold_pct: 160, spike_threshold_pct: 200 };
+
+  it("is the averaged-legs warning for a copy kept on averaged legs while the circuit is monitored, however high its thresholds", () => {
+    expect(copyWarning(AVERAGED, { ...ABOVE, monitoring_enabled: true })).toBe("averaged_legs");
+  });
+
+  it("is nothing for a copy on averaged legs once monitoring is off for the circuit", () => {
+    expect(copyWarning(AVERAGED, { ...ABOVE, monitoring_enabled: false })).toBeNull();
+  });
+
+  it("is nothing for a copy monitoring judges by once monitoring is off for the circuit, whatever its thresholds", () => {
+    // Turning monitoring off is an override, so a Reset offered then would turn monitoring back on.
+    expect(copyWarning(APPLIES, { ...ABOVE, monitoring_enabled: false })).toBeNull();
+    expect(copyWarning({ package_ratings_form: "one_space", package_ratings_state: "pending" }, { ...ABOVE, monitoring_enabled: false })).toBeNull();
+  });
+
+  it("is the threshold warning for a copy monitoring judges by, as thresholdWarning names it", () => {
+    expect(copyWarning(APPLIES, ABOVE)).toBe("own");
+    expect(copyWarning(APPLIES, { ...ABOVE, has_override: false })).toBe("global");
+    expect(copyWarning(APPLIES, { has_override: true, continuous_threshold_pct: 80, spike_threshold_pct: 100 })).toBeNull();
+  });
+
+  it("is nothing without a copy or a status", () => {
+    expect(copyWarning(null, ABOVE)).toBeNull();
+    expect(copyWarning(APPLIES, null)).toBeNull();
+  });
+});
+
+describe("isMonitored", () => {
+  it("is true for a point a status reports with monitoring on, or with the switch left out", () => {
+    expect(isMonitored({ monitoring_enabled: true })).toBe(true);
+    expect(isMonitored({})).toBe(true);
+  });
+
+  it("is false once monitoring is off for the point, or where no status reports it", () => {
+    expect(isMonitored({ monitoring_enabled: false })).toBe(false);
+    expect(isMonitored(null)).toBe(false);
+    expect(isMonitored(undefined)).toBe(false);
   });
 });
 
