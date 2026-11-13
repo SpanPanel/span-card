@@ -11,7 +11,7 @@ vi.mock("../src/card/card-discovery.js", async importOriginal => ({
 import { discoverEntitiesFallback, discoverTopology } from "../src/card/card-discovery.js";
 import { DashboardController } from "../src/core/dashboard-controller.js";
 import { FavoritesController } from "../src/core/favorites-controller.js";
-import { PACKAGE_RATINGS_CHANGED, subscribePackageRatingChanges } from "../src/core/rating-events.js";
+import { mergeCircuitIds, PACKAGE_RATINGS_CHANGED, subscribePackageRatingChanges } from "../src/core/rating-events.js";
 import { ErrorStore } from "../src/core/error-store.js";
 import { DashboardTab } from "../src/panel/tab-dashboard.js";
 import { MonitoringTab } from "../src/panel/tab-monitoring.js";
@@ -26,6 +26,18 @@ const mockFallback = vi.mocked(discoverEntitiesFallback);
 function ratingEvent(entryId: string, circuitIds: string[] = ["c-1"]): unknown {
   return { event_type: PACKAGE_RATINGS_CHANGED, data: { config_entry_id: entryId, circuit_ids: circuitIds } };
 }
+
+describe("mergeCircuitIds", () => {
+  it("is every circuit either names", () => {
+    expect(mergeCircuitIds(new Set(["c-1"]), new Set(["c-2", "c-1"]))).toEqual(new Set(["c-1", "c-2"]));
+  });
+
+  it("is null, any circuit, where either names none", () => {
+    expect(mergeCircuitIds(null, new Set(["c-1"]))).toBeNull();
+    expect(mergeCircuitIds(new Set(["c-1"]), null)).toBeNull();
+    expect(mergeCircuitIds(null, null)).toBeNull();
+  });
+});
 
 describe("subscribePackageRatingChanges", () => {
   it("listens for the integration's package ratings event", async () => {

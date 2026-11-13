@@ -14,9 +14,19 @@ export function errorText(err: unknown): string {
 /** Home Assistant's prefix on a ServiceValidationError's message, which says nothing to a user. */
 const VALIDATION_PREFIX = "Validation error: ";
 
-/** One string field of a rejection object, or undefined. */
-function field(err: unknown, name: string): unknown {
-  return typeof err === "object" && err !== null && name in err ? (err as Record<string, unknown>)[name] : undefined;
+/** The translation fields a rejection may carry. */
+type TranslationField = "translation_domain" | "translation_key" | "translation_placeholders";
+
+/** How each translation field is read off a rejection; each `in` check narrows the object to hold it. */
+const FIELD_READERS: Readonly<Record<TranslationField, (err: object) => unknown>> = {
+  translation_domain: err => ("translation_domain" in err ? err.translation_domain : undefined),
+  translation_key: err => ("translation_key" in err ? err.translation_key : undefined),
+  translation_placeholders: err => ("translation_placeholders" in err ? err.translation_placeholders : undefined),
+};
+
+/** One translation field of a rejection object, or undefined. */
+function field(err: unknown, name: TranslationField): unknown {
+  return typeof err === "object" && err !== null ? FIELD_READERS[name](err) : undefined;
 }
 
 /** A rejection's translation placeholders, kept only where each is text or a number. */
