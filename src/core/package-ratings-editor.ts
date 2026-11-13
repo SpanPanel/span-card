@@ -97,16 +97,21 @@ export function guardNumberWheel(input: HTMLInputElement): void {
  * It shows the rating the panel publishes, read-only, which is the package's
  * first, and one field for the other breaker in the space. A value is stored only
  * as the user entered it: when they press Enter or leave the field, never while
- * they type, step or scroll, and only as a whole number of amps of at least 1;
- * anything else is shown as needing correction and sent nowhere. A refresh
- * patches the editor in place, so a focused control keeps focus and a field
- * being typed in keeps what was typed; only a change of shape, such as a copy
+ * they type, step or scroll, only where they changed it, and only as a whole
+ * number of amps of at least 1; anything else is shown as needing correction and
+ * sent nowhere. A refresh patches the editor in place, so a focused control keeps
+ * focus and a field being typed in keeps what was typed, while one the user has
+ * not touched shows the copy in force; only a change of shape, such as a copy
  * becoming possible, draws it afresh, focus moving to the equivalent control.
  */
 export class PackageRatingsEditor {
   private _section: HTMLDivElement | null = null;
-  /** The other breaker last sent and not yet answered by the copy in force, so Enter then leaving sends it once. */
-  private _sent: number | null = null;
+  /**
+   * Whether the field holds something the user typed and has not committed. Only
+   * such a value is sent, so leaving a field nobody touched never re-sends a copy
+   * a change elsewhere has replaced, and only such a value survives a refresh.
+   */
+  private _dirty = false;
 
   constructor(private readonly _host: PackageRatingsHost) {}
 
@@ -117,7 +122,7 @@ export class PackageRatingsEditor {
 
   /** Draw the editor for the state in force after `anchor`; used when the Monitoring section is drawn. */
   mount(anchor: Element): void {
-    this._sent = null;
+    this._dirty = false;
     const shape = shapeOf(this._host.ratingsState);
     this._section = shape ? this._build(shape) : null;
     if (this._section) anchor.after(this._section);
@@ -136,6 +141,8 @@ export class PackageRatingsEditor {
       return;
     }
     const role = focusedRole(old);
+    // A field drawn afresh holds the copy in force, nothing the user typed.
+    this._dirty = false;
     const next = shape ? this._build(shape) : null;
     if (old && next) old.replaceWith(next);
     else if (old) old.remove();
@@ -227,7 +234,10 @@ export class PackageRatingsEditor {
       if (event.key === "Enter") this._commit(input);
     });
     input.addEventListener("blur", () => this._commit(input));
-    input.addEventListener("input", () => this._showFeedback(input, null));
+    input.addEventListener("input", () => {
+      this._dirty = true;
+      this._showFeedback(input, null);
+    });
     guardNumberWheel(input);
 
     row.append(panelEl, labelEl, input);
@@ -242,7 +252,15 @@ export class PackageRatingsEditor {
     reset.dataset.role = "rating-reset";
     reset.textContent = t("monitoringRating.reset");
     reset.addEventListener("click", () => {
-      this._sent = null;
+      // What the field held goes with the copy, a value needing correction and what was said of it included.
+      this._dirty = false;
+      const input = this._section?.querySelector<HTMLInputElement>('[data-role="rating-input"]');
+      const shape = shapeOf(this._host.ratingsState);
+      if (input) {
+        this._showFeedback(input, null);
+        const stored = shape?.kind === "editor" ? storedOther(shape.member) : null;
+        input.value = stored !== null ? String(stored) : "";
+      }
       this._host.clearPackageRatings(uuid).catch((err: unknown) => this._host.reportRatingsFailure(err));
     });
     return reset;
@@ -251,15 +269,13 @@ export class PackageRatingsEditor {
   /** Bring an editor of the same shape up to the circuit's state, in place. */
   private _patch(section: HTMLDivElement, member: SlotMember): void {
     const stored = storedOther(member);
-    if (this._sent !== null && this._sent === stored) this._sent = null;
 
     const panelEl = section.querySelector<HTMLElement>('[data-role="rating-panel-rating"]');
     if (panelEl) panelEl.textContent = tf("monitoringRating.panel_rating", { panel: String(member.circuit.breaker_rating_a) });
 
     const input = section.querySelector<HTMLInputElement>('[data-role="rating-input"]');
-    const feedback = section.querySelector<HTMLElement>('[data-role="rating-feedback"]');
-    // A focused field is the user's, and so is one still showing why its value needs correcting.
-    if (input && !isFocused(input) && !feedback?.textContent) input.value = stored !== null ? String(stored) : "";
+    // A value the user typed is theirs, focused or not, a value needing correction included; any other shows the copy.
+    if (input && !this._dirty) input.value = stored !== null ? String(stored) : "";
 
     const row = section.querySelector<HTMLElement>('[data-role="rating-row"]');
     const reset = section.querySelector<HTMLElement>('[data-role="rating-reset"]');
@@ -274,8 +290,9 @@ export class PackageRatingsEditor {
 
   // ── Committing ──────────────────────────────────────────────────────
 
-  /** Send what the field holds, as the user entered it, where it is a valid other breaker the copy does not already hold. */
+  /** Send what the user typed in the field, where it is a valid other breaker the copy does not already hold. */
   private _commit(input: HTMLInputElement): void {
+    if (!this._dirty) return;
     const shape = shapeOf(this._host.ratingsState);
     if (shape?.kind !== "editor") return;
     const { member } = shape;
@@ -291,35 +308,37 @@ export class PackageRatingsEditor {
     }
     if (raw === "") {
       // Nothing entered: the field shows the copy in force; removing it is the reset's.
+      this._dirty = false;
       this._showFeedback(input, null);
       input.value = stored !== null ? String(stored) : "";
       return;
     }
     const amps = Number(raw);
-    if (!Number.isInteger(amps) || amps < 1) {
+    if (!Number.isSafeInteger(amps) || amps < 1) {
       this._showFeedback(input, t("monitoringRating.invalid_other"));
       return;
     }
+    this._dirty = false;
     this._showFeedback(input, null);
-    if (amps === (this._sent ?? stored)) return;
-    this._sent = amps;
+    if (amps === stored) return;
     this._host.setPackageRatings(member.uuid, [panel, amps]).catch((err: unknown) => {
       this._host.reportRatingsFailure(err);
-      this._answerRefusal(amps);
+      this._answerRefusal(member.uuid, amps);
     });
   }
 
   /**
-   * Put the copy in force back in the field after `amps` was refused, unless the
-   * user has entered something else since, which is theirs. Focus goes to the
-   * field where it was in the editor or nowhere, so the value can be corrected.
+   * Put the copy in force back in the field after `amps` was refused for circuit
+   * `uuid`, unless the editor now shows another circuit, or the user has typed
+   * since, which is theirs. Focus goes to the field where it was in the editor or
+   * nowhere, so the value can be corrected.
    */
-  private _answerRefusal(amps: number): void {
-    if (this._sent === amps) this._sent = null;
+  private _answerRefusal(uuid: string, amps: number): void {
     const section = this._section;
     const input = section?.querySelector<HTMLInputElement>('[data-role="rating-input"]');
     const shape = shapeOf(this._host.ratingsState);
-    if (!section || !input || shape?.kind !== "editor" || input.value.trim() !== String(amps)) return;
+    if (!section || !input || shape?.kind !== "editor" || shape.member.uuid !== uuid || section.dataset.uuid !== uuid) return;
+    if (this._dirty || input.value.trim() !== String(amps)) return;
     const stored = storedOther(shape.member);
     input.value = stored !== null ? String(stored) : "";
     // Focus lost, as to the page's body, or still in the editor: the field, to correct. Anywhere else is the user's.

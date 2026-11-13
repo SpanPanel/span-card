@@ -332,7 +332,7 @@ describe("the other breaker's input", () => {
     expect(callWS).not.toHaveBeenCalled();
   });
 
-  it.each(["12.6", "0", "-5", "0.5"])("sends nothing for %j and says what to enter", value => {
+  it.each(["12.6", "0", "-5", "0.5", "1e30"])("sends nothing for %j and says what to enter", value => {
     const { panel, callWS } = open(OVEN);
     type(input(panel), value);
     expect(callWS).not.toHaveBeenCalled();
@@ -417,12 +417,61 @@ describe("the other breaker's input", () => {
 });
 
 describe("a refresh while the user is in the editor", () => {
-  const refresh = (p: SidePanel, copied: number[] | null): void =>
+  const refresh = (p: SidePanel, copied: number[] | null, panelAmps = 20): void =>
     (p as unknown as { refreshRating(view: unknown): void }).refreshRating({
-      members: [{ uuid: "c-1", circuit: circuit("Oven", 20, copied) }],
+      members: [{ uuid: "c-1", circuit: circuit("Oven", panelAmps, copied) }],
       capacityA: null,
       monitoringInfo: { monitoring_enabled: true },
     });
+
+  it("updates a focused field the user has not touched, and leaving it sends nothing", () => {
+    // Another browser, or a reconcile, changed the copy while the field had focus.
+    const { panel, callWS } = open(COPIED);
+    input(panel).focus();
+
+    refresh(panel, [20, 35]);
+    expect(input(panel).value).toBe("35");
+    input(panel).blur();
+
+    expect(callWS).not.toHaveBeenCalled();
+  });
+
+  it("sends nothing on leaving an untouched field whose copy a reconcile removed", () => {
+    // The panel's rating changed, so the copy went: [30, 30] is a package nobody entered.
+    const { panel, callWS } = open(COPIED);
+    input(panel).focus();
+
+    refresh(panel, null, 30);
+    input(panel).blur();
+
+    expect(input(panel).value).toBe("");
+    expect(callWS).not.toHaveBeenCalled();
+  });
+
+  it("keeps a value showing why it needs correcting across a refresh", () => {
+    const { panel } = open(COPIED);
+    type(input(panel), "12.6");
+    input(panel).blur();
+
+    refresh(panel, [20, 35]);
+
+    expect(input(panel).value).toBe("12.6");
+    expect(feedback(panel)).toBe("Enter the other breaker's rating as a whole number of amps, 1 or more.");
+  });
+
+  it("sends a value entered again after a change elsewhere put another copy in force", () => {
+    const { panel, callWS } = open(OVEN);
+    type(input(panel), "30");
+    input(panel).blur();
+    refresh(panel, [20, 25]);
+
+    type(input(panel), "30");
+
+    expect(callWS.mock.calls.map(c => (c[0] as { service_data: { package_ratings_a: number[] } }).service_data.package_ratings_a)).toEqual([
+      [20, 30],
+      [20, 30],
+    ]);
+  });
 
   it("never replaces what is being typed in the focused field", () => {
     const { panel } = open(COPIED);
@@ -482,6 +531,15 @@ describe("a refresh while the user is in the editor", () => {
 });
 
 describe("the reset", () => {
+  it("clears a value that needs correcting, and what was said of it, from the field", () => {
+    const { panel } = open(COPIED);
+    type(input(panel), "12.6");
+    reset(panel)!.click();
+    expect(feedback(panel)).toBe("");
+    expect(input(panel).hasAttribute("aria-invalid")).toBe(false);
+    expect(input(panel).value).toBe("30");
+  });
+
   it("is shown only where a package is stored", () => {
     expect(reset(open(OVEN).panel)).toBeNull();
     expect(reset(open(COPIED).panel)).not.toBeNull();
@@ -607,6 +665,44 @@ describe("a refused change", () => {
       [20, 90],
       [20, 30],
     ]);
+  });
+
+  it("gives the field focus back where focus was lost when the refusal lands", async () => {
+    const { panel } = open(COPIED, {}, async () => {
+      throw { message: "refused" };
+    });
+    typeOnly(input(panel), "90");
+    input(panel).blur();
+    expect(document.activeElement).toBe(document.body);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(active(panel)).toBe(input(panel));
+    expect(input(panel).value).toBe("30");
+  });
+
+  it("leaves another circuit's field alone when a refusal lands after the panel moved to it", async () => {
+    let refuse: (reason: unknown) => void = () => {};
+    const { panel } = open(OVEN, {}, () => new Promise((_resolve, reject) => (refuse = reject)));
+    type(input(panel), "90");
+    panel.open({
+      uuid: "c-2",
+      name: "Dryer",
+      entities: {},
+      showMonitoring: true,
+      monitoringRatingOffered: true,
+      monitoringInfo: { monitoring_enabled: true },
+      graphHorizonInfo: { horizon: "5m", has_override: false, globalHorizon: "5m" },
+      members: [{ uuid: "c-2", circuit: circuit("Dryer", 30) }],
+      capacityA: null,
+      configEntryId: "entry-1",
+    });
+    typeOnly(input(panel), "90");
+    const other = input(panel);
+
+    refuse({ message: "refused" });
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(input(panel)).toBe(other);
+    expect(other.value).toBe("90");
   });
 
   it("does nothing to a panel closed while the call was in flight", async () => {
