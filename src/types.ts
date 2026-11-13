@@ -32,6 +32,18 @@ export interface HomeAssistant {
 
 // -- SPAN topology types --
 
+/**
+ * The form a circuit's copy of a package from the SPAN app takes: the other breaker of a package in one space, or of
+ * one across two spaces.
+ */
+export type PackageRatingsForm = "one_space" | "two_spaces";
+
+/**
+ * What the integration does with a stored copy: judges the circuit against it, waits on a value not yet arrived, or
+ * keeps it without applying it, the panel reporting only the average of a two-space circuit's legs.
+ */
+export type PackageRatingsState = "applies" | "pending" | "averaged_legs";
+
 export interface CircuitEntities {
   power?: string;
   current?: string;
@@ -58,6 +70,13 @@ export interface Circuit {
    * it waits on a value not yet arrived. Null where there is none; absent from an integration that predates them.
    */
   package_ratings_a?: number[] | null;
+  /**
+   * Which form of copy the circuit takes, as the integration decides it; null where it takes none. Absent from an
+   * integration that predates forms.
+   */
+  package_ratings_form?: PackageRatingsForm | null;
+  /** What the integration does with the stored copy; null where none is stored. Absent from an integration that predates states. */
+  package_ratings_state?: PackageRatingsState | null;
   device_type?: string;
   relay_state?: string;
   relay_state_target?: string;
@@ -362,6 +381,10 @@ export interface MonitoringPointInfo {
   monitoring_rating_user_set?: boolean;
   /** The package the user copied from the SPAN app for this circuit; null for none, a shared meter and the mains. */
   package_ratings_a?: number[] | null;
+  /** Which form of copy the circuit takes; null where it takes none, a shared meter and the mains. Absent from an older integration. */
+  package_ratings_form?: PackageRatingsForm | null;
+  /** What the integration does with the stored copy; null where none is stored. Absent from an older integration. */
+  package_ratings_state?: PackageRatingsState | null;
   monitoring_enabled?: boolean;
   /** Null while the circuit has no current reading or no breaker rating. */
   utilization_pct?: number | null;
@@ -388,6 +411,11 @@ export interface MonitoringGlobalSettings {
 
 export interface MonitoringStatusResponse {
   enabled?: boolean;
+  /**
+   * Whether the integration takes package ratings on this panel, as the topology's `monitoring_rating_offered` says.
+   * Absent from an integration that predates it, which offers none.
+   */
+  monitoring_rating_offered?: boolean;
   global_settings?: MonitoringGlobalSettings;
   circuits?: Record<string, MonitoringPointInfo>;
   mains?: Record<string, MonitoringPointInfo>;

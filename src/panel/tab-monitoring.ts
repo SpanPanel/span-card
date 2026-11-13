@@ -6,7 +6,7 @@ import { monitoringRatingView, ratingLabelHTML, toggleRatingNote } from "../help
 import { focusedIn } from "../helpers/focus.js";
 import { bindLimitField, isLimitField, LIMIT_RANGES, type LimitField, type LimitFieldHandle } from "../helpers/number-field.js";
 import type { ErrorStore } from "../core/error-store.js";
-import type { HomeAssistant, MonitoringPointInfo, MonitoringStatusResponse, CallServiceResponse } from "../types.js";
+import type { HomeAssistant, MonitoringPointInfo, MonitoringStatusResponse, CallServiceResponse, PackageRatingsForm, PackageRatingsState } from "../types.js";
 
 const FIELD_STYLE = `
   display:flex;align-items:center;gap:8px;margin-bottom:8px;
@@ -144,26 +144,58 @@ function restoreFocus(container: HTMLElement, kept: KeptFocus | null): void {
   }
 }
 
+const PACKAGE_RATINGS_FORMS: readonly PackageRatingsForm[] = ["one_space", "two_spaces"];
+const PACKAGE_RATINGS_STATES: readonly PackageRatingsState[] = ["applies", "pending", "averaged_legs"];
+
+/** Whether `value` is one of `allowed`, or null, which the integration sends where the field does not apply. */
+function isOneOfOrNull<T extends string>(value: unknown, allowed: readonly T[]): value is T | null {
+  return value === null || allowed.some(item => item === value);
+}
+
+/**
+ * A monitored point's entry with the package-ratings form and state narrowed to
+ * their types: one outside its type is dropped, as an integration that predates
+ * them sends neither. The entry's other fields are taken as sent.
+ */
+function coercePointInfo(entry: Record<string, unknown>): MonitoringPointInfo {
+  const { package_ratings_form: form, package_ratings_state: state, ...rest } = entry;
+  const out: MonitoringPointInfo = rest;
+  if (isOneOfOrNull(form, PACKAGE_RATINGS_FORMS)) out.package_ratings_form = form;
+  if (isOneOfOrNull(state, PACKAGE_RATINGS_STATES)) out.package_ratings_state = state;
+  return out;
+}
+
+/** A map of monitored points, each entry narrowed (`coercePointInfo`) and one that is not an object dropped; undefined for no map. */
+function coercePoints(points: unknown): Record<string, MonitoringPointInfo> | undefined {
+  if (!points || typeof points !== "object") return undefined;
+  const out: Record<string, MonitoringPointInfo> = {};
+  for (const [id, entry] of Object.entries(points as Record<string, unknown>)) {
+    if (entry && typeof entry === "object") out[id] = coercePointInfo(entry as Record<string, unknown>);
+  }
+  return out;
+}
+
 /**
  * Lightweight runtime-coerce for the ``get_monitoring_status`` response.
  * The backend returns JSON whose shape is nominally ``MonitoringStatusResponse``
  * but we can't trust the WebSocket payload, so we narrow what we can and
- * return ``null`` if the shape is unusable. Unknown fields are dropped.
+ * return ``null`` if the shape is unusable. Unknown fields at the root are
+ * dropped, as are a point entry that is not an object and an entry's
+ * package-ratings form or state outside its type.
  */
-function coerceMonitoringStatusResponse(resp: unknown): MonitoringStatusResponse | null {
+export function coerceMonitoringStatusResponse(resp: unknown): MonitoringStatusResponse | null {
   if (!resp || typeof resp !== "object") return null;
   const r = resp as Record<string, unknown>;
   const out: MonitoringStatusResponse = {};
   if (typeof r.enabled === "boolean") out.enabled = r.enabled;
+  if (typeof r.monitoring_rating_offered === "boolean") out.monitoring_rating_offered = r.monitoring_rating_offered;
   if (r.global_settings && typeof r.global_settings === "object") {
     out.global_settings = r.global_settings as MonitoringStatusResponse["global_settings"];
   }
-  if (r.circuits && typeof r.circuits === "object") {
-    out.circuits = r.circuits as Record<string, MonitoringPointInfo>;
-  }
-  if (r.mains && typeof r.mains === "object") {
-    out.mains = r.mains as Record<string, MonitoringPointInfo>;
-  }
+  const circuits = coercePoints(r.circuits);
+  if (circuits) out.circuits = circuits;
+  const mains = coercePoints(r.mains);
+  if (mains) out.mains = mains;
   return out;
 }
 

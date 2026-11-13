@@ -2,8 +2,8 @@
 import { t, tf } from "../i18n.js";
 import { occupiedSpaces, type SlotMember } from "../helpers/shared-meters.js";
 import { thresholdWarning, type ThresholdWarning } from "../helpers/monitoring-rating.js";
-import { focusedRole, focusWithin, isFocused, onLeave } from "../helpers/focus.js";
-import { guardNumberWheel } from "../helpers/number-field.js";
+import { focusedRole, focusWithin, isFocused } from "../helpers/focus.js";
+import { bindOtherBreakerField, type OtherBreakerFieldHandle } from "../helpers/other-breaker-field.js";
 import type { MonitoringPointInfo } from "../types.js";
 
 /** What the editor draws from: the slot a circuit side panel is open on, and its monitoring. */
@@ -57,23 +57,17 @@ function storedOther(member: SlotMember): number | null {
  * The Monitoring section's editor for a tandem's ratings copied from the SPAN app.
  *
  * It shows the rating the panel publishes, read-only, which is the package's
- * first, and one field for the other breaker in the space. A value is stored only
- * as the user entered it: when they press Enter or leave the field, never while
- * they type, step or scroll, only where they changed it, and only as a whole
- * number of amps of at least 1; anything else is shown as needing correction and
- * sent nowhere. A refresh patches the editor in place, so a focused control keeps
- * focus and a field being typed in keeps what was typed, while one the user has
- * not touched shows the copy in force; only a change of shape, such as a copy
- * becoming possible, draws it afresh, focus moving to the equivalent control.
+ * first, and one field for the other breaker in the space, which stores a value
+ * only as the user entered it (`bindOtherBreakerField`). A refresh patches the
+ * editor in place, so a focused control keeps focus and a field being typed in
+ * keeps what was typed, while one the user has not touched shows the copy in
+ * force; only a change of shape, such as a copy becoming possible, draws it
+ * afresh, focus moving to the equivalent control.
  */
 export class PackageRatingsEditor {
   private _section: HTMLDivElement | null = null;
-  /**
-   * Whether the field holds something the user typed and has not committed. Only
-   * such a value is sent, so leaving a field nobody touched never re-sends a copy
-   * a change elsewhere has replaced, and only such a value survives a refresh.
-   */
-  private _dirty = false;
+  /** The drawn editor's other-breaker field, or null where it draws none. */
+  private _field: OtherBreakerFieldHandle | null = null;
 
   constructor(private readonly _host: PackageRatingsHost) {}
 
@@ -84,7 +78,7 @@ export class PackageRatingsEditor {
 
   /** Draw the editor for the state in force after `anchor`; used when the Monitoring section is drawn. */
   mount(anchor: Element): void {
-    this._dirty = false;
+    this._field = null;
     const shape = shapeOf(this._host.ratingsState);
     this._section = shape ? this._build(shape) : null;
     if (this._section) anchor.after(this._section);
@@ -104,7 +98,7 @@ export class PackageRatingsEditor {
     }
     const role = focusedRole(old);
     // A field drawn afresh holds the copy in force, nothing the user typed.
-    this._dirty = false;
+    this._field = null;
     const next = shape ? this._build(shape) : null;
     if (old && next) old.replaceWith(next);
     else if (old) old.remove();
@@ -148,14 +142,14 @@ export class PackageRatingsEditor {
     guidance.textContent = t("monitoringRating.guidance");
     section.appendChild(guidance);
 
-    section.appendChild(this._buildRow(shape.member));
-
     // Always present, so what it says is announced as it changes.
     const feedback = document.createElement("div");
     feedback.className = "field-label rating-feedback";
     feedback.id = "rating-feedback";
     feedback.dataset.role = "rating-feedback";
     feedback.setAttribute("aria-live", "polite");
+
+    section.appendChild(this._buildRow(shape.member, feedback));
     section.appendChild(feedback);
 
     const warnings = document.createElement("div");
@@ -166,7 +160,8 @@ export class PackageRatingsEditor {
     return section;
   }
 
-  private _buildRow(member: SlotMember): HTMLDivElement {
+  /** The row of the panel's rating and the other breaker's field, which says what it needs correcting in `feedback`. */
+  private _buildRow(member: SlotMember, feedback: HTMLElement): HTMLDivElement {
     const row = document.createElement("div");
     row.className = "field-row rating-row";
     row.dataset.role = "rating-row";
@@ -192,16 +187,13 @@ export class PackageRatingsEditor {
     input.setAttribute("aria-label", tf("monitoringRating.other_breaker_label", { circuit: member.circuit.name }));
     input.setAttribute("aria-describedby", "rating-panel-rating rating-guidance rating-feedback");
     input.dataset.role = "rating-input";
-    input.addEventListener("keydown", event => {
-      if (event.key === "Enter") this._commit(input);
+    this._field = bindOtherBreakerField(input, {
+      report: message => {
+        feedback.textContent = message ?? "";
+      },
+      stored: () => this._storedInForce(),
+      save: amps => this._save(amps),
     });
-    // Leaving the field commits it; the field going from the page, as a redraw takes it, does not.
-    onLeave(input, () => this._commit(input));
-    input.addEventListener("input", () => {
-      this._dirty = true;
-      this._showFeedback(input, null);
-    });
-    guardNumberWheel(input);
 
     row.append(panelEl, labelEl, input);
     if (stored !== null) row.appendChild(this._buildReset(member.uuid));
@@ -216,14 +208,7 @@ export class PackageRatingsEditor {
     reset.textContent = t("monitoringRating.reset");
     reset.addEventListener("click", () => {
       // What the field held goes with the copy, a value needing correction and what was said of it included.
-      this._dirty = false;
-      const input = this._section?.querySelector<HTMLInputElement>('[data-role="rating-input"]');
-      const shape = shapeOf(this._host.ratingsState);
-      if (input) {
-        this._showFeedback(input, null);
-        const stored = shape?.kind === "editor" ? storedOther(shape.member) : null;
-        input.value = stored !== null ? String(stored) : "";
-      }
+      this._field?.revert();
       this._host.clearPackageRatings(uuid).catch((err: unknown) => this._host.reportRatingsFailure(err));
     });
     return reset;
@@ -238,7 +223,7 @@ export class PackageRatingsEditor {
 
     const input = section.querySelector<HTMLInputElement>('[data-role="rating-input"]');
     // A value the user typed is theirs, focused or not, a value needing correction included; any other shows the copy.
-    if (input && !this._dirty) input.value = stored !== null ? String(stored) : "";
+    if (this._field && !this._field.dirty) this._field.revert();
 
     const row = section.querySelector<HTMLElement>('[data-role="rating-row"]');
     const reset = section.querySelector<HTMLElement>('[data-role="rating-reset"]');
@@ -253,37 +238,19 @@ export class PackageRatingsEditor {
 
   // ── Committing ──────────────────────────────────────────────────────
 
-  /** Send what the user typed in the field, where it is a valid other breaker the copy does not already hold. */
-  private _commit(input: HTMLInputElement): void {
-    if (!this._dirty) return;
+  /** The other breaker of the copy in force for the state in force, or null where none is or the editor has no field. */
+  private _storedInForce(): number | null {
+    const shape = shapeOf(this._host.ratingsState);
+    return shape?.kind === "editor" ? storedOther(shape.member) : null;
+  }
+
+  /** Send the package with `amps`, an other breaker the user committed, for the circuit the state in force has the field for. */
+  private _save(amps: number): void {
     const shape = shapeOf(this._host.ratingsState);
     if (shape?.kind !== "editor") return;
     const { member } = shape;
     const panel = member.circuit.breaker_rating_a;
     if (panel == null) return;
-    const stored = storedOther(member);
-
-    const raw = input.value.trim();
-    // A browser empties a number field holding text it cannot read, and says so here.
-    if (raw === "" && input.validity?.badInput) {
-      this._showFeedback(input, t("monitoringRating.invalid_other"));
-      return;
-    }
-    if (raw === "") {
-      // Nothing entered: the field shows the copy in force; removing it is the reset's.
-      this._dirty = false;
-      this._showFeedback(input, null);
-      input.value = stored !== null ? String(stored) : "";
-      return;
-    }
-    const amps = Number(raw);
-    if (!Number.isSafeInteger(amps) || amps < 1) {
-      this._showFeedback(input, t("monitoringRating.invalid_other"));
-      return;
-    }
-    this._dirty = false;
-    this._showFeedback(input, null);
-    if (amps === stored) return;
     this._host.setPackageRatings(member.uuid, [panel, amps]).catch((err: unknown) => {
       this._host.reportRatingsFailure(err);
       this._answerRefusal(member.uuid, amps);
@@ -299,21 +266,14 @@ export class PackageRatingsEditor {
   private _answerRefusal(uuid: string, amps: number): void {
     const section = this._section;
     const input = section?.querySelector<HTMLInputElement>('[data-role="rating-input"]');
+    const field = this._field;
     const shape = shapeOf(this._host.ratingsState);
-    if (!section || !input || shape?.kind !== "editor" || shape.member.uuid !== uuid || section.dataset.uuid !== uuid) return;
-    if (this._dirty || input.value.trim() !== String(amps)) return;
-    const stored = storedOther(shape.member);
-    input.value = stored !== null ? String(stored) : "";
+    if (!section || !input || !field || shape?.kind !== "editor" || shape.member.uuid !== uuid || section.dataset.uuid !== uuid) return;
+    if (field.dirty || input.value.trim() !== String(amps)) return;
+    field.revert();
     // Focus lost, as to the page's body, or still in the editor: the field, to correct. Anywhere else is the user's.
     const lost = document.activeElement === null || document.activeElement === document.body;
     if (lost || focusWithin(section)) input.focus();
-  }
-
-  private _showFeedback(input: HTMLInputElement, message: string | null): void {
-    const feedback = this._section?.querySelector<HTMLElement>('[data-role="rating-feedback"]');
-    if (feedback) feedback.textContent = message ?? "";
-    if (message) input.setAttribute("aria-invalid", "true");
-    else input.removeAttribute("aria-invalid");
   }
 
   // ── The threshold warning ───────────────────────────────────────────
