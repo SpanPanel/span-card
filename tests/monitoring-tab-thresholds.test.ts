@@ -1,5 +1,6 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { MonitoringTab } from "../src/panel/tab-monitoring.js";
+import { ErrorStore } from "../src/core/error-store.js";
 import type { HomeAssistant, MonitoringPointInfo } from "../src/types.js";
 
 type Message = Record<string, unknown>;
@@ -39,8 +40,9 @@ interface Integration {
 /**
  * One panel's monitoring as the integration reports it: a threshold save becomes
  * the point's override, and a global save the thresholds of every point without one.
+ * A service named in `refuse` is refused with the error given for it.
  */
-function integration({ ovenOverride = false } = {}): Integration {
+function integration({ ovenOverride = false, refuse = {} as Record<string, unknown> } = {}): Integration {
   const globals: Fields = { ...GLOBALS };
   const circuits: Record<string, MonitoringPointInfo> = { [OVEN]: { ...point("Oven"), has_override: ovenOverride } };
   const mains: Record<string, MonitoringPointInfo> = { [MAINS]: point("Mains") };
@@ -61,6 +63,7 @@ function integration({ ovenOverride = false } = {}): Integration {
     }
     const data = (msg.service_data ?? {}) as Message;
     saves.push({ service: msg.service, ...data });
+    if (typeof msg.service === "string" && msg.service in refuse) throw refuse[msg.service];
     const apply = (): void => {
       if (msg.service === "set_circuit_threshold" && typeof data.circuit_id === "string") {
         circuits[data.circuit_id] = { ...circuits[data.circuit_id]!, ...fieldsOf(data), has_override: true };
@@ -514,5 +517,61 @@ describe("the Monitoring tab's other controls", () => {
     change(container);
 
     await vi.waitFor(() => expect(panel.reads()).toBe(reads + 1));
+  });
+});
+
+describe("a point's Reset", () => {
+  const resetOf = (container: HTMLElement): HTMLElement | null => container.querySelector<HTMLElement>(`.reset-btn[data-entity="${OVEN}"]`);
+
+  it("is marked busy while it is on its way, keeps focus, and sends nothing on a second click", async () => {
+    const panel = integration({ ovenOverride: true });
+    const { container, root } = await shown(panel);
+    const pending = panel.holdSaves();
+    const reset = resetOf(container)!;
+    reset.focus();
+
+    reset.click();
+    reset.click();
+    await settle();
+
+    expect(panel.saves).toEqual([{ service: "clear_circuit_threshold", circuit_id: OVEN, config_entry_id: "entry-1" }]);
+    expect(reset.getAttribute("aria-disabled")).toBe("true");
+    expect(root.activeElement).toBe(reset);
+    for (const answer of pending) answer();
+  });
+
+  it("says why it failed, and is usable again with the point's thresholds as they were", async () => {
+    const panel = integration({
+      ovenOverride: true,
+      refuse: { clear_circuit_threshold: { code: "home_assistant_error", message: "The panel is not loaded" } },
+    });
+    const { tab, container } = await shown(panel);
+    const errors = new ErrorStore();
+    tab.errorStore = errors;
+    const reads = panel.reads();
+    const reset = resetOf(container)!;
+
+    reset.click();
+    await vi.waitFor(() => expect(errors.active.map(e => e.message)).toEqual(["The panel is not loaded"]));
+
+    expect(resetOf(container)).toBe(reset);
+    expect(reset.hasAttribute("aria-disabled")).toBe(false);
+    expect(panel.reads()).toBe(reads);
+
+    // Once usable again, it sends again.
+    reset.click();
+    await settle();
+    expect(panel.saves.filter(save => save.service === "clear_circuit_threshold")).toHaveLength(2);
+  });
+
+  it("says it could not save where the integration gives no reason", async () => {
+    const panel = integration({ ovenOverride: true, refuse: { clear_circuit_threshold: {} } });
+    const { tab, container } = await shown(panel);
+    const errors = new ErrorStore();
+    tab.errorStore = errors;
+
+    resetOf(container)!.click();
+
+    await vi.waitFor(() => expect(errors.active.map(e => e.message)).toEqual(["Unable to save threshold"]));
   });
 });

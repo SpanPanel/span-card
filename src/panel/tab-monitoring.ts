@@ -1,6 +1,6 @@
 import { INTEGRATION_DOMAIN, INPUT_DEBOUNCE_MS } from "../constants.js";
 import { escapeHtml } from "../helpers/sanitize.js";
-import { errorText } from "../helpers/error-text.js";
+import { errorText, serviceErrorMessage } from "../helpers/error-text.js";
 import { t } from "../i18n.js";
 import { monitoringRatingView, ratingLabelHTML, toggleRatingNote } from "../helpers/monitoring-rating.js";
 import { focusedIn } from "../helpers/focus.js";
@@ -992,16 +992,33 @@ export class MonitoringTab {
     }
   }
 
+  /**
+   * A point's Reset clears its override. While the reset is on its way the button
+   * is marked busy, not disabled, so it keeps focus, and a second click sends
+   * nothing; where it fails, the row is left as it was, the button is usable
+   * again, and the integration's reason is shown.
+   */
   private _bindResetButtons(container: HTMLElement, hass: HomeAssistant): void {
     for (const btn of container.querySelectorAll<HTMLElement>(".reset-btn")) {
       btn.addEventListener("click", async () => {
-        const epoch = this._epoch;
         const entityId = btn.dataset.entity;
-        if (!entityId) return;
+        if (!entityId || btn.getAttribute("aria-disabled") === "true") return;
+        const epoch = this._epoch;
         const type = btn.dataset.type;
         const service = type === "mains" ? "clear_mains_threshold" : "clear_circuit_threshold";
         const param = this._serviceData(type === "mains" ? { leg: entityId } : { circuit_id: entityId });
-        await hass.callService(INTEGRATION_DOMAIN, service, param);
+        btn.setAttribute("aria-disabled", "true");
+        btn.style.opacity = "0.6";
+        try {
+          await hass.callService(INTEGRATION_DOMAIN, service, param);
+        } catch (err: unknown) {
+          console.warn("SPAN Panel: threshold reset failed", err);
+          btn.removeAttribute("aria-disabled");
+          btn.style.opacity = "";
+          const message = await serviceErrorMessage(hass, err, INTEGRATION_DOMAIN, t("error.threshold_failed"));
+          this.errorStore?.add({ key: "service:monitoring", level: "error", message, persistent: false });
+          return;
+        }
         await this._redraw(container, hass, epoch);
       });
     }
