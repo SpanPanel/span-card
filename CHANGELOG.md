@@ -25,6 +25,8 @@
   pair, no longer shows as an alert below them.
 - **Current charts draw their limit lines at the circuit's own monitoring thresholds**, with the axis fitted to the highest line and reading, instead of at 80%
   and 100% of the breaker rating.
+- **Threshold and duration fields in the side panel and the Monitoring tab save when you press Enter or leave them**, and only a whole number in their range, so
+  stepping or scrolling a field no longer saves every value it passes through and an emptied field no longer saves 0.
 
 ## 0.9.6
 
