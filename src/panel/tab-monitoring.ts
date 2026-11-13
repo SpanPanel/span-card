@@ -613,6 +613,10 @@ export class MonitoringTab {
     }
     const epoch = this._epoch;
     const seq = ++this._renderSeq;
+    // A notification setting waiting on the user's pause is sent before the tab is
+    // read, so the read shows it; the user is still here, so the epoch stays. One
+    // that fails has said so where it failed.
+    await this._flushPendingSaves().catch(() => undefined);
     let status: MonitoringStatusResponse | null;
     try {
       const serviceData: Record<string, unknown> = {};

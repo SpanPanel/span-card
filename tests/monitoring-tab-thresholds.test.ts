@@ -30,6 +30,8 @@ interface Integration {
   hass: HomeAssistant;
   /** Every service call other than the status read, as sent. */
   saves: Message[];
+  /** Every service called, the status reads among them, in the order sent. */
+  sent: string[];
   /** How many times the tab read the monitoring status. */
   reads: () => number;
   /** Hold every later status read until the test answers it, with the status as it stood when it was asked. */
@@ -41,21 +43,25 @@ interface Integration {
 /**
  * One panel's monitoring as the integration reports it: a threshold save becomes
  * the point's override, a clear takes it away, and a global save the thresholds of
- * every point without one.
+ * every point without one, and the notification settings it names.
  * A service named in `refuse` is refused with the error given for it.
  */
 function integration({ ovenOverride = false, ovenName = "Oven", monitoringOn = true, refuse = {} as Record<string, unknown> } = {}): Integration {
   const globals: Fields = { ...GLOBALS };
+  /** The notification settings stored: the targets and the templates, by the setting. */
+  const notification: Record<string, string> = {};
   const circuits: Record<string, MonitoringPointInfo> = { [OVEN]: { ...point(ovenName), has_override: ovenOverride } };
   const mains: Record<string, MonitoringPointInfo> = { [MAINS]: point("Mains") };
   const saves: Message[] = [];
+  const sent: string[] = [];
   let reads = 0;
   let heldReads: Array<() => void> | null = null;
   let heldSaves: Array<() => void> | null = null;
   const status = (): unknown => ({
-    response: { enabled: monitoringOn, global_settings: { ...globals }, circuits: structuredClone(circuits), mains: structuredClone(mains) },
+    response: { enabled: monitoringOn, global_settings: { ...globals, ...notification }, circuits: structuredClone(circuits), mains: structuredClone(mains) },
   });
   const callWS = vi.fn(async (msg: Message): Promise<unknown> => {
+    if (typeof msg.service === "string") sent.push(msg.service);
     if (msg.service === "get_monitoring_status") {
       reads += 1;
       const answer = status();
@@ -81,6 +87,10 @@ function integration({ ovenOverride = false, ovenName = "Oven", monitoringOn = t
       }
       if (msg.service === "set_global_monitoring") {
         Object.assign(globals, fieldsOf(data));
+        for (const key of ["notify_targets", "notification_title_template", "notification_message_template"]) {
+          const value = data[key];
+          if (typeof value === "string") notification[key] = value;
+        }
         for (const points of [circuits, mains]) {
           for (const [id, info] of Object.entries(points)) if (!info.has_override) points[id] = { ...info, ...fieldsOf(data) };
         }
@@ -105,6 +115,7 @@ function integration({ ovenOverride = false, ovenName = "Oven", monitoringOn = t
   return {
     hass,
     saves,
+    sent,
     reads: () => reads,
     holdReads: () => (heldReads = []),
     holdSaves: () => (heldSaves = []),
@@ -682,6 +693,57 @@ describe("the Monitoring tab's notification settings", () => {
 
     // The tab drawn again for another panel sends nothing more.
     await tab.render(container, panel.hass, "entry-2");
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(settings(panel)).toHaveLength(1);
+  });
+
+  it("send a target choice still waiting before the tab is read again for its panel, which then shows it", async () => {
+    vi.useFakeTimers();
+    const panel = integration();
+    const { tab, container } = await shown(panel);
+    choose(target(container, "event_bus"), true);
+
+    // The dashboard draws the same panel's tab again within the pause, as a refresh does.
+    await tab.render(container, panel.hass, "entry-1");
+
+    expect(panel.sent.slice(-2)).toEqual(["set_global_monitoring", "get_monitoring_status"]);
+    expect(settings(panel)).toEqual([{ service: "set_global_monitoring", notify_targets: "event_bus", config_entry_id: "entry-1" }]);
+    expect(target(container, "event_bus").checked).toBe(true);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(settings(panel)).toHaveLength(1);
+  });
+
+  it("read the tab again only once a setting still waiting is stored", async () => {
+    vi.useFakeTimers();
+    const panel = integration();
+    const { tab, container } = await shown(panel);
+    choose(target(container, "event_bus"), true);
+    const reads = panel.reads();
+    const pending = panel.holdSaves();
+
+    const drawn = tab.render(container, panel.hass, "entry-1");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(pending).toHaveLength(1);
+    expect(panel.reads()).toBe(reads);
+
+    for (const answer of pending) answer();
+    await drawn;
+    expect(panel.reads()).toBe(reads + 1);
+    expect(target(container, "event_bus").checked).toBe(true);
+  });
+
+  it("send a template still waiting before the tab is read again for its panel, its field showing it though not focused", async () => {
+    vi.useFakeTimers();
+    const panel = integration();
+    const { tab, container } = await shown(panel);
+    typeOnly(title(container), "SPAN alert");
+    title(container).blur();
+
+    await tab.render(container, panel.hass, "entry-1");
+
+    expect(panel.sent.slice(-2)).toEqual(["set_global_monitoring", "get_monitoring_status"]);
+    expect(settings(panel)).toEqual([{ service: "set_global_monitoring", notification_title_template: "SPAN alert", config_entry_id: "entry-1" }]);
+    expect(title(container).value).toBe("SPAN alert");
     await vi.advanceTimersByTimeAsync(1000);
     expect(settings(panel)).toHaveLength(1);
   });
