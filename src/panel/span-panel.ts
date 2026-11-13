@@ -114,6 +114,10 @@ export class SpanPanelElement extends LitElement {
    * re-render of the same view draws each panel's table over itself, in place.
    */
   private _favoritesMonitoring: FavoritesMonitoringStack | null = null;
+  /** Counts detaches, so a draw of the Favorites view's Monitoring stack can tell one stopped its tabs while it drew. */
+  private _detaches = 0;
+  /** True where a detach left the Favorites view's Monitoring stack partly drawn: the next attach draws the rest. */
+  private _renderOnAttach = false;
   private readonly _errorStore = new ErrorStore();
   private _watchedPanelId: string | null = null;
   private _discovering = false;
@@ -312,6 +316,10 @@ export class SpanPanelElement extends LitElement {
       this._reapplyPanelStatusWatch();
       if (this._activeTab === "area" && !this._isFavoritesView) this._subscribeAreaTab();
     }
+    if (this._renderOnAttach) {
+      this._renderOnAttach = false;
+      this._requestTabRender();
+    }
   }
 
   disconnectedCallback(): void {
@@ -320,7 +328,10 @@ export class SpanPanelElement extends LitElement {
     this._adoptedTab.stop();
     this._listCtrl.stop();
     this._listDashCtrl.stopIntervals();
-    this._dropFavoritesMonitoring();
+    // Stopped as the user leaves, and kept, as the panel's own tab is: `#tab-content`
+    // survives a re-attach, and the view's next render draws over their tables.
+    this._detaches += 1;
+    this._stopFavoritesMonitoring();
     this._unsubscribeAreaTab();
     if (this._onFavoritesChanged) {
       document.removeEventListener(FAVORITES_CHANGED_EVENT, this._onFavoritesChanged);
@@ -1497,8 +1508,11 @@ export class SpanPanelElement extends LitElement {
       stack.blocks.delete(entryId);
     }
 
+    const detaches = this._detaches;
     for (const [index, entryId] of entryIds.entries()) {
-      // A detach dropped the stack while an earlier panel's table loaded.
+      // No table is drawn, nor a tab made, while the dashboard is detached: the
+      // detach stopped every tab in the stack, so none is left running.
+      if (!this.isConnected) break;
       if (this._favoritesMonitoring !== stack) return;
       const panel = panelsByEntry.get(entryId);
       const name = panel?.name_by_user ?? panel?.name ?? entryId;
@@ -1518,6 +1532,14 @@ export class SpanPanelElement extends LitElement {
         block.body.appendChild(errEl);
       }
     }
+    // Detached, or detached while the stack was drawn, which stopped its tabs: a table may be left undrawn.
+    if (!this.isConnected || this._detaches !== detaches) this._renderWhenAttached();
+  }
+
+  /** Render the view again: now where the dashboard is attached, else as it is attached again (`connectedCallback`). */
+  private _renderWhenAttached(): void {
+    if (this.isConnected) this._requestTabRender();
+    else this._renderOnAttach = true;
   }
 
   /** A new, empty Monitoring stack for the Favorites view, drawn in `container`. */
@@ -1553,11 +1575,15 @@ export class SpanPanelElement extends LitElement {
     return stack !== null && stack.wrapper.parentElement === container ? stack : null;
   }
 
+  /** Stop every tab of the Favorites view's Monitoring stack, as the user leaves it; the stack stays for the view to draw over. */
+  private _stopFavoritesMonitoring(): void {
+    for (const { tab } of this._favoritesMonitoring?.blocks.values() ?? []) tab.stop();
+  }
+
   /** Stop every tab of the Favorites view's Monitoring stack, and let the stack go: the view is left, or drawn afresh. */
   private _dropFavoritesMonitoring(): void {
-    const stack = this._favoritesMonitoring;
+    this._stopFavoritesMonitoring();
     this._favoritesMonitoring = null;
-    for (const { tab } of stack?.blocks.values() ?? []) tab.stop();
   }
 
   /**

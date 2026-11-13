@@ -1132,6 +1132,29 @@ describe("the sidebar dashboard", () => {
         select.dispatchEvent(new Event("change"));
       }
 
+      /** Let every callback a settled read or save queued run. */
+      const settled = async (): Promise<void> => {
+        for (let i = 0; i < 3; i += 1) await new Promise(resolve => setTimeout(resolve, 0));
+      };
+
+      /** Navigate away from the dashboard and back, as the user does in Home Assistant: `#tab-content` survives. */
+      async function detachAndAttach(panel: Panel, connection: FakeConnection): Promise<void> {
+        panel.remove();
+        await settled();
+        document.body.appendChild(panel);
+        await vi.waitFor(() => expect(connection.live(PACKAGE_RATINGS_CHANGED)).toBe(2));
+      }
+
+      /** The click listeners on the page from now on that are still there: each tab's own, while it listens. */
+      function pageClickListeners(): () => unknown[] {
+        const added = vi.spyOn(document, "addEventListener");
+        const removed = vi.spyOn(document, "removeEventListener");
+        return () => {
+          const gone = new Set(removed.mock.calls.filter(([type]) => type === "click").map(([, listener]) => listener));
+          return added.mock.calls.filter(([type, listener]) => type === "click" && !gone.has(listener)).map(([, listener]) => listener);
+        };
+      }
+
       it("keeps what is typed in one row's field, and its focus, across a refresh for a copy changed in another row", async () => {
         holds(circuit(20, 20), dryerOf(circuit(20, 20)));
         const connection = new FakeConnection();
@@ -1213,6 +1236,135 @@ describe("the sidebar dashboard", () => {
 
         choose(panel, "panel-1");
         await vi.waitFor(() => expect(stop.mock.contexts).toContain(favoritesTab));
+      });
+
+      it("stops the tab of a panel that leaves the view, and only that one", async () => {
+        holds(circuit(20, 20), dryerOf(circuit(20, 20)));
+        favorites["panel-2"] = { circuits: ["c-1"], sub_devices: [] };
+        const draws = vi.spyOn(MonitoringTab.prototype, "render");
+        const connection = new FakeConnection();
+        const panel = await mountFavorites(connection);
+        await vi.waitFor(() => expect(fieldOf(panel, HEATER)).not.toBeNull());
+        const leaving = draws.mock.contexts[draws.mock.calls.findIndex(([, , entryId]) => entryId === "entry-2")];
+        const stop = vi.spyOn(MonitoringTab.prototype, "stop");
+
+        delete favorites["panel-2"];
+        favoritesChanged();
+        await vi.waitFor(() => expect(headings(panel)).toEqual(["Panel 1"]));
+
+        expect(leaving).toBeInstanceOf(MonitoringTab);
+        expect(stop.mock.contexts).toEqual([leaving]);
+      });
+
+      it("keeps what is typed in one row's field, and its focus, across a refresh once the dashboard is detached and attached again", async () => {
+        holds(circuit(20, 20), dryerOf(circuit(20, 20)));
+        const connection = new FakeConnection();
+        const panel = await mountFavorites(connection);
+        await detachAndAttach(panel, connection);
+        typeOnly(fieldOf(panel, OVEN)!, "3");
+
+        // Another browser copies the Dryer's 20-20 tandem from the SPAN app.
+        holds(circuit(20, 20), dryerOf(circuit(20, 40, true)));
+        connection.emit(PACKAGE_RATINGS_CHANGED, ratingEvent("entry-1", ["c-2"]));
+        await vi.waitFor(() => expect(fieldOf(panel, DRYER)!.value).toBe("20"));
+
+        const field = fieldOf(panel, OVEN)!;
+        expect(field.value).toBe("3");
+        expect(panel.shadowRoot!.activeElement).toBe(field);
+        expect(packageSaves()).toEqual([]);
+
+        field.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter" }));
+        expect(packageSaves()).toEqual([{ circuit_id: "c-1", package_ratings_a: [20, 3], config_entry_id: "entry-1" }]);
+      });
+
+      it("leaves no tab listening on the page once the user leaves the view, after a save across a detach and attach", async () => {
+        holds(circuit(20, 20), dryerOf(circuit(20, 20)));
+        const listening = pageClickListeners();
+        const connection = new FakeConnection();
+        const panel = await mountFavorites(connection);
+        await detachAndAttach(panel, connection);
+
+        // A save in a table drawn before the detach draws that table again.
+        const reads = callsTo("get_monitoring_status").length;
+        const field = fieldOf(panel, OVEN)!;
+        typeOnly(field, "20");
+        field.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter" }));
+        await vi.waitFor(() => expect(callsTo("get_monitoring_status").length).toBeGreaterThan(reads));
+        await settled();
+        // A refresh for another circuit's copy draws the view again.
+        holds(circuit(20, 20), dryerOf(circuit(20, 40, true)));
+        connection.emit(PACKAGE_RATINGS_CHANGED, ratingEvent("entry-1", ["c-2"]));
+        await vi.waitFor(() => expect(fieldOf(panel, DRYER)!.value).toBe("20"));
+
+        // The user leaves for a panel's Monitoring tab, then its By Panel tab.
+        choose(panel, "panel-1");
+        await vi.waitFor(() => expect(headings(panel)).toEqual([]));
+        await vi.waitFor(() => expect(fieldOf(panel, OVEN)).not.toBeNull());
+        const renders = render.mock.calls.length;
+        showTab(panel, "dashboard");
+        await vi.waitFor(() => expect(render.mock.calls.length).toBeGreaterThan(renders));
+        await settled();
+
+        expect(packageSaves()).toEqual([{ circuit_id: "c-1", package_ratings_a: [20, 20], config_entry_id: "entry-1" }]);
+        expect(listening()).toEqual([]);
+      });
+
+      it("draws nothing while detached as the view loads, leaving no tab listening, and draws the rest once attached again", async () => {
+        holds(circuit(20, 20), dryerOf(circuit(20, 20)));
+        favorites["panel-2"] = { circuits: ["c-1"], sub_devices: [] };
+        const listening = pageClickListeners();
+        let release: () => void = () => {};
+        statusGate = new Promise<void>(resolve => (release = resolve));
+        const connection = new FakeConnection();
+        const panel = document.createElement("span-panel") as Panel;
+        panel.hass = panelHass(connection, true, favorites);
+        document.body.appendChild(panel);
+        mounted.push(panel);
+        // Panel 1's table is being read as the user navigates away.
+        await vi.waitFor(() => expect(callsTo("get_monitoring_status")).toHaveLength(1));
+
+        panel.remove();
+        statusGate = null;
+        release();
+        await settled();
+
+        expect(headings(panel)).toEqual(["Panel 1"]);
+        expect(fieldOf(panel, OVEN)).toBeNull();
+        expect(callsTo("get_monitoring_status")).toHaveLength(1);
+        expect(listening()).toEqual([]);
+
+        document.body.appendChild(panel);
+        await vi.waitFor(() => expect(fieldOf(panel, HEATER)).not.toBeNull());
+        expect(headings(panel)).toEqual(["Panel 1", "Panel 2"]);
+        expect(fieldOf(panel, OVEN)).not.toBeNull();
+      });
+
+      it("draws the view once attached again after a detach while its panels' topologies load", async () => {
+        holds(circuit(20, 20), dryerOf(circuit(20, 20)));
+        const listening = pageClickListeners();
+        let open: () => void = () => {};
+        const loading = new Promise<void>(resolve => (open = resolve));
+        mockDiscover.mockImplementation(async () => {
+          await loading;
+          return { topology: rendered, panelDevice: null, panelSize: 32 };
+        });
+        const connection = new FakeConnection();
+        const panel = document.createElement("span-panel") as Panel;
+        panel.hass = panelHass(connection, true, favorites);
+        document.body.appendChild(panel);
+        mounted.push(panel);
+        await vi.waitFor(() => expect(mockDiscover).toHaveBeenCalled());
+
+        panel.remove();
+        open();
+        await settled();
+
+        expect(callsTo("get_monitoring_status")).toEqual([]);
+        expect(listening()).toEqual([]);
+
+        document.body.appendChild(panel);
+        await vi.waitFor(() => expect(fieldOf(panel, OVEN)).not.toBeNull());
+        expect(headings(panel)).toEqual(["Panel 1"]);
       });
     });
   });
