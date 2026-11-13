@@ -8,6 +8,7 @@ import { serviceErrorMessage } from "../helpers/error-text.js";
 import { occupiedSpaces, slotRatingText, type SlotMember } from "../helpers/shared-meters.js";
 import { PackageRatingsEditor, type PackageRatingsHost, type PackageRatingsState } from "./package-ratings-editor.js";
 import { bindLimitField, LIMIT_RANGES, type LimitField } from "../helpers/number-field.js";
+import { circuitMonitoringInfo, monitoringStatusFrom } from "./monitoring-status.js";
 import { addFavorite, removeFavorite } from "./favorites-store.js";
 import { sortedCircuitsForSection } from "./favorites-sections.js";
 import { subDeviceCharts } from "../helpers/sub-device-power.js";
@@ -22,6 +23,8 @@ import type {
   CircuitGraphOverride,
   MonitoringGlobalSettings,
   MonitoringPointInfo,
+  MonitoringStatus,
+  MonitoringStatusResponse,
 } from "../types.js";
 import type { ErrorStore } from "./error-store.js";
 
@@ -463,6 +466,8 @@ class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
   private _config: SidePanelConfig | null;
   private readonly _ratingsEditor: PackageRatingsEditor;
   private _debounceTimers: Record<string, ReturnType<typeof setTimeout>>;
+  /** Counts reads of the circuit's monitoring after a threshold save, so an earlier one answering late is ignored. */
+  private _thresholdReads = 0;
   constructor() {
     super();
     this.attachShadow({ mode: "open" });
@@ -530,14 +535,7 @@ class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
 
     const subtitle = shadow.querySelector(".subtitle");
     if (subtitle) subtitle.textContent = this._circuitSubtitle(next);
-
-    const judged = shadow.querySelector('[data-role="judged-against"]');
-    if (judged) {
-      const text = this._judgedAgainstText(next.monitoringInfo);
-      // Set only on a change, so the live region announces a change and nothing else.
-      if (judged.textContent !== text) judged.textContent = text;
-      this._ratingsEditor.sync(judged);
-    }
+    this._syncMonitoring();
   }
 
   close(): void {
@@ -1498,11 +1496,43 @@ class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
    * or moved to another circuit.
    */
   private _thresholdsChanged(uuid: string, change: Partial<MonitoringPointInfo>): void {
-    const cfg = this._config;
-    if (!cfg || cfg.panelMode || cfg.subDeviceMode || cfg.favoritesMode || cfg.uuid !== uuid || !this.hasAttribute("open")) return;
+    const cfg = this._openCircuitConfig(uuid);
+    if (!cfg) return;
     this._config = { ...cfg, monitoringInfo: { ...(cfg.monitoringInfo ?? {}), ...change } };
+    this._syncMonitoring();
+  }
+
+  /**
+   * Take the integration's answer for circuit `uuid`'s monitoring, and the global
+   * thresholds it came with, in place of what the open panel held. Ignored where the
+   * panel has since closed or moved to another circuit.
+   */
+  private _monitoringAnswered(uuid: string, info: MonitoringPointInfo, globals: MonitoringGlobalSettings | null): void {
+    const cfg = this._openCircuitConfig(uuid);
+    if (!cfg) return;
+    this._config = { ...cfg, monitoringInfo: info, monitoringGlobals: globals };
+    this._syncMonitoring();
+  }
+
+  /** The open panel's circuit config, where it is open on circuit `uuid`; null otherwise. */
+  private _openCircuitConfig(uuid: string): CircuitModeConfig | null {
+    const cfg = this._config;
+    if (!cfg || cfg.panelMode || cfg.subDeviceMode || cfg.favoritesMode || cfg.uuid !== uuid || !this.hasAttribute("open")) return null;
+    return cfg;
+  }
+
+  /**
+   * Redraw what reads the open circuit's monitoring: the "judged against" line, set
+   * only on a change, so the live region announces a change and nothing else, and
+   * the package ratings editor.
+   */
+  private _syncMonitoring(): void {
+    const cfg = this._config;
     const judged = this.shadowRoot?.querySelector('[data-role="judged-against"]');
-    if (judged) this._ratingsEditor.sync(judged);
+    if (!cfg || cfg.panelMode || cfg.subDeviceMode || cfg.favoritesMode || !judged) return;
+    const text = this._judgedAgainstText(cfg.monitoringInfo);
+    if (judged.textContent !== text) judged.textContent = text;
+    this._ratingsEditor.sync(judged);
   }
 
   // ── Graph horizon section ──────────────────────────────────────────
@@ -1755,7 +1785,7 @@ class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
       save: amount => {
         const data: Record<string, unknown> = { circuit_id: cfg.entities?.power || cfg.uuid, [field]: amount };
         if (cfg.configEntryId) data.config_entry_id = cfg.configEntryId;
-        this._saveThresholds(cfg.uuid, data);
+        this._saveThresholds(cfg, data);
       },
     });
 
@@ -1764,18 +1794,13 @@ class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
   }
 
   /**
-   * Save the circuit's custom thresholds. Once the integration accepts them, the
-   * open circuit's monitoring reads them, so what depends on them, the package
-   * ratings editor's warning, follows without waiting for a refresh.
+   * Save the circuit's custom thresholds, then read its monitoring as the
+   * integration now reports it, so what depends on it, the package ratings
+   * editor's warning, follows without waiting for a refresh.
    */
-  private _saveThresholds(uuid: string, data: Record<string, unknown>): void {
+  private _saveThresholds(cfg: CircuitModeConfig, data: Record<string, unknown>): void {
     this._callDomainService("set_circuit_threshold", data).then(
-      () => {
-        const change: Partial<MonitoringPointInfo> = { has_override: true };
-        if (typeof data.continuous_threshold_pct === "number") change.continuous_threshold_pct = data.continuous_threshold_pct;
-        if (typeof data.spike_threshold_pct === "number") change.spike_threshold_pct = data.spike_threshold_pct;
-        this._thresholdsChanged(uuid, change);
-      },
+      () => this._readThresholds(cfg, data),
       (err: unknown) => {
         console.warn("SPAN Panel: monitoring update failed", err);
         this.errorStore?.add({
@@ -1827,7 +1852,48 @@ class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
     selectEl.disabled = !selectOperable(cfg, this._hass);
   }
 
+  /**
+   * The answer is read rather than assumed: the integration drops an override
+   * whose values match the global thresholds, and the circuit then uses those, so
+   * only its answer says whether the circuit still has thresholds of its own. A
+   * later read wins over an earlier one that answers after it. Where the status
+   * cannot be read, or says nothing of the circuit, the values entered are taken
+   * as the circuit's own, which they are unless they match the global ones.
+   */
+  private async _readThresholds(cfg: CircuitModeConfig, entered: Record<string, unknown>): Promise<void> {
+    const read = ++this._thresholdReads;
+    let status: MonitoringStatus | null = null;
+    try {
+      status = await this._readMonitoringStatus(cfg.configEntryId ?? null);
+    } catch (err: unknown) {
+      console.warn("SPAN Panel: monitoring status read failed", err);
+    }
+    if (read !== this._thresholdReads) return;
+    const answer = circuitMonitoringInfo(status, cfg);
+    if (answer) {
+      this._monitoringAnswered(cfg.uuid, answer, status?.global_settings ?? null);
+      return;
+    }
+    const change: Partial<MonitoringPointInfo> = { has_override: true };
+    if (typeof entered.continuous_threshold_pct === "number") change.continuous_threshold_pct = entered.continuous_threshold_pct;
+    if (typeof entered.spike_threshold_pct === "number") change.spike_threshold_pct = entered.spike_threshold_pct;
+    this._thresholdsChanged(cfg.uuid, change);
+  }
+
   // ── Service calls ───────────────────────────────────────────────────
+
+  /** The monitoring status of the panel config entry `entryId` (the caller's own where null), or null with monitoring off. */
+  private async _readMonitoringStatus(entryId: string | null): Promise<MonitoringStatus | null> {
+    if (!this._hass) return null;
+    const resp = await this._hass.callWS<{ response?: MonitoringStatusResponse }>({
+      type: "call_service",
+      domain: INTEGRATION_DOMAIN,
+      service: "get_monitoring_status",
+      service_data: entryId ? { config_entry_id: entryId } : {},
+      return_response: true,
+    });
+    return monitoringStatusFrom(resp?.response);
+  }
 
   private _callService(domain: string, service: string, data: Record<string, unknown>): Promise<void> {
     if (!this._hass) return Promise.resolve();

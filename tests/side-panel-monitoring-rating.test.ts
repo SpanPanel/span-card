@@ -904,6 +904,133 @@ describe("thresholds above 100% under a copy", () => {
     expect(warning(panel)).toBeNull();
   });
 
+  describe("after a custom threshold is saved, as the integration then reports them", () => {
+    // The global thresholds are above 100%; the circuit's own continuous threshold differs from theirs.
+    const ABOVE_GLOBALS = { continuous_threshold_pct: 160, spike_threshold_pct: 200, window_duration_m: 15, cooldown_duration_m: 15 };
+    const SENSOR = "sensor.oven_current";
+    const opening = {
+      entities: { current: SENSOR },
+      monitoringInfo: { monitoring_enabled: true, has_override: true, ...ABOVE_GLOBALS, continuous_threshold_pct: 170 },
+      monitoringGlobals: ABOVE_GLOBALS,
+    };
+    /** The integration's answer to a status read, with the circuit's entry `point`. */
+    const status = (point: Record<string, unknown>): unknown => ({
+      response: { enabled: true, global_settings: ABOVE_GLOBALS, circuits: { [SENSOR]: point }, mains: {} },
+    });
+    const continuous = (p: SidePanel): HTMLInputElement => p.shadowRoot!.querySelector<HTMLInputElement>('[data-role="threshold-continuous"]')!;
+
+    it("point to the global settings where the integration dropped an override that matches them", async () => {
+      const { panel, callWS } = open(COPIED, opening, async message =>
+        message.service === "get_monitoring_status" ? status({ monitoring_enabled: true, has_override: false, ...ABOVE_GLOBALS }) : undefined
+      );
+
+      type(continuous(panel), "160");
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(callWS.mock.calls.map(c => (c[0] as { service: string; service_data: unknown }).service)).toEqual([
+        "set_circuit_threshold",
+        "get_monitoring_status",
+      ]);
+      expect((callWS.mock.calls[1]![0] as { service_data: unknown; return_response: unknown }).service_data).toEqual({ config_entry_id: "entry-1" });
+      expect((callWS.mock.calls[1]![0] as { return_response: unknown }).return_response).toBe(true);
+      expect(warning(panel)!.textContent).toBe(GLOBAL_TEXT);
+      expect(useGlobal(panel)).toBeNull();
+    });
+
+    it("are the circuit's own, with the reset, where the integration kept the override", async () => {
+      const { panel } = open(COPIED, { ...opening, monitoringInfo: { ...opening.monitoringInfo, has_override: false } }, async message =>
+        message.service === "get_monitoring_status"
+          ? status({ monitoring_enabled: true, has_override: true, ...ABOVE_GLOBALS, continuous_threshold_pct: 180 })
+          : undefined
+      );
+
+      type(continuous(panel), "180");
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(warning(panel)!.textContent).toContain(OWN_TEXT);
+      expect(useGlobal(panel)).not.toBeNull();
+    });
+
+    it("take the global thresholds the answer came with, which a reset then applies", async () => {
+      // Since the panel opened, the global thresholds were brought back within 100%.
+      const within = { continuous_threshold_pct: 80, spike_threshold_pct: 100, window_duration_m: 15, cooldown_duration_m: 15 };
+      const { panel } = open(COPIED, opening, async message =>
+        message.service === "get_monitoring_status"
+          ? {
+              response: {
+                enabled: true,
+                global_settings: within,
+                circuits: { [SENSOR]: { monitoring_enabled: true, has_override: true, ...within, continuous_threshold_pct: 180 } },
+              },
+            }
+          : undefined
+      );
+      type(continuous(panel), "180");
+      await vi.advanceTimersByTimeAsync(0);
+      expect(useGlobal(panel)).not.toBeNull();
+
+      useGlobal(panel)!.click();
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(warning(panel)).toBeNull();
+    });
+
+    it("take the later of two answers where the earlier answers last", async () => {
+      const answers: Array<() => void> = [];
+      const points = [
+        { monitoring_enabled: true, has_override: true, ...ABOVE_GLOBALS, continuous_threshold_pct: 180 },
+        { monitoring_enabled: true, has_override: false, ...ABOVE_GLOBALS },
+      ];
+      const { panel } = open(COPIED, opening, message => {
+        if (message.service !== "get_monitoring_status") return Promise.resolve(undefined);
+        const answer = status(points[answers.length]!);
+        return new Promise(resolve => answers.push(() => resolve(answer)));
+      });
+
+      type(continuous(panel), "180");
+      await vi.advanceTimersByTimeAsync(0);
+      type(continuous(panel), "160");
+      await vi.advanceTimersByTimeAsync(0);
+      expect(answers).toHaveLength(2);
+      answers[1]!();
+      await vi.advanceTimersByTimeAsync(0);
+      answers[0]!();
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(warning(panel)!.textContent).toBe(GLOBAL_TEXT);
+    });
+
+    it("are taken as entered where the status cannot be read, as the circuit's own", async () => {
+      const { panel } = open(COPIED, { ...opening, monitoringInfo: { ...opening.monitoringInfo, has_override: false } }, async message => {
+        if (message.service === "get_monitoring_status") throw { message: "unavailable" };
+        return undefined;
+      });
+
+      type(continuous(panel), "180");
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(warning(panel)!.textContent).toContain(OWN_TEXT);
+    });
+
+    it("leave a panel since closed alone", async () => {
+      let answer: () => void = () => {};
+      const { panel } = open(COPIED, opening, message =>
+        message.service === "get_monitoring_status"
+          ? new Promise(resolve => (answer = () => resolve(status({ monitoring_enabled: true, has_override: false, ...ABOVE_GLOBALS }))))
+          : Promise.resolve(undefined)
+      );
+      type(continuous(panel), "160");
+      await vi.advanceTimersByTimeAsync(0);
+      const before = warning(panel)!.textContent;
+
+      panel.removeAttribute("open");
+      answer();
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(warning(panel)!.textContent).toBe(before);
+    });
+  });
+
   it("are kept when a custom threshold fails to save", async () => {
     const { panel } = open(COPIED, OWN, async () => {
       throw { message: "refused" };
