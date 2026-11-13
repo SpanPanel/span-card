@@ -83,13 +83,18 @@ const WARNING_STYLE = `
 `;
 /** The table's columns: the name, the rating, the four thresholds and durations, and the Reset. */
 const TABLE_COLUMNS = 7;
+/** Out of sight, and still read by assistive technology. */
+const VISUALLY_HIDDEN_STYLE = `
+  position:absolute;width:1px;height:1px;margin:-1px;padding:0;border:0;
+  overflow:hidden;clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap;
+`;
 
-let feedbackSerial = 0;
+let idSerial = 0;
 
-/** An id for a field's feedback, unique in the shadow root every panel's tab is drawn in. */
-function nextFeedbackId(): string {
-  feedbackSerial += 1;
-  return `span-monitoring-feedback-${feedbackSerial}`;
+/** An id for an element of `kind`, unique in the shadow root every panel's tab is drawn in. */
+function nextId(kind: string): string {
+  idSerial += 1;
+  return `span-monitoring-${kind}-${idSerial}`;
 }
 
 /** The global settings' threshold and duration fields, by the field each sets. */
@@ -101,16 +106,17 @@ const GLOBAL_FIELDS: ReadonlyArray<readonly [LimitField, string]> = [
 ];
 
 /**
- * Give a threshold or duration field a place after it that says what it needs
- * correcting, as its description and a polite live region, with its border
- * marked while it does; answers what reports into it.
+ * Give a field a place after it that says what it needs correcting, as the last
+ * of its descriptions and a polite live region, with its border marked while it
+ * does; answers what reports into it.
  */
 function fieldFeedback(input: HTMLInputElement): (message: string | null) => void {
   const feedback = document.createElement("div");
-  feedback.id = nextFeedbackId();
+  feedback.id = nextId("feedback");
   feedback.setAttribute("aria-live", "polite");
   feedback.style.cssText = FEEDBACK_STYLE;
-  input.setAttribute("aria-describedby", feedback.id);
+  const described = input.getAttribute("aria-describedby");
+  input.setAttribute("aria-describedby", described ? `${described} ${feedback.id}` : feedback.id);
   input.parentElement?.appendChild(feedback);
   // The colour goes back to the one the field is drawn in, never to what the border reads: Chromium reads a
   // longhand of a shorthand holding var() as "", and setting that would drop the colour.
@@ -335,22 +341,26 @@ function otherOf(copy: RowCopy): number | null {
  * A circuit's Rating cell where it takes a copy (spec §14.6): "20 A +" and the
  * other breaker's field, then "= 40 A" while the copy applies, and a ✕ while
  * one is stored. The field shows the copy, so no ✎ marks it. The field and the
- * ✕ are named by the circuit (`written`, as written; it is escaped here).
+ * ✕ are named by the circuit (`written`, as written; it is escaped here). The
+ * field is described by the panel's rating, then by the text of the row's
+ * warning (`warningId`) where one is drawn.
  */
-function copyCell(eid: string, written: string, info: MonitoringPointInfo, copy: RowCopy): string {
+function copyCell(eid: string, written: string, info: MonitoringPointInfo, copy: RowCopy, warningId: string | null): string {
   const judged = info.package_ratings_state === "applies" ? judgedRatingA(info) : null;
   const panel = tf("monitoringRating.panel_plus", { panel: String(copy.panelA) });
+  const panelId = nextId("panel-rating");
   const fieldName = tf("monitoringRating.other_breaker_label", { circuit: written });
+  const describedBy = warningId ? `${panelId} ${warningId}` : panelId;
   const equals = judged ? `<span>${escapeHtml(tf("monitoringRating.judged_equals", { rating: String(judged) }))}</span>` : "";
   const clear = copy.ratings
     ? `<button type="button" class="rating-clear" data-entity="${eid}"
          aria-label="${escapeHtml(tf("monitoringRating.clear_label", { circuit: written }))}" style="${CLEAR_STYLE}">✕</button>`
     : "";
   return `<td class="rating-cell" style="padding:6px 4px;white-space:nowrap;">
-    <span>${escapeHtml(panel)}</span>
+    <span id="${panelId}">${escapeHtml(panel)}</span>
     <input type="number" class="rating-input" data-entity="${eid}" data-circuit="${escapeHtml(copy.circuitId)}"
            value="${escapeHtml(otherOf(copy) ?? "")}" min="1" step="1" inputmode="numeric" aria-label="${escapeHtml(fieldName)}"
-           style="${CELL_INPUT_STYLE}">
+           aria-describedby="${describedBy}" style="${CELL_INPUT_STYLE}">
     ${equals}
     ${clear}
   </td>`;
@@ -366,22 +376,42 @@ function warningText(warning: CopyWarning): string {
 /**
  * The row under a circuit's cells for the warning its copy calls for
  * (`copyWarning`), which is only ever a monitored circuit's, so never dimmed.
+ * Its text goes by `textId`, which describes the row's controls it concerns.
  * The averaged-legs one carries a button that turns monitoring off for the
  * circuit, named by it as the row's fields are (`written`, as written; it is
- * escaped here).
+ * escaped here) and described by the warning.
  */
-function warningRow(eid: string, written: string, warning: CopyWarning): string {
+function warningRow(eid: string, written: string, warning: CopyWarning, textId: string): string {
   const label = t("monitoringRating.turn_off_monitoring");
   const action =
     warning === "averaged_legs"
       ? `<button type="button" class="rating-turn-off" data-entity="${eid}"
-           aria-label="${escapeHtml(tf("monitoring.point_field", { field: label, name: written }))}" style="${ROW_BUTTON_STYLE}">${escapeHtml(label)}</button>`
+           aria-label="${escapeHtml(tf("monitoring.point_field", { field: label, name: written }))}" aria-describedby="${textId}"
+           style="${ROW_BUTTON_STYLE}">${escapeHtml(label)}</button>`
       : "";
   return `<tr class="rating-warning-row">
     <td colspan="${TABLE_COLUMNS}" style="padding:0 8px 8px;">
-      <div class="rating-warning" role="note" data-kind="${warning}" style="${WARNING_STYLE}"><span>${escapeHtml(warningText(warning))}</span>${action}</div>
+      <div class="rating-warning" role="note" data-kind="${warning}" style="${WARNING_STYLE}"><span id="${textId}">${escapeHtml(warningText(warning))}</span>${action}</div>
     </td>
   </tr>`;
+}
+
+/**
+ * What the tab says through its live region as it draws the warnings `drawn`
+ * over a table of the same panel's that showed `before`: each row's warning
+ * that is new, or other than the one shown there, named by its circuit
+ * (`names`), in the table's order. Empty where there is none.
+ */
+function newWarningsText(drawn: ReadonlyMap<string, CopyWarning>, before: ReadonlyMap<string, CopyWarning>, names: ReadonlyMap<string, string>): string {
+  return [...drawn]
+    .filter(([entity, warning]) => before.get(entity) !== warning)
+    .map(([entity, warning]) => tf("monitoringRating.warning_announcement", { circuit: names.get(entity) ?? entity, warning: warningText(warning) }))
+    .join(" ");
+}
+
+/** Whether two tables' warnings are the same: the same rows, each with the same warning. */
+function sameWarnings(a: ReadonlyMap<string, CopyWarning>, b: ReadonlyMap<string, CopyWarning>): boolean {
+  return a.size === b.size && [...a].every(([entity, warning]) => b.get(entity) === warning);
 }
 
 /**
@@ -496,6 +526,20 @@ class PressWatch {
 type PausedSetting = "notify_targets" | "notification_title_template" | "notification_message_template";
 
 /**
+ * What the tab draws in its container: the tab's markup, and after it a polite
+ * live region that a redraw keeps, so what is said in it is announced. The
+ * region says a row's warning as it appears (`newWarningsText`), which a sighted
+ * user sees where they entered what brought it.
+ */
+interface DrawnTab {
+  readonly container: HTMLElement;
+  readonly content: HTMLElement;
+  readonly announcer: HTMLElement;
+  /** The warning under each row, by its point, as last drawn. */
+  warnings: ReadonlyMap<string, CopyWarning>;
+}
+
+/**
  * A save that waits for the user to pause, as a run of target choices or a
  * typed template does. Each setting has its own, so a change to one never
  * cancels another's; a later change to the same setting replaces what waits.
@@ -539,6 +583,8 @@ export class MonitoringTab {
   private _epoch = 0;
   /** Counts reads of the table, so an earlier read answering late cannot draw over a later one. */
   private _renderSeq = 0;
+  /** What the tab last drew, and where; null before its first draw. */
+  private _drawn: DrawnTab | null = null;
 
   constructor() {
     this._configEntryId = null;
@@ -629,6 +675,9 @@ export class MonitoringTab {
       if (copy) copies.set(entityId, copy);
     }
 
+    // The warning under each row that has one, and the row's circuit as written, by entity id, for the live region to say what is new.
+    const warnings = new Map<string, CopyWarning>();
+    const names = new Map<string, string>();
     const circuitRows = circuitEntries
       .map(([entityId, info]) => {
         const written = info.name ?? entityId;
@@ -639,6 +688,14 @@ export class MonitoringTab {
         const eid = escapeHtml(entityId);
         const copy = copies.get(entityId) ?? null;
         const warning = copy ? copyWarning(info, info) : null;
+        // The warning under the row, its text going by an id of its own, which describes the row's controls it concerns.
+        const warned = warning ? { warning, textId: nextId("warning") } : null;
+        if (warning) {
+          warnings.set(entityId, warning);
+          names.set(entityId, written);
+        }
+        // The own-thresholds warning names the row's Reset, which it then describes.
+        const resetDescribedBy = warned?.warning === "own" ? ` aria-describedby="${warned.textId}"` : "";
         return `
           <tr style="${dimStyle}">
             <td style="padding:6px 8px;">
@@ -649,7 +706,7 @@ export class MonitoringTab {
                 <span>${name}</span>
               </label>
             </td>
-            ${copy ? copyCell(eid, written, info, copy) : ratingCell(info, false)}
+            ${copy ? copyCell(eid, written, info, copy, warned?.textId ?? null) : ratingCell(info, false)}
             ${thresholdCell(eid, written, "continuous_threshold_pct", info.continuous_threshold_pct, "%", "circuit")}
             ${thresholdCell(eid, written, "spike_threshold_pct", info.spike_threshold_pct, "%", "circuit")}
             ${thresholdCell(eid, written, "window_duration_m", info.window_duration_m, "m", "circuit")}
@@ -658,7 +715,7 @@ export class MonitoringTab {
               ${
                 hasOverride
                   ? `<button class="reset-btn" data-entity="${eid}" data-type="circuit"
-                       aria-label="${escapeHtml(tf("monitoring.reset_point", { name: written }))}"
+                       aria-label="${escapeHtml(tf("monitoring.reset_point", { name: written }))}"${resetDescribedBy}
                        style="${ROW_BUTTON_STYLE}">
                     ${t("monitoring.reset")}
                   </button>`
@@ -666,7 +723,7 @@ export class MonitoringTab {
               }
             </td>
           </tr>
-          ${warning ? warningRow(eid, written, warning) : ""}
+          ${warned ? warningRow(eid, written, warned.warning, warned.textId) : ""}
         `;
       })
       .join("");
@@ -711,7 +768,8 @@ export class MonitoringTab {
       .join("");
 
     const kept = samePanel ? keptFocus(container) : null;
-    container.innerHTML = `
+    const { drawing, overTable } = this._drawingIn(container);
+    drawing.content.innerHTML = `
       ${this._headerHTML}
       <div style="padding:16px;">
         <h2 style="margin-top:0;">${t("monitoring.heading")}</h2>
@@ -936,6 +994,52 @@ export class MonitoringTab {
     this._bindResetButtons(container, hass);
     this._bindRatingMarks(container);
     restoreFocus(container, kept);
+    this._sayNewWarnings(drawing, overTable && samePanel, warnings, names);
+  }
+
+  /**
+   * The parts to draw the tab in: those it drew in `container` last, where the
+   * container holds them and nothing else, to draw over the table they show
+   * (`overTable`); else new ones, which take the place of what it held.
+   */
+  private _drawingIn(container: HTMLElement): { drawing: DrawnTab; overTable: boolean } {
+    const drawn = this._drawn;
+    if (
+      drawn?.container === container &&
+      container.childNodes.length === 2 &&
+      container.firstChild === drawn.content &&
+      container.lastChild === drawn.announcer
+    ) {
+      return { drawing: drawn, overTable: true };
+    }
+    const content = document.createElement("div");
+    const announcer = document.createElement("div");
+    announcer.className = "rating-announcer";
+    announcer.setAttribute("aria-live", "polite");
+    announcer.style.cssText = VISUALLY_HIDDEN_STYLE;
+    container.replaceChildren(content, announcer);
+    const drawing: DrawnTab = { container, content, announcer, warnings: new Map() };
+    this._drawn = drawing;
+    return { drawing, overTable: false };
+  }
+
+  /**
+   * Note the warnings `drawing` now shows, and say through its live region each
+   * one that is new, or other than the one shown before, where the tab drew over
+   * the same panel's table (`overTable`; `newWarningsText`). Nothing is said as a
+   * table is drawn afresh, as the tab is shown or another panel's is, nor for
+   * warnings as they were. Any other change sets the region, which is cleared
+   * where nothing is new, so a warning that goes and comes back is said again.
+   */
+  private _sayNewWarnings(drawing: DrawnTab, overTable: boolean, warnings: ReadonlyMap<string, CopyWarning>, names: ReadonlyMap<string, string>): void {
+    const before = drawing.warnings;
+    drawing.warnings = warnings;
+    if (!overTable) {
+      drawing.announcer.textContent = "";
+      return;
+    }
+    if (sameWarnings(before, warnings)) return;
+    drawing.announcer.textContent = newWarningsText(warnings, before, names);
   }
 
   /**

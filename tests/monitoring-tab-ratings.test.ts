@@ -256,11 +256,17 @@ function warningOf(container: HTMLElement, entity: string): HTMLElement | null {
   return next instanceof HTMLElement && next.classList.contains("rating-warning-row") ? next : null;
 }
 
-/** The element a field names as its description. */
-function description(field: HTMLInputElement): HTMLElement | null {
-  const id = field.getAttribute("aria-describedby");
-  const root = field.getRootNode();
-  return id && root instanceof ShadowRoot ? root.getElementById(id) : null;
+/** The elements a control names as its description, in the order it names them; null for an id naming none. */
+function descriptions(el: HTMLElement): Array<HTMLElement | null> {
+  const ids = (el.getAttribute("aria-describedby") ?? "").split(" ").filter(Boolean);
+  const root = el.getRootNode();
+  return root instanceof ShadowRoot ? ids.map(id => root.getElementById(id)) : [];
+}
+
+/** What a field says it needs correcting: the description it names last. */
+function feedbackOf(field: HTMLInputElement): HTMLElement | null {
+  const named = descriptions(field);
+  return named[named.length - 1] ?? null;
 }
 
 /** Type `value` into the field, as keystrokes do, without committing it. */
@@ -363,8 +369,8 @@ describe("a one-space circuit's Rating cell", () => {
 
     expect(panel.saves).toEqual([]);
     expect(field.getAttribute("aria-invalid")).toBe("true");
-    expect(description(field)!.textContent).toBe(INVALID);
-    expect(description(field)!.getAttribute("aria-live")).toBe("polite");
+    expect(feedbackOf(field)!.textContent).toBe(INVALID);
+    expect(feedbackOf(field)!.getAttribute("aria-live")).toBe("polite");
   });
 
   it("removes the copy with its ✕, and the cell goes back to the panel's rating", async () => {
@@ -421,7 +427,7 @@ describe("a one-space circuit's Rating cell", () => {
     // The removal failed, so the copy in force is still the one shown.
     expect(field.value).toBe("20");
     expect(field.hasAttribute("aria-invalid")).toBe(false);
-    expect(description(field)!.textContent).toBe("");
+    expect(feedbackOf(field)!.textContent).toBe("");
   });
 
   it("draws nothing judged while a copy waits on a value", async () => {
@@ -656,6 +662,197 @@ describe("a row's threshold warning", () => {
   });
 });
 
+describe("a copy row's descriptions, for assistive technology", () => {
+  /** The panel's rating a circuit's Rating cell shows before its field: "20 A +". */
+  const panelRatingOf = (container: HTMLElement, entity: string): HTMLElement => ratingCellOf(container, entity).querySelector<HTMLElement>("span")!;
+  /** The text of the warning under a circuit's row. */
+  const warningTextOf = (container: HTMLElement, entity: string): HTMLElement =>
+    warningOf(container, entity)!.querySelector<HTMLElement>('[role="note"] > span')!;
+
+  it("describes the field by the panel's rating, then what it needs correcting, where the row has no warning", async () => {
+    const { container } = await shown(integration());
+    const field = fieldOf(container, OVEN)!;
+    const [panel, feedback, ...rest] = descriptions(field);
+
+    expect(panel).toBe(panelRatingOf(container, OVEN));
+    expect(textOf(panel!)).toBe("20 A +");
+    expect(feedback?.getAttribute("aria-live")).toBe("polite");
+    expect(rest).toEqual([]);
+  });
+
+  it("describes the field by the panel's rating, the row's warning, then what it needs correcting", async () => {
+    const { container } = await shown(integration({ copies: { [DRYER]: [20, 30] } }));
+    const [panel, warning, feedback, ...rest] = descriptions(fieldOf(container, DRYER)!);
+
+    expect(panel).toBe(panelRatingOf(container, DRYER));
+    expect(warning).toBe(warningTextOf(container, DRYER));
+    expect(textOf(warning!)).toBe(AVERAGED_LEGS_WARNING);
+    expect(feedback?.getAttribute("aria-live")).toBe("polite");
+    expect(rest).toEqual([]);
+  });
+
+  it("describes the averaged-legs warning's button by the warning", async () => {
+    const { container } = await shown(integration({ copies: { [DRYER]: [20, 30] } }));
+    const button = warningOf(container, DRYER)!.querySelector<HTMLButtonElement>(".rating-turn-off")!;
+
+    expect(descriptions(button)).toEqual([warningTextOf(container, DRYER)]);
+  });
+
+  it("describes the row's Reset by the own-thresholds warning that names it", async () => {
+    const panel = integration({ copies: { [OVEN]: [20, 20] }, overrides: { [OVEN]: { continuous_threshold_pct: 160, spike_threshold_pct: 200 } } });
+    const { container } = await shown(panel);
+    const reset = rowOf(container, OVEN).querySelector<HTMLElement>(".reset-btn")!;
+
+    expect(descriptions(reset)).toEqual([warningTextOf(container, OVEN)]);
+    expect(textOf(warningTextOf(container, OVEN))).toBe(OWN_WARNING);
+    expect(descriptions(fieldOf(container, OVEN)!)[1]).toBe(warningTextOf(container, OVEN));
+  });
+
+  it("describes no Reset by a warning that does not name it", async () => {
+    const panel = integration({ copies: { [DRYER]: [20, 30] }, overrides: { [DRYER]: { continuous_threshold_pct: 160, spike_threshold_pct: 200 } } });
+    const { container } = await shown(panel);
+
+    expect(warningOf(container, DRYER)).not.toBeNull();
+    expect(rowOf(container, DRYER).querySelector(".reset-btn")!.hasAttribute("aria-describedby")).toBe(false);
+  });
+
+  it("gives each row's panel rating and warning an id of its own, across every panel's tab in one shadow root", async () => {
+    const panel = integration({ copies: { [OVEN]: [20, 20], [DRYER]: [20, 30] }, overrides: { [OVEN]: { continuous_threshold_pct: 160 } } });
+    const { container, root } = await shown(panel);
+    const other = document.createElement("div");
+    root.appendChild(other);
+    await new MonitoringTab().render(other, panel.hass, "entry-2");
+
+    const fields = [...root.querySelectorAll<HTMLInputElement>(".rating-input")];
+    const ids = fields.flatMap(field => (field.getAttribute("aria-describedby") ?? "").split(" "));
+    expect(fields).toHaveLength(6);
+    expect(new Set(ids).size).toBe(ids.length);
+    for (const field of fields) {
+      const tab = container.contains(field) ? container : other;
+      for (const described of descriptions(field)) expect(described !== null && tab.contains(described)).toBe(true);
+    }
+  });
+});
+
+describe("a warning a redraw brings", () => {
+  const GLOBALS_ABOVE = { continuous_threshold_pct: 160, spike_threshold_pct: 200 };
+
+  /** The live region the tab says a new warning through. */
+  const announcerOf = (container: HTMLElement): HTMLElement | null => container.querySelector<HTMLElement>(".rating-announcer");
+
+  /** Every text said through `region` from now on: each one set in it, a cleared region saying nothing. */
+  function sayings(region: HTMLElement): string[] {
+    const said: string[] = [];
+    new MutationObserver(() => {
+      const text = textOf(region);
+      if (text) said.push(text);
+    }).observe(region, { childList: true, characterData: true, subtree: true });
+    return said;
+  }
+
+  it("is said through a polite live region the redraw keeps, naming the circuit, once a save brings it", async () => {
+    const panel = integration({ globals: GLOBALS_ABOVE });
+    const { container } = await shown(panel);
+    const region = announcerOf(container)!;
+    expect(region.getAttribute("aria-live")).toBe("polite");
+    const said = sayings(region);
+
+    type(fieldOf(container, OVEN)!, "20");
+    await vi.waitFor(() => expect(warningOf(container, OVEN)).not.toBeNull());
+    await settle();
+
+    expect(announcerOf(container)).toBe(region);
+    expect(said).toEqual([`Oven: ${GLOBAL_WARNING}`]);
+  });
+
+  it("says nothing as the tab is first drawn, its warnings already shown", async () => {
+    const { container } = await shown(integration({ copies: { [OVEN]: [20, 20] }, globals: GLOBALS_ABOVE }));
+
+    expect(warningOf(container, OVEN)).not.toBeNull();
+    expect(announcerOf(container)!.textContent).toBe("");
+  });
+
+  it("says nothing more for a redraw whose warnings are as they were", async () => {
+    const panel = integration({ globals: GLOBALS_ABOVE });
+    const { container } = await shown(panel);
+    type(fieldOf(container, OVEN)!, "20");
+    await vi.waitFor(() => expect(warningOf(container, OVEN)).not.toBeNull());
+    await settle();
+    const said = sayings(announcerOf(container)!);
+    const reads = panel.reads();
+
+    const toggle = container.querySelector<HTMLInputElement>(`.mains-toggle[data-entity="${MAINS}"]`)!;
+    toggle.checked = false;
+    toggle.dispatchEvent(new Event("change"));
+    await vi.waitFor(() => expect(panel.reads()).toBe(reads + 1));
+    await settle();
+
+    expect(warningOf(container, OVEN)).not.toBeNull();
+    expect(said).toEqual([]);
+    expect(textOf(announcerOf(container))).toBe(`Oven: ${GLOBAL_WARNING}`);
+  });
+
+  it("says a row's warning that changes to another", async () => {
+    const panel = integration({ copies: { [OVEN]: [20, 20] }, overrides: { [OVEN]: GLOBALS_ABOVE }, globals: GLOBALS_ABOVE });
+    const { container } = await shown(panel);
+    expect(textOf(warningOf(container, OVEN))).toBe(OWN_WARNING);
+    const said = sayings(announcerOf(container)!);
+
+    rowOf(container, OVEN).querySelector<HTMLElement>(".reset-btn")!.click();
+    await vi.waitFor(() => expect(textOf(warningOf(container, OVEN))).toBe(GLOBAL_WARNING));
+    await settle();
+
+    expect(said).toEqual([`Oven: ${GLOBAL_WARNING}`]);
+  });
+
+  it("says each row's new warning, naming its circuit, in the table's order", async () => {
+    const panel = integration({ copies: { [GARAGE]: [20, 20], [OVEN]: [20, 20] }, off: [GARAGE, OVEN], globals: GLOBALS_ABOVE });
+    const { container } = await shown(panel);
+    const said = sayings(announcerOf(container)!);
+
+    const all = container.querySelector<HTMLInputElement>("#toggle-all-circuits")!;
+    all.checked = true;
+    all.dispatchEvent(new Event("change"));
+    await vi.waitFor(() => expect(warningOf(container, OVEN)).not.toBeNull());
+    await settle();
+
+    expect(said).toEqual([`Garage: ${OWN_WARNING} Oven: ${OWN_WARNING}`]);
+  });
+
+  it("says nothing as a warning goes, and says it again as it comes back", async () => {
+    const panel = integration({ copies: { [DRYER]: [20, 30] } });
+    const { container } = await shown(panel);
+    const region = announcerOf(container)!;
+    const said = sayings(region);
+
+    warningOf(container, DRYER)!.querySelector<HTMLButtonElement>(".rating-turn-off")!.click();
+    await vi.waitFor(() => expect(warningOf(container, DRYER)).toBeNull());
+    await settle();
+    expect(said).toEqual([]);
+    expect(textOf(region)).toBe("");
+
+    const toggle = container.querySelector<HTMLInputElement>(`.circuit-toggle[data-entity="${DRYER}"]`)!;
+    toggle.checked = true;
+    toggle.dispatchEvent(new Event("change"));
+    await vi.waitFor(() => expect(warningOf(container, DRYER)).not.toBeNull());
+    await settle();
+
+    expect(said).toEqual([`Washer Dryer: ${AVERAGED_LEGS_WARNING}`]);
+  });
+
+  it("says nothing for the table of another panel drawn in the same container", async () => {
+    const panel = integration({ copies: { [OVEN]: [20, 20] }, globals: GLOBALS_ABOVE });
+    const { tab, container } = await shown(integration());
+    const said = sayings(announcerOf(container)!);
+
+    await tab.render(container, panel.hass, "entry-2");
+    await settle();
+
+    expect(warningOf(container, OVEN)).not.toBeNull();
+    expect(said).toEqual([]);
+  });
+});
+
 describe("rows that take no copy", () => {
   it("draw no field for the mains, whatever its entry says", async () => {
     const { container } = await shown(integration({ mainsForm: "one_space" }));
@@ -772,7 +969,11 @@ describe("the Monitoring tab's copy text in each language", () => {
 
   it.each(["en", "es", "fr", "ja", "pt"])("%s has every key, with its placeholders", lang => {
     setLanguage(lang);
-    for (const key of [...PROSE, "monitoringRating.judged_equals", "monitoringRating.panel_plus"]) expect(t(key)).not.toBe(key);
+    for (const key of [...PROSE, "monitoringRating.judged_equals", "monitoringRating.panel_plus", "monitoringRating.warning_announcement"])
+      expect(t(key)).not.toBe(key);
+    const said = tf("monitoringRating.warning_announcement", { circuit: "<C>", warning: "<W>" });
+    expect(said.indexOf("<C>")).toBeGreaterThanOrEqual(0);
+    expect(said.indexOf("<W>")).toBeGreaterThan(said.indexOf("<C>"));
     expect(tf("monitoringRating.clear_label", { circuit: "<C>" })).toContain("<C>");
     expect(tf("monitoringRating.judged_equals", { rating: "<R>" })).toContain("<R>");
     expect(tf("monitoringRating.panel_plus", { panel: "<P>" })).toContain("<P>");

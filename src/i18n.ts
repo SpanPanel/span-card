@@ -270,6 +270,7 @@ const translations: Record<string, Record<string, string>> = {
       "This circuit's thresholds are above 100% and now apply to both breakers together, which can let a real overload pass. Select {reset} to use the global thresholds.",
     "monitoringRating.table_threshold_warning_global":
       "The global thresholds are above 100% and now apply to both breakers together, which can let a real overload pass. Change them under {settings} above.",
+    "monitoringRating.warning_announcement": "{circuit}: {warning}",
     "error.package_ratings_failed": "Unable to update the ratings copied from the SPAN app",
     "sidepanel.judged_against": "Judged against: {rating}",
     "sidepanel.shedding_priority": "Shedding Priority",
@@ -574,6 +575,7 @@ const translations: Record<string, Record<string, string>> = {
       "Los umbrales de este circuito superan el 100 % y se aplican ahora a ambos interruptores juntos, lo que puede dejar pasar una sobrecarga real. Seleccione {reset} para usar los umbrales globales.",
     "monitoringRating.table_threshold_warning_global":
       "Los umbrales globales superan el 100 % y se aplican ahora a ambos interruptores juntos, lo que puede dejar pasar una sobrecarga real. C\u00e1mbielos en {settings}, arriba.",
+    "monitoringRating.warning_announcement": "{circuit}: {warning}",
     "error.package_ratings_failed": "No se pudieron actualizar los calibres copiados de la app de SPAN",
     "sidepanel.judged_against": "Evaluado seg\u00fan: {rating}",
     "sidepanel.shedding_priority": "Prioridad de Desconexci\u00f3n",
@@ -869,6 +871,7 @@ const translations: Record<string, Record<string, string>> = {
       "Les seuils de ce circuit d\u00e9passent 100 % et s'appliquent d\u00e9sormais aux deux disjoncteurs ensemble, ce qui peut laisser passer une vraie surcharge. S\u00e9lectionnez {reset} pour utiliser les seuils globaux.",
     "monitoringRating.table_threshold_warning_global":
       "Les seuils globaux d\u00e9passent 100 % et s'appliquent d\u00e9sormais aux deux disjoncteurs ensemble, ce qui peut laisser passer une vraie surcharge. Modifiez-les dans {settings} ci-dessus.",
+    "monitoringRating.warning_announcement": "{circuit} : {warning}",
     "error.package_ratings_failed": "Impossible de mettre \u00e0 jour les calibres copi\u00e9s depuis l'application SPAN",
     "sidepanel.judged_against": "\u00c9valu\u00e9 selon : {rating}",
     "sidepanel.shedding_priority": "Priorit\u00e9 de D\u00e9lestage",
@@ -1181,6 +1184,7 @@ const translations: Record<string, Record<string, string>> = {
       "\u3053\u306e\u56de\u8def\u306e\u3057\u304d\u3044\u5024\u306f 100% \u3092\u8d85\u3048\u3066\u304a\u308a\u3001\u4eca\u5f8c\u306f\u4e21\u65b9\u306e\u30d6\u30ec\u30fc\u30ab\u30fc\u306e\u5408\u8a08\u306b\u9069\u7528\u3055\u308c\u308b\u305f\u3081\u3001\u5b9f\u969b\u306e\u904e\u8ca0\u8377\u3092\u898b\u9003\u3059\u304a\u305d\u308c\u304c\u3042\u308a\u307e\u3059\u3002{reset}\u3092\u9078\u629e\u3059\u308b\u3068\u30b0\u30ed\u30fc\u30d0\u30eb\u3057\u304d\u3044\u5024\u3092\u4f7f\u7528\u3057\u307e\u3059\u3002",
     "monitoringRating.table_threshold_warning_global":
       "\u30b0\u30ed\u30fc\u30d0\u30eb\u3057\u304d\u3044\u5024\u306f 100% \u3092\u8d85\u3048\u3066\u304a\u308a\u3001\u4eca\u5f8c\u306f\u4e21\u65b9\u306e\u30d6\u30ec\u30fc\u30ab\u30fc\u306e\u5408\u8a08\u306b\u9069\u7528\u3055\u308c\u308b\u305f\u3081\u3001\u5b9f\u969b\u306e\u904e\u8ca0\u8377\u3092\u898b\u9003\u3059\u304a\u305d\u308c\u304c\u3042\u308a\u307e\u3059\u3002\u4e0a\u306e{settings}\u3067\u5909\u66f4\u3057\u3066\u304f\u3060\u3055\u3044\u3002",
+    "monitoringRating.warning_announcement": "{circuit}\uff1a{warning}",
     "error.package_ratings_failed":
       "SPAN \u30a2\u30d7\u30ea\u304b\u3089\u30b3\u30d4\u30fc\u3057\u305f\u5b9a\u683c\u306e\u66f4\u65b0\u306b\u5931\u6557\u3057\u307e\u3057\u305f",
     "sidepanel.judged_against": "\u5224\u5b9a\u57fa\u6e96: {rating}",
@@ -1480,6 +1484,7 @@ const translations: Record<string, Record<string, string>> = {
       "Os limites deste circuito passam de 100% e agora se aplicam aos dois disjuntores juntos, o que pode deixar passar uma sobrecarga real. Selecione {reset} para usar os limites globais.",
     "monitoringRating.table_threshold_warning_global":
       "Os limites globais passam de 100% e agora se aplicam aos dois disjuntores juntos, o que pode deixar passar uma sobrecarga real. Altere-os em {settings}, acima.",
+    "monitoringRating.warning_announcement": "{circuit}: {warning}",
     "error.package_ratings_failed": "N\u00e3o foi poss\u00edvel atualizar as correntes nominais copiadas do app SPAN",
     "sidepanel.judged_against": "Avaliado com base em: {rating}",
     "sidepanel.shedding_priority": "Prioridade de Desligamento",
