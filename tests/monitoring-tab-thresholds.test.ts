@@ -575,3 +575,117 @@ describe("a point's Reset", () => {
     await vi.waitFor(() => expect(errors.active.map(e => e.message)).toEqual(["Unable to save threshold"]));
   });
 });
+
+describe("the Monitoring tab's notification settings", () => {
+  const title = (container: HTMLElement): HTMLInputElement => container.querySelector<HTMLInputElement>("#g-title-template")!;
+  const message = (container: HTMLElement): HTMLInputElement => container.querySelector<HTMLInputElement>("#g-message-template")!;
+  const target = (container: HTMLElement, value: string): HTMLInputElement => container.querySelector<HTMLInputElement>(`.notify-target-cb[value="${value}"]`)!;
+  const choose = (box: HTMLInputElement, checked: boolean): void => {
+    box.checked = checked;
+    box.dispatchEvent(new Event("change"));
+  };
+  const settings = (panel: Integration): Message[] => panel.saves.filter(save => save.service === "set_global_monitoring");
+
+  it("save a template and a target choice made within one pause, each of them", async () => {
+    vi.useFakeTimers();
+    const panel = integration();
+    const { container } = await shown(panel);
+
+    typeOnly(title(container), "SPAN alert");
+    choose(target(container, "event_bus"), true);
+    await vi.advanceTimersByTimeAsync(1000);
+
+    expect(settings(panel)).toEqual(
+      expect.arrayContaining([
+        { service: "set_global_monitoring", notification_title_template: "SPAN alert", config_entry_id: "entry-1" },
+        { service: "set_global_monitoring", notify_targets: "event_bus", config_entry_id: "entry-1" },
+      ])
+    );
+    expect(settings(panel)).toHaveLength(2);
+  });
+
+  it("save the title and the message templates typed one after the other, each of them", async () => {
+    vi.useFakeTimers();
+    const panel = integration();
+    const { container } = await shown(panel);
+
+    typeOnly(title(container), "SPAN alert");
+    typeOnly(message(container), "{name} is high");
+    await vi.advanceTimersByTimeAsync(1000);
+
+    expect(settings(panel).map(save => save.notification_title_template ?? save.notification_message_template)).toEqual(["SPAN alert", "{name} is high"]);
+  });
+
+  it("save a template once the user pauses, not at each keystroke", async () => {
+    vi.useFakeTimers();
+    const panel = integration();
+    const { container } = await shown(panel);
+
+    for (const text of ["S", "SP", "SPAN"]) typeOnly(title(container), text);
+    await vi.advanceTimersByTimeAsync(1000);
+
+    expect(settings(panel)).toEqual([{ service: "set_global_monitoring", notification_title_template: "SPAN", config_entry_id: "entry-1" }]);
+  });
+
+  it("send what is waiting, and the target choices once, before sending the test", async () => {
+    vi.useFakeTimers();
+    const panel = integration();
+    const { container } = await shown(panel);
+    typeOnly(title(container), "SPAN alert");
+    choose(target(container, "event_bus"), true);
+
+    container.querySelector<HTMLButtonElement>("#test-notification-btn")!.click();
+    await vi.advanceTimersByTimeAsync(0);
+
+    // Both settings first, in either order, then the test.
+    expect(panel.saves.slice(0, 2)).toEqual(
+      expect.arrayContaining([
+        { service: "set_global_monitoring", notify_targets: "event_bus", config_entry_id: "entry-1" },
+        { service: "set_global_monitoring", notification_title_template: "SPAN alert", config_entry_id: "entry-1" },
+      ])
+    );
+    expect(panel.saves[2]).toEqual({ service: "test_notification", config_entry_id: "entry-1" });
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(panel.saves).toHaveLength(3);
+  });
+
+  it("send no test where what was waiting fails to save, saying why", async () => {
+    const panel = integration({ refuse: { set_global_monitoring: { message: "Template is not valid" } } });
+    const { container } = await shown(panel);
+    typeOnly(title(container), "{oops");
+
+    container.querySelector<HTMLButtonElement>("#test-notification-btn")!.click();
+
+    await vi.waitFor(() => expect(container.querySelector("#test-notification-status")!.textContent).toContain("Template is not valid"));
+    expect(panel.saves.map(save => save.service)).not.toContain("test_notification");
+    expect(container.querySelector<HTMLButtonElement>("#test-notification-btn")!.disabled).toBe(false);
+  });
+
+  it("send what is waiting when the tab is left, to the panel it was typed for", async () => {
+    vi.useFakeTimers();
+    const panel = integration();
+    const { tab, container } = await shown(panel);
+    typeOnly(title(container), "SPAN alert");
+
+    tab.stop();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(settings(panel)).toEqual([{ service: "set_global_monitoring", notification_title_template: "SPAN alert", config_entry_id: "entry-1" }]);
+
+    // The tab drawn again for another panel sends nothing more.
+    await tab.render(container, panel.hass, "entry-2");
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(settings(panel)).toHaveLength(1);
+  });
+
+  it("send a template still waiting to the panel it was typed for, though the tab has since been drawn for another", async () => {
+    vi.useFakeTimers();
+    const panel = integration();
+    const { tab, container } = await shown(panel);
+    typeOnly(title(container), "SPAN alert");
+
+    await tab.render(container, panel.hass, "entry-2");
+    await vi.advanceTimersByTimeAsync(1000);
+
+    expect(settings(panel)).toEqual([{ service: "set_global_monitoring", notification_title_template: "SPAN alert", config_entry_id: "entry-1" }]);
+  });
+});

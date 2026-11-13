@@ -158,9 +158,46 @@ function ratingCell(info: MonitoringPointInfo, isMains: boolean): string {
   return `<td class="rating-cell" style="padding:6px 4px;white-space:nowrap;">${content}</td>`;
 }
 
+/** A notification setting saved once the user pauses: its targets or one of its templates. */
+type PausedSetting = "notify_targets" | "notification_title_template" | "notification_message_template";
+
+/**
+ * A save that waits for the user to pause, as a run of target choices or a
+ * typed template does. Each setting has its own, so a change to one never
+ * cancels another's; a later change to the same setting replaces what waits.
+ * A flush sends what waits at once rather than dropping it.
+ */
+class PendingSave {
+  private _timer: ReturnType<typeof setTimeout> | null = null;
+  private _send: (() => Promise<void>) | null = null;
+
+  /** Send `send` once `ms` pass with no other change to this setting. */
+  schedule(send: () => Promise<void>, ms: number): void {
+    this._clear();
+    this._send = send;
+    this._timer = setTimeout(() => {
+      // A save that fails has said so where it failed.
+      this.flush().catch(() => undefined);
+    }, ms);
+  }
+
+  /** Send what waits now, if anything: resolves once it is stored, rejects where it could not be. */
+  flush(): Promise<void> {
+    const send = this._send;
+    this._clear();
+    return send ? send() : Promise.resolve();
+  }
+
+  private _clear(): void {
+    if (this._timer) clearTimeout(this._timer);
+    this._timer = null;
+    this._send = null;
+  }
+}
+
 export class MonitoringTab {
   errorStore: ErrorStore | null = null;
-  private _debounceTimer: ReturnType<typeof setTimeout> | null;
+  private readonly _pendingSaves = new Map<PausedSetting, PendingSave>();
   private _configEntryId: string | null;
   private _notifyCloseHandler: ((e: MouseEvent) => void) | null;
   private _headerHTML: string;
@@ -170,7 +207,6 @@ export class MonitoringTab {
   private _renderSeq = 0;
 
   constructor() {
-    this._debounceTimer = null;
     this._configEntryId = null;
     this._notifyCloseHandler = null;
     this._headerHTML = "";
@@ -182,13 +218,13 @@ export class MonitoringTab {
       document.removeEventListener("click", this._notifyCloseHandler as EventListener);
       this._notifyCloseHandler = null;
     }
-    if (this._debounceTimer) {
-      clearTimeout(this._debounceTimer);
-      this._debounceTimer = null;
-    }
+    // What the user changed and is waiting to be saved is sent, not dropped, as they leave.
+    this._flushPendingSaves().catch(() => undefined);
   }
 
   async render(container: HTMLElement, hass: HomeAssistant, configEntryId?: string, headerHTML: string = ""): Promise<void> {
+    // Focus, and what was typed, is kept across a redraw of the same panel's settings, never carried to another's.
+    const samePanel = configEntryId === undefined || configEntryId === this._configEntryId;
     if (configEntryId !== undefined) this._configEntryId = configEntryId;
     this._headerHTML = headerHTML;
     if (this._notifyCloseHandler) {
@@ -322,7 +358,7 @@ export class MonitoringTab {
       })
       .join("");
 
-    const kept = keptFocus(container);
+    const kept = samePanel ? keptFocus(container) : null;
     container.innerHTML = `
       ${this._headerHTML}
       <div style="padding:16px;">
@@ -570,6 +606,35 @@ export class MonitoringTab {
     });
   }
 
+  /**
+   * Save notification setting `setting` as `value` once the user pauses. The
+   * panel it is for is taken now, so a save still waiting as the tab is drawn
+   * for another panel goes to the one it was made for.
+   */
+  private _saveOnPause(hass: HomeAssistant, setting: PausedSetting, value: string): void {
+    const serviceData = this._serviceData({ [setting]: value });
+    const send = async (): Promise<void> => {
+      try {
+        await hass.callWS({ type: "call_service", domain: INTEGRATION_DOMAIN, service: "set_global_monitoring", service_data: serviceData });
+      } catch (err: unknown) {
+        console.warn(`SPAN Panel: ${setting} save failed`, err);
+        this.errorStore?.add({ key: "service:monitoring", level: "error", message: t("error.threshold_failed"), persistent: false });
+        throw err;
+      }
+    };
+    let pending = this._pendingSaves.get(setting);
+    if (!pending) {
+      pending = new PendingSave();
+      this._pendingSaves.set(setting, pending);
+    }
+    pending.schedule(send, INPUT_DEBOUNCE_MS);
+  }
+
+  /** Send every notification setting waiting to be saved; rejects where one could not be. */
+  private async _flushPendingSaves(): Promise<void> {
+    await Promise.all([...this._pendingSaves.values()].map(pending => pending.flush()));
+  }
+
   private _bindGlobalControls(container: HTMLElement, hass: HomeAssistant): void {
     const enabledCheckbox = container.querySelector<HTMLInputElement>("#monitoring-enabled");
     const fieldsDiv = container.querySelector<HTMLElement>("#global-fields");
@@ -683,20 +748,7 @@ export class MonitoringTab {
         allCb.checked = allCbs.length > 0 && allCbs.every(c => c.checked);
         allCb.indeterminate = !allCb.checked && allCbs.some(c => c.checked);
       }
-      if (this._debounceTimer) clearTimeout(this._debounceTimer);
-      this._debounceTimer = setTimeout(async () => {
-        try {
-          await this._callSetGlobal(hass, { notify_targets: targets.join(", ") });
-        } catch (err) {
-          console.warn("SPAN Panel: notification targets save failed", err);
-          this.errorStore?.add({
-            key: "service:monitoring",
-            level: "error",
-            message: t("error.threshold_failed"),
-            persistent: false,
-          });
-        }
-      }, INPUT_DEBOUNCE_MS);
+      this._saveOnPause(hass, "notify_targets", targets.join(", "));
     };
 
     // "All Targets" toggle
@@ -730,23 +782,6 @@ export class MonitoringTab {
     const titleInput = container.querySelector<HTMLInputElement>("#g-title-template");
     const messageInput = container.querySelector<HTMLInputElement>("#g-message-template");
 
-    const saveField = (field: string, value: string | boolean): void => {
-      if (this._debounceTimer) clearTimeout(this._debounceTimer);
-      this._debounceTimer = setTimeout(async () => {
-        try {
-          await this._callSetGlobal(hass, { [field]: value });
-        } catch (err) {
-          console.warn("SPAN Panel: notification settings save failed", err);
-          this.errorStore?.add({
-            key: "service:monitoring",
-            level: "error",
-            message: t("error.threshold_failed"),
-            persistent: false,
-          });
-        }
-      }, INPUT_DEBOUNCE_MS);
-    };
-
     if (prioritySelect) {
       prioritySelect.addEventListener("change", async () => {
         const epoch = this._epoch;
@@ -766,12 +801,12 @@ export class MonitoringTab {
     }
     if (titleInput) {
       titleInput.addEventListener("input", () => {
-        saveField("notification_title_template", titleInput.value);
+        this._saveOnPause(hass, "notification_title_template", titleInput.value);
       });
     }
     if (messageInput) {
       messageInput.addEventListener("input", () => {
-        saveField("notification_message_template", messageInput.value);
+        this._saveOnPause(hass, "notification_message_template", messageInput.value);
       });
     }
 
@@ -785,15 +820,11 @@ export class MonitoringTab {
           testStatus.style.color = "var(--secondary-text-color)";
         }
         try {
-          // Flush any pending settings save before testing
-          if (this._debounceTimer) {
-            clearTimeout(this._debounceTimer);
-            this._debounceTimer = null;
-          }
-          // Save current notify_targets so the test uses the latest selections
+          // The test uses what is stored, so what waits to be saved is sent first, with the target
+          // choices as they stand, in place of any still waiting; one that fails stops the test.
           const checked = [...container.querySelectorAll<HTMLInputElement>(".notify-target-cb:checked")];
-          const currentTargets = checked.map(c => c.value).join(", ");
-          await this._callSetGlobal(hass, { notify_targets: currentTargets });
+          this._saveOnPause(hass, "notify_targets", checked.map(c => c.value).join(", "));
+          await this._flushPendingSaves();
 
           const serviceData: Record<string, unknown> = {};
           if (this._configEntryId) serviceData.config_entry_id = this._configEntryId;
