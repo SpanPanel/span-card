@@ -11,6 +11,7 @@ vi.mock("../src/card/card-discovery.js", async importOriginal => ({
 import { discoverEntitiesFallback, discoverTopology } from "../src/card/card-discovery.js";
 import { DashboardController } from "../src/core/dashboard-controller.js";
 import { FavoritesController } from "../src/core/favorites-controller.js";
+import { FAVORITES_CHANGED_EVENT } from "../src/core/favorites-store.js";
 import { mergeCircuitIds, PACKAGE_RATINGS_CHANGED, subscribePackageRatingChanges } from "../src/core/rating-events.js";
 import { ErrorStore } from "../src/core/error-store.js";
 import { DashboardTab } from "../src/panel/tab-dashboard.js";
@@ -646,6 +647,8 @@ describe("the sidebar dashboard", () => {
   let status: Circuit | null;
   /** What `get_monitoring_status` answers in full, over `status`, where set. */
   let table: Record<string, unknown> | null;
+  /** What `get_monitoring_status` answers in full for the entry it names, over `table`. */
+  let tables: Record<string, Record<string, unknown>>;
   /** While set, each `get_monitoring_status` read waits for it. */
   let statusGate: Promise<void> | null;
   /** Every message the dashboard sent Home Assistant, in order. */
@@ -666,6 +669,8 @@ describe("the sidebar dashboard", () => {
         if (msg.service === "get_favorites") return { response: { favorites } };
         if (msg.service === "get_monitoring_status") {
           if (statusGate) await statusGate;
+          const entry = (msg.service_data as { config_entry_id?: unknown } | undefined)?.config_entry_id;
+          if (typeof entry === "string" && entry in tables) return tables[entry];
           if (table) return table;
           if (status) return monitoringFor(status);
         }
@@ -695,6 +700,7 @@ describe("the sidebar dashboard", () => {
     rendered = topologyOf(circuit(20, 20));
     status = null;
     table = null;
+    tables = {};
     statusGate = null;
     sent = [];
     states = {};
@@ -1064,6 +1070,150 @@ describe("the sidebar dashboard", () => {
       expect(reads[reads.length - 1]!.service_data).toEqual({ config_entry_id: "entry-2" });
       expect(fieldOf(panel, OVEN)!.value).toBe("");
       expect(packageSaves()).toEqual([]);
+    });
+
+    it("leaves the tab running across a re-render of the view it shows, and stops it once the user leaves", async () => {
+      holds(circuit(20, 20), dryerOf(circuit(20, 20)));
+      const connection = new FakeConnection();
+      const panel = await mount(connection);
+      showTab(panel, "monitoring");
+      await vi.waitFor(() => expect(fieldOf(panel, OVEN)).not.toBeNull());
+      const stop = vi.spyOn(MonitoringTab.prototype, "stop");
+
+      holds(circuit(20, 20), dryerOf(circuit(20, 40, true)));
+      connection.emit(PACKAGE_RATINGS_CHANGED, ratingEvent("entry-1", ["c-2"]));
+      await vi.waitFor(() => expect(fieldOf(panel, DRYER)!.value).toBe("20"));
+      expect(stop).not.toHaveBeenCalled();
+
+      showTab(panel, "dashboard");
+      await vi.waitFor(() => expect(stop).toHaveBeenCalled());
+    });
+
+    describe("in the Favorites view", () => {
+      /** What `get_favorites` answers, by panel; a test changes it as a heart toggled elsewhere would. */
+      let favorites: Record<string, { circuits: string[]; sub_devices: string[] }>;
+
+      /** The Heater, panel 2's one circuit, with its id and its entry's table. */
+      const HEATER = "sensor.heater_power";
+      const heater: Circuit = { ...circuit(20, 20), name: "Heater", entities: { power: HEATER } };
+
+      beforeEach(() => {
+        favorites = { "panel-1": { circuits: ["c-1"], sub_devices: [] } };
+        localStorage.setItem("span_panel_selected", "favorites");
+        localStorage.setItem("span_panel_favorites_view_state", JSON.stringify({ activeTab: "monitoring", expanded: { activity: [], area: [] } }));
+        const second = { ...topologyOf(heater, "entry-2"), panel_device_id: "panel-2" } as PanelTopology;
+        mockDiscover.mockImplementation(async (_hass, panelId) => ({ topology: panelId === "panel-2" ? second : rendered, panelDevice: null, panelSize: 32 }));
+        tables = {
+          "entry-2": { response: { enabled: true, monitoring_rating_offered: true, circuits: { [HEATER]: { ...pointOf(heater), point_id: "c-1" } } } },
+        };
+      });
+
+      /** The dashboard, opened on the Favorites view's Monitoring tab, as the user last left it. */
+      async function mountFavorites(connection: FakeConnection): Promise<Panel> {
+        const panel = document.createElement("span-panel") as Panel;
+        panel.hass = panelHass(connection, true, favorites);
+        document.body.appendChild(panel);
+        mounted.push(panel);
+        await vi.waitFor(() => expect(fieldOf(panel, OVEN)).not.toBeNull());
+        return panel;
+      }
+
+      /** The panels the view's Monitoring stack shows, by the heading over each one's table. */
+      const headings = (panel: Panel): string[] =>
+        [...content(panel).querySelectorAll(".favorites-monitoring-block > h2")].map(heading => heading.textContent ?? "");
+
+      /** Tell the dashboard the favorites changed, as a heart toggled in a side panel does. */
+      const favoritesChanged = (): void => void document.dispatchEvent(new CustomEvent(FAVORITES_CHANGED_EVENT));
+
+      /** Pick `id` in the panel selector, as the user does. */
+      function choose(panel: Panel, id: string): void {
+        const select = panel.shadowRoot!.getElementById("panel-select") as HTMLSelectElement;
+        select.value = id;
+        select.dispatchEvent(new Event("change"));
+      }
+
+      it("keeps what is typed in one row's field, and its focus, across a refresh for a copy changed in another row", async () => {
+        holds(circuit(20, 20), dryerOf(circuit(20, 20)));
+        const connection = new FakeConnection();
+        const panel = await mountFavorites(connection);
+        typeOnly(fieldOf(panel, OVEN)!, "3");
+
+        // Another browser copies the Dryer's 20-20 tandem from the SPAN app.
+        holds(circuit(20, 20), dryerOf(circuit(20, 40, true)));
+        connection.emit(PACKAGE_RATINGS_CHANGED, ratingEvent("entry-1", ["c-2"]));
+        await vi.waitFor(() => expect(fieldOf(panel, DRYER)!.value).toBe("20"));
+
+        const field = fieldOf(panel, OVEN)!;
+        expect(field.value).toBe("3");
+        expect(panel.shadowRoot!.activeElement).toBe(field);
+        expect(packageSaves()).toEqual([]);
+
+        // What was typed is still the user's to commit.
+        field.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter" }));
+        expect(packageSaves()).toEqual([{ circuit_id: "c-1", package_ratings_a: [20, 3], config_entry_id: "entry-1" }]);
+      });
+
+      it("keeps each panel's table, and what is typed in it, as another panel joins the view and leaves it", async () => {
+        holds(circuit(20, 20), dryerOf(circuit(20, 20)));
+        const connection = new FakeConnection();
+        const panel = await mountFavorites(connection);
+        typeOnly(fieldOf(panel, OVEN)!, "3");
+
+        favorites["panel-2"] = { circuits: ["c-1"], sub_devices: [] };
+        favoritesChanged();
+        await vi.waitFor(() => expect(fieldOf(panel, HEATER)).not.toBeNull());
+        expect(headings(panel)).toEqual(["Panel 1", "Panel 2"]);
+        expect(fieldOf(panel, OVEN)!.value).toBe("3");
+        expect(panel.shadowRoot!.activeElement).toBe(fieldOf(panel, OVEN));
+
+        delete favorites["panel-2"];
+        favoritesChanged();
+        await vi.waitFor(() => expect(headings(panel)).toEqual(["Panel 1"]));
+        expect(fieldOf(panel, HEATER)).toBeNull();
+        const field = fieldOf(panel, OVEN)!;
+        expect(field.value).toBe("3");
+        expect(panel.shadowRoot!.activeElement).toBe(field);
+        expect(packageSaves()).toEqual([]);
+
+        field.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter" }));
+        expect(packageSaves()).toEqual([{ circuit_id: "c-1", package_ratings_a: [20, 3], config_entry_id: "entry-1" }]);
+      });
+
+      it("starts from a cleared container, while the status loads, when switched out of the view and back into it", async () => {
+        holds(circuit(20, 20), dryerOf(circuit(20, 20)));
+        const connection = new FakeConnection();
+        const panel = await mountFavorites(connection);
+        typeOnly(fieldOf(panel, OVEN)!, "3");
+
+        expect(await shownWhileLoading(panel, () => choose(panel, "panel-1"))).toBe("");
+        typeOnly(fieldOf(panel, OVEN)!, "4");
+
+        // Back in the view, nothing of panel 1's own tab shows while the stack's first table loads.
+        const shown = await shownWhileLoading(panel, () => choose(panel, "favorites"));
+        expect(shown).not.toContain("<table");
+        expect(shown).not.toContain("rating-input");
+        expect(headings(panel)).toEqual(["Panel 1"]);
+        expect(fieldOf(panel, OVEN)!.value).toBe("");
+        expect(packageSaves()).toEqual([]);
+      });
+
+      it("leaves each panel's tab running across a re-render of the view, and stops it once the user leaves", async () => {
+        holds(circuit(20, 20), dryerOf(circuit(20, 20)));
+        const draws = vi.spyOn(MonitoringTab.prototype, "render");
+        const connection = new FakeConnection();
+        const panel = await mountFavorites(connection);
+        const [favoritesTab] = draws.mock.contexts;
+        const stop = vi.spyOn(MonitoringTab.prototype, "stop");
+
+        holds(circuit(20, 20), dryerOf(circuit(20, 40, true)));
+        connection.emit(PACKAGE_RATINGS_CHANGED, ratingEvent("entry-1", ["c-2"]));
+        await vi.waitFor(() => expect(fieldOf(panel, DRYER)!.value).toBe("20"));
+        expect(draws.mock.contexts.every(tab => tab === favoritesTab)).toBe(true);
+        expect(stop).not.toHaveBeenCalled();
+
+        choose(panel, "panel-1");
+        await vi.waitFor(() => expect(stop.mock.contexts).toContain(favoritesTab));
+      });
     });
   });
 });
