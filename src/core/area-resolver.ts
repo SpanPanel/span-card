@@ -14,16 +14,21 @@ const REGISTRY_EVENTS = ["entity_registry_updated", "area_registry_updated", "de
 /**
  * Fetch HA registries and assign area names to each circuit in the topology.
  *
- * Resolution order per circuit, which is Home Assistant's for an entity: its
- * own area, then its device's, then that device's parent's.
- *   1. The first entity in `circuit.entities` with an area of its own.
- *   2. The circuit's device: the one its record names in `device_id`, then
- *      each device its entities are on, found through the entity registry.
- *      The first of them with an area gives it. An entity of a charger's feed
- *      circuit can sit on the charger's device, which is why the record's
- *      device is asked first.
- *   3. The panel device's area (via `topology.panel_device_id`, else `topology.device_id`).
- *   4. `undefined` (no area).
+ * Resolution order per circuit. A circuit is a device, and Home Assistant
+ * files a device under its own area, so the circuit's device is asked before
+ * its entities. An entity's own area says where that entity is filed, as for a
+ * breaker switch kept out of its room's area-wide actions, not where the
+ * circuit is.
+ *   1. The circuit's own device, which its record names in `device_id`.
+ *   2. The first entity in `circuit.entities` with an area of its own. This is
+ *      the circuit's area where it has no device, as before the integration
+ *      gives circuits devices, and where its device has no area.
+ *   3. Each device its entities are on, found through the entity registry: a
+ *      charger's, which keeps its feed circuit's sensors, and the circuit's
+ *      own where the record names none.
+ *   4. The panel device's area (via `topology.panel_device_id`, else `topology.device_id`).
+ *   5. `undefined` (no area).
+ * The first of these that names an existing area gives it.
  */
 export async function resolveAndAssignAreas(hass: HomeAssistant, topology: PanelTopology): Promise<void> {
   const [areas, entities, devices] = await Promise.all([
@@ -62,11 +67,17 @@ export async function resolveAndAssignAreas(hass: HomeAssistant, topology: Panel
   // is one from before Home Assistant 2026.8 the device list no longer holds.
   const panelDeviceId = topology.panel_device_id ?? topology.device_id;
 
+  const areaOfDevice = (deviceId: string | null | undefined): string | undefined => (deviceId ? deviceArea.get(deviceId) : undefined);
+
   for (const circuit of Object.values(topology.circuits)) {
     const entityIds = Object.values(circuit.entities).filter((entityId): entityId is string => !!entityId);
-    const deviceIds = [circuit.device_id, ...entityIds.map(entityId => entityDevice.get(entityId)), panelDeviceId];
     // The areas that could be the circuit's, nearest first; an id that names no area is passed over.
-    const areaIds = [...entityIds.map(entityId => entityArea.get(entityId)), ...deviceIds.map(deviceId => (deviceId ? deviceArea.get(deviceId) : undefined))];
+    const areaIds = [
+      areaOfDevice(circuit.device_id),
+      ...entityIds.map(entityId => entityArea.get(entityId)),
+      ...entityIds.map(entityId => areaOfDevice(entityDevice.get(entityId))),
+      areaOfDevice(panelDeviceId),
+    ];
     circuit.area = areaIds.map(areaId => (areaId ? areaNames.get(areaId) : undefined)).find(name => !!name);
   }
 }

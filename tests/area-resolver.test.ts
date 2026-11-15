@@ -51,8 +51,9 @@ describe("resolveAndAssignAreas", () => {
   });
 });
 
-// A circuit is a child device of its panel, and Home Assistant resolves an
-// entity's area as its own, then its device's, then that device's parent's.
+// A circuit is a child device of its panel, and Home Assistant files a device
+// under its own area, then its parent's. A circuit with no device, or whose
+// device has no area, is filed by its entities' areas before the panel's.
 const CIRCUIT_DEVICE = "device-kitchen";
 const CHARGER_DEVICE = "device-charger";
 const POWER = "sensor.kitchen_power";
@@ -109,24 +110,53 @@ async function areaOf(topology: PanelTopology, registries: Registries): Promise<
   return topology.circuits.kitchen?.area;
 }
 
-describe("area resolves entity, then circuit device, then panel", () => {
-  // The integration names each circuit's device in its record; entity discovery
-  // and an older integration's record leave the card to find it through the
-  // circuit's entities.
+describe("area resolves circuit device, then entity, then panel", () => {
+  // The notice for a breaker switch that joined its circuit's area advises
+  // giving the switch an area of its own. That says where the switch is filed,
+  // not the circuit, which stays in its device's area.
+  it("keeps a circuit in its device's area when its breaker switch has an area of its own", async () => {
+    const registries = {
+      devices: [panelIn("garage"), circuitDeviceIn("pantry")],
+      entities: [entity(POWER, CIRCUIT_DEVICE), entity(BREAKER, CIRCUIT_DEVICE, "kitchen")],
+    };
+
+    expect(await areaOf(kitchenTopology({ device_id: CIRCUIT_DEVICE }), registries)).toBe("Pantry");
+  });
+
+  it("takes an entity's own area where the circuit's device has none", async () => {
+    const registries = {
+      devices: [panelIn("garage"), circuitDeviceIn(null)],
+      entities: [entity(POWER, CIRCUIT_DEVICE), entity(BREAKER, CIRCUIT_DEVICE, "kitchen")],
+    };
+
+    expect(await areaOf(kitchenTopology({ device_id: CIRCUIT_DEVICE }), registries)).toBe("Kitchen");
+  });
+
+  it("takes an entity's own area before the area of a device the record does not name", async () => {
+    const registries = {
+      devices: [panelIn("garage"), circuitDeviceIn("pantry")],
+      entities: [entity(POWER, CIRCUIT_DEVICE), entity(BREAKER, CIRCUIT_DEVICE, "kitchen")],
+    };
+
+    expect(await areaOf(kitchenTopology(), registries)).toBe("Kitchen");
+  });
+
+  it("takes an entity's own area on a circuit with no device, before the panel's", async () => {
+    const registries = {
+      devices: [panelIn("garage")],
+      entities: [entity(POWER, CURRENT_ID), entity(BREAKER, CURRENT_ID, "kitchen")],
+    };
+
+    expect(await areaOf(kitchenTopology({ device_id: null }), registries)).toBe("Kitchen");
+  });
+
+  // The integration names each circuit's device in its record; a record that
+  // names none leaves the card to find the device through the circuit's entities.
   describe.each([
     ["the record names the circuit's device", { device_id: CIRCUIT_DEVICE }],
     ["the device is found through the circuit's entities", {}],
   ])("where %s", (_case, record) => {
-    it("takes an entity's own area first", async () => {
-      const registries = {
-        devices: [panelIn("garage"), circuitDeviceIn("pantry")],
-        entities: [entity(POWER, CIRCUIT_DEVICE), entity(BREAKER, CIRCUIT_DEVICE, "kitchen")],
-      };
-
-      expect(await areaOf(kitchenTopology(record), registries)).toBe("Kitchen");
-    });
-
-    it("then the circuit device's area", async () => {
+    it("takes the circuit device's area", async () => {
       const registries = {
         devices: [panelIn("garage"), circuitDeviceIn("pantry")],
         entities: [entity(POWER, CIRCUIT_DEVICE), entity(BREAKER, CIRCUIT_DEVICE)],
@@ -167,6 +197,15 @@ describe("area resolves entity, then circuit device, then panel", () => {
     };
 
     expect(await areaOf(kitchenTopology(), registries)).toBe("Pantry");
+  });
+
+  it("passes over a device's area id that names no area", async () => {
+    const registries = {
+      devices: [panelIn("garage"), circuitDeviceIn("deleted-area")],
+      entities: [entity(POWER, CIRCUIT_DEVICE), entity(BREAKER, CIRCUIT_DEVICE, "kitchen")],
+    };
+
+    expect(await areaOf(kitchenTopology({ device_id: CIRCUIT_DEVICE }), registries)).toBe("Kitchen");
   });
 
   it("gives a circuit whose entities are still on the panel device the panel's area", async () => {
