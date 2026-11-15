@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 import { MonitoringTab } from "../src/panel/tab-monitoring.js";
 import { ErrorStore } from "../src/core/error-store.js";
 import { blurOnRemoval } from "./removal-blur.js";
-import type { HomeAssistant, MonitoringPointInfo } from "../src/types.js";
+import type { HassEntity, HomeAssistant, MonitoringPointInfo } from "../src/types.js";
 
 type Message = Record<string, unknown>;
 type Fields = Partial<Record<"continuous_threshold_pct" | "spike_threshold_pct" | "window_duration_m" | "cooldown_duration_m", number>>;
@@ -1123,5 +1123,87 @@ describe("the notify targets button, as a screen reader names it", () => {
 
     expect(showing(container)).toBe("Event Bus (HA event bus)");
     expect(button(container).getAttribute("aria-label")).toBe("Notify Targets: Event Bus (HA event bus)");
+  });
+});
+
+describe("the notify target picker's labels", () => {
+  const PHONE = "notify.mobile_app_phone";
+  const LEGACY = "notify.legacy_script";
+  // A name no label may be read from: Home Assistant is retiring the attribute.
+  const DECOY = "Not the label";
+
+  /** A notify entity's state, as Home Assistant holds it. */
+  function notifyEntity(entity_id: string): HassEntity {
+    return { entity_id, state: "unknown", attributes: { friendly_name: DECOY }, last_changed: "", last_updated: "" };
+  }
+
+  /** The panel with a notify entity, a notify service no entity stands for, and the frontend's formatter answering `name`. */
+  function panelNaming(name: string): { panel: Integration; formatEntityName: ReturnType<typeof vi.fn<NonNullable<HomeAssistant["formatEntityName"]>>> } {
+    const panel = integration();
+    const formatEntityName = vi.fn<NonNullable<HomeAssistant["formatEntityName"]>>(() => name);
+    panel.hass.states[PHONE] = notifyEntity(PHONE);
+    // The broadcast service and the entity action are not targets; the legacy service is.
+    panel.hass.services = { notify: { notify: {}, send_message: {}, legacy_script: {} } };
+    panel.hass.formatEntityName = formatEntityName;
+    return { panel, formatEntityName };
+  }
+
+  /** The text beside a target's checkbox. */
+  const labelOf = (container: HTMLElement, value: string): string | null =>
+    container.querySelector(`.notify-target-cb[value="${value}"]`)?.closest("label")?.querySelector("span")?.textContent ?? null;
+
+  it("notify picker labels a target with Home Assistant's formatter", async () => {
+    const { panel, formatEntityName } = panelNaming("Phone Notifications");
+
+    const { container } = await shown(panel);
+
+    expect(labelOf(container, PHONE)).toBe(`Phone Notifications (${PHONE})`);
+    // The parts are named: asked for none, the formatter answers from the attribute being retired.
+    expect(formatEntityName).toHaveBeenCalledWith(panel.hass.states[PHONE], [{ type: "device" }, { type: "entity" }]);
+  });
+
+  it("a service-only notify target keeps its raw id", async () => {
+    const { panel, formatEntityName } = panelNaming("Phone Notifications");
+
+    const { container } = await shown(panel);
+
+    expect(labelOf(container, LEGACY)).toBe(LEGACY);
+    // Only the entity is put to the formatter: the service has no state to name.
+    expect(formatEntityName.mock.calls.map(call => call[0])).toEqual([panel.hass.states[PHONE]]);
+  });
+
+  it("a target Home Assistant has no name for keeps its raw id", async () => {
+    const { panel } = panelNaming("");
+
+    const { container } = await shown(panel);
+
+    expect(labelOf(container, PHONE)).toBe(PHONE);
+  });
+
+  it("a frontend without the formatter leaves every target its raw id", async () => {
+    const { panel } = panelNaming("Phone Notifications");
+    delete panel.hass.formatEntityName;
+
+    const { container } = await shown(panel);
+
+    expect(labelOf(container, PHONE)).toBe(PHONE);
+    expect(labelOf(container, LEGACY)).toBe(LEGACY);
+  });
+
+  it("shows a name as written, markup and all", async () => {
+    const { panel } = panelNaming("Kids' <b>Tablet</b> & Phone");
+
+    const { container } = await shown(panel);
+
+    expect(labelOf(container, PHONE)).toBe(`Kids' <b>Tablet</b> & Phone (${PHONE})`);
+  });
+
+  it("keeps the event bus under its own name, without asking the formatter", async () => {
+    const { panel, formatEntityName } = panelNaming("Phone Notifications");
+
+    const { container } = await shown(panel);
+
+    expect(labelOf(container, "event_bus")).toBe("Event Bus (HA event bus)");
+    expect(formatEntityName.mock.calls.map(call => call[0])).toEqual([panel.hass.states[PHONE]]);
   });
 });

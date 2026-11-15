@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { buildSubDevicesHTML, type SubDeviceView } from "../src/core/sub-device-renderer.js";
+import { buildSubDevicesHTML, buildSubEntityHTML, type SubDeviceView } from "../src/core/sub-device-renderer.js";
 import { formatPowerHTML } from "../src/helpers/format.js";
-import type { PanelTopology, HomeAssistant, CardConfig, SubDevice, SubDeviceSolar } from "../src/types.js";
+import type { PanelTopology, HomeAssistant, CardConfig, SubDevice, SubDeviceEntityInfo, SubDeviceSolar } from "../src/types.js";
 import { BATTERY_CAPACITY, REALISTIC_BESS } from "./realistic-bess.js";
 
 /** The standalone card's view, which shows no favorites. */
@@ -211,5 +211,96 @@ describe("battery tile rows", () => {
     const html = buildSubDevicesHTML(topologyOf({ bess: REALISTIC_BESS }), batteryHass, config, CARD_VIEW);
 
     expect(html).toContain(`data-eid="${BATTERY_CAPACITY}"`);
+  });
+});
+
+describe("a sub-device row's label", () => {
+  const NAMED_HERE = "sensor.span_panel_battery_vendor";
+  const NAMED_BY_REGISTRY = "sensor.span_panel_battery_cycles";
+  const NAMED_BY_DEVICE = "sensor.span_panel_battery";
+  const KNOWN_BY_ID_ONLY = "sensor.span_panel_battery_serial";
+  const DEVICE_ID = "dev_bess";
+  // Every state carries a name no row may be read from: Home Assistant is retiring the attribute.
+  const DECOY = "Not the label";
+  const reading = { state: "7", attributes: { friendly_name: DECOY } };
+
+  /** The battery as the integration sends it: only `named` entities come with a name. */
+  function battery(named: Record<string, string> = {}): SubDevice {
+    const entities: Record<string, SubDeviceEntityInfo> = {};
+    for (const entityId of [NAMED_HERE, NAMED_BY_REGISTRY, NAMED_BY_DEVICE, KNOWN_BY_ID_ONLY]) {
+      entities[entityId] = { domain: "sensor", ...(named[entityId] ? { original_name: named[entityId] } : {}) };
+    }
+    return { name: "Span Panel Battery", type: "bess", entities };
+  }
+
+  /** Home Assistant holding the frontend's registries as given, with every one of the battery's entities reading. */
+  function hassHolding(registries: Pick<HomeAssistant, "entities" | "devices">): HomeAssistant {
+    return {
+      states: { [NAMED_HERE]: reading, [NAMED_BY_REGISTRY]: reading, [NAMED_BY_DEVICE]: reading, [KNOWN_BY_ID_ONLY]: reading },
+      services: {},
+      language: "en",
+      ...registries,
+    } as unknown as HomeAssistant;
+  }
+
+  const REGISTRIES: Pick<HomeAssistant, "entities" | "devices"> = {
+    entities: {
+      [NAMED_HERE]: { entity_id: NAMED_HERE, device_id: DEVICE_ID, name: "Registry Vendor" },
+      [NAMED_BY_REGISTRY]: { entity_id: NAMED_BY_REGISTRY, device_id: DEVICE_ID, name: "Charge Cycles" },
+      // The device's main entity: the frontend leaves out the name of an entity that has none of its own.
+      [NAMED_BY_DEVICE]: { entity_id: NAMED_BY_DEVICE, device_id: DEVICE_ID },
+    },
+    devices: { [DEVICE_ID]: { id: DEVICE_ID, name: "Battery", name_by_user: "Garage Battery" } },
+  };
+
+  /** Each drawn row's label, by its entity id. */
+  function labels(sub: SubDevice, hass: HomeAssistant): Record<string, string> {
+    const shown = Object.fromEntries(Object.keys(sub.entities ?? {}).map(entityId => [entityId, true]));
+    const host = document.createElement("div");
+    host.innerHTML = buildSubEntityHTML(sub, hass, { visible_sub_entities: shown } as unknown as CardConfig, new Set());
+    const out: Record<string, string> = {};
+    for (const row of host.querySelectorAll(".sub-entity")) {
+      const entityId = row.querySelector(".sub-entity-value")?.getAttribute("data-eid") ?? "";
+      out[entityId] = row.querySelector(".sub-entity-name")?.textContent ?? "";
+    }
+    return out;
+  }
+
+  it("sub-device row falls back to the entity's own name, then its device, then its id", () => {
+    const drawn = labels(battery(), hassHolding(REGISTRIES));
+
+    expect(drawn[NAMED_BY_REGISTRY]).toBe("Charge Cycles:");
+    expect(drawn[NAMED_BY_DEVICE]).toBe("Garage Battery:");
+    expect(drawn[KNOWN_BY_ID_ONLY]).toBe(`${KNOWN_BY_ID_ONLY}:`);
+  });
+
+  it("is the name the integration sent, before any the registry holds", () => {
+    const drawn = labels(battery({ [NAMED_HERE]: "Vendor" }), hassHolding(REGISTRIES));
+
+    expect(drawn[NAMED_HERE]).toBe("Vendor:");
+  });
+
+  it("is the device's own name where the user gave it none", () => {
+    const devices = { [DEVICE_ID]: { id: DEVICE_ID, name: "Battery" } };
+
+    expect(labels(battery(), hassHolding({ ...REGISTRIES, devices }))[NAMED_BY_DEVICE]).toBe("Battery:");
+  });
+
+  it("is the entity id where the entity's device is not in the registry, or has no name", () => {
+    const unnamed = { [DEVICE_ID]: { id: DEVICE_ID, name: null } };
+
+    expect(labels(battery(), hassHolding({ entities: REGISTRIES.entities, devices: {} }))[NAMED_BY_DEVICE]).toBe(`${NAMED_BY_DEVICE}:`);
+    expect(labels(battery(), hassHolding({ entities: REGISTRIES.entities, devices: unnamed }))[NAMED_BY_DEVICE]).toBe(`${NAMED_BY_DEVICE}:`);
+  });
+
+  it("is the entity id on a frontend that hands the card no registries", () => {
+    const drawn = labels(battery(), hassHolding({}));
+
+    expect(drawn).toEqual({
+      [NAMED_HERE]: `${NAMED_HERE}:`,
+      [NAMED_BY_REGISTRY]: `${NAMED_BY_REGISTRY}:`,
+      [NAMED_BY_DEVICE]: `${NAMED_BY_DEVICE}:`,
+      [KNOWN_BY_ID_ONLY]: `${KNOWN_BY_ID_ONLY}:`,
+    });
   });
 });

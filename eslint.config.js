@@ -1,6 +1,9 @@
 import js from "@eslint/js";
 import tseslint from "typescript-eslint";
 
+// Home Assistant is retiring the `friendly_name` state attribute, so nothing in `src/` may read it.
+const NO_FRIENDLY_NAME = "Do not read friendly_name: take the entity's own name from the registry, or ask hass.formatEntityName for the parts by name.";
+
 export default tseslint.config(
   js.configs.recommended,
   ...tseslint.configs.recommended,
@@ -40,6 +43,11 @@ export default tseslint.config(
       "no-shadow": "off",
       "@typescript-eslint/no-shadow": "error",
       "consistent-return": "error",
+      "no-restricted-syntax": [
+        "error",
+        { selector: "Literal[value='friendly_name']", message: NO_FRIENDLY_NAME },
+        { selector: "MemberExpression[property.name='friendly_name']", message: NO_FRIENDLY_NAME },
+      ],
     },
   },
   {

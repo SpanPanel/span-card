@@ -166,6 +166,8 @@ ESLint uses the flat config format with `typescript-eslint`:
 - `@typescript-eslint/no-shadow`
 - `consistent-return`
 - Unused vars with `argsIgnorePattern: ^_`
+- `no-restricted-syntax` rejects any read of the `friendly_name` state attribute, which Home Assistant is retiring: take an entity's own name from the registry,
+  or ask `hass.formatEntityName` for the parts by name
 
 Prettier handles formatting (160 char width, 2-space indent, double quotes).
 

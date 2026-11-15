@@ -19,6 +19,8 @@
 - **What current monitoring judges a circuit against is shown in its Monitoring section and in a Rating column on the Monitoring tab**, marked where it comes
   from ratings you copied.
 - **Every open view redraws when copied ratings change**, whether the change came from the dashboard, another browser or a service call.
+- **Circuits are found on their own devices under the panel**, as SPAN Panel 2.3.0 creates them, and are labelled by the device's name, with your rename in Home
+  Assistant taking precedence.
 
 ### Fixed
 
@@ -31,6 +33,11 @@
 - **Threshold and duration fields in the side panel and the Monitoring tab save when you press Enter or leave them**, and only a whole number in their range, so
   stepping or scrolling a field no longer saves every value it passes through and an emptied field no longer saves 0.
 - **A circuit's name shows as written in its side panel's title**, so a name containing &, < or > no longer appears as `&amp;` and the like.
+- **The battery tile shows its power, charge and energy for users who are not administrators**, which it could not find before.
+
+### Changed
+
+- **Notification targets in the alert settings are labelled as Home Assistant labels them**, so a notify entity you renamed shows its device's name in front.
 
 ## 0.9.6
 

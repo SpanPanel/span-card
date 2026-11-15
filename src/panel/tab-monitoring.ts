@@ -15,7 +15,15 @@ import { focusedIn, isFocusLost } from "../helpers/focus.js";
 import { bindLimitField, isLimitField, LIMIT_RANGES, type LimitField, type LimitFieldHandle } from "../helpers/number-field.js";
 import { bindOtherBreakerField, reportPackageRatingsFailure, type OtherBreakerFieldHandle } from "../helpers/other-breaker-field.js";
 import type { ErrorStore } from "../core/error-store.js";
-import type { HomeAssistant, MonitoringPointInfo, MonitoringStatusResponse, CallServiceResponse, PackageRatingsForm, PackageRatingsState } from "../types.js";
+import type {
+  EntityNameItem,
+  HomeAssistant,
+  MonitoringPointInfo,
+  MonitoringStatusResponse,
+  CallServiceResponse,
+  PackageRatingsForm,
+  PackageRatingsState,
+} from "../types.js";
 
 const FIELD_STYLE = `
   display:flex;align-items:center;gap:8px;margin-bottom:8px;
@@ -457,10 +465,31 @@ function bindBusyButton(button: HTMLElement, act: () => Promise<boolean>): void 
   });
 }
 
+/** The target the integration fires an event for, where every other target is a notify entity or service. */
+const EVENT_BUS_TARGET = "event_bus";
+
+/**
+ * The parts of a notify entity's name the picker asks Home Assistant for: its device's, then its own. They are named
+ * because the frontend's formatter, asked for none, answers from the state's name attribute, which is being retired.
+ */
+const NOTIFY_TARGET_NAME_ITEMS: EntityNameItem[] = [{ type: "device" }, { type: "entity" }];
+
+/**
+ * A notify target's label in the picker: the event bus by its name, and a notify entity by the name Home Assistant's
+ * own screens give it, with its id after. A target with no state, which is a notify service no entity stands for, and
+ * one Home Assistant has no name for keep the id alone.
+ */
+function notifyTargetLabel(hass: HomeAssistant, target: string): string {
+  if (target === EVENT_BUS_TARGET) return t("notification.event_bus_target");
+  const stateObj = hass.states[target];
+  const name = stateObj ? hass.formatEntityName?.(stateObj, NOTIFY_TARGET_NAME_ITEMS).trim() : undefined;
+  return name ? `${name} (${target})` : target;
+}
+
 /** The notify targets button's text: the targets chosen, the event bus by its name, or that none is. */
 function targetsText(targets: readonly string[]): string {
   return targets.length
-    ? targets.map(target => (target === "event_bus" ? t("notification.event_bus_target") : target)).join(", ")
+    ? targets.map(target => (target === EVENT_BUS_TARGET ? t("notification.event_bus_target") : target)).join(", ")
     : t("notification.none_selected");
 }
 
@@ -655,7 +684,7 @@ export class MonitoringTab {
       if (!excludedServices.has(svc)) targetSet.add(`notify.${svc}`);
     }
     // Event bus is a virtual target — always available
-    targetSet.add("event_bus");
+    targetSet.add(EVENT_BUS_TARGET);
     const allNotifyTargets = [...targetSet].sort();
 
     const rawTargets = globalSettings.notify_targets ?? "";
@@ -847,20 +876,12 @@ export class MonitoringTab {
                       : allNotifyTargets
                           .map(target => {
                             const checked = selectedTargets.includes(target);
-                            const isEventBus = target === "event_bus";
-                            const stateObj = isEventBus ? null : hass.states[target];
-                            const friendly = stateObj?.attributes?.friendly_name as string | undefined;
-                            const displayLabel = isEventBus
-                              ? t("notification.event_bus_target")
-                              : friendly
-                                ? `${escapeHtml(friendly)} (${escapeHtml(target)})`
-                                : escapeHtml(target);
                             return `<label style="display:flex;align-items:center;gap:8px;padding:6px 12px;cursor:pointer;font-size:0.85em;"
                                        class="notify-option">
                               <input type="checkbox" class="notify-target-cb" value="${escapeHtml(target)}"
                                      ${checked ? "checked" : ""}
                                      style="width:14px;height:14px;accent-color:var(--primary-color,#4dd9af);">
-                              <span>${displayLabel}</span>
+                              <span>${escapeHtml(notifyTargetLabel(hass, target))}</span>
                             </label>`;
                           })
                           .join("")
