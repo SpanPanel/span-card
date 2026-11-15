@@ -91,6 +91,25 @@ describe("topology path labels a circuit by its device when the record carries d
 
     expect(await labelOf({ device_id: "device-b-7" }, [device])).toBe("Kitchen Outlets");
   });
+
+  // A charger's feed circuit keeps its sensors on the charger's device, which
+  // the integration names with the panel's name in front. Its record names the
+  // circuit's own device, which holds its breaker switch, or none: never the
+  // charger's.
+  describe("for a charger's feed circuit", () => {
+    const charger = { id: "charger-device", name: "SPAN Panel EV Charger (FLEX⁺)", name_by_user: null, via_device_id: CURRENT_ID, parent_device_id: null };
+    const feed = { name: "FLEX⁺", tabs: [30, 32], entities: { power: "sensor.span_panel_ev_charger_flex_power" } };
+
+    it("keeps the record's name where the circuit has no device, without the panel's name the charger's carries", async () => {
+      expect(await labelOf({ ...feed, device_id: null }, [charger])).toBe("FLEX⁺");
+    });
+
+    it("takes the name of the circuit's own device where it has one", async () => {
+      const device = { id: "device-ev-1", name: "FLEX⁺", name_by_user: "Garage Charger", parent_device_id: CURRENT_ID };
+
+      expect(await labelOf({ ...feed, device_id: "device-ev-1" }, [charger, device])).toBe("Garage Charger");
+    });
+  });
 });
 
 describe("panelConfigEntryId", () => {

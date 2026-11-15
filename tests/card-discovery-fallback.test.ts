@@ -306,6 +306,12 @@ describe("the fallback on an install whose circuits have devices", () => {
         { name_by_user: "Main Panel" },
         "Coffee Bar",
       ],
+      [
+        "renamed with the integration's name for the panel in front, on a panel the user renamed",
+        { name: "SPAN Panel Coffee Bar Power", original_name: "Kitchen Outlets Power" },
+        { name_by_user: "Main Panel" },
+        "Coffee Bar",
+      ],
       ["with no name of its own", { name: null, original_name: null }, {}, "sensor.kitchen_outlets_power"],
     ])("%s", async (_case, powerNames, panelDevice, label) => {
       const hass = hassHolding(panel(panelDevice), circuitOnThePanel("b-7", "kitchen_outlets", "tabs [7]", powerNames));
@@ -381,30 +387,42 @@ describe("the fallback on an install whose circuits have devices", () => {
 
 // A charger's feed circuit keeps its sensors on the charger's device, named by
 // what they measure, while its breaker switch sits on the circuit's own device.
+// The integration names a charger's device with the panel's name in front, as
+// it names the panel: `SPAN Panel EV Charger (FLEX⁺)`.
 describe("the fallback on a charger's feed circuit", () => {
-  const charger: DeviceRegistryEntry = {
-    id: CHARGER_ID,
-    name: "SPAN Drive",
-    name_by_user: null,
-    identifiers: [["span_panel", `${SERIAL}_evse_e1`]],
-    via_device_id: PANEL_ID,
-    parent_device_id: null,
-    model: "SPAN Drive",
-  };
-  const feedSensors: Part = {
-    devices: [charger],
-    entities: [row("sensor.span_drive_power", `span_${SERIAL}_ev-1_power`, CHARGER_ID, { original_name: "Power" })],
-    attributes: { "sensor.span_drive_power": { tabs: "tabs [30:32]" } },
-  };
+  function charger(device: Partial<DeviceRegistryEntry> = {}, serial: string = SERIAL): DeviceRegistryEntry {
+    return {
+      id: CHARGER_ID,
+      name: "SPAN Panel EV Charger (FLEX⁺)",
+      name_by_user: null,
+      identifiers: [["span_panel", `${serial}_evse_e1`]],
+      via_device_id: PANEL_ID,
+      parent_device_id: null,
+      model: "SPAN Drive",
+      ...device,
+    };
+  }
 
-  it("labels it by the circuit's own device, which holds its breaker switch", async () => {
-    const feedDevice: Part = {
-      devices: [circuitDevice("ev-1", "Garage Charger")],
-      entities: [row("switch.garage_charger_breaker", `span_${SERIAL}_relay_ev-1`, "device-ev-1", { original_name: "Breaker" })],
+  /** The feed circuit's power sensor, on the charger's device and named `Power` alone. */
+  function feedSensors(device: Partial<DeviceRegistryEntry> = {}, serial: string = SERIAL): Part {
+    return {
+      devices: [charger(device, serial)],
+      entities: [row("sensor.span_drive_power", `span_${serial.toLowerCase()}_ev-1_power`, CHARGER_ID, { original_name: "Power" })],
+      attributes: { "sensor.span_drive_power": { tabs: "tabs [30:32]" } },
+    };
+  }
+
+  /** The feed circuit's own device, which holds its breaker switch. */
+  function feedDevice(serial: string = SERIAL): Part {
+    return {
+      devices: [circuitDevice("ev-1", "Garage Charger", {}, serial)],
+      entities: [row("switch.garage_charger_breaker", `span_${serial}_relay_ev-1`, "device-ev-1", { original_name: "Breaker" })],
       attributes: { "switch.garage_charger_breaker": {} },
     };
+  }
 
-    const { topology } = await discoverEntitiesFallback(hassHolding(panel(), feedSensors, feedDevice), PANEL_ID);
+  it("labels it by the circuit's own device, which holds its breaker switch", async () => {
+    const { topology } = await discoverEntitiesFallback(hassHolding(panel(), feedSensors(), feedDevice()), PANEL_ID);
 
     expect(topology!.circuits["ev-1"]).toMatchObject({
       name: "Garage Charger",
@@ -413,11 +431,43 @@ describe("the fallback on a charger's feed circuit", () => {
     });
   });
 
-  it("labels it by the charger where the circuit has no device, its sensor being named Power alone", async () => {
-    const { topology } = await discoverEntitiesFallback(hassHolding(panel(), feedSensors), PANEL_ID);
+  // The circuit's device carries the serial as the panel's device spells it; a sensor's unique id lower-cases it.
+  it("finds the circuit's own device on a panel whose serial holds upper case", async () => {
+    const serial = "NT_0000_TEST2";
 
-    expect(topology!.circuits["ev-1"]!.name).toBe("SPAN Drive");
-    expect(topology!.circuits["ev-1"]!.device_id).toBeUndefined();
+    const { topology } = await discoverEntitiesFallback(hassHolding(panel({}, serial), feedSensors({}, serial), feedDevice(serial)), PANEL_ID);
+
+    expect(topology!.circuits["ev-1"]).toMatchObject({
+      name: "Garage Charger",
+      device_id: "device-ev-1",
+      entities: { power: "sensor.span_drive_power", switch: "switch.garage_charger_breaker" },
+    });
+  });
+
+  // Without a breaker switch the circuit has no device, and its sensor says only what it measures.
+  describe("labels it by the charger, without the panel's name in front, where the circuit has no device", () => {
+    it.each<[string, Partial<DeviceRegistryEntry>, Partial<DeviceRegistryEntry>, string]>([
+      ["as the integration names the charger", {}, {}, "EV Charger (FLEX⁺)"],
+      ["as the integration names another charger", { name: "SPAN Panel EV Charger (SPAN Drive)" }, {}, "EV Charger (SPAN Drive)"],
+      // The charger's name is built from the integration's name for the panel, whatever the user calls the panel.
+      ["on a panel the user renamed", {}, { name_by_user: "Main Panel" }, "EV Charger (FLEX⁺)"],
+      ["renamed by the user", { name_by_user: "Garage Charger" }, {}, "Garage Charger"],
+      ["renamed by the user with their name for the panel in front", { name_by_user: "Main Panel Charger" }, { name_by_user: "Main Panel" }, "Charger"],
+      // The longer of the panel's names is the one in front.
+      ["on a panel whose two names start alike", { name: "SPAN Panel EV Charger (FLEX⁺)" }, { name_by_user: "SPAN" }, "EV Charger (FLEX⁺)"],
+      ["named as the panel is, and nothing more", { name: "SPAN Panel" }, {}, "SPAN Panel"],
+    ])("%s", async (_case, chargerDevice, panelDevice, label) => {
+      const { topology } = await discoverEntitiesFallback(hassHolding(panel(panelDevice), feedSensors(chargerDevice)), PANEL_ID);
+
+      expect(topology!.circuits["ev-1"]!.name).toBe(label);
+      expect(topology!.circuits["ev-1"]!.device_id).toBeUndefined();
+    });
+  });
+
+  it("leaves the charger's own tile its device's name whole", async () => {
+    const { topology } = await discoverEntitiesFallback(hassHolding(panel(), feedSensors()), PANEL_ID);
+
+    expect(topology!.sub_devices![CHARGER_ID]!.name).toBe("SPAN Panel EV Charger (FLEX⁺)");
   });
 });
 

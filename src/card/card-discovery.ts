@@ -137,18 +137,33 @@ function parseTabs(tabsAttr: unknown): number[] | null {
   return tabs.every(Number.isFinite) ? tabs : null;
 }
 
+/** The names a panel's device goes by: the user's and the integration's, each where it has one. */
+function panelNamesOf(panelDevice: DeviceRegistryEntry): string[] {
+  return [panelDevice.name_by_user, panelDevice.name].flatMap(name => (name?.trim() ? [name.trim()] : []));
+}
+
+/**
+ * A name without the panel's in front, which a label on the panel's own
+ * dashboard has no use for. Either of the panel's names may lead: the user's,
+ * as in a name they typed, or the integration's, which it builds a charger's
+ * device name from whatever the user calls the panel. The longer is taken
+ * where both lead, and a name that is the panel's and nothing more is kept.
+ */
+function withoutPanelName(name: string, panelNames: readonly string[]): string {
+  const leading = panelNames.filter(panelName => name.startsWith(`${panelName} `)).sort((a, b) => b.length - a.length)[0];
+  return leading === undefined ? name : name.slice(leading.length + 1);
+}
+
 /**
  * A circuit's label read from its power sensor's own name, for a sensor that
  * is not on a device of the circuit's own: the name without its ` Power`
  * ending and without the panel's name in front. "" where nothing is left,
  * which is a sensor with no name or one named `Power` alone.
  */
-function labelFromPowerSensorName(ownName: string, panelName: string): string {
-  let label = ownName;
-  if (label === POWER_LABEL) return "";
-  if (label.endsWith(` ${POWER_LABEL}`)) label = label.slice(0, -(POWER_LABEL.length + 1));
-  if (panelName && label.startsWith(`${panelName} `)) label = label.slice(panelName.length + 1);
-  return label;
+function labelFromPowerSensorName(ownName: string, panelNames: readonly string[]): string {
+  if (ownName === POWER_LABEL) return "";
+  const label = ownName.endsWith(` ${POWER_LABEL}`) ? ownName.slice(0, -(POWER_LABEL.length + 1)) : ownName;
+  return withoutPanelName(label, panelNames);
 }
 
 /** A device's name and its entities' own names, for a battery or a charger: the shape topology gives a sub-device. */
@@ -192,6 +207,7 @@ export async function discoverEntitiesFallback(hass: HomeAssistant, deviceId: st
 
   const serial = panelSerial(panelDevice);
   const panelName = deviceName(panelDevice);
+  const panelNames = panelNamesOf(panelDevice);
 
   // The panel's devices: itself, each circuit's, a child of it, and each
   // battery's and charger's, reached through it.
@@ -250,11 +266,13 @@ export async function discoverEntitiesFallback(hass: HomeAssistant, deviceId: st
 
     // Labelled by the circuit's device, the user's rename first. Without one,
     // by the sensor's own name; and where that says only what it measures, as
-    // on a charger's device, by the device the sensor is on.
+    // on a charger's device, by the device the sensor is on. Neither of the
+    // last two carries the panel's name, which the integration puts in front
+    // of a charger's.
     const displayName =
       (circuitDevice ? deviceName(circuitDevice) : "") ||
-      labelFromPowerSensorName(entityOwnName(ent), panelName) ||
-      (sensorDevice && sensorDevice !== panelDevice ? deviceName(sensorDevice) : "") ||
+      labelFromPowerSensorName(entityOwnName(ent), panelNames) ||
+      (sensorDevice && sensorDevice !== panelDevice ? withoutPanelName(deviceName(sensorDevice), panelNames) : "") ||
       ent.entity_id;
 
     const voltage = typeof attrs.voltage === "number" ? attrs.voltage : tabs.length === 2 ? 240 : 120;
