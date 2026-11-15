@@ -132,6 +132,7 @@ The Home Assistant registry entries live in `src/core/registry-types.ts`:
 - `DeviceRegistryEntry`, `EntityRegistryEntry` — the fields the card reads of the device and entity registry lists
 - `isPanelDevice()` — tells a panel from the integration's other devices: its batteries and chargers, and the child device of each circuit
 - `deviceName()` — a device's name as Home Assistant shows it
+- `entityOwnName()` — an entity's own name, the user's before the integration's, without its device's
 
 ## TypeScript
 

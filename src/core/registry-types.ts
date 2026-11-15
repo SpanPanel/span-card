@@ -70,3 +70,13 @@ export function isPanelDevice(d: DeviceRegistryEntry): boolean {
 export function deviceName(d: DeviceRegistryEntry): string {
   return (d.name_by_user || d.name || "").trim();
 }
+
+/**
+ * An entity's own name, as Home Assistant reads it: the user's where the
+ * registry holds one, else the integration's; "" for an entity with neither.
+ * The user's counts even when it is "", which is how the registry records that
+ * an entity goes by its device's name alone.
+ */
+export function entityOwnName(e: EntityRegistryEntry): string {
+  return (e.name ?? e.original_name ?? "").trim();
+}

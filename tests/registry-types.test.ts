@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { deviceName, isPanelDevice } from "../src/core/registry-types.js";
+import { deviceName, entityOwnName, isPanelDevice } from "../src/core/registry-types.js";
 import type { DeviceRegistryEntry } from "../src/core/registry-types.js";
 
 // The device list the card reads is the raw `config/device_registry/list`
@@ -89,5 +89,26 @@ describe("deviceName", () => {
   it("is empty for a device with no name", () => {
     expect(deviceName({ id: "d", name: null, name_by_user: null })).toBe("");
     expect(deviceName({ id: "d" })).toBe("");
+  });
+});
+
+describe("entityOwnName", () => {
+  const POWER = { entity_id: "sensor.kitchen_power", unique_id: "span_sp3-test-001_b-7_power" };
+
+  it("takes the user's name before the integration's", () => {
+    expect(entityOwnName({ ...POWER, name: "Coffee Bar Power", original_name: "Power" })).toBe("Coffee Bar Power");
+  });
+
+  it("takes the integration's name where the user gave none", () => {
+    expect(entityOwnName({ ...POWER, name: null, original_name: "Power" })).toBe("Power");
+  });
+
+  it('is "" for an entity with neither', () => {
+    expect(entityOwnName({ ...POWER, name: null, original_name: null })).toBe("");
+    expect(entityOwnName(POWER)).toBe("");
+  });
+
+  it("keeps a user's \"\", which is how the registry says the entity goes by its device's name alone", () => {
+    expect(entityOwnName({ ...POWER, name: "", original_name: "Power" })).toBe("");
   });
 });

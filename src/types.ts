@@ -71,9 +71,18 @@ export interface CircuitEntities {
 }
 
 export interface Circuit {
+  /**
+   * The circuit's label. The integration sends its name in the SPAN app; discovery replaces that with the name of
+   * the circuit's device where it has one, which is what Home Assistant shows and carries the user's rename.
+   */
   name: string;
   tabs: number[];
   entities: CircuitEntities;
+  /**
+   * The circuit's own device, a child of the panel's, by its registry id. Null where the circuit has none; absent
+   * from an integration that predates circuit devices, and from entity discovery where it finds none.
+   */
+  device_id?: string | null;
   /** The panel's own breaker rating; null when it publishes none. */
   breaker_rating_a?: number | null;
   /**
