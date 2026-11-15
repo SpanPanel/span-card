@@ -166,8 +166,15 @@ ESLint uses the flat config format with `typescript-eslint`:
 - `@typescript-eslint/no-shadow`
 - `consistent-return`
 - Unused vars with `argsIgnorePattern: ^_`
-- `no-restricted-syntax` rejects any read of the `friendly_name` state attribute, which Home Assistant is retiring: take an entity's own name from the registry,
-  or ask `hass.formatEntityName` for the parts by name
+- `no-restricted-syntax` keeps reads of the `friendly_name` state attribute, which Home Assistant is retiring, out of `src/`: take an entity's own name from the
+  registry, or ask `hass.formatEntityName` for the parts by name. The rule rejects the attribute's name wherever it is written out:
+  - a property access: `attrs.friendly_name`, `attrs?.friendly_name`
+  - a string: `attrs["friendly_name"]`, `"friendly_name" in attrs`, a quoted key
+  - a template literal's text: ``attrs[`friendly_name`]``
+  - a property key: `const { friendly_name } = attrs`, whether given a new name or a default, nested or in a parameter, and a key of an object literal
+
+  It cannot see a name that is never written out: a key put together at run time (`"friendly_" + "name"`), a key held in a variable, or code that reads every
+  attribute at once. `tests/friendly-name-lint.test.ts` holds a case of each form.
 
 Prettier handles formatting (160 char width, 2-space indent, double quotes).
 
