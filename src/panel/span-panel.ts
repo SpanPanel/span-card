@@ -16,6 +16,7 @@ import { ListViewController, type FavoritesViewStateDetail } from "../core/list-
 import { DashboardController } from "../core/dashboard-controller.js";
 import { buildTabBarHTML } from "../core/tab-bar-renderer.js";
 import { subscribeAreaUpdates } from "../core/area-resolver.js";
+import { DEVICE_REGISTRY_UPDATED, renamedDeviceId, topologyNamesDevice } from "../core/device-rename.js";
 import { subscribeEntryReloads } from "../core/entry-reload.js";
 import { isPanelDevice, type DeviceRegistryEntry } from "../core/registry-types.js";
 import { mergeCircuitIds, subscribePackageRatingChanges } from "../core/rating-events.js";
@@ -142,10 +143,11 @@ export class SpanPanelElement extends LitElement {
   /** Per panel, the circuits the rating events since its last refresh named; null when one named none. */
   private readonly _ratingChangedIds = new Map<string, ReadonlySet<string> | null>();
   /**
-   * The topology the current view rendered, by panel device id. An entry reload
-   * re-renders the view only when its panel's topology changed structure since.
-   * The Monitoring tab records one fetched beside it; the Adopted tab records
-   * none, because a reload refreshes its rows instead.
+   * The topology the current view rendered, by panel device id. An entry reload,
+   * or a rename of a device the topology names, re-renders the view only when
+   * its panel's topology changed structure since. The Monitoring tab records
+   * one fetched beside it; the Adopted tab records none, because a reload
+   * refreshes its rows instead.
    */
   private readonly _renderedTopologies = new Map<string, PanelTopology>();
   /**
@@ -167,6 +169,15 @@ export class SpanPanelElement extends LitElement {
   });
   private _onFavoritesChanged: (() => void) | null = null;
   private _deviceRegistryUnsub: Promise<() => void> | null = null;
+  /** The shown panels a device rename named since the last check, which the next check answers. */
+  private readonly _renamedPanelIds = new Set<string>();
+  /** A burst of renames is one check in flight and at most one trailing, which sees the last rename. */
+  private readonly _renameRefresh = coalesceRuns(async () => {
+    // A view that re-rendered meanwhile drew its labels from a topology at least as new.
+    const panelIds = [...this._renamedPanelIds].filter(panelId => this._renderedTopologies.has(panelId));
+    this._renamedPanelIds.clear();
+    await Promise.all(panelIds.map(panelId => this._renderIfRestructured(panelId)));
+  });
   /**
    * True when a tab re-render was requested while any sidebar (favorites
    * mode, real-panel gear mode, per-circuit, or sub-device) was open.
@@ -659,7 +670,24 @@ export class SpanPanelElement extends LitElement {
 
   private _subscribeDeviceRegistry(): void {
     if (this._deviceRegistryUnsub || !this.hass?.connection) return;
-    this._deviceRegistryUnsub = this.hass.connection.subscribeEvents(() => this._refreshPanels(), "device_registry_updated");
+    this._deviceRegistryUnsub = this.hass.connection.subscribeEvents<unknown>(event => this._onDeviceRegistryUpdated(event), DEVICE_REGISTRY_UPDATED);
+  }
+
+  /**
+   * A device changed. The panel list may have; and where the change is a rename
+   * of a device the view shows by name -- a circuit's, a battery's or a
+   * charger's, or the panel's -- the view's labels have, which no reload of
+   * the panel's entry follows. Each panel that shows the device is checked for
+   * a change of structure, which a label is part of.
+   */
+  private _onDeviceRegistryUpdated(event: unknown): void {
+    void this._refreshPanels();
+    const deviceId = renamedDeviceId(event);
+    if (!deviceId) return;
+    for (const [panelId, topology] of this._renderedTopologies) {
+      if (topologyNamesDevice(topology, deviceId)) this._renamedPanelIds.add(panelId);
+    }
+    if (this._renamedPanelIds.size > 0) void this._renameRefresh();
   }
 
   private _unsubscribeDeviceRegistry(): void {

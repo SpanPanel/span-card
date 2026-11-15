@@ -16,7 +16,7 @@ import { ListViewController } from "../src/core/list-view-controller.js";
 import { AdoptedTab } from "../src/panel/tab-adopted.js";
 import { DashboardTab } from "../src/panel/tab-dashboard.js";
 import { SpanPanelElement } from "../src/panel/span-panel.js";
-import { ENTITY_REGISTRY, ENTRY_RELOADS, FakeConnection, flush, hassWith } from "./fake-connection.js";
+import { DEVICE_REGISTRY, ENTITY_REGISTRY, ENTRY_RELOADS, FakeConnection, flush, hassWith } from "./fake-connection.js";
 
 /**
  * The sidebar dashboard is detached and re-attached as the user navigates. On
@@ -278,12 +278,16 @@ describe("span-panel subscriptions", () => {
     expect(connection.live(ENTITY_REGISTRY)).toBe(0);
   });
 
+  /** The kitchen circuit's own device, which its label is read from. */
+  const KITCHEN_DEVICE = "circuit-device-1-kitchen";
+
   /** Panel 1's topology with one circuit; `name` is structure, `relay` is live. */
   function kitchenTopology(relay: string, name = "Kitchen"): Awaited<ReturnType<typeof discoverTopology>> {
     return {
       topology: {
-        circuits: { kitchen: { name, tabs: [1], entities: { power: "sensor.kitchen_power" }, relay_state: relay } },
+        circuits: { kitchen: { name, device_id: KITCHEN_DEVICE, tabs: [1], entities: { power: "sensor.kitchen_power" }, relay_state: relay } },
         panel_entities: { panel_status: statusOf("panel-1") },
+        panel_device_id: "panel-1",
       } as unknown as PanelTopology,
       panelDevice: null,
       panelSize: 32,
@@ -323,6 +327,77 @@ describe("span-panel subscriptions", () => {
     connection.emit(ENTRY_RELOADS, loaded(1));
 
     await vi.waitFor(() => expect(rendered).toHaveBeenCalledTimes(2));
+  });
+
+  /** A `device_registry_updated` event for an update, with the old value of each field it changed. */
+  function deviceUpdate(device_id: string, changes: Record<string, unknown>): unknown {
+    return { event_type: DEVICE_REGISTRY, data: { action: "update", device_id, changes } };
+  }
+
+  // A circuit is labelled by its device, which the user renames in Home
+  // Assistant with no reload of the panel's entry.
+  it("re-renders the view when a circuit device it shows is renamed", async () => {
+    const connection = new FakeConnection();
+    const rendered = await onActivityTab(connection);
+    mockDiscover.mockImplementation(async () => kitchenTopology("CLOSED", "Cooking"));
+
+    connection.emit(DEVICE_REGISTRY, deviceUpdate(KITCHEN_DEVICE, { name_by_user: null }));
+
+    await vi.waitFor(() => expect(rendered).toHaveBeenCalledTimes(2));
+  });
+
+  it("leaves the view alone for a device change that is no rename of a device it shows", async () => {
+    const connection = new FakeConnection();
+    const rendered = await onActivityTab(connection);
+    const calls = mockDiscover.mock.calls.length;
+
+    connection.emit(DEVICE_REGISTRY, deviceUpdate(KITCHEN_DEVICE, { area_id: null }));
+    connection.emit(DEVICE_REGISTRY, deviceUpdate("device-of-another-panel", { name_by_user: null }));
+    connection.emit(DEVICE_REGISTRY, { event_type: DEVICE_REGISTRY, data: { action: "create", device_id: KITCHEN_DEVICE } });
+    await flush();
+
+    expect(mockDiscover.mock.calls.length).toBe(calls);
+    expect(rendered).toHaveBeenCalledTimes(1);
+  });
+
+  it("answers a burst of renames with one fetch in flight and one more after it", async () => {
+    const connection = new FakeConnection();
+    const rendered = await onActivityTab(connection);
+    let resolveFirst: (value: Awaited<ReturnType<typeof discoverTopology>>) => void = () => {};
+    mockDiscover.mockImplementationOnce(() => new Promise(r => (resolveFirst = r)));
+    const calls = mockDiscover.mock.calls.length;
+
+    for (let i = 0; i < 3; i += 1) connection.emit(DEVICE_REGISTRY, deviceUpdate(KITCHEN_DEVICE, { name: "Kitchen" }));
+    await flush();
+    expect(mockDiscover.mock.calls.length).toBe(calls + 1);
+
+    resolveFirst(kitchenTopology("CLOSED"));
+    await vi.waitFor(() => expect(mockDiscover.mock.calls.length).toBe(calls + 2));
+    await flush();
+    expect(mockDiscover.mock.calls.length).toBe(calls + 2);
+    expect(rendered).toHaveBeenCalledTimes(1);
+  });
+
+  it("drops a queued rename check once the view no longer shows the panel", async () => {
+    const render = vi.spyOn(AdoptedTab.prototype, "render");
+    const connection = new FakeConnection();
+    await onActivityTab(connection);
+    let resolveFirst: (value: Awaited<ReturnType<typeof discoverTopology>>) => void = () => {};
+    mockDiscover.mockImplementationOnce(() => new Promise(r => (resolveFirst = r)));
+    const calls = mockDiscover.mock.calls.length;
+    connection.emit(DEVICE_REGISTRY, deviceUpdate(KITCHEN_DEVICE, { name_by_user: null }));
+    connection.emit(DEVICE_REGISTRY, deviceUpdate(KITCHEN_DEVICE, { name_by_user: "Cooking" }));
+    await flush();
+
+    // The user leaves for a tab that renders no topology while the first check is fetching.
+    (document.querySelector("span-panel") as unknown as { _activeTab: string })._activeTab = "adopted";
+    await vi.waitFor(() => expect(render).toHaveBeenCalledTimes(1));
+    resolveFirst(kitchenTopology("CLOSED", "Cooking"));
+    await flush();
+    await flush();
+
+    expect(mockDiscover.mock.calls.length).toBe(calls + 1);
+    expect(render).toHaveBeenCalledTimes(1);
   });
 
   /** Switch the open view to `tab`, the way the tab bar's click handler does. */
@@ -449,6 +524,39 @@ describe("span-panel subscriptions", () => {
 
       expect(build).toHaveBeenCalledTimes(1);
       expect(mockDiscover).toHaveBeenLastCalledWith(expect.anything(), "panel-1", null);
+    });
+
+    it("checks only the panel whose device was renamed", async () => {
+      devices = [device(1), device(2)];
+      favorites = favoritesOf(1, 2);
+      const connection = new FakeConnection();
+      localStorage.setItem("span_panel_selected", "favorites");
+      const build = vi.spyOn(FavoritesController.prototype, "build").mockResolvedValue({
+        topology: { circuits: {}, sub_devices: {}, _favoriteRefs: {} },
+        entryIds: [],
+        perPanelStats: [1, 2].map(n => ({
+          panelDeviceId: `panel-${n}`,
+          panelName: `Panel ${n}`,
+          topology: {
+            circuits: { [`c${n}`]: { name: `Circuit ${n}`, device_id: `circuit-device-${n}-c${n}`, tabs: [1], entities: {} } },
+            panel_entities: { panel_status: statusOf(`panel-${n}`) },
+            panel_device_id: `panel-${n}`,
+          } as unknown as PanelTopology,
+        })),
+      } as unknown as Awaited<ReturnType<FavoritesController["build"]>>);
+      await mount(connection, () => expect(build).toHaveBeenCalledTimes(1));
+      connection.emit(ENTRY_RELOADS, loaded(1, 2));
+      await flush();
+      const calls = mockDiscover.mock.calls.length;
+
+      connection.emit(DEVICE_REGISTRY, {
+        event_type: DEVICE_REGISTRY,
+        data: { action: "update", device_id: "circuit-device-2-c2", changes: { name_by_user: null } },
+      });
+
+      // The re-fetched topology differs from the one the view was built from, so the view rebuilds.
+      await vi.waitFor(() => expect(build).toHaveBeenCalledTimes(2));
+      expect(mockDiscover.mock.calls.slice(calls).map(call => call[1])).toEqual(["panel-2"]);
     });
 
     it("rebuilds for a panel with favorites whose fetch failed at build time", async () => {

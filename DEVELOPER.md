@@ -49,6 +49,7 @@ src/
     graph-settings.ts       # Graph horizon settings cache + effective horizon lookup
     side-panel.ts           # Sliding configuration panel (custom element)
     registry-types.ts       # Device and entity registry entries, and the panel filter
+    device-rename.ts        # Device renames, which a showing topology's labels follow
 
   panel/
     index.ts                # Integration panel entry point
