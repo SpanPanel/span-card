@@ -1,7 +1,7 @@
 import { INTEGRATION_DOMAIN } from "../constants.js";
 import { t } from "../i18n.js";
 import { RetryManager } from "./retry-manager.js";
-import type { Circuit, HomeAssistant, MonitoringPointInfo, MonitoringStatus, MonitoringStatusResponse } from "../types.js";
+import type { Circuit, HomeAssistant, MonitoringPointInfo, MonitoringStatus, MonitoringStatusResponse, PanelTopology } from "../types.js";
 import type { ErrorStore } from "./error-store.js";
 
 const MONITORING_POLL_INTERVAL_MS = 30_000;
@@ -202,11 +202,33 @@ export function getCircuitMonitoringInfo(status: MonitoringStatus | null, entity
 }
 
 /**
- * A circuit's monitoring status entry, which is keyed by the circuit's current
- * sensor, else its power sensor. Null where the status has none for it.
+ * The key a circuit's monitoring status entry goes by: the circuit's current
+ * sensor, else its power sensor. "" for a circuit with neither.
  */
+function circuitMonitoringKey(circuit: Pick<Circuit, "entities">): string {
+  return circuit.entities?.current ?? circuit.entities?.power ?? "";
+}
+
+/** A circuit's monitoring status entry (`circuitMonitoringKey`). Null where the status has none for it. */
 export function circuitMonitoringInfo(status: MonitoringStatus | null, circuit: Pick<Circuit, "entities">): MonitoringPointInfo | null {
-  return getCircuitMonitoringInfo(status, circuit.entities?.current ?? circuit.entities?.power ?? "");
+  return getCircuitMonitoringInfo(status, circuitMonitoringKey(circuit));
+}
+
+/**
+ * Each circuit's label by the key its monitoring status entry goes by
+ * (`circuitMonitoringKey`), for a view that draws the status's entries, not
+ * the topology's circuits. The status names a circuit as the SPAN app does;
+ * the label is the one discovery wrote into the topology, which every other
+ * view shows: the name of the circuit's device, the user's rename of it
+ * first. A circuit with no label has none here, and no topology gives none.
+ */
+export function circuitLabelsByMonitoringKey(topology: PanelTopology | null): Map<string, string> {
+  const labels = new Map<string, string>();
+  for (const circuit of Object.values(topology?.circuits ?? {})) {
+    const key = circuitMonitoringKey(circuit);
+    if (key && circuit.name) labels.set(key, circuit.name);
+  }
+  return labels;
 }
 
 /**

@@ -471,6 +471,31 @@ describe("span-panel subscriptions", () => {
     expect(edited.value).toBe("93");
   });
 
+  // The monitoring status names a circuit as the SPAN app does; the tab's rows
+  // go by the label the topology fetched beside it carries, which is the
+  // circuit's device's name, and follow a rename of that device.
+  it("labels the Monitoring tab's rows by the topology's circuit labels, and again when a circuit's device is renamed", async () => {
+    monitoring = {
+      enabled: true,
+      global_settings: { continuous_threshold_pct: 80, spike_threshold_pct: 100, window_duration_m: 15, cooldown_duration_m: 15 },
+      circuits: { "sensor.kitchen_power": { name: "Kitchen Outlets", monitoring_enabled: true } },
+      mains: {},
+    };
+    const connection = new FakeConnection();
+    const panel = await mount(connection, () => expect(watch).toHaveBeenCalledWith(statusOf("panel-1")));
+    mockDiscover.mockImplementation(async () => kitchenTopology("CLOSED", "Coffee Bar"));
+    const row = (): string | null | undefined =>
+      panel.shadowRoot!.querySelector(`.circuit-toggle[data-entity="sensor.kitchen_power"]`)?.closest("label")?.querySelector("span")?.textContent;
+
+    showTab(panel, "monitoring");
+    await vi.waitFor(() => expect(row()).toBe("Coffee Bar"));
+
+    mockDiscover.mockImplementation(async () => kitchenTopology("CLOSED", "Espresso Corner"));
+    connection.emit(DEVICE_REGISTRY, deviceUpdate(KITCHEN_DEVICE, { name_by_user: "Coffee Bar" }));
+
+    await vi.waitFor(() => expect(row()).toBe("Espresso Corner"));
+  });
+
   it("refreshes the Adopted tab's rows in place on a re-seed, without re-rendering it", async () => {
     const render = vi.spyOn(AdoptedTab.prototype, "render");
     const refresh = vi.spyOn(AdoptedTab.prototype, "refresh");

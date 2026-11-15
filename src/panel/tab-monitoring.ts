@@ -14,6 +14,7 @@ import {
 import { focusedIn, isFocusLost } from "../helpers/focus.js";
 import { bindLimitField, isLimitField, LIMIT_RANGES, type LimitField, type LimitFieldHandle } from "../helpers/number-field.js";
 import { bindOtherBreakerField, reportPackageRatingsFailure, type OtherBreakerFieldHandle } from "../helpers/other-breaker-field.js";
+import { circuitLabelsByMonitoringKey } from "../core/monitoring-status.js";
 import type { ErrorStore } from "../core/error-store.js";
 import type {
   EntityNameItem,
@@ -23,6 +24,7 @@ import type {
   CallServiceResponse,
   PackageRatingsForm,
   PackageRatingsState,
+  PanelTopology,
 } from "../types.js";
 
 const FIELD_STYLE = `
@@ -602,10 +604,44 @@ class PendingSave {
   }
 }
 
+/**
+ * The topology of the panel a tab is drawn for, whose circuits' labels its rows
+ * go by: at hand, still being fetched, or null where there is none to be had.
+ */
+export type TopologySource = PanelTopology | null | Promise<PanelTopology | null>;
+
+type CircuitLabels = ReadonlyMap<string, string>;
+
+/** No circuit has a label: every row goes by what the monitoring status calls it. */
+const NO_CIRCUIT_LABELS: Promise<CircuitLabels> = Promise.resolve(new Map<string, string>());
+
+/**
+ * The labels `topology` gives the tab's circuit rows, once it is at hand
+ * (`circuitLabelsByMonitoringKey`). One that fails to arrive gives none, and
+ * the table is drawn all the same.
+ */
+function circuitLabelsOf(topology: TopologySource): Promise<CircuitLabels> {
+  return Promise.resolve(topology).then(circuitLabelsByMonitoringKey, (err: unknown) => {
+    console.warn("SPAN Panel: no topology to label the Monitoring tab's circuits by:", errorText(err));
+    return new Map<string, string>();
+  });
+}
+
+/**
+ * What a circuit's row is called: the label every other view shows for the
+ * circuit, which is its device's name; else its name in the SPAN app, which is
+ * "" for a circuit with none there; else the entity its entry goes by.
+ */
+function circuitRowName(entityId: string, info: MonitoringPointInfo, labels: CircuitLabels): string {
+  return labels.get(entityId) || info.name || entityId;
+}
+
 export class MonitoringTab {
   errorStore: ErrorStore | null = null;
   private readonly _pendingSaves = new Map<PausedSetting, PendingSave>();
   private _configEntryId: string | null;
+  /** The labels of the circuits of the panel the tab was last drawn for, which a redraw of its own keeps. */
+  private _circuitLabels: Promise<CircuitLabels> = NO_CIRCUIT_LABELS;
   private _notifyCloseHandler: ((e: MouseEvent) => void) | null;
   private _headerHTML: string;
   /** Moves on each stop, so what a save started before the user left the tab draws nothing after. */
@@ -631,10 +667,23 @@ export class MonitoringTab {
     this._flushPendingSaves().catch(() => undefined);
   }
 
-  async render(container: HTMLElement, hass: HomeAssistant, configEntryId?: string, headerHTML: string = ""): Promise<void> {
+  /**
+   * Read the panel's monitoring status and draw the tab in `container`.
+   *
+   * `configEntryId` names the panel; a redraw of the tab's own leaves it out
+   * and keeps the panel it had. `topology` is that panel's, which each circuit
+   * row takes its label from, so the tab names a circuit as every other view
+   * does; the tab is drawn once both it and the status are at hand. Left out,
+   * the labels the tab holds are kept for the same panel, and another panel's
+   * rows go by what the status calls them.
+   */
+  async render(container: HTMLElement, hass: HomeAssistant, configEntryId?: string, topology?: TopologySource, headerHTML: string = ""): Promise<void> {
     // Focus, and what was typed, is kept across a redraw of the same panel's settings, never carried to another's.
     const samePanel = configEntryId === undefined || configEntryId === this._configEntryId;
     if (configEntryId !== undefined) this._configEntryId = configEntryId;
+    if (topology !== undefined) this._circuitLabels = circuitLabelsOf(topology);
+    else if (!samePanel) this._circuitLabels = NO_CIRCUIT_LABELS;
+    const labelsRead = this._circuitLabels;
     this._headerHTML = headerHTML;
     if (this._notifyCloseHandler) {
       document.removeEventListener("click", this._notifyCloseHandler as EventListener);
@@ -662,6 +711,7 @@ export class MonitoringTab {
       console.warn("SPAN Panel: monitoring status fetch failed", err);
       status = null;
     }
+    const labels = await labelsRead;
     if (epoch !== this._epoch || seq !== this._renderSeq) return;
     // A press under way lands on the control pressed before that control is drawn again.
     await PressWatch.of(container).settled();
@@ -694,7 +744,10 @@ export class MonitoringTab {
     const messageTemplate = globalSettings.notification_message_template ?? "{name} at {current_a}A ({utilization_pct}% of {breaker_rating_a}A rating)";
     const currentPriority = globalSettings.notification_priority ?? "default";
 
-    const circuitEntries = Object.entries(circuits).sort(([, a], [, b]) => (a.name ?? "").localeCompare(b.name ?? ""));
+    // Each circuit's row by the name it shows, which the rows are ordered by.
+    const circuitNames = new Map(Object.entries(circuits).map(([entityId, info]) => [entityId, circuitRowName(entityId, info, labels)]));
+    const circuitName = (entityId: string): string => circuitNames.get(entityId) ?? entityId;
+    const circuitEntries = Object.entries(circuits).sort(([a], [b]) => circuitName(a).localeCompare(circuitName(b)));
     const mainsEntries = Object.entries(mains);
     const allPoints: [string, MonitoringPointInfo][] = [...circuitEntries, ...mainsEntries];
     const allEnabled = allPoints.length > 0 && allPoints.every(([, c]) => isMonitored(c));
@@ -713,7 +766,7 @@ export class MonitoringTab {
     const names = new Map<string, string>();
     const circuitRows = circuitEntries
       .map(([entityId, info]) => {
-        const written = info.name ?? entityId;
+        const written = circuitName(entityId);
         const name = escapeHtml(written);
         const enabled = isMonitored(info);
         const hasOverride = info.has_override === true;

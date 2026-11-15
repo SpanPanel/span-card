@@ -1357,10 +1357,13 @@ export class SpanPanelElement extends LitElement {
         const monDevice = this._panels.find(p => p.id === this._selectedPanelId);
         const monEntryId = monDevice?.config_entry_id ?? null;
         // Monitoring is a pure configuration view — no panel-stats header. It
-        // renders no topology, but one is fetched beside it as the baseline an
-        // entry reload compares against, so a reload that changed nothing
-        // keeps a threshold the user has not saved yet.
-        const [, baseline] = await Promise.all([this._monitoringTab.render(container, this.hass, monEntryId ?? undefined), this._fetchBaselineTopology()]);
+        // renders no topology, but one is fetched beside it. Its circuits'
+        // labels are the rows', as every other view names a circuit; and it
+        // is the baseline an entry reload or a device rename compares
+        // against, so one that changed nothing keeps a threshold the user
+        // has not saved yet, and a rename draws the rows by their new labels.
+        const fetched = this._fetchBaselineTopology();
+        const [, baseline] = await Promise.all([this._monitoringTab.render(container, this.hass, monEntryId ?? undefined, fetched), fetched]);
         if (!superseded()) this._recordRenderedTopology(baseline);
         break;
       }
@@ -1447,7 +1450,12 @@ export class SpanPanelElement extends LitElement {
 
     if (this._activeTab === "monitoring") {
       this._listCtrl.setViewName(null);
-      await this._renderFavoritesMonitoring(container, build.entryIds, realPanels, shownStack);
+      // Each contributing panel's topology by its config entry, which its table's rows take their labels from.
+      const topologies = new Map<string, PanelTopology>();
+      for (const info of perPanelInfoMap.values()) {
+        if (info.configEntryId) topologies.set(info.configEntryId, info.topology);
+      }
+      await this._renderFavoritesMonitoring(container, build.entryIds, realPanels, shownStack, topologies);
       return;
     }
 
@@ -1505,13 +1513,15 @@ export class SpanPanelElement extends LitElement {
    * view keeps its block, and its tab draws over its table in place, keeping
    * focus and what is typed across it, as a panel's own Monitoring tab does. A
    * panel that left the view goes with its tab; one that joined it is added in
-   * its place.
+   * its place. `topologies` holds each panel's topology by its config entry,
+   * which its table's rows take their labels from.
    */
   private async _renderFavoritesMonitoring(
     container: HTMLElement,
     entryIds: string[],
     realPanels: PanelDevice[],
-    shown: FavoritesMonitoringStack | null
+    shown: FavoritesMonitoringStack | null,
+    topologies: ReadonlyMap<string, PanelTopology>
   ): Promise<void> {
     const hass = this.hass;
     if (!hass) return;
@@ -1552,7 +1562,7 @@ export class SpanPanelElement extends LitElement {
       const at = stack.wrapper.children.item(index);
       if (at !== block.block) stack.wrapper.insertBefore(block.block, at);
       try {
-        await block.tab.render(block.body, hass, entryId);
+        await block.tab.render(block.body, hass, entryId, topologies.get(entryId) ?? null);
       } catch (err) {
         console.warn("SPAN Panel: favorites monitoring render failed", entryId, err);
         const errEl = document.createElement("p");
