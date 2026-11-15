@@ -1,0 +1,72 @@
+import { INTEGRATION_DOMAIN } from "../constants.js";
+
+// ── Home Assistant registry entries ──────────────────────────────────────────
+//
+// The fields the card reads, of the entries `config/device_registry/list` and
+// `config/entity_registry/list` answer with. The card asks for those lists
+// itself, so it holds each entry as Home Assistant sent it, not as the
+// frontend keeps it in `hass.devices` and `hass.entities`.
+
+/**
+ * A device in the device registry list.
+ *
+ * A child device, as each circuit's is of its panel, names its parent in
+ * `parent_device_id` and carries no `via_device_id`, `model` or `sw_version`
+ * key at all; any other device sends `parent_device_id: null`. The frontend
+ * fills a child's missing keys in for `hass.devices`, and the list does not.
+ */
+export interface DeviceRegistryEntry {
+  id: string;
+  name?: string | null;
+  name_by_user?: string | null;
+  /** The one config entry that owns the device (Home Assistant 2026.8+). */
+  config_entry_id?: string;
+  identifiers?: [string, string][];
+  via_device_id?: string | null;
+  parent_device_id?: string | null;
+  area_id?: string | null;
+  model?: string;
+  sw_version?: string;
+}
+
+/**
+ * An entity in the entity registry list, which holds disabled entities too.
+ * `name` is the user's own; `original_name` is the integration's, without its
+ * device's name in front where Home Assistant keeps that form.
+ */
+export interface EntityRegistryEntry {
+  entity_id: string;
+  device_id?: string | null;
+  unique_id: string;
+  platform?: string;
+  area_id?: string | null;
+  name?: string | null;
+  original_name?: string | null;
+}
+
+/**
+ * An entity as the frontend keeps it in `hass.entities`: the registry's display
+ * list, which leaves out disabled entities and every entity's unique id. `name`
+ * is the entity's own name, the user's before the integration's, and is absent
+ * where it has none.
+ */
+export interface EntityDisplayEntry {
+  entity_id: string;
+  device_id?: string;
+  area_id?: string;
+  name?: string;
+}
+
+/**
+ * Whether a device is a SPAN panel: one of the integration's devices that is
+ * neither reached through another, as a battery or a charger is through its
+ * panel, nor a child of another, as a circuit is of its panel.
+ */
+export function isPanelDevice(d: DeviceRegistryEntry): boolean {
+  return (d.identifiers ?? []).some(pair => pair[0] === INTEGRATION_DOMAIN) && !d.via_device_id && !d.parent_device_id;
+}
+
+/** A device's name as Home Assistant shows it: the user's where they gave one, else the integration's; "" for neither. */
+export function deviceName(d: DeviceRegistryEntry): string {
+  return (d.name_by_user || d.name || "").trim();
+}

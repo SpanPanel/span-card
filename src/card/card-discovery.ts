@@ -3,27 +3,8 @@ import { resolveAndAssignAreas } from "../core/area-resolver.js";
 import { RetryManager } from "../core/retry-manager.js";
 import { isPositiveInteger, measuresOutsidePanel, positionRange } from "../helpers/layout.js";
 import { t } from "../i18n.js";
+import type { DeviceRegistryEntry, EntityRegistryEntry } from "../core/registry-types.js";
 import type { HomeAssistant, PanelTopology, PanelDevice, DiscoveryResult, Circuit, CircuitEntities } from "../types.js";
-
-// ── HA registry response shapes (internal) ─────────────────────────────────
-
-interface DeviceRegistryEntry {
-  id: string;
-  name?: string;
-  name_by_user?: string;
-  config_entry_id?: string;
-  identifiers?: [string, string][];
-  via_device_id?: string | null;
-  sw_version?: string;
-  model?: string;
-}
-
-interface EntityRegistryEntry {
-  entity_id: string;
-  device_id?: string;
-  unique_id: string;
-  platform?: string;
-}
 
 // ── Primary discovery via custom WebSocket API ───────────────────────────────
 
@@ -49,7 +30,7 @@ export async function discoverTopology(hass: HomeAssistant, deviceId: string | u
   // differ when the card was configured before Home Assistant 2026.8, whose split
   // of shared devices left the old id naming no device in this list.
   const panelDeviceId = topology.panel_device_id ?? deviceId;
-  const panelDevice = deviceToPanelDevice(devices.find(d => d.id === panelDeviceId));
+  const panelDevice = devices.find(d => d.id === panelDeviceId) ?? null;
 
   await resolveAndAssignAreas(hass, topology);
 
@@ -81,22 +62,6 @@ export function panelConfigEntryId(topology: PanelTopology | null, panelDevice: 
   return topology?.config_entry_id ?? panelDevice?.config_entry_id ?? null;
 }
 
-// ── Map device registry entry to PanelDevice ─────────────────────────────────
-
-function deviceToPanelDevice(entry: DeviceRegistryEntry | undefined): PanelDevice | null {
-  if (!entry) return null;
-  return {
-    id: entry.id,
-    name: entry.name,
-    name_by_user: entry.name_by_user,
-    config_entry_id: entry.config_entry_id,
-    identifiers: entry.identifiers,
-    via_device_id: entry.via_device_id,
-    sw_version: entry.sw_version,
-    model: entry.model,
-  };
-}
-
 // ── Fallback discovery from entity registry ──────────────────────────────────
 
 const POWER_SUFFIX = "_power";
@@ -123,13 +88,13 @@ export async function discoverEntitiesFallback(hass: HomeAssistant, deviceId: st
     retry ? retry.callWS<EntityRegistryEntry[]>(hass, entitiesMsg, { errorId: "fetch:topology" }) : hass.callWS<EntityRegistryEntry[]>(entitiesMsg),
   ]);
 
-  const panelDevice = deviceToPanelDevice(devices.find(d => d.id === deviceId));
+  const panelDevice = devices.find(d => d.id === deviceId);
   if (!panelDevice) return { topology: null, panelDevice: null, panelSize: 0 };
 
   const allEntities = entities.filter(e => e.device_id === deviceId);
   const subDevices = devices.filter(d => d.via_device_id === deviceId);
   const subDeviceIds = new Set(subDevices.map(d => d.id));
-  const subEntities = entities.filter(e => e.device_id !== undefined && subDeviceIds.has(e.device_id));
+  const subEntities = entities.filter(e => typeof e.device_id === "string" && subDeviceIds.has(e.device_id));
 
   let serial = "";
   if (panelDevice.identifiers) {

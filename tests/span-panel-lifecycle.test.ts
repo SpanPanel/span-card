@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { Storage } from "happy-dom";
+import type { DeviceRegistryEntry } from "../src/core/registry-types.js";
 import type { HomeAssistant, PanelDevice, PanelTopology } from "../src/types.js";
 
 vi.mock("../src/card/card-discovery.js", async importOriginal => ({
@@ -30,11 +31,28 @@ function device(n: number): PanelDevice {
   return { id: `panel-${n}`, name: `Panel ${n}`, config_entry_id: `entry-${n}`, identifiers: [["span_panel", `sp3-test-00${n}`]], via_device_id: null };
 }
 
+/**
+ * A circuit's device as the raw device list sends it: a child of panel `n`, with
+ * a `parent_device_id` and no `via_device_id` key.
+ */
+function circuitDevice(n: number, circuitId: string): DeviceRegistryEntry {
+  return {
+    id: `circuit-device-${n}-${circuitId}`,
+    name: `Circuit ${circuitId}`,
+    name_by_user: null,
+    config_entry_id: `entry-${n}`,
+    identifiers: [["span_panel", `sp3-test-00${n}_circuit_${circuitId}`]],
+    parent_device_id: `panel-${n}`,
+    area_id: null,
+  };
+}
+
 function statusOf(deviceId: string): string {
   return `binary_sensor.${deviceId.replace("-", "_")}_status`;
 }
 
-let devices: PanelDevice[] = [];
+/** What the device registry list answers: panels, and whatever else a test puts beside them. */
+let devices: DeviceRegistryEntry[] = [];
 let favorites: Record<string, { circuits: string[]; sub_devices: string[] }> = {};
 let deviceListCalls = 0;
 /** What `get_monitoring_status` answers; null answers nothing. */
@@ -174,6 +192,50 @@ describe("span-panel subscriptions", () => {
     connection.emit(ENTRY_RELOADS, [{ type: "updated", entry: { entry_id: "entry-2", domain: "span_panel", state: "loaded" } }]);
 
     await vi.waitFor(() => expect(deviceListCalls).toBe(before + 1));
+  });
+
+  /** The panel dropdown's choices, by device id. */
+  function listedPanels(panel: Panel): string[] {
+    const select = panel.shadowRoot?.querySelector<HTMLSelectElement>("#panel-select");
+    if (!select) throw new Error("no panel dropdown");
+    return Array.from(select.options).map(option => option.value);
+  }
+
+  it("the sidebar never selects a circuit device as the default panel", async () => {
+    // The circuit devices sort ahead of their panel, where the default is taken from.
+    devices = [circuitDevice(1, "a"), circuitDevice(1, "b"), device(1)];
+
+    const panel = await mount(new FakeConnection(), () => expect(watch).toHaveBeenCalledWith(statusOf("panel-1")));
+
+    expect(mockDiscover.mock.calls.map(call => call[1])).toEqual(["panel-1"]);
+    expect(listedPanels(panel)).toEqual(["panel-1"]);
+  });
+
+  it("keeps a circuit device out of the panel list when the device registry changes", async () => {
+    const connection = new FakeConnection();
+    const panel = await mount(connection, () => expect(watch).toHaveBeenCalledWith(statusOf("panel-1")));
+    const before = deviceListCalls;
+
+    // The integration's conversion adds the circuit devices; a second panel shows the list was re-read.
+    devices = [circuitDevice(1, "a"), device(1), circuitDevice(2, "a"), device(2)];
+    connection.emit("device_registry_updated", {});
+    await vi.waitFor(() => expect(deviceListCalls).toBe(before + 1));
+    await vi.waitFor(() => expect(listedPanels(panel)).toHaveLength(2));
+
+    expect(listedPanels(panel)).toEqual(["panel-1", "panel-2"]);
+  });
+
+  it("falls to another panel, never a circuit device, when the selected panel is removed", async () => {
+    devices = [device(1), device(2)];
+    const connection = new FakeConnection();
+    const panel = await mount(connection, () => expect(watch).toHaveBeenCalledWith(statusOf("panel-1")));
+
+    devices = [circuitDevice(2, "a"), device(2)];
+    connection.emit("device_registry_updated", {});
+
+    await vi.waitFor(() => expect(watch).toHaveBeenCalledWith(statusOf("panel-2")));
+    expect(listedPanels(panel)).toEqual(["panel-2"]);
+    expect(localStorage.getItem("span_panel_selected")).toBe("panel-2");
   });
 
   it("keeps exactly one area subscription across a fast detach and re-attach on the area tab (re-review S1)", async () => {

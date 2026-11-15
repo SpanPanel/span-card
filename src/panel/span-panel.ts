@@ -17,6 +17,7 @@ import { DashboardController } from "../core/dashboard-controller.js";
 import { buildTabBarHTML } from "../core/tab-bar-renderer.js";
 import { subscribeAreaUpdates } from "../core/area-resolver.js";
 import { subscribeEntryReloads } from "../core/entry-reload.js";
+import { isPanelDevice, type DeviceRegistryEntry } from "../core/registry-types.js";
 import { mergeCircuitIds, subscribePackageRatingChanges } from "../core/rating-events.js";
 import { sameTopologyStructure } from "../core/topology-structure.js";
 import { discoverTopology } from "../card/card-discovery.js";
@@ -888,10 +889,10 @@ export class SpanPanelElement extends LitElement {
   private async _refreshPanels(): Promise<void> {
     if (!this.hass || !this._discovered) return;
 
-    const devices = await this.hass.callWS<PanelDevice[]>({
+    const devices = await this.hass.callWS<DeviceRegistryEntry[]>({
       type: "config/device_registry/list",
     });
-    const realPanels = devices.filter((d: PanelDevice) => d.identifiers?.some(id => id[0] === INTEGRATION_DOMAIN) && !d.via_device_id);
+    const realPanels: PanelDevice[] = devices.filter(isPanelDevice);
 
     const prevPanels = this._panels.filter(p => p.id !== FAVORITES_PANEL_ID);
     const prevById = new Map(prevPanels.map(p => [p.id, p]));
@@ -953,14 +954,14 @@ export class SpanPanelElement extends LitElement {
       let realPanels: PanelDevice[];
       try {
         const retry = new RetryManager(this._errorStore);
-        const devices = await retry.callWS<PanelDevice[]>(
+        const devices = await retry.callWS<DeviceRegistryEntry[]>(
           this.hass,
           { type: "config/device_registry/list" },
           {
             errorId: "fetch:topology",
           }
         );
-        realPanels = devices.filter((d: PanelDevice) => d.identifiers?.some(id => id[0] === INTEGRATION_DOMAIN) && !d.via_device_id);
+        realPanels = devices.filter(isPanelDevice);
       } catch (err) {
         console.error("SPAN Panel: device discovery failed", err);
         this._errorStore.add({

@@ -48,6 +48,7 @@ src/
     monitoring-status.ts    # Monitoring status cache + utilization helpers
     graph-settings.ts       # Graph horizon settings cache + effective horizon lookup
     side-panel.ts           # Sliding configuration panel (custom element)
+    registry-types.ts       # Device and entity registry entries, and the panel filter
 
   panel/
     index.ts                # Integration panel entry point
@@ -114,9 +115,10 @@ Home Assistant
 
 ### Key Types
 
-All shared types live in `src/types.ts`:
+Shared types live in `src/types.ts`:
 
 - `HomeAssistant` — subset of the HA frontend type used by this project
+- `PanelDevice` — a SPAN panel's device registry entry
 - `PanelTopology` — circuits, sub-devices, panel entities
 - `Circuit` — name, tabs, entities, breaker rating, shedding info
 - `CardConfig` — user-facing card configuration
@@ -124,6 +126,12 @@ All shared types live in `src/types.ts`:
 - `ChartMetricDef` — defines how a metric is formatted and displayed
 - `GraphSettings` — per-circuit and global graph horizon overrides
 - `MonitoringStatus` — utilization, alerts, thresholds
+
+The Home Assistant registry entries live in `src/core/registry-types.ts`:
+
+- `DeviceRegistryEntry`, `EntityRegistryEntry` — the fields the card reads of the device and entity registry lists
+- `isPanelDevice()` — tells a panel from the integration's other devices: its batteries and chargers, and the child device of each circuit
+- `deviceName()` — a device's name as Home Assistant shows it
 
 ## TypeScript
 

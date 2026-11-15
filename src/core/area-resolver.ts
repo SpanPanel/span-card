@@ -1,21 +1,11 @@
 import type { HomeAssistant, PanelTopology } from "../types.js";
 import type { ErrorStore } from "./error-store.js";
+import type { DeviceRegistryEntry, EntityRegistryEntry } from "./registry-types.js";
 import { t } from "../i18n.js";
 
 interface AreaRegistryEntry {
   area_id: string;
   name: string;
-}
-
-interface EntityRegistryEntry {
-  entity_id: string;
-  area_id?: string;
-  device_id?: string;
-}
-
-interface DeviceRegistryEntry {
-  id: string;
-  area_id?: string;
 }
 
 /**
@@ -47,10 +37,12 @@ export async function resolveAndAssignAreas(hass: HomeAssistant, topology: Panel
     }
   }
 
-  // device id → area_id
-  const deviceArea = new Map<string, string | undefined>();
+  // device id → area_id (only devices with an area)
+  const deviceArea = new Map<string, string>();
   for (const dev of devices) {
-    deviceArea.set(dev.id, dev.area_id);
+    if (dev.area_id) {
+      deviceArea.set(dev.id, dev.area_id);
+    }
   }
 
   // Resolve fallback: the panel device's own area
