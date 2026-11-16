@@ -758,13 +758,34 @@ describe("a warning a redraw brings", () => {
   /** The live region the tab says a new warning through. */
   const announcerOf = (container: HTMLElement): HTMLElement | null => container.querySelector<HTMLElement>(".rating-announcer");
 
-  /** Every text said through `region` from now on: each one set in it, a cleared region saying nothing. */
+  /** The `textContent` accessor `node` inherits: the nearest on its prototype chain, which must both read and write. */
+  function inheritedTextContent(node: Node): { get: (this: Node) => string | null; set: (this: Node, text: string | null) => void } {
+    for (let proto: object | null = Object.getPrototypeOf(node); proto !== null; proto = Object.getPrototypeOf(proto)) {
+      const descriptor = Object.getOwnPropertyDescriptor(proto, "textContent");
+      if (!descriptor) continue;
+      if (!descriptor.get || !descriptor.set) throw new Error("textContent is not an accessor that reads and writes");
+      return { get: descriptor.get, set: descriptor.set };
+    }
+    throw new Error("no textContent accessor to hook");
+  }
+
+  /**
+   * Every text said through `region` from now on: each one set in it, a cleared region saying nothing. Each is taken as
+   * the tab sets the region's `textContent`, the one way it writes there, and not from a MutationObserver: happy-dom
+   * holds an observer's callback only weakly, so a garbage collection before the write would leave it unheard.
+   */
   function sayings(region: HTMLElement): string[] {
     const said: string[] = [];
-    new MutationObserver(() => {
-      const text = textOf(region);
-      if (text) said.push(text);
-    }).observe(region, { childList: true, characterData: true, subtree: true });
+    const { get, set } = inheritedTextContent(region);
+    Object.defineProperty(region, "textContent", {
+      configurable: true,
+      get: () => get.call(region),
+      set: (text: string | null) => {
+        set.call(region, text);
+        const shown = textOf(region);
+        if (shown) said.push(shown);
+      },
+    });
     return said;
   }
 
