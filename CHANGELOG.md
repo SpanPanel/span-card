@@ -1,5 +1,8 @@
 # Changelog
 
+**This card is no longer distributed through HACS:** SPAN Panel 2.0.5 and later ships it, 0.8.8 is the last release HACS can install, and
+[Installation](README.md#installation) says how to remove a HACS copy.
+
 ## 0.11.0
 
 ### Added
