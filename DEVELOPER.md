@@ -228,8 +228,8 @@ Run manually: `node scripts/validate-i18n.mjs`
 
 ## Distribution
 
-The SPAN Panel integration serves the card automatically from its static path. No HACS or manual installation is required. The integration registers both
-`dist/span-panel-card.js` and `dist/span-panel.js` as Lovelace resources.
+The SPAN Panel integration bundles both files and serves them from its own static path, so no HACS or manual installation is needed. It registers
+`dist/span-panel.js` as its sidebar panel and loads `dist/span-panel-card.js` on every dashboard as an extra frontend module.
 
 To update the distributed files after changes:
 

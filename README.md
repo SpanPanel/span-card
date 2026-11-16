@@ -23,18 +23,18 @@ positions.
 
 ## Installation
 
-As of SPAN Panel integration **v2.0.5**, this card is automatically registered as a Lovelace resource by the integration itself — no separate installation is
-required. The integration serves the card JS from its own static path and writes the resource entry on setup.
+The SPAN Panel integration ships this card and loads it on every dashboard itself, so there is nothing to install and no entry to add under **Settings >
+Dashboards > Resources**. Add it to a dashboard from the card picker as **SPAN Panel**.
 
-> **Migrating from HACS or manual install?** If you previously installed this card via HACS or manually copied `span-panel-card.js` to your `www/` directory,
-> you should:
+> **Migrating from HACS or a manual install?** If you installed this card through HACS or copied `span-panel-card.js` into your `www/` directory:
 >
-> 1. Remove the HACS-managed dashboard resource (HACS > Dashboard > SPAN Panel Card > Remove) — or delete the manual `/local/span-panel-card.js` resource from
->    **Settings > Dashboards > Resources**
-> 2. Remove `span-panel-card.js` from your `config/www/` directory if present
-> 3. Restart Home Assistant
+> 1. Remove SPAN Panel Card from HACS, if it is installed there.
+> 2. Under **Settings > Dashboards > Resources**, delete any resource still pointing at the old copy, such as `/hacsfiles/span-card/span-panel-card.js` or
+>    `/local/span-panel-card.js`.
+> 3. Delete `config/www/community/span-card/` or `config/www/span-panel-card.js`, whichever is present.
+> 4. Restart Home Assistant and hard-refresh the browser.
 >
-> The integration will register its own copy of the card automatically on next startup.
+> An old copy left in place is downloaded on every dashboard alongside the integration's and logs an error in the browser console.
 
 ## Configuration
 
