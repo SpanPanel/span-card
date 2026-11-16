@@ -1,9 +1,10 @@
 import { escapeHtml } from "../helpers/sanitize.js";
 import { formatCircuitCurrentHTML, formatCircuitPowerHTML } from "../helpers/format.js";
 import { t } from "../i18n.js";
-import { tabToRow, tabToCol, classifyDualTab } from "../helpers/layout.js";
+import { tabToRow, tabToCol, classifyDualTab, measuresOutsidePanel, type PositionRange } from "../helpers/layout.js";
 import { getChartMetric } from "../helpers/chart.js";
-import { getCircuitMonitoringInfo } from "./monitoring-status.js";
+import { meterSlots, slotRatingLabel } from "../helpers/shared-meters.js";
+import { circuitMonitoringInfo, utilizationClass } from "./monitoring-status.js";
 import {
   circuitCurrentA,
   circuitPowerW,
@@ -22,15 +23,17 @@ type SlotLayout = "single" | "row-span" | "col-span";
 interface TabMapEntry {
   uuid: string;
   circuit: Circuit;
+  members: readonly Circuit[];
   layout: SlotLayout;
 }
 
 /**
- * Build the full grid HTML for the panel breaker grid.
+ * Build the full grid HTML for the panel breaker grid: one row per two positions
+ * across `positions`, labelled with the positions' own numbers.
  */
 export function buildGridHTML(
   topology: PanelTopology,
-  totalRows: number,
+  positions: PositionRange,
   hass: HomeAssistant,
   config: CardConfig,
   monitoringStatus: MonitoringStatus | null
@@ -38,12 +41,15 @@ export function buildGridHTML(
   const tabMap = new Map<number, TabMapEntry>();
   const occupiedTabs = new Set<number>();
 
-  for (const [uuid, circuit] of Object.entries(topology.circuits)) {
+  // Circuits that share a meter share a space, and are drawn there as one slot.
+  for (const { uuid, circuit, members } of meterSlots(topology)) {
+    // A meter outside the panel is drawn in the Meters strip, never in a breaker space.
+    if (measuresOutsidePanel(circuit)) continue;
     const tabs = circuit.tabs;
     if (!tabs || tabs.length === 0) continue;
     const primaryTab = Math.min(...tabs);
     const layout: SlotLayout = tabs.length === 1 ? "single" : (classifyDualTab(tabs) ?? "single");
-    tabMap.set(primaryTab, { uuid, circuit, layout });
+    tabMap.set(primaryTab, { uuid, circuit, members, layout });
     for (const tab of tabs) occupiedTabs.add(tab);
   }
 
@@ -65,53 +71,95 @@ export function buildGridHTML(
     monInfo: MonitoringPointInfo | null;
     sheddingPriority: string;
   } {
-    const circuitEntityId = entry.circuit.entities?.current ?? entry.circuit.entities?.power;
-    const monInfo = monitoringStatus ? getCircuitMonitoringInfo(monitoringStatus, circuitEntityId ?? "") : null;
+    const monInfo = circuitMonitoringInfo(monitoringStatus, entry.circuit);
     const sheddingPriority = shedPriorityKey(entry.circuit, hass);
     return { monInfo, sheddingPriority };
   }
 
+  // A row the range starts or ends inside draws only its in-range side.
+  const inRange = (tab: number): boolean => tab >= positions.first && tab <= positions.last;
+  const firstRow = tabToRow(positions.first);
+  const lastRow = tabToRow(positions.last);
+
   let gridHTML = "";
-  for (let row = 1; row <= totalRows; row++) {
+  for (let row = firstRow; row <= lastRow; row++) {
+    const gridRow = row - firstRow + 1;
     const leftTab = row * 2 - 1;
     const rightTab = row * 2;
     const leftEntry = tabMap.get(leftTab);
     const rightEntry = tabMap.get(rightTab);
+    const leftLabel = inRange(leftTab) ? `<div class="tab-label tab-left" style="grid-row: ${gridRow}; grid-column: 1;">${leftTab}</div>` : "";
+    const rightLabel = inRange(rightTab) ? `<div class="tab-label tab-right" style="grid-row: ${gridRow}; grid-column: 5;">${rightTab}</div>` : "";
 
-    gridHTML += `<div class="tab-label tab-left" style="grid-row: ${row}; grid-column: 1;">${leftTab}</div>`;
+    gridHTML += leftLabel;
 
     if (leftEntry && leftEntry.layout === "row-span") {
       const { monInfo, sheddingPriority } = lookupMonitoring(leftEntry);
-      gridHTML += renderCircuitSlot(leftEntry.uuid, leftEntry.circuit, row, "2 / 5", "row-span", hass, config, monInfo, sheddingPriority);
-      gridHTML += `<div class="tab-label tab-right" style="grid-row: ${row}; grid-column: 5;">${rightTab}</div>`;
+      gridHTML += renderCircuitSlot(
+        leftEntry.uuid,
+        leftEntry.circuit,
+        gridRow,
+        "2 / 5",
+        "row-span",
+        hass,
+        config,
+        monInfo,
+        sheddingPriority,
+        leftEntry.members
+      );
+      gridHTML += rightLabel;
       continue;
     }
 
     if (!rowsToSkipLeft.has(row)) {
       if (leftEntry && (leftEntry.layout === "col-span" || leftEntry.layout === "single")) {
         const { monInfo, sheddingPriority } = lookupMonitoring(leftEntry);
-        gridHTML += renderCircuitSlot(leftEntry.uuid, leftEntry.circuit, row, "2", leftEntry.layout, hass, config, monInfo, sheddingPriority);
-      } else if (!occupiedTabs.has(leftTab)) {
-        gridHTML += renderEmptySlot(row, "2");
+        gridHTML += renderCircuitSlot(
+          leftEntry.uuid,
+          leftEntry.circuit,
+          gridRow,
+          "2",
+          leftEntry.layout,
+          hass,
+          config,
+          monInfo,
+          sheddingPriority,
+          leftEntry.members
+        );
+      } else if (!occupiedTabs.has(leftTab) && inRange(leftTab)) {
+        gridHTML += renderEmptySlot(gridRow, "2");
       }
     }
 
     if (!rowsToSkipRight.has(row)) {
       if (rightEntry && (rightEntry.layout === "col-span" || rightEntry.layout === "single")) {
         const { monInfo, sheddingPriority } = lookupMonitoring(rightEntry);
-        gridHTML += renderCircuitSlot(rightEntry.uuid, rightEntry.circuit, row, "4", rightEntry.layout, hass, config, monInfo, sheddingPriority);
-      } else if (!occupiedTabs.has(rightTab)) {
-        gridHTML += renderEmptySlot(row, "4");
+        gridHTML += renderCircuitSlot(
+          rightEntry.uuid,
+          rightEntry.circuit,
+          gridRow,
+          "4",
+          rightEntry.layout,
+          hass,
+          config,
+          monInfo,
+          sheddingPriority,
+          rightEntry.members
+        );
+      } else if (!occupiedTabs.has(rightTab) && inRange(rightTab)) {
+        gridHTML += renderEmptySlot(gridRow, "4");
       }
     }
 
-    gridHTML += `<div class="tab-label tab-right" style="grid-row: ${row}; grid-column: 5;">${rightTab}</div>`;
+    gridHTML += rightLabel;
   }
   return gridHTML;
 }
 
 /**
- * Render a single circuit breaker slot.
+ * Render a single circuit breaker slot. With more than one member it is the slot
+ * of circuits that share a meter: `circuit` is the one it reads and switches
+ * through, and each member gives its name and rating.
  */
 export function renderCircuitSlot(
   uuid: string,
@@ -123,6 +171,7 @@ export function renderCircuitSlot(
   config: CardConfig,
   monitoringInfo: MonitoringPointInfo | null,
   sheddingPriority: string,
+  members: readonly Circuit[] = [circuit],
   inline = false
 ): string {
   const powerW = circuitPowerW(circuit, hass);
@@ -131,9 +180,9 @@ export function renderCircuitSlot(
   const isOn = relayClosed(circuit, hass);
   const presence = switchPresence(circuit, hass);
 
-  const breakerAmps = circuit.breaker_rating_a;
-  const breakerLabel = breakerAmps ? `${Math.round(breakerAmps)}A` : "";
-  const name = escapeHtml(circuit.name || t("grid.unknown"));
+  const shared = members.length > 1;
+  const breakerLabel = slotRatingLabel(members);
+  const name = escapeHtml(members.map(member => member.name || t("grid.unknown")).join(" · "));
 
   const showCurrent = getChartMetric(config).entityRole === "current";
   const valueHTML = showCurrent ? formatCircuitCurrentHTML(circuitCurrentA(circuit, hass)) : formatCircuitPowerHTML(powerW);
@@ -151,8 +200,7 @@ export function renderCircuitSlot(
   let utilizationHTML = "";
   const utilizationPct = circuitUtilizationPct(circuit, hass, monitoringInfo);
   if (utilizationPct !== null) {
-    const utilClass = utilizationPct >= 100 ? "utilization-alert" : utilizationPct >= 80 ? "utilization-warning" : "utilization-normal";
-    utilizationHTML = `<span class="utilization ${utilClass}">${Math.round(utilizationPct)}%</span>`;
+    utilizationHTML = `<span class="utilization ${utilizationClass(utilizationPct, monitoringInfo)}">${Math.round(utilizationPct)}%</span>`;
   }
 
   const stateClasses = getCircuitStateClasses(circuit, monitoringInfo, isOn, isProducer);
@@ -175,7 +223,7 @@ export function renderCircuitSlot(
           <span class="power-value">
             ${valueHTML}
           </span>
-          ${buildTogglePillHTML(isOn, presence)}
+          ${buildTogglePillHTML(isOn, presence, shared && sharesRelay(members))}
         </div>
       </div>
       <div class="circuit-status">
@@ -185,6 +233,12 @@ export function renderCircuitSlot(
       <div class="chart-container"></div>
     </div>
   `;
+}
+
+/** Whether every member switches with the same relay, so one toggle switches them all. */
+function sharesRelay(members: readonly Circuit[]): boolean {
+  const relay = members[0]?.shared_relay_group;
+  return !!relay && members.every(member => member.shared_relay_group === relay);
 }
 
 /**

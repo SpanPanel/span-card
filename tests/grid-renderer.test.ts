@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { buildGridHTML, renderCircuitSlot } from "../src/core/grid-renderer.js";
-import type { Circuit, HomeAssistant, CardConfig, MonitoringPointInfo, PanelTopology } from "../src/types.js";
+import { updateCircuitDOM } from "../src/core/dom-updater.js";
+import type { Circuit, HomeAssistant, CardConfig, MonitoringPointInfo, MonitoringStatus, PanelTopology } from "../src/types.js";
 
 const hass = { states: {}, services: {}, language: "en" } as unknown as HomeAssistant;
 
@@ -66,7 +67,7 @@ function hassWith(states: Record<string, { state: string; attributes?: Record<st
 function grid(circuit: Circuit, states: Parameters<typeof hassWith>[0]): HTMLElement {
   const topology = { circuits: { kitchen: circuit } } as unknown as PanelTopology;
   const div = document.createElement("div");
-  div.innerHTML = buildGridHTML(topology, 1, hassWith(states), config, null);
+  div.innerHTML = buildGridHTML(topology, { first: 1, last: 2 }, hassWith(states), config, null);
   return div;
 }
 
@@ -112,6 +113,7 @@ const MEASURED = makeCircuit({
   is_user_controllable: true,
   relay_state: "CLOSED",
   breaker_rating_a: 20,
+  monitoring_rating_a: 20,
 });
 
 function slotOf(states: Parameters<typeof hassWith>[0], cfg: CardConfig = config, monitoring: MonitoringPointInfo | null = null): HTMLElement {
@@ -170,3 +172,91 @@ describe("a slot's reading on the grid", () => {
     expect(slot.querySelector(".utilization")!.textContent).toBe("45%");
   });
 });
+
+describe("a slot's utilization colour on the grid", () => {
+  const TANDEM = { continuous_threshold_pct: 160, spike_threshold_pct: 200 };
+  const DEFAULTS = { continuous_threshold_pct: 80, spike_threshold_pct: 100 };
+  const ON = { [SWITCH]: { state: "on" } };
+
+  /** The slot's utilization class, from the monitor's figure where given, else 20 A of current over the 20 A rating. */
+  function level(amps: string, monitoring: MonitoringPointInfo | null): string | undefined {
+    const slot = slotOf({ ...ON, [CURRENT]: { state: amps } }, config, monitoring);
+    return [...slot.querySelector(".utilization")!.classList].find(name => name.startsWith("utilization-"));
+  }
+
+  it("is judged against the circuit's own thresholds", () => {
+    // 30 A on the 20 A breaker is 150 %, under the 160 % continuous threshold set for the pair it is judged as.
+    expect(level("30", { ...TANDEM, utilization_pct: 150 })).toBe("utilization-normal");
+    expect(level("34", { ...TANDEM, utilization_pct: 170 })).toBe("utilization-warning");
+    expect(level("40", { ...TANDEM, utilization_pct: 200 })).toBe("utilization-alert");
+  });
+
+  it("keeps the default thresholds' colours", () => {
+    expect(level("15", { ...DEFAULTS, utilization_pct: 75 })).toBe("utilization-normal");
+    expect(level("16", { ...DEFAULTS, utilization_pct: 80 })).toBe("utilization-warning");
+    expect(level("30", { ...DEFAULTS, utilization_pct: 150 })).toBe("utilization-alert");
+  });
+
+  it("falls back to 80 % and 100 % with no monitoring info, the utilization coming from the rating", () => {
+    expect(level("15", null)).toBe("utilization-normal");
+    expect(level("17", null)).toBe("utilization-warning");
+    expect(level("30", null)).toBe("utilization-alert");
+  });
+});
+
+describe("a slot's breaker rating on the grid", () => {
+  const states = { [SWITCH]: { state: "on" } };
+  const badge = (c: Circuit): HTMLElement => grid(c, states).querySelector<HTMLElement>(".breaker-badge")!;
+
+  it("draws the panel's rating, as before the monitoring rating existed", () => {
+    const el = badge({ ...MEASURED, breaker_rating_a: 20 });
+    expect(el.innerHTML).toBe("20A");
+    expect(el.querySelector(".rating-user-set")).toBeNull();
+  });
+
+  it("draws the panel's rating, unmarked, when the user sets a monitoring rating", () => {
+    const el = badge({ ...MEASURED, breaker_rating_a: 20, monitoring_rating_a: 50, monitoring_rating_user_set: true });
+    expect(el.innerHTML).toBe("20A");
+    expect(el.querySelector(".rating-user-set")).toBeNull();
+  });
+});
+
+describe("the monitoring rating on the grid", () => {
+  const circuit = { ...MEASURED, breaker_rating_a: 20, monitoring_rating_a: 50, monitoring_rating_user_set: true };
+  const states = { [SWITCH]: { state: "on" }, [CURRENT]: { state: "10" } };
+  /** The circuit's status entry: monitored or not, and no figure of the monitor's own. */
+  const status = (monitoring_enabled: boolean): MonitoringStatus => ({ circuits: { [CURRENT]: { monitoring_enabled, utilization_pct: null } } });
+  // Monitoring on for the circuit; off for it; disabled for the panel, which answers no status.
+  const CASES: [string, MonitoringStatus | null, number][] = [
+    ["while the circuit's monitoring is on, the monitoring rating", status(true), 50],
+    ["while the circuit's monitoring is off, the panel's rating", status(false), 20],
+    ["while monitoring is disabled, the panel's rating", null, 20],
+  ];
+
+  function rendered(monitoringStatus: MonitoringStatus | null): { root: HTMLElement; topology: PanelTopology; hass: HomeAssistant; cfg: CardConfig } {
+    const topology = { circuits: { kitchen: circuit } } as unknown as PanelTopology;
+    const hass = hassWith(states);
+    const cfg: CardConfig = { chart_metric: "current" };
+    const root = document.createElement("div");
+    root.innerHTML = buildGridHTML(topology, { first: 1, last: 2 }, hass, cfg, monitoringStatus);
+    return { root, topology, hass, cfg };
+  }
+
+  it.each(CASES)("is what utilization falls back to when the monitor has no figure: %s", (_case, monitoringStatus, rating) => {
+    const { root } = rendered(monitoringStatus);
+    expect(root.querySelector(".circuit-slot .utilization")!.textContent).toBe(`${(10 / rating) * 100}%`);
+  });
+
+  it.each(CASES)("is where the current chart draws its limit line: %s", (_case, monitoringStatus, rating) => {
+    const { root, topology, hass, cfg } = rendered(monitoringStatus);
+    updateCircuitDOM(root, hass, topology, cfg, new Map(), undefined, monitoringStatus);
+    expect(chartLimits(root)).toContain(rating);
+    expect(chartLimits(root)).not.toContain(rating === 50 ? 20 : 50);
+  });
+});
+
+/** Every value the slot's chart draws, its limit lines among them. */
+function chartLimits(root: HTMLElement): number[] {
+  const chart = root.querySelector(".chart-container span-chart") as unknown as { data: { data: [number, number][] }[] };
+  return chart.data.flatMap(series => series.data.map(point => point[1]));
+}

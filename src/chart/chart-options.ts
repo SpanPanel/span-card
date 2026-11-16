@@ -1,4 +1,4 @@
-import { CHART_METRICS, DEFAULT_CHART_METRIC, NEC_CONTINUOUS_LOAD_FACTOR, NEC_TRIP_RATING_FACTOR } from "../constants.js";
+import { CHART_METRICS, DEFAULT_CHART_METRIC, LIMIT_AXIS_HEADROOM } from "../constants.js";
 import type { HistoryPoint, ChartMetricDef } from "../types.js";
 
 type DataPair = [number, number];
@@ -54,6 +54,16 @@ interface ChartOptionsDef {
   animation: boolean;
 }
 
+/**
+ * What a current chart draws its limit lines against: the rating its point is judged against (a shared meter's
+ * capacity for its group), and the thresholds, in percent of it, that the point warns (continuous) and alerts (spike) at.
+ */
+export interface ChartLimit {
+  readonly ratingA: number;
+  readonly continuousPct: number;
+  readonly spikePct: number;
+}
+
 export interface BuildChartResult {
   options: ChartOptionsDef;
   series: SeriesDef[];
@@ -74,7 +84,7 @@ export function buildChartOptions(
   durationMs: number,
   metric: ChartMetricDef | undefined,
   isProducer: boolean,
-  breakerRatingA: number | undefined,
+  limit: ChartLimit | undefined,
   useLinearInterpolation = false
 ): BuildChartResult {
   if (!metric) metric = CHART_METRICS[DEFAULT_CHART_METRIC]!;
@@ -134,15 +144,19 @@ export function buildChartOptions(
     yAxis.max = 1;
   }
 
-  if (breakerRatingA && metric.entityRole === "current") {
+  if (limit && metric.entityRole === "current") {
+    // The dashed line is where the point warns, the solid one where it alerts, each at its own threshold of the rating.
+    const continuousA = (limit.ratingA * limit.continuousPct) / 100;
+    const spikeA = (limit.ratingA * limit.spikePct) / 100;
     yAxis.min = 0;
-    yAxis.max = Math.ceil(breakerRatingA * NEC_TRIP_RATING_FACTOR);
+    // Above the highest line and the highest reading, so neither runs off the top.
+    yAxis.max = Math.ceil(Math.max(continuousA, spikeA, dataMax) * LIMIT_AXIS_HEADROOM);
 
     series.push({
       type: "line",
       data: [
-        [startTime, breakerRatingA * NEC_CONTINUOUS_LOAD_FACTOR],
-        [now, breakerRatingA * NEC_CONTINUOUS_LOAD_FACTOR],
+        [startTime, continuousA],
+        [now, continuousA],
       ],
       showSymbol: false,
       lineStyle: { width: 1, color: "rgba(255, 200, 40, 0.6)", type: "dashed" },
@@ -153,8 +167,8 @@ export function buildChartOptions(
     series.push({
       type: "line",
       data: [
-        [startTime, breakerRatingA],
-        [now, breakerRatingA],
+        [startTime, spikeA],
+        [now, spikeA],
       ],
       showSymbol: false,
       lineStyle: { width: 1.5, color: "rgba(255, 60, 60, 0.7)", type: "solid" },

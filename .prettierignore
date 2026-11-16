@@ -4,6 +4,9 @@ dist/
 # Dependencies
 node_modules/
 
+# Fixtures copied byte for byte from the integration's test fixtures
+tests/fixtures/
+
 # IDE files
 .vscode/
 .idea/

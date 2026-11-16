@@ -22,7 +22,7 @@ export class FakeConnection {
   hold = false;
   private readonly _held: Array<() => void> = [];
 
-  subscribeEvents = (callback: () => void, event: string): Promise<() => void> =>
+  subscribeEvents = (callback: Callback, event: string): Promise<() => void> =>
     this._subscribe(event, null, callback, sub => () => {
       sub.unsubscribed = true;
     });
@@ -57,6 +57,7 @@ export class FakeConnection {
 
 export const ENTRY_RELOADS = "config_entries/subscribe";
 export const ENTITY_REGISTRY = "entity_registry_updated";
+export const DEVICE_REGISTRY = "device_registry_updated";
 
 export function hassWith(connection: FakeConnection, overrides: Partial<HomeAssistant> = {}): HomeAssistant {
   return {

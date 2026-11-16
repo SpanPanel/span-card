@@ -11,7 +11,7 @@ import { discoverEntitiesFallback, discoverTopology } from "../src/card/card-dis
 import { DashboardController } from "../src/core/dashboard-controller.js";
 import { ErrorStore } from "../src/core/error-store.js";
 import "../src/card/span-panel-card.js";
-import { ENTITY_REGISTRY, ENTRY_RELOADS, FakeConnection, flush, hassWith } from "./fake-connection.js";
+import { DEVICE_REGISTRY, ENTITY_REGISTRY, ENTRY_RELOADS, FakeConnection, flush, hassWith } from "./fake-connection.js";
 
 /**
  * Lovelace detaches and re-attaches a cached card on every view switch, and the
@@ -26,12 +26,15 @@ type Card = HTMLElement & { setConfig(c: CardConfig): void; hass: HomeAssistant 
 
 const SWITCH = "switch.kitchen_breaker";
 const STATUS = "binary_sensor.span_panel_status";
+/** The kitchen circuit's own device, which its label is read from. */
+const KITCHEN_DEVICE = "device-kitchen";
 
 function topology(withSwitch: boolean): PanelTopology {
   return {
     circuits: {
       kitchen: {
         name: "Kitchen",
+        device_id: KITCHEN_DEVICE,
         tabs: [1],
         entities: withSwitch ? { power: "sensor.kitchen_power", switch: SWITCH } : { power: "sensor.kitchen_power" },
         is_user_controllable: true,
@@ -89,6 +92,17 @@ async function mount(connection: FakeConnection): Promise<Card> {
   await vi.waitFor(() => expect(connection.live(ENTRY_RELOADS)).toBe(1));
   await flush();
   return card;
+}
+
+/** A `device_registry_updated` event for an update, with the old value of each field it changed. */
+function deviceUpdate(device_id: string, changes: Record<string, unknown>): unknown {
+  return { event_type: DEVICE_REGISTRY, data: { action: "update", device_id, changes } };
+}
+
+function renamedKitchen(): PanelTopology {
+  const renamed = topology(true);
+  renamed.circuits.kitchen!.name = "Cooking";
+  return renamed;
 }
 
 function reload(connection: FakeConnection): void {
@@ -344,5 +358,87 @@ describe("span-panel-card subscriptions", () => {
     expect(mockDiscover).toHaveBeenCalledTimes(1);
     expect(mockFallback).toHaveBeenLastCalledWith(expect.anything(), "panel-1", null);
     expect(add).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * A circuit is labelled by its device, which the user renames in Home Assistant
+ * with no reload of the panel's entry. The device registry's event is the only
+ * word of it, so the card re-fetches on it.
+ */
+describe("span-panel-card device renames", () => {
+  it("relabels a showing card when a circuit's device is renamed", async () => {
+    const connection = new FakeConnection();
+    const card = await mount(connection);
+    expect(card.shadowRoot!.textContent).not.toContain("Cooking");
+    mockDiscover.mockImplementation(async () => ({ topology: renamedKitchen(), panelDevice: null, panelSize: 32 }));
+
+    connection.emit(DEVICE_REGISTRY, deviceUpdate(KITCHEN_DEVICE, { name_by_user: null }));
+
+    await vi.waitFor(() => expect(card.shadowRoot!.textContent).toContain("Cooking"));
+    expect(mockDiscover).toHaveBeenCalledTimes(2);
+    expect(mockDiscover).toHaveBeenLastCalledWith(expect.anything(), "panel-1", null);
+  });
+
+  it("relabels a non-admin's card from fallback discovery alone", async () => {
+    mockDiscover.mockRejectedValue({ code: "unauthorized", message: "Unauthorized" });
+    mockFallback.mockImplementation(async () => ({ topology: topology(true), panelDevice: null, panelSize: 32 }));
+    const connection = new FakeConnection();
+    const card = await mount(connection);
+    mockFallback.mockImplementation(async () => ({ topology: renamedKitchen(), panelDevice: null, panelSize: 32 }));
+
+    connection.emit(DEVICE_REGISTRY, deviceUpdate(KITCHEN_DEVICE, { name_by_user: null }));
+
+    await vi.waitFor(() => expect(card.shadowRoot!.textContent).toContain("Cooking"));
+    expect(mockDiscover).toHaveBeenCalledTimes(1);
+    expect(mockFallback).toHaveBeenLastCalledWith(expect.anything(), "panel-1", null);
+  });
+
+  it("does not re-fetch for a device change that is no rename of a device it shows", async () => {
+    const connection = new FakeConnection();
+    await mount(connection);
+
+    connection.emit(DEVICE_REGISTRY, deviceUpdate(KITCHEN_DEVICE, { area_id: null }));
+    connection.emit(DEVICE_REGISTRY, deviceUpdate("device-of-another-panel", { name_by_user: null }));
+    connection.emit(DEVICE_REGISTRY, { event_type: DEVICE_REGISTRY, data: { action: "create", device_id: KITCHEN_DEVICE } });
+    await flush();
+
+    expect(mockDiscover).toHaveBeenCalledTimes(1);
+  });
+
+  it("answers a burst of renames with one fetch in flight and one more after it", async () => {
+    const connection = new FakeConnection();
+    await mount(connection);
+    let resolveFirst: (value: Awaited<ReturnType<typeof discoverTopology>>) => void = () => {};
+    mockDiscover.mockImplementationOnce(() => new Promise(r => (resolveFirst = r)));
+
+    for (let i = 0; i < 3; i += 1) connection.emit(DEVICE_REGISTRY, deviceUpdate(KITCHEN_DEVICE, { name: "Kitchen" }));
+    await flush();
+    expect(mockDiscover).toHaveBeenCalledTimes(2);
+
+    resolveFirst({ topology: topology(true), panelDevice: null, panelSize: 32 });
+    await vi.waitFor(() => expect(mockDiscover).toHaveBeenCalledTimes(3));
+    await flush();
+    expect(mockDiscover).toHaveBeenCalledTimes(3);
+  });
+
+  it("listens for renames once across a detach and re-attach", async () => {
+    const connection = new FakeConnection();
+    const card = await mount(connection);
+    // Two listen to the device registry: this one, and the area subscription.
+    expect(connection.live(DEVICE_REGISTRY)).toBe(2);
+
+    card.remove();
+    await flush();
+    expect(connection.live(DEVICE_REGISTRY)).toBe(0);
+
+    document.body.appendChild(card);
+    await flush();
+    expect(connection.live(DEVICE_REGISTRY)).toBe(2);
+    mockDiscover.mockClear();
+    connection.emit(DEVICE_REGISTRY, deviceUpdate(KITCHEN_DEVICE, { name_by_user: null }));
+    await vi.waitFor(() => expect(mockDiscover).toHaveBeenCalledTimes(1));
+    await flush();
+    expect(mockDiscover).toHaveBeenCalledTimes(1);
   });
 });

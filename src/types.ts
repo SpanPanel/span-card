@@ -1,3 +1,5 @@
+import type { DeviceRegistryEntry, EntityDisplayEntry } from "./core/registry-types.js";
+
 // -- Home Assistant types (subset used by this project) --
 
 export interface HassEntity {
@@ -8,22 +10,57 @@ export interface HassEntity {
   last_updated: string;
 }
 
+/** Home Assistant's frontend translator: a key and its placeholders to text, "" where it holds no such key. */
+export type LocalizeFunc = (key: string, values?: Record<string, string | number>) => string;
+
+/**
+ * One part of a name the frontend's `formatEntityName` composes: the entity's own name, the name of its device, of
+ * that device's parent, of its area or its floor, or a literal text.
+ */
+export type EntityNameItem = { type: "entity" | "device" | "parent_device" | "area" | "floor" } | { type: "text"; text: string };
+
 export interface HomeAssistant {
   states: Record<string, HassEntity>;
+  /** The enabled entities of the entity registry, by entity id. */
+  entities?: Record<string, EntityDisplayEntry>;
+  /** The device registry, by device id, a child device's entry completed from its parent's. */
+  devices?: Record<string, DeviceRegistryEntry>;
   services: Record<string, Record<string, unknown>>;
   language: string;
   user?: { is_admin: boolean };
   callService: (domain: string, service: string, data?: Record<string, unknown>, target?: Record<string, unknown>) => Promise<void>;
   callWS: <T = unknown>(msg: Record<string, unknown>) => Promise<T>;
   formatEntityState?: (entity: HassEntity) => string;
+  /**
+   * The frontend's entity naming: the parts `items` asks for, in that order, joined by a space or `separator`.
+   * The frontend also accepts a call without items and answers it from the state's attributes; the card always
+   * names the parts it wants, so the items are required here.
+   */
+  formatEntityName?: (stateObj: HassEntity, items: EntityNameItem[], options?: { separator?: string }) => string;
+  /** The frontend's translator for the strings it has loaded; "" for a key it does not hold. */
+  localize?: LocalizeFunc;
+  /** Load a backend translation category, as the frontend does, resolving to a translator that holds it. */
+  loadBackendTranslation?: (category: string, integration?: string | string[], configFlow?: boolean) => Promise<LocalizeFunc>;
   connection?: {
-    subscribeEvents: (callback: () => void, event: string) => Promise<() => void>;
+    subscribeEvents: <T = unknown>(callback: (event: T) => void, event: string) => Promise<() => void>;
     /** home-assistant-js-websocket's: replays the subscription on reconnect, and the unsubscribe stays valid. */
     subscribeMessage: <T>(callback: (message: T) => void, subscribeMessage: Record<string, unknown>) => Promise<() => Promise<void>>;
   };
 }
 
 // -- SPAN topology types --
+
+/**
+ * The form a circuit's copy of a package from the SPAN app takes: the other breaker of a package in one space, or of
+ * one across two spaces.
+ */
+export type PackageRatingsForm = "one_space" | "two_spaces";
+
+/**
+ * What the integration does with a stored copy: judges the circuit against it, waits on a value not yet arrived, or
+ * keeps it without applying it, the panel reporting only the average of a two-space circuit's legs.
+ */
+export type PackageRatingsState = "applies" | "pending" | "averaged_legs";
 
 export interface CircuitEntities {
   power?: string;
@@ -34,10 +71,39 @@ export interface CircuitEntities {
 }
 
 export interface Circuit {
+  /**
+   * The circuit's label. The integration sends its name in the SPAN app; discovery replaces that with the name of
+   * the circuit's device where it has one, which is what Home Assistant shows and carries the user's rename.
+   */
   name: string;
   tabs: number[];
   entities: CircuitEntities;
+  /**
+   * The circuit's own device, a child of the panel's, by its registry id. Null where the circuit has none; absent
+   * from an integration that predates circuit devices, and from entity discovery where it finds none.
+   */
+  device_id?: string | null;
+  /** The panel's own breaker rating; null when it publishes none. */
   breaker_rating_a?: number | null;
+  /**
+   * What monitoring judges the circuit against: both breakers of the package copied from the SPAN app where it
+   * applies, else the panel's rating; null where nothing is judged.
+   */
+  monitoring_rating_a?: number | null;
+  /** True when `monitoring_rating_a` comes from the package the user copied. */
+  monitoring_rating_user_set?: boolean;
+  /**
+   * The package's breaker ratings the user copied from the SPAN app, in its order, the first the panel's; kept while
+   * it waits on a value not yet arrived. Null where there is none; absent from an integration that predates them.
+   */
+  package_ratings_a?: number[] | null;
+  /**
+   * Which form of copy the circuit takes, as the integration decides it; null where it takes none. Absent from an
+   * integration that predates forms.
+   */
+  package_ratings_form?: PackageRatingsForm | null;
+  /** What the integration does with the stored copy; null where none is stored. Absent from an integration that predates states. */
+  package_ratings_state?: PackageRatingsState | null;
   device_type?: string;
   relay_state?: string;
   relay_state_target?: string;
@@ -48,6 +114,20 @@ export interface Circuit {
   always_on?: boolean;
   voltage?: number;
   area?: string;
+  /**
+   * A meter outside the panel: it occupies no breaker space and has no relay. Its
+   * power is import-positive, positive while power flows into the panel.
+   */
+  outside_panel?: boolean;
+  /**
+   * Whether the circuit is a source of generation: solar, by its device or by the
+   * role the panel reports for it. Absent from a topology that predates it.
+   */
+  is_generation?: boolean;
+  /** The group of circuits that share this circuit's meter, by its key; null when it shares none. */
+  shared_meter_group?: string | null;
+  /** The group of circuits that share this circuit's relay, by its key; null when it shares none. */
+  shared_relay_group?: string | null;
 }
 
 /**
@@ -75,6 +155,8 @@ export interface SubDeviceSolar {
   feed_circuit_id: string | null;
   power_entity_id: string | null;
   site_power_entity_id: string | null;
+  /** `role` where the source is a circuit that reports a solar role, with no inverter published behind it to identify. */
+  identity?: "role";
 }
 
 export interface SubDevice {
@@ -102,6 +184,12 @@ export interface PanelTopology {
   serial?: string;
   firmware?: string;
   panel_size?: number;
+  /**
+   * The panel's first and last breaker positions, which need not start at 1. Null
+   * where the panel reports none; absent from an integration that predates them.
+   */
+  first_position?: number | null;
+  last_position?: number | null;
   /** The device id the request carried, echoed as sent. */
   device_id?: string;
   /**
@@ -111,19 +199,33 @@ export interface PanelTopology {
   panel_device_id?: string;
   /** The config entry that owns the panel. */
   config_entry_id?: string;
+  /**
+   * Whether the integration takes package ratings on this panel at all: false where the panel publishes each circuit
+   * of a multi-load breaker with its own rating. Absent from an integration that predates package ratings, which has
+   * no service to take them, so the editor is offered only where this is true.
+   */
+  monitoring_rating_offered?: boolean;
+  /**
+   * Each group of circuits that share a meter, by the key its members carry in `shared_meter_group`. A group with no
+   * record here, as from an integration that predates the map, falls back to its members' ratings added up.
+   */
+  shared_meter_groups?: Record<string, SharedMeterGroup>;
 }
 
-export interface PanelDevice {
-  id: string;
-  name?: string;
-  name_by_user?: string;
-  /** The one config entry that owns the device (Home Assistant 2026.8+). */
-  config_entry_id?: string;
-  identifiers?: [string, string][];
-  via_device_id?: string | null;
-  sw_version?: string;
-  model?: string;
+/**
+ * One shared meter as the integration rates and judges it. The ratings are capacities the integration computes, what
+ * the group's heaviest space can carry, so the card reads them and adds nothing up itself; null where unknown. The
+ * monitoring fields are absent from an integration that predates monitoring ratings.
+ */
+export interface SharedMeterGroup {
+  members: string[];
+  breaker_rating_a: number | null;
+  monitoring_rating_a?: number | null;
+  monitoring_rating_user_set?: boolean;
 }
+
+/** A SPAN panel's device registry entry, or the sidebar's stand-in for one: its Favorites choice. */
+export type PanelDevice = DeviceRegistryEntry;
 
 export interface DiscoveryResult {
   topology: PanelTopology | null;
@@ -284,6 +386,23 @@ export interface GraphSettings {
 
 export interface MonitoringPointInfo {
   name?: string;
+  /**
+   * The monitored point this entry's judgement is: the group's key for every member of a shared meter, else the
+   * circuit's own id. Absent from an integration that predates it.
+   */
+  point_id?: string;
+  /** The panel's own breaker rating (for a shared meter, the group's capacity over those ratings); null when it publishes none. */
+  breaker_rating_a?: number | null;
+  /** What monitoring judges this point against; null when nothing is judged. */
+  monitoring_rating_a?: number | null;
+  /** True when `monitoring_rating_a` comes from a package the user copied; always false for the mains. */
+  monitoring_rating_user_set?: boolean;
+  /** The package the user copied from the SPAN app for this circuit; null for none, a shared meter and the mains. */
+  package_ratings_a?: number[] | null;
+  /** Which form of copy the circuit takes; null where it takes none, a shared meter and the mains. Absent from an older integration. */
+  package_ratings_form?: PackageRatingsForm | null;
+  /** What the integration does with the stored copy; null where none is stored. Absent from an older integration. */
+  package_ratings_state?: PackageRatingsState | null;
   monitoring_enabled?: boolean;
   /** Null while the circuit has no current reading or no breaker rating. */
   utilization_pct?: number | null;
@@ -310,6 +429,11 @@ export interface MonitoringGlobalSettings {
 
 export interface MonitoringStatusResponse {
   enabled?: boolean;
+  /**
+   * Whether the integration takes package ratings on this panel, as the topology's `monitoring_rating_offered` says.
+   * Absent from an integration that predates it, which offers none.
+   */
+  monitoring_rating_offered?: boolean;
   global_settings?: MonitoringGlobalSettings;
   circuits?: Record<string, MonitoringPointInfo>;
   mains?: Record<string, MonitoringPointInfo>;
@@ -322,6 +446,8 @@ export interface CallServiceResponse {
 export interface MonitoringStatus {
   circuits?: Record<string, MonitoringPointInfo>;
   mains?: Record<string, MonitoringPointInfo>;
+  /** The panel's global settings, from one panel's answer; absent where statuses of several panels are merged. */
+  global_settings?: MonitoringGlobalSettings;
 }
 
 // -- Graph horizon preset --

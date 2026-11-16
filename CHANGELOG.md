@@ -1,5 +1,45 @@
 # Changelog
 
+## 0.11.0
+
+### Added
+
+- **On panels other than MAIN 32, the panel view draws the breaker positions the panel reports**, so every breaker appears in its place even where the positions
+  do not start at 1.
+- **Circuits that share one breaker's meter, such as a tandem's, are drawn as one slot** with each circuit's name and rating, one reading and one switch, and
+  are counted once in the site total.
+- **A meter with no breaker space, such as a remote current transformer, is drawn in a Meters strip above the grid** with its import and export, and is left out
+  of the circuits' total.
+- **A circuit the panel marks as solar is drawn and totalled as generation.**
+- **On MAIN 32, a tandem's other breaker rating, copied from the SPAN app, can be entered in the Monitoring tab's Rating column or in a circuit's Monitoring
+  section**, beside the panel's own rating, so current monitoring judges that space against both breakers together; instructions above the table say what to
+  copy.
+- **On MAIN 32, the second breaker rating the SPAN app shows for a circuit across two spaces, such as the 30 in 20-30A, can be entered in the Monitoring tab's
+  Rating column or the circuit's Monitoring section**, and is kept without being applied because the panel reports only the average of its two legs, with a
+  recommendation and a button to turn monitoring off for that circuit.
+- **What current monitoring judges a circuit against is shown in its Monitoring section and in a Rating column on the Monitoring tab**, marked where it comes
+  from ratings you copied.
+- **Every open view redraws when copied ratings change**, whether the change came from the dashboard, another browser or a service call.
+- **Circuits are found on their own devices under the panel**, as SPAN Panel 2.3.0 creates them, and are labelled by the device's name, with your rename in Home
+  Assistant taking precedence.
+
+### Fixed
+
+- **A panel that reports its size as 0 loads**, taking its size from its circuits.
+- **With current monitoring off, the dashboard no longer shows a summary of 0 monitored circuits.**
+- **A circuit's utilization is colored and counted against that circuit's own monitoring thresholds**, so one set above 100%, such as a tandem judged as its
+  pair, no longer shows as an alert below them.
+- **Current charts draw their limit lines at the circuit's own monitoring thresholds**, with the axis fitted to the highest line and reading, instead of at 80%
+  and 100% of the breaker rating.
+- **Threshold and duration fields in the side panel and the Monitoring tab save when you press Enter or leave them**, and only a whole number in their range, so
+  stepping or scrolling a field no longer saves every value it passes through and an emptied field no longer saves 0.
+- **A circuit's name shows as written in its side panel's title**, so a name containing &, < or > no longer appears as `&amp;` and the like.
+- **The battery tile shows its power, charge and energy for users who are not administrators**, which it could not find before.
+
+### Changed
+
+- **Notification targets in the alert settings are labelled as Home Assistant labels them**, so a notify entity you renamed shows its device's name in front.
+
 ## 0.9.6
 
 ### Fixed

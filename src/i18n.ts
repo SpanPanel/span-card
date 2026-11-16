@@ -39,13 +39,19 @@ const translations: Record<string, Record<string, string>> = {
     "monitoring.col.spike": "Spike",
     "monitoring.col.window": "Window",
     "monitoring.col.cooldown": "Cooldown",
+    "monitoring.rating": "Rating",
     "monitoring.all_none": "All / None",
     "monitoring.reset": "Reset",
+    "monitoring.limit_invalid": "Enter a whole number from {min} to {max}.",
+    "monitoring.enable_invalid": "Monitoring was not turned on: correct the fields marked.",
+    "monitoring.point_field": "{field} for {name}",
+    "monitoring.reset_point": "Reset {name}",
 
     // Notification settings
     "notification.heading": "Notification Settings",
     "notification.targets": "Notify Targets",
     "notification.none_selected": "None selected",
+    "notification.targets_button": "Notify Targets: {targets}",
     "notification.no_targets": "No notify targets found",
     "notification.all_targets": "All",
     "notification.event_bus_target": "Event Bus (HA event bus)",
@@ -90,6 +96,12 @@ const translations: Record<string, Record<string, string>> = {
     "error.areas_failed": "Area assignments may be out of sync",
     "error.retry": "Retry",
     "card.connecting": "Connecting to SPAN Panel...",
+
+    // Monitoring rating
+    "monitoringRating.none": "no rating",
+    "monitoringRating.copied": "{package} from your SPAN app (the panel publishes {panel} A)",
+    "monitoringRating.copied_unnamed": "Copied from your SPAN app",
+    "monitoringRating.judged_copied": "Judged against {rating} A: {copied}",
 
     // Settings tab
     "settings.heading": "Settings",
@@ -185,6 +197,14 @@ const translations: Record<string, Record<string, string>> = {
     "grid.configure_subdevice": "Configure device",
     "grid.on": "On",
     "grid.off": "Off",
+    "grid.shared_switch": "Switches every circuit in this space",
+
+    // Meters outside the panel
+    "meters.title": "Meters",
+    "meters.importing": "importing",
+    "meters.exporting": "exporting",
+    "meters.imported": "imported",
+    "meters.exported": "exported",
 
     // Sub-devices
     "subdevice.ev_charger": "EV Charger",
@@ -210,6 +230,50 @@ const translations: Record<string, Record<string, string>> = {
     "sidepanel.reset_to_global": "Reset to global default",
     "sidepanel.relay": "Relay",
     "sidepanel.breaker": "Breaker",
+    "sidepanel.capacity": "{amps} A capacity",
+    "monitoringRating.title": "Breaker ratings from the SPAN app",
+    "monitoringRating.panel_rating": "Panel publishes {panel} A",
+    "monitoringRating.other_breaker": "Other breaker (A)",
+    "monitoringRating.other_breaker_label": "Other breaker in the space of {circuit}",
+    "monitoringRating.reset": "Remove copied ratings",
+    "monitoringRating.invalid_other": "Enter the other breaker's rating as a whole number of amps, 1 or more.",
+    "monitoringRating.guidance":
+      "If your SPAN app shows two ratings for this circuit, such as 20-20A, enter the second one here. SPAN Panel MAIN 32 panels report only the first, and monitoring then judges this space against both breakers together.",
+    "monitoringRating.guidance_two_spaces": "If your SPAN app shows two ratings for this circuit, such as 20-30A, enter the second one here.",
+    "monitoringRating.averaged_legs":
+      "SPAN Panel MAIN 32 panels report only the average of this circuit's two legs, which can hide an overloaded leg. We recommend turning monitoring off for this circuit.",
+    "monitoringRating.turn_off_monitoring": "Turn off monitoring",
+    "monitoringRating.threshold_warning":
+      "This circuit's custom thresholds are above 100%. With the copied ratings they now apply to both breakers together, which can let a real overload pass.",
+    "monitoringRating.threshold_warning_global":
+      "The global thresholds this circuit uses are above 100%. With the copied ratings they now apply to both breakers together, which can let a real overload pass; change them under {settings} on the {tab} tab.",
+    "monitoringRating.use_global_thresholds": "Use global thresholds",
+    // Monitoring tab: the copy of a package in the Rating column
+    "monitoringRating.note_title": "Tandem breakers on SPAN Panel MAIN 32",
+    "monitoringRating.note_problem":
+      "SPAN Panel MAIN 32 panels do not report which breakers are tandems, or the rating of a tandem's second breaker. A tandem puts two breakers in one space, but the panel reports it as one circuit with only the first breaker's rating, while one sensor reads both breakers together. A 20-20 tandem shows 20 A here and can carry 40 A, so monitoring raises false alerts on it.",
+    "monitoringRating.note_steps": "To fix this, copy the ratings from your SPAN app:",
+    "monitoringRating.note_step_find": "In the SPAN app, find each circuit whose breaker shows two ratings, such as 20-20A.",
+    "monitoringRating.note_step_enter":
+      "In the table below, type the second rating in that circuit's {column} field. Then press Enter or move to the next field.",
+    "monitoringRating.note_step_single": "Leave the field empty for a circuit with a single breaker.",
+    "monitoringRating.note_judged":
+      "Monitoring then judges that space against both breakers together: 40 A for a 20-20. Only monitoring uses the copy, and the circuit's Breaker Rating sensor still shows what the panel reports. To remove a copied rating, select ✕ beside its field.",
+    "monitoringRating.note_thresholds":
+      "If you raised a tandem's thresholds above 100% to stop its alerts, select {reset} on its row. Those thresholds now apply to both breakers together.",
+    "monitoringRating.note_two_spaces":
+      "For a circuit that spans two spaces, enter the second rating the same way if your SPAN app shows two, such as 20-30A. SPAN Panel MAIN 32 panels report only the average of such a circuit's two legs, which can hide an overloaded leg, so the copy can't be applied and we recommend turning monitoring off for that circuit.",
+    "monitoringRating.note_guide": "Read more in the guide to tandem and multi-load breakers.",
+    "monitoringRating.panel_plus": "{panel} A +",
+    "monitoringRating.judged_equals": "= {rating} A",
+    "monitoringRating.clear_label": "Remove copied ratings for {circuit}",
+    "monitoringRating.table_threshold_warning":
+      "This circuit's thresholds are above 100% and now apply to both breakers together, which can let a real overload pass. Select {reset} to use the global thresholds.",
+    "monitoringRating.table_threshold_warning_global":
+      "The global thresholds are above 100% and now apply to both breakers together, which can let a real overload pass. Change them under {settings} above.",
+    "monitoringRating.warning_announcement": "{circuit}: {warning}",
+    "error.package_ratings_failed": "Unable to update the ratings copied from the SPAN app",
+    "sidepanel.judged_against": "Judged against: {rating}",
     "sidepanel.shedding_priority": "Shedding Priority",
     "sidepanel.priority_label": "Priority",
     "sidepanel.monitoring": "Monitoring",
@@ -299,11 +363,17 @@ const translations: Record<string, Record<string, string>> = {
     "monitoring.col.spike": "Pico",
     "monitoring.col.window": "Ventana",
     "monitoring.col.cooldown": "Enfriamiento",
+    "monitoring.rating": "Calibre",
     "monitoring.all_none": "Todos / Ninguno",
     "monitoring.reset": "Restablecer",
+    "monitoring.limit_invalid": "Introduzca un n\u00famero entero de {min} a {max}.",
+    "monitoring.enable_invalid": "No se activ\u00f3 el monitoreo: corrija los campos marcados.",
+    "monitoring.point_field": "{field} de {name}",
+    "monitoring.reset_point": "Restablecer {name}",
     "notification.heading": "Configuraci\u00f3n de Notificaciones",
     "notification.targets": "Destinos de Notificaci\u00f3n",
     "notification.none_selected": "Ninguno seleccionado",
+    "notification.targets_button": "Destinos de Notificaci\u00f3n: {targets}",
     "notification.no_targets": "No se encontraron destinos de notificaci\u00f3n",
     "notification.all_targets": "Todos",
     "notification.event_bus_target": "Bus de Eventos (bus de eventos de HA)",
@@ -346,6 +416,12 @@ const translations: Record<string, Record<string, string>> = {
     "error.areas_failed": "Las asignaciones de \u00e1reas pueden estar desincronizadas",
     "error.retry": "Reintentar",
     "card.connecting": "Conectando al SPAN Panel...",
+
+    // Monitoring rating
+    "monitoringRating.none": "sin calibre",
+    "monitoringRating.copied": "{package} de su app de SPAN (el panel publica {panel} A)",
+    "monitoringRating.copied_unnamed": "Copiado de su app de SPAN",
+    "monitoringRating.judged_copied": "Evaluado seg\u00fan {rating} A: {copied}",
     "settings.heading": "Configuraci\u00f3n",
     "settings.description":
       "La configuraci\u00f3n general de la integraci\u00f3n (nombres de entidades, prefijo de dispositivo, n\u00fameros de circuito) se administra a trav\u00e9s del flujo de opciones de la integraci\u00f3n.",
@@ -434,6 +510,12 @@ const translations: Record<string, Record<string, string>> = {
     "grid.configure_subdevice": "Configurar dispositivo",
     "grid.on": "Enc",
     "grid.off": "Apag",
+    "grid.shared_switch": "Conmuta todos los circuitos de este espacio",
+    "meters.title": "Medidores",
+    "meters.importing": "importando",
+    "meters.exporting": "exportando",
+    "meters.imported": "importados",
+    "meters.exported": "exportados",
     "subdevice.ev_charger": "Cargador EV",
     "subdevice.battery": "Bater\u00eda",
     "subdevice.fallback": "Sub-dispositivo",
@@ -455,6 +537,49 @@ const translations: Record<string, Record<string, string>> = {
     "sidepanel.reset_to_global": "Restablecer al valor global",
     "sidepanel.relay": "Rel\u00e9",
     "sidepanel.breaker": "Interruptor",
+    "sidepanel.capacity": "capacidad de {amps} A",
+    "monitoringRating.title": "Calibres de interruptor de la app de SPAN",
+    "monitoringRating.panel_rating": "El panel publica {panel} A",
+    "monitoringRating.other_breaker": "Otro interruptor (A)",
+    "monitoringRating.other_breaker_label": "Otro interruptor en el espacio de {circuit}",
+    "monitoringRating.reset": "Quitar los calibres copiados",
+    "monitoringRating.invalid_other": "Introduzca el calibre del otro interruptor como un n\u00famero entero de amperios, 1 o m\u00e1s.",
+    "monitoringRating.guidance":
+      "Si su app de SPAN muestra dos calibres para este circuito, como 20-20A, introduzca aqu\u00ed el segundo. Los paneles SPAN Panel MAIN 32 informan solo el primero, y el monitoreo juzga entonces este espacio seg\u00fan ambos interruptores juntos.",
+    "monitoringRating.guidance_two_spaces": "Si su app de SPAN muestra dos calibres para este circuito, como 20-30A, introduzca aqu\u00ed el segundo.",
+    "monitoringRating.averaged_legs":
+      "Los paneles SPAN Panel MAIN 32 informan solo el promedio de las dos fases de este circuito, lo que puede ocultar una fase sobrecargada. Recomendamos desactivar el monitoreo de este circuito.",
+    "monitoringRating.turn_off_monitoring": "Desactivar el monitoreo",
+    "monitoringRating.threshold_warning":
+      "Los umbrales personalizados de este circuito superan el 100 %. Con los calibres copiados se aplican ahora a ambos interruptores juntos, lo que puede dejar pasar una sobrecarga real.",
+    "monitoringRating.threshold_warning_global":
+      "Los umbrales globales que usa este circuito superan el 100 %. Con los calibres copiados se aplican ahora a ambos interruptores juntos, lo que puede dejar pasar una sobrecarga real; c\u00e1mbielos en {settings}, en la pesta\u00f1a {tab}.",
+    "monitoringRating.use_global_thresholds": "Usar los umbrales globales",
+    "monitoringRating.note_title": "Interruptores t\u00e1ndem en SPAN Panel MAIN 32",
+    "monitoringRating.note_problem":
+      "Los paneles SPAN Panel MAIN 32 no informan qu\u00e9 interruptores son t\u00e1ndem ni el calibre del segundo interruptor de un t\u00e1ndem. Un t\u00e1ndem pone dos interruptores en un espacio, pero el panel lo informa como un solo circuito con solo el calibre del primer interruptor, mientras un solo sensor lee ambos interruptores juntos. Un t\u00e1ndem 20-20 muestra 20 A aqu\u00ed y puede llevar 40 A, por lo que el monitoreo genera falsas alertas en \u00e9l.",
+    "monitoringRating.note_steps": "Para corregirlo, copie los calibres de su app de SPAN:",
+    "monitoringRating.note_step_find": "En la app de SPAN, busque cada circuito cuyo interruptor muestre dos calibres, como 20-20A.",
+    "monitoringRating.note_step_enter":
+      "En la tabla de abajo, escriba el segundo calibre en el campo {column} de ese circuito. Luego pulse Intro o pase al siguiente campo.",
+    "monitoringRating.note_step_single": "Deje el campo vac\u00edo para un circuito con un solo interruptor.",
+    "monitoringRating.note_judged":
+      "El monitoreo juzga entonces ese espacio seg\u00fan ambos interruptores juntos: 40 A para un 20-20. Solo el monitoreo usa la copia, y el sensor Breaker Rating del circuito sigue mostrando lo que informa el panel. Para quitar un calibre copiado, seleccione \u2715 junto a su campo.",
+    "monitoringRating.note_thresholds":
+      "Si subi\u00f3 los umbrales de un t\u00e1ndem por encima del 100 % para detener sus alertas, seleccione {reset} en su fila. Esos umbrales se aplican ahora a ambos interruptores juntos.",
+    "monitoringRating.note_two_spaces":
+      "Para un circuito que ocupa dos espacios, introduzca el segundo calibre del mismo modo si su app de SPAN muestra dos, como 20-30A. Los paneles SPAN Panel MAIN 32 informan solo el promedio de las dos fases de un circuito as\u00ed, lo que puede ocultar una fase sobrecargada, por lo que la copia no se puede aplicar y recomendamos desactivar el monitoreo de ese circuito.",
+    "monitoringRating.note_guide": "Lea m\u00e1s en la gu\u00eda de interruptores t\u00e1ndem y de cargas m\u00faltiples.",
+    "monitoringRating.panel_plus": "{panel} A +",
+    "monitoringRating.judged_equals": "= {rating} A",
+    "monitoringRating.clear_label": "Quitar los calibres copiados de {circuit}",
+    "monitoringRating.table_threshold_warning":
+      "Los umbrales de este circuito superan el 100 % y se aplican ahora a ambos interruptores juntos, lo que puede dejar pasar una sobrecarga real. Seleccione {reset} para usar los umbrales globales.",
+    "monitoringRating.table_threshold_warning_global":
+      "Los umbrales globales superan el 100 % y se aplican ahora a ambos interruptores juntos, lo que puede dejar pasar una sobrecarga real. C\u00e1mbielos en {settings}, arriba.",
+    "monitoringRating.warning_announcement": "{circuit}: {warning}",
+    "error.package_ratings_failed": "No se pudieron actualizar los calibres copiados de la app de SPAN",
+    "sidepanel.judged_against": "Evaluado seg\u00fan: {rating}",
     "sidepanel.shedding_priority": "Prioridad de Desconexci\u00f3n",
     "sidepanel.priority_label": "Prioridad",
     "sidepanel.monitoring": "Monitoreo",
@@ -534,11 +659,17 @@ const translations: Record<string, Record<string, string>> = {
     "monitoring.col.spike": "Pic",
     "monitoring.col.window": "Fen\u00eatre",
     "monitoring.col.cooldown": "Refroidissement",
+    "monitoring.rating": "Calibre",
     "monitoring.all_none": "Tous / Aucun",
     "monitoring.reset": "R\u00e9initialiser",
+    "monitoring.limit_invalid": "Saisissez un nombre entier de {min} \u00e0 {max}.",
+    "monitoring.enable_invalid": "La surveillance n'a pas \u00e9t\u00e9 activ\u00e9e : corrigez les champs signal\u00e9s.",
+    "monitoring.point_field": "{field} de {name}",
+    "monitoring.reset_point": "R\u00e9initialiser {name}",
     "notification.heading": "Param\u00e8tres de Notification",
     "notification.targets": "Cibles de Notification",
     "notification.none_selected": "Aucune s\u00e9lection",
+    "notification.targets_button": "Cibles de Notification : {targets}",
     "notification.no_targets": "Aucune cible de notification trouv\u00e9e",
     "notification.all_targets": "Tous",
     "notification.event_bus_target": "Bus d'\u00e9v\u00e9nements (bus d'\u00e9v\u00e9nements HA)",
@@ -581,6 +712,12 @@ const translations: Record<string, Record<string, string>> = {
     "error.areas_failed": "Les affectations de zones peuvent \u00eatre d\u00e9synchronis\u00e9es",
     "error.retry": "R\u00e9essayer",
     "card.connecting": "Connexion au SPAN Panel...",
+
+    // Monitoring rating
+    "monitoringRating.none": "aucun calibre",
+    "monitoringRating.copied": "{package} depuis votre application SPAN (le panneau publie {panel} A)",
+    "monitoringRating.copied_unnamed": "Copi\u00e9 depuis votre application SPAN",
+    "monitoringRating.judged_copied": "\u00c9valu\u00e9 selon {rating} A : {copied}",
     "settings.heading": "Param\u00e8tres",
     "settings.description":
       "Les param\u00e8tres g\u00e9n\u00e9raux de l'int\u00e9gration (noms d'entit\u00e9s, pr\u00e9fixe de l'appareil, num\u00e9ros de circuit) sont g\u00e9r\u00e9s via le flux d'options de l'int\u00e9gration.",
@@ -670,6 +807,12 @@ const translations: Record<string, Record<string, string>> = {
     "grid.configure_subdevice": "Configurer l'appareil",
     "grid.on": "On",
     "grid.off": "Off",
+    "grid.shared_switch": "Commute tous les circuits de cet emplacement",
+    "meters.title": "Compteurs",
+    "meters.importing": "en import",
+    "meters.exporting": "en export",
+    "meters.imported": "import\u00e9s",
+    "meters.exported": "export\u00e9s",
     "subdevice.ev_charger": "Chargeur VE",
     "subdevice.battery": "Batterie",
     "subdevice.fallback": "Sous-appareil",
@@ -691,6 +834,49 @@ const translations: Record<string, Record<string, string>> = {
     "sidepanel.reset_to_global": "R\u00e9initialiser \u00e0 la valeur globale",
     "sidepanel.relay": "Relais",
     "sidepanel.breaker": "Disjoncteur",
+    "sidepanel.capacity": "capacit\u00e9 de {amps} A",
+    "monitoringRating.title": "Calibres des disjoncteurs dans l'application SPAN",
+    "monitoringRating.panel_rating": "Le panneau publie {panel} A",
+    "monitoringRating.other_breaker": "Autre disjoncteur (A)",
+    "monitoringRating.other_breaker_label": "Autre disjoncteur dans l'emplacement de {circuit}",
+    "monitoringRating.reset": "Supprimer les calibres copi\u00e9s",
+    "monitoringRating.invalid_other": "Saisissez le calibre de l'autre disjoncteur en nombre entier d'amp\u00e8res, 1 ou plus.",
+    "monitoringRating.guidance":
+      "Si votre application SPAN affiche deux calibres pour ce circuit, par exemple 20-20A, saisissez ici le second. Les panneaux SPAN Panel MAIN 32 n'indiquent que le premier, et la surveillance juge alors cet emplacement par rapport aux deux disjoncteurs ensemble.",
+    "monitoringRating.guidance_two_spaces": "Si votre application SPAN affiche deux calibres pour ce circuit, par exemple 20-30A, saisissez ici le second.",
+    "monitoringRating.averaged_legs":
+      "Les panneaux SPAN Panel MAIN 32 n'indiquent que la moyenne des deux phases de ce circuit, ce qui peut masquer une phase en surcharge. Nous recommandons de d\u00e9sactiver la surveillance de ce circuit.",
+    "monitoringRating.turn_off_monitoring": "D\u00e9sactiver la surveillance",
+    "monitoringRating.threshold_warning":
+      "Les seuils personnalis\u00e9s de ce circuit d\u00e9passent 100 %. Avec les calibres copi\u00e9s, ils s'appliquent d\u00e9sormais aux deux disjoncteurs ensemble, ce qui peut laisser passer une vraie surcharge.",
+    "monitoringRating.threshold_warning_global":
+      "Les seuils globaux qu'utilise ce circuit d\u00e9passent 100 %. Avec les calibres copi\u00e9s, ils s'appliquent d\u00e9sormais aux deux disjoncteurs ensemble, ce qui peut laisser passer une vraie surcharge ; modifiez-les dans {settings}, onglet {tab}.",
+    "monitoringRating.use_global_thresholds": "Utiliser les seuils globaux",
+    "monitoringRating.note_title": "Disjoncteurs tandem sur SPAN Panel MAIN 32",
+    "monitoringRating.note_problem":
+      "Les panneaux SPAN Panel MAIN 32 n'indiquent pas quels disjoncteurs sont des tandems, ni le calibre du second disjoncteur d'un tandem. Un tandem place deux disjoncteurs dans un emplacement, mais le panneau l'indique comme un seul circuit avec le calibre du premier disjoncteur seulement, tandis qu'un seul capteur lit les deux disjoncteurs ensemble. Un tandem 20-20 affiche 20 A ici et peut supporter 40 A, si bien que la surveillance d\u00e9clenche de fausses alertes sur lui.",
+    "monitoringRating.note_steps": "Pour corriger cela, copiez les calibres depuis votre application SPAN :",
+    "monitoringRating.note_step_find": "Dans l'application SPAN, trouvez chaque circuit dont le disjoncteur affiche deux calibres, par exemple 20-20A.",
+    "monitoringRating.note_step_enter":
+      "Dans le tableau ci-dessous, saisissez le second calibre dans le champ {column} de ce circuit. Appuyez ensuite sur Entr\u00e9e ou passez au champ suivant.",
+    "monitoringRating.note_step_single": "Laissez le champ vide pour un circuit \u00e0 disjoncteur unique.",
+    "monitoringRating.note_judged":
+      "La surveillance juge alors cet emplacement par rapport aux deux disjoncteurs ensemble : 40 A pour un 20-20. Seule la surveillance utilise la copie, et le capteur Breaker Rating du circuit affiche toujours ce que le panneau indique. Pour supprimer un calibre copi\u00e9, s\u00e9lectionnez \u2715 \u00e0 c\u00f4t\u00e9 de son champ.",
+    "monitoringRating.note_thresholds":
+      "Si vous avez relev\u00e9 les seuils d'un tandem au-dessus de 100 % pour faire cesser ses alertes, s\u00e9lectionnez {reset} sur sa ligne. Ces seuils s'appliquent d\u00e9sormais aux deux disjoncteurs ensemble.",
+    "monitoringRating.note_two_spaces":
+      "Pour un circuit qui occupe deux emplacements, saisissez le second calibre de la m\u00eame fa\u00e7on si votre application SPAN en affiche deux, par exemple 20-30A. Les panneaux SPAN Panel MAIN 32 n'indiquent que la moyenne des deux phases d'un tel circuit, ce qui peut masquer une phase en surcharge : la copie ne peut donc pas \u00eatre appliqu\u00e9e, et nous recommandons de d\u00e9sactiver la surveillance de ce circuit.",
+    "monitoringRating.note_guide": "Pour en savoir plus, consultez le guide des disjoncteurs tandem et \u00e0 charges multiples.",
+    "monitoringRating.panel_plus": "{panel} A +",
+    "monitoringRating.judged_equals": "= {rating} A",
+    "monitoringRating.clear_label": "Supprimer les calibres copi\u00e9s de {circuit}",
+    "monitoringRating.table_threshold_warning":
+      "Les seuils de ce circuit d\u00e9passent 100 % et s'appliquent d\u00e9sormais aux deux disjoncteurs ensemble, ce qui peut laisser passer une vraie surcharge. S\u00e9lectionnez {reset} pour utiliser les seuils globaux.",
+    "monitoringRating.table_threshold_warning_global":
+      "Les seuils globaux d\u00e9passent 100 % et s'appliquent d\u00e9sormais aux deux disjoncteurs ensemble, ce qui peut laisser passer une vraie surcharge. Modifiez-les dans {settings} ci-dessus.",
+    "monitoringRating.warning_announcement": "{circuit} : {warning}",
+    "error.package_ratings_failed": "Impossible de mettre \u00e0 jour les calibres copi\u00e9s depuis l'application SPAN",
+    "sidepanel.judged_against": "\u00c9valu\u00e9 selon : {rating}",
     "sidepanel.shedding_priority": "Priorit\u00e9 de D\u00e9lestage",
     "sidepanel.priority_label": "Priorit\u00e9",
     "sidepanel.monitoring": "Surveillance",
@@ -772,11 +958,18 @@ const translations: Record<string, Record<string, string>> = {
     "monitoring.col.spike": "\u30b9\u30d1\u30a4\u30af",
     "monitoring.col.window": "\u30a6\u30a3\u30f3\u30c9\u30a6",
     "monitoring.col.cooldown": "\u30af\u30fc\u30eb\u30c0\u30a6\u30f3",
+    "monitoring.rating": "\u5b9a\u683c",
     "monitoring.all_none": "\u5168\u9078\u629e / \u5168\u89e3\u9664",
     "monitoring.reset": "\u30ea\u30bb\u30c3\u30c8",
+    "monitoring.limit_invalid": "{min} \u304b\u3089 {max} \u307e\u3067\u306e\u6574\u6570\u3092\u5165\u529b\u3057\u3066\u304f\u3060\u3055\u3044\u3002",
+    "monitoring.enable_invalid":
+      "\u30e2\u30cb\u30bf\u30ea\u30f3\u30b0\u306f\u6709\u52b9\u306b\u306a\u3063\u3066\u3044\u307e\u305b\u3093\u3002\u30de\u30fc\u30af\u3055\u308c\u305f\u9805\u76ee\u3092\u4fee\u6b63\u3057\u3066\u304f\u3060\u3055\u3044\u3002",
+    "monitoring.point_field": "{name}\u306e{field}",
+    "monitoring.reset_point": "{name}\u3092\u30ea\u30bb\u30c3\u30c8",
     "notification.heading": "\u901a\u77e5\u8a2d\u5b9a",
     "notification.targets": "\u901a\u77e5\u5148",
     "notification.none_selected": "\u672a\u9078\u629e",
+    "notification.targets_button": "\u901a\u77e5\u5148: {targets}",
     "notification.no_targets": "\u901a\u77e5\u5148\u304c\u898b\u3064\u304b\u308a\u307e\u305b\u3093",
     "notification.all_targets": "\u3059\u3079\u3066",
     "notification.event_bus_target": "\u30a4\u30d9\u30f3\u30c8\u30d0\u30b9 (HA\u30a4\u30d9\u30f3\u30c8\u30d0\u30b9)",
@@ -820,6 +1013,12 @@ const translations: Record<string, Record<string, string>> = {
       "\u30a8\u30ea\u30a2\u5272\u308a\u5f53\u3066\u304c\u540c\u671f\u3055\u308c\u3066\u3044\u306a\u3044\u53ef\u80fd\u6027\u304c\u3042\u308a\u307e\u3059",
     "error.retry": "\u518d\u8a66\u884c",
     "card.connecting": "SPAN\u30d1\u30cd\u30eb\u306b\u63a5\u7d9a\u4e2d...",
+
+    // Monitoring rating
+    "monitoringRating.none": "\u5b9a\u683c\u306a\u3057",
+    "monitoringRating.copied": "SPAN \u30a2\u30d7\u30ea\u306e {package}(\u30d1\u30cd\u30eb\u306e\u516c\u958b\u5024 {panel} A)",
+    "monitoringRating.copied_unnamed": "SPAN \u30a2\u30d7\u30ea\u304b\u3089\u30b3\u30d4\u30fc",
+    "monitoringRating.judged_copied": "\u5224\u5b9a\u57fa\u6e96 {rating} A: {copied}",
     "settings.heading": "\u8a2d\u5b9a",
     "settings.description":
       "\u7d71\u5408\u306e\u4e00\u822c\u8a2d\u5b9a\uff08\u30a8\u30f3\u30c6\u30a3\u30c6\u30a3\u540d\u3001\u30c7\u30d0\u30a4\u30b9\u30d7\u30ec\u30d5\u30a3\u30c3\u30af\u30b9\u3001\u56de\u8def\u756a\u53f7\uff09\u306f\u7d71\u5408\u306e\u30aa\u30d7\u30b7\u30e7\u30f3\u30d5\u30ed\u30fc\u3067\u7ba1\u7406\u3055\u308c\u307e\u3059\u3002",
@@ -916,6 +1115,12 @@ const translations: Record<string, Record<string, string>> = {
     "grid.configure_subdevice": "\u30c7\u30d0\u30a4\u30b9\u3092\u8a2d\u5b9a",
     "grid.on": "\u30aa\u30f3",
     "grid.off": "\u30aa\u30d5",
+    "grid.shared_switch": "\u3053\u306e\u30b9\u30da\u30fc\u30b9\u306e\u3059\u3079\u3066\u306e\u56de\u8def\u3092\u5207\u308a\u66ff\u3048\u307e\u3059",
+    "meters.title": "\u30e1\u30fc\u30bf\u30fc",
+    "meters.importing": "\u53d7\u96fb\u4e2d",
+    "meters.exporting": "\u9001\u96fb\u4e2d",
+    "meters.imported": "\u53d7\u96fb",
+    "meters.exported": "\u9001\u96fb",
     "subdevice.ev_charger": "EV\u5145\u96fb\u5668",
     "subdevice.battery": "\u30d0\u30c3\u30c6\u30ea\u30fc",
     "subdevice.fallback": "\u30b5\u30d6\u30c7\u30d0\u30a4\u30b9",
@@ -937,6 +1142,57 @@ const translations: Record<string, Record<string, string>> = {
     "sidepanel.reset_to_global": "\u30b0\u30ed\u30fc\u30d0\u30eb\u306b\u30ea\u30bb\u30c3\u30c8",
     "sidepanel.relay": "\u30ea\u30ec\u30fc",
     "sidepanel.breaker": "\u30d6\u30ec\u30fc\u30ab\u30fc",
+    "sidepanel.capacity": "\u5bb9\u91cf {amps} A",
+    "monitoringRating.title": "SPAN \u30a2\u30d7\u30ea\u306e\u30d6\u30ec\u30fc\u30ab\u30fc\u5b9a\u683c",
+    "monitoringRating.panel_rating": "\u30d1\u30cd\u30eb\u306e\u516c\u958b\u5024 {panel} A",
+    "monitoringRating.other_breaker": "\u3082\u3046\u4e00\u65b9\u306e\u30d6\u30ec\u30fc\u30ab\u30fc (A)",
+    "monitoringRating.other_breaker_label":
+      "{circuit} \u306e\u30b9\u30da\u30fc\u30b9\u306b\u3042\u308b\u3082\u3046\u4e00\u65b9\u306e\u30d6\u30ec\u30fc\u30ab\u30fc",
+    "monitoringRating.reset": "\u30b3\u30d4\u30fc\u3057\u305f\u5b9a\u683c\u3092\u524a\u9664",
+    "monitoringRating.invalid_other":
+      "\u3082\u3046\u4e00\u65b9\u306e\u30d6\u30ec\u30fc\u30ab\u30fc\u306e\u5b9a\u683c\u3092 1 \u4ee5\u4e0a\u306e\u6574\u6570\u306e\u30a2\u30f3\u30da\u30a2\u3067\u5165\u529b\u3057\u3066\u304f\u3060\u3055\u3044\u3002",
+    "monitoringRating.guidance":
+      "SPAN \u30a2\u30d7\u30ea\u3067\u3053\u306e\u56de\u8def\u306b 20-20A \u306e\u3088\u3046\u306b 2 \u3064\u306e\u5b9a\u683c\u304c\u8868\u793a\u3055\u308c\u3066\u3044\u308b\u5834\u5408\u306f\u30012 \u3064\u76ee\u3092\u3053\u3053\u306b\u5165\u529b\u3057\u3066\u304f\u3060\u3055\u3044\u3002SPAN Panel MAIN 32 \u30d1\u30cd\u30eb\u304c\u5831\u544a\u3059\u308b\u306e\u306f 1 \u3064\u76ee\u3060\u3051\u3067\u3001\u30e2\u30cb\u30bf\u30ea\u30f3\u30b0\u306f\u3053\u306e\u30b9\u30da\u30fc\u30b9\u3092\u4e21\u65b9\u306e\u30d6\u30ec\u30fc\u30ab\u30fc\u306e\u5408\u8a08\u3067\u5224\u5b9a\u3057\u307e\u3059\u3002",
+    "monitoringRating.guidance_two_spaces":
+      "SPAN \u30a2\u30d7\u30ea\u3067\u3053\u306e\u56de\u8def\u306b 20-30A \u306e\u3088\u3046\u306b 2 \u3064\u306e\u5b9a\u683c\u304c\u8868\u793a\u3055\u308c\u3066\u3044\u308b\u5834\u5408\u306f\u30012 \u3064\u76ee\u3092\u3053\u3053\u306b\u5165\u529b\u3057\u3066\u304f\u3060\u3055\u3044\u3002",
+    "monitoringRating.averaged_legs":
+      "SPAN Panel MAIN 32 \u30d1\u30cd\u30eb\u306f\u3053\u306e\u56de\u8def\u306e 2 \u672c\u306e\u7dda\u306e\u5e73\u5747\u5024\u3057\u304b\u5831\u544a\u3057\u306a\u3044\u305f\u3081\u3001\u904e\u8ca0\u8377\u306e\u7dda\u304c\u898b\u3048\u306a\u304f\u306a\u308b\u3053\u3068\u304c\u3042\u308a\u307e\u3059\u3002\u3053\u306e\u56de\u8def\u306e\u30e2\u30cb\u30bf\u30ea\u30f3\u30b0\u3092\u30aa\u30d5\u306b\u3059\u308b\u3053\u3068\u3092\u304a\u3059\u3059\u3081\u3057\u307e\u3059\u3002",
+    "monitoringRating.turn_off_monitoring": "\u30e2\u30cb\u30bf\u30ea\u30f3\u30b0\u3092\u30aa\u30d5\u306b\u3059\u308b",
+    "monitoringRating.threshold_warning":
+      "\u3053\u306e\u56de\u8def\u306e\u30ab\u30b9\u30bf\u30e0\u3057\u304d\u3044\u5024\u306f 100% \u3092\u8d85\u3048\u3066\u3044\u307e\u3059\u3002\u30b3\u30d4\u30fc\u3057\u305f\u5b9a\u683c\u306b\u3088\u308a\u3001\u3057\u304d\u3044\u5024\u306f\u4e21\u65b9\u306e\u30d6\u30ec\u30fc\u30ab\u30fc\u306e\u5408\u8a08\u306b\u9069\u7528\u3055\u308c\u308b\u3088\u3046\u306b\u306a\u3063\u305f\u305f\u3081\u3001\u5b9f\u969b\u306e\u904e\u8ca0\u8377\u3092\u898b\u9003\u3059\u304a\u305d\u308c\u304c\u3042\u308a\u307e\u3059\u3002",
+    "monitoringRating.threshold_warning_global":
+      "\u3053\u306e\u56de\u8def\u304c\u4f7f\u7528\u3059\u308b\u30b0\u30ed\u30fc\u30d0\u30eb\u3057\u304d\u3044\u5024\u306f 100% \u3092\u8d85\u3048\u3066\u3044\u307e\u3059\u3002\u30b3\u30d4\u30fc\u3057\u305f\u5b9a\u683c\u306b\u3088\u308a\u3001\u3057\u304d\u3044\u5024\u306f\u4e21\u65b9\u306e\u30d6\u30ec\u30fc\u30ab\u30fc\u306e\u5408\u8a08\u306b\u9069\u7528\u3055\u308c\u308b\u3088\u3046\u306b\u306a\u3063\u305f\u305f\u3081\u3001\u5b9f\u969b\u306e\u904e\u8ca0\u8377\u3092\u898b\u9003\u3059\u304a\u305d\u308c\u304c\u3042\u308a\u307e\u3059\u3002{tab}\u30bf\u30d6\u306e{settings}\u3067\u5909\u66f4\u3057\u3066\u304f\u3060\u3055\u3044\u3002",
+    "monitoringRating.use_global_thresholds": "\u30b0\u30ed\u30fc\u30d0\u30eb\u3057\u304d\u3044\u5024\u3092\u4f7f\u7528",
+    "monitoringRating.note_title": "SPAN Panel MAIN 32 \u306e\u30bf\u30f3\u30c7\u30e0\u30d6\u30ec\u30fc\u30ab\u30fc",
+    "monitoringRating.note_problem":
+      "SPAN Panel MAIN 32 \u30d1\u30cd\u30eb\u306f\u3001\u3069\u306e\u30d6\u30ec\u30fc\u30ab\u30fc\u304c\u30bf\u30f3\u30c7\u30e0\u304b\u3082\u3001\u30bf\u30f3\u30c7\u30e0\u306e 2 \u3064\u76ee\u306e\u30d6\u30ec\u30fc\u30ab\u30fc\u306e\u5b9a\u683c\u3082\u5831\u544a\u3057\u307e\u305b\u3093\u3002\u30bf\u30f3\u30c7\u30e0\u306f 1 \u3064\u306e\u30b9\u30da\u30fc\u30b9\u306b 2 \u3064\u306e\u30d6\u30ec\u30fc\u30ab\u30fc\u3092\u53ce\u3081\u307e\u3059\u304c\u3001\u30d1\u30cd\u30eb\u306f\u305d\u308c\u3092 1 \u3064\u76ee\u306e\u30d6\u30ec\u30fc\u30ab\u30fc\u306e\u5b9a\u683c\u3060\u3051\u3092\u6301\u3064 1 \u3064\u306e\u56de\u8def\u3068\u3057\u3066\u5831\u544a\u3057\u30011 \u3064\u306e\u30bb\u30f3\u30b5\u30fc\u304c\u4e21\u65b9\u306e\u30d6\u30ec\u30fc\u30ab\u30fc\u306e\u5408\u8a08\u3092\u8aad\u307f\u53d6\u308a\u307e\u3059\u300220-20 \u306e\u30bf\u30f3\u30c7\u30e0\u306f\u3053\u3053\u3067\u306f 20 A \u3068\u8868\u793a\u3055\u308c\u307e\u3059\u304c 40 A \u307e\u3067\u6d41\u305b\u308b\u305f\u3081\u3001\u30e2\u30cb\u30bf\u30ea\u30f3\u30b0\u304c\u8aa4\u3063\u305f\u30a2\u30e9\u30fc\u30c8\u3092\u51fa\u3057\u307e\u3059\u3002",
+    "monitoringRating.note_steps":
+      "\u3053\u308c\u3092\u76f4\u3059\u306b\u306f\u3001\u6b21\u306e\u624b\u9806\u3067 SPAN \u30a2\u30d7\u30ea\u304b\u3089\u5b9a\u683c\u3092\u30b3\u30d4\u30fc\u3057\u307e\u3059\u3002",
+    "monitoringRating.note_step_find":
+      "SPAN \u30a2\u30d7\u30ea\u3067\u3001\u30d6\u30ec\u30fc\u30ab\u30fc\u306b 20-20A \u306e\u3088\u3046\u306b 2 \u3064\u306e\u5b9a\u683c\u304c\u8868\u793a\u3055\u308c\u3066\u3044\u308b\u56de\u8def\u3092\u3059\u3079\u3066\u63a2\u3057\u307e\u3059\u3002",
+    "monitoringRating.note_step_enter":
+      "\u4e0b\u306e\u8868\u3067\u3001\u305d\u306e\u56de\u8def\u306e{column}\u30d5\u30a3\u30fc\u30eb\u30c9\u306b 2 \u3064\u76ee\u306e\u5b9a\u683c\u3092\u5165\u529b\u3057\u307e\u3059\u3002\u7d9a\u3051\u3066 Enter \u30ad\u30fc\u3092\u62bc\u3059\u304b\u3001\u6b21\u306e\u30d5\u30a3\u30fc\u30eb\u30c9\u306b\u79fb\u52d5\u3057\u307e\u3059\u3002",
+    "monitoringRating.note_step_single":
+      "\u30d6\u30ec\u30fc\u30ab\u30fc\u304c 1 \u3064\u3060\u3051\u306e\u56de\u8def\u3067\u306f\u3001\u30d5\u30a3\u30fc\u30eb\u30c9\u3092\u7a7a\u306e\u307e\u307e\u306b\u3057\u307e\u3059\u3002",
+    "monitoringRating.note_judged":
+      "\u3059\u308b\u3068\u30e2\u30cb\u30bf\u30ea\u30f3\u30b0\u306f\u3001\u305d\u306e\u30b9\u30da\u30fc\u30b9\u3092\u4e21\u65b9\u306e\u30d6\u30ec\u30fc\u30ab\u30fc\u306e\u5408\u8a08\u3067\u5224\u5b9a\u3057\u307e\u3059\u300220-20 \u306a\u3089 40 A \u3067\u3059\u3002\u30b3\u30d4\u30fc\u3092\u4f7f\u3046\u306e\u306f\u30e2\u30cb\u30bf\u30ea\u30f3\u30b0\u3060\u3051\u3067\u3001\u56de\u8def\u306e Breaker Rating \u30bb\u30f3\u30b5\u30fc\u306f\u5f15\u304d\u7d9a\u304d\u30d1\u30cd\u30eb\u304c\u5831\u544a\u3059\u308b\u5024\u3092\u8868\u793a\u3057\u307e\u3059\u3002\u30b3\u30d4\u30fc\u3057\u305f\u5b9a\u683c\u3092\u524a\u9664\u3059\u308b\u306b\u306f\u3001\u30d5\u30a3\u30fc\u30eb\u30c9\u306e\u6a2a\u306e \u2715 \u3092\u9078\u629e\u3057\u307e\u3059\u3002",
+    "monitoringRating.note_thresholds":
+      "\u30a2\u30e9\u30fc\u30c8\u3092\u6b62\u3081\u308b\u305f\u3081\u306b\u30bf\u30f3\u30c7\u30e0\u306e\u3057\u304d\u3044\u5024\u3092 100% \u3088\u308a\u4e0a\u306b\u4e0a\u3052\u3066\u3044\u305f\u5834\u5408\u306f\u3001\u305d\u306e\u884c\u306e{reset}\u3092\u9078\u629e\u3057\u3066\u304f\u3060\u3055\u3044\u3002\u305d\u308c\u3089\u306e\u3057\u304d\u3044\u5024\u306f\u4eca\u5f8c\u3001\u4e21\u65b9\u306e\u30d6\u30ec\u30fc\u30ab\u30fc\u306e\u5408\u8a08\u306b\u9069\u7528\u3055\u308c\u307e\u3059\u3002",
+    "monitoringRating.note_two_spaces":
+      "2 \u3064\u306e\u30b9\u30da\u30fc\u30b9\u306b\u307e\u305f\u304c\u308b\u56de\u8def\u3067\u3082\u3001SPAN \u30a2\u30d7\u30ea\u306b 20-30A \u306e\u3088\u3046\u306b 2 \u3064\u306e\u5b9a\u683c\u304c\u8868\u793a\u3055\u308c\u3066\u3044\u308c\u3070\u3001\u540c\u3058\u65b9\u6cd5\u3067 2 \u3064\u76ee\u306e\u5b9a\u683c\u3092\u5165\u529b\u3057\u307e\u3059\u3002SPAN Panel MAIN 32 \u30d1\u30cd\u30eb\u306f\u305d\u306e\u3088\u3046\u306a\u56de\u8def\u306e 2 \u672c\u306e\u7dda\u306e\u5e73\u5747\u5024\u3057\u304b\u5831\u544a\u305b\u305a\u3001\u904e\u8ca0\u8377\u306e\u7dda\u304c\u898b\u3048\u306a\u304f\u306a\u308b\u3053\u3068\u304c\u3042\u308b\u305f\u3081\u3001\u30b3\u30d4\u30fc\u306f\u9069\u7528\u3067\u304d\u307e\u305b\u3093\u3002\u305d\u306e\u56de\u8def\u306e\u30e2\u30cb\u30bf\u30ea\u30f3\u30b0\u3092\u30aa\u30d5\u306b\u3059\u308b\u3053\u3068\u3092\u304a\u3059\u3059\u3081\u3057\u307e\u3059\u3002",
+    "monitoringRating.note_guide":
+      "\u8a73\u3057\u304f\u306f\u3001\u30bf\u30f3\u30c7\u30e0\u30d6\u30ec\u30fc\u30ab\u30fc\u3068\u8907\u6570\u8ca0\u8377\u30d6\u30ec\u30fc\u30ab\u30fc\u306e\u30ac\u30a4\u30c9\u3092\u3054\u89a7\u304f\u3060\u3055\u3044\u3002",
+    "monitoringRating.panel_plus": "{panel} A +",
+    "monitoringRating.judged_equals": "= {rating} A",
+    "monitoringRating.clear_label": "{circuit} \u306e\u30b3\u30d4\u30fc\u3057\u305f\u5b9a\u683c\u3092\u524a\u9664",
+    "monitoringRating.table_threshold_warning":
+      "\u3053\u306e\u56de\u8def\u306e\u3057\u304d\u3044\u5024\u306f 100% \u3092\u8d85\u3048\u3066\u304a\u308a\u3001\u4eca\u5f8c\u306f\u4e21\u65b9\u306e\u30d6\u30ec\u30fc\u30ab\u30fc\u306e\u5408\u8a08\u306b\u9069\u7528\u3055\u308c\u308b\u305f\u3081\u3001\u5b9f\u969b\u306e\u904e\u8ca0\u8377\u3092\u898b\u9003\u3059\u304a\u305d\u308c\u304c\u3042\u308a\u307e\u3059\u3002{reset}\u3092\u9078\u629e\u3059\u308b\u3068\u30b0\u30ed\u30fc\u30d0\u30eb\u3057\u304d\u3044\u5024\u3092\u4f7f\u7528\u3057\u307e\u3059\u3002",
+    "monitoringRating.table_threshold_warning_global":
+      "\u30b0\u30ed\u30fc\u30d0\u30eb\u3057\u304d\u3044\u5024\u306f 100% \u3092\u8d85\u3048\u3066\u304a\u308a\u3001\u4eca\u5f8c\u306f\u4e21\u65b9\u306e\u30d6\u30ec\u30fc\u30ab\u30fc\u306e\u5408\u8a08\u306b\u9069\u7528\u3055\u308c\u308b\u305f\u3081\u3001\u5b9f\u969b\u306e\u904e\u8ca0\u8377\u3092\u898b\u9003\u3059\u304a\u305d\u308c\u304c\u3042\u308a\u307e\u3059\u3002\u4e0a\u306e{settings}\u3067\u5909\u66f4\u3057\u3066\u304f\u3060\u3055\u3044\u3002",
+    "monitoringRating.warning_announcement": "{circuit}\uff1a{warning}",
+    "error.package_ratings_failed":
+      "SPAN \u30a2\u30d7\u30ea\u304b\u3089\u30b3\u30d4\u30fc\u3057\u305f\u5b9a\u683c\u306e\u66f4\u65b0\u306b\u5931\u6557\u3057\u307e\u3057\u305f",
+    "sidepanel.judged_against": "\u5224\u5b9a\u57fa\u6e96: {rating}",
     "sidepanel.shedding_priority": "\u30b7\u30a7\u30c7\u30a3\u30f3\u30b0\u512a\u5148\u5ea6",
     "sidepanel.priority_label": "\u512a\u5148\u5ea6",
     "sidepanel.monitoring": "\u30e2\u30cb\u30bf\u30ea\u30f3\u30b0",
@@ -1020,11 +1276,17 @@ const translations: Record<string, Record<string, string>> = {
     "monitoring.col.spike": "Pico",
     "monitoring.col.window": "Janela",
     "monitoring.col.cooldown": "Resfriamento",
+    "monitoring.rating": "Corrente nominal",
     "monitoring.all_none": "Todos / Nenhum",
     "monitoring.reset": "Redefinir",
+    "monitoring.limit_invalid": "Digite um n\u00famero inteiro de {min} a {max}.",
+    "monitoring.enable_invalid": "O monitoramento n\u00e3o foi ativado: corrija os campos marcados.",
+    "monitoring.point_field": "{field} de {name}",
+    "monitoring.reset_point": "Redefinir {name}",
     "notification.heading": "Configura\u00e7\u00f5es de Notifica\u00e7\u00e3o",
     "notification.targets": "Destinos de Notifica\u00e7\u00e3o",
     "notification.none_selected": "Nenhum selecionado",
+    "notification.targets_button": "Destinos de Notifica\u00e7\u00e3o: {targets}",
     "notification.no_targets": "Nenhum destino de notifica\u00e7\u00e3o encontrado",
     "notification.all_targets": "Todos",
     "notification.event_bus_target": "Barramento de Eventos (barramento de eventos do HA)",
@@ -1067,6 +1329,12 @@ const translations: Record<string, Record<string, string>> = {
     "error.areas_failed": "As atribui\u00e7\u00f5es de \u00e1reas podem estar fora de sincroniza\u00e7\u00e3o",
     "error.retry": "Tentar novamente",
     "card.connecting": "Conectando ao SPAN Panel...",
+
+    // Monitoring rating
+    "monitoringRating.none": "sem corrente nominal",
+    "monitoringRating.copied": "{package} do seu app SPAN (o painel publica {panel} A)",
+    "monitoringRating.copied_unnamed": "Copiado do seu app SPAN",
+    "monitoringRating.judged_copied": "Avaliado com base em {rating} A: {copied}",
     "settings.heading": "Configura\u00e7\u00f5es",
     "settings.description":
       "As configura\u00e7\u00f5es gerais da integra\u00e7\u00e3o (nomes de entidades, prefixo do dispositivo, n\u00fameros de circuito) s\u00e3o gerenciadas atrav\u00e9s do fluxo de op\u00e7\u00f5es da integra\u00e7\u00e3o.",
@@ -1155,6 +1423,12 @@ const translations: Record<string, Record<string, string>> = {
     "grid.configure_subdevice": "Configurar dispositivo",
     "grid.on": "Lig",
     "grid.off": "Des",
+    "grid.shared_switch": "Liga e desliga todos os circuitos deste espa\u00e7o",
+    "meters.title": "Medidores",
+    "meters.importing": "importando",
+    "meters.exporting": "exportando",
+    "meters.imported": "importados",
+    "meters.exported": "exportados",
     "subdevice.ev_charger": "Carregador VE",
     "subdevice.battery": "Bateria",
     "subdevice.fallback": "Sub-dispositivo",
@@ -1176,6 +1450,49 @@ const translations: Record<string, Record<string, string>> = {
     "sidepanel.reset_to_global": "Redefinir para o padr\u00e3o global",
     "sidepanel.relay": "Rel\u00e9",
     "sidepanel.breaker": "Disjuntor",
+    "sidepanel.capacity": "capacidade de {amps} A",
+    "monitoringRating.title": "Correntes nominais dos disjuntores no app SPAN",
+    "monitoringRating.panel_rating": "O painel publica {panel} A",
+    "monitoringRating.other_breaker": "Outro disjuntor (A)",
+    "monitoringRating.other_breaker_label": "Outro disjuntor no espa\u00e7o de {circuit}",
+    "monitoringRating.reset": "Remover as correntes nominais copiadas",
+    "monitoringRating.invalid_other": "Digite a corrente nominal do outro disjuntor como um n\u00famero inteiro de amperes, 1 ou mais.",
+    "monitoringRating.guidance":
+      "Se o seu app SPAN mostrar duas correntes nominais para este circuito, como 20-20A, digite a segunda aqui. Os pain\u00e9is SPAN Panel MAIN 32 informam apenas a primeira, e o monitoramento ent\u00e3o avalia este espa\u00e7o pelos dois disjuntores juntos.",
+    "monitoringRating.guidance_two_spaces": "Se o seu app SPAN mostrar duas correntes nominais para este circuito, como 20-30A, digite a segunda aqui.",
+    "monitoringRating.averaged_legs":
+      "Os pain\u00e9is SPAN Panel MAIN 32 informam apenas a m\u00e9dia das duas fases deste circuito, o que pode esconder uma fase sobrecarregada. Recomendamos desativar o monitoramento deste circuito.",
+    "monitoringRating.turn_off_monitoring": "Desativar o monitoramento",
+    "monitoringRating.threshold_warning":
+      "Os limites personalizados deste circuito passam de 100%. Com as correntes nominais copiadas, eles agora se aplicam aos dois disjuntores juntos, o que pode deixar passar uma sobrecarga real.",
+    "monitoringRating.threshold_warning_global":
+      "Os limites globais que este circuito usa passam de 100%. Com as correntes nominais copiadas, eles agora se aplicam aos dois disjuntores juntos, o que pode deixar passar uma sobrecarga real; altere-os em {settings}, na aba {tab}.",
+    "monitoringRating.use_global_thresholds": "Usar os limites globais",
+    "monitoringRating.note_title": "Disjuntores tandem no SPAN Panel MAIN 32",
+    "monitoringRating.note_problem":
+      "Os pain\u00e9is SPAN Panel MAIN 32 n\u00e3o informam quais disjuntores s\u00e3o tandem, nem a corrente nominal do segundo disjuntor de um tandem. Um tandem coloca dois disjuntores em um espa\u00e7o, mas o painel o informa como um \u00fanico circuito com apenas a corrente nominal do primeiro disjuntor, enquanto um \u00fanico sensor l\u00ea os dois disjuntores juntos. Um tandem 20-20 mostra 20 A aqui e pode conduzir 40 A, ent\u00e3o o monitoramento gera alertas falsos nele.",
+    "monitoringRating.note_steps": "Para corrigir isso, copie as correntes nominais do seu app SPAN:",
+    "monitoringRating.note_step_find": "No app SPAN, encontre cada circuito cujo disjuntor mostra duas correntes nominais, como 20-20A.",
+    "monitoringRating.note_step_enter":
+      "Na tabela abaixo, digite a segunda corrente nominal no campo {column} desse circuito. Depois pressione Enter ou v\u00e1 para o pr\u00f3ximo campo.",
+    "monitoringRating.note_step_single": "Deixe o campo vazio para um circuito com um \u00fanico disjuntor.",
+    "monitoringRating.note_judged":
+      "O monitoramento ent\u00e3o avalia esse espa\u00e7o pelos dois disjuntores juntos: 40 A para um 20-20. S\u00f3 o monitoramento usa a c\u00f3pia, e o sensor Breaker Rating do circuito continua mostrando o que o painel informa. Para remover uma corrente nominal copiada, selecione \u2715 ao lado do seu campo.",
+    "monitoringRating.note_thresholds":
+      "Se voc\u00ea aumentou os limites de um tandem acima de 100% para interromper os alertas dele, selecione {reset} na linha dele. Esses limites agora se aplicam aos dois disjuntores juntos.",
+    "monitoringRating.note_two_spaces":
+      "Para um circuito que ocupa dois espa\u00e7os, digite a segunda corrente nominal da mesma forma se o seu app SPAN mostrar duas, como 20-30A. Os pain\u00e9is SPAN Panel MAIN 32 informam apenas a m\u00e9dia das duas fases de um circuito assim, o que pode esconder uma fase sobrecarregada, ent\u00e3o a c\u00f3pia n\u00e3o pode ser aplicada e recomendamos desativar o monitoramento desse circuito.",
+    "monitoringRating.note_guide": "Leia mais no guia de disjuntores tandem e de cargas m\u00faltiplas.",
+    "monitoringRating.panel_plus": "{panel} A +",
+    "monitoringRating.judged_equals": "= {rating} A",
+    "monitoringRating.clear_label": "Remover as correntes nominais copiadas de {circuit}",
+    "monitoringRating.table_threshold_warning":
+      "Os limites deste circuito passam de 100% e agora se aplicam aos dois disjuntores juntos, o que pode deixar passar uma sobrecarga real. Selecione {reset} para usar os limites globais.",
+    "monitoringRating.table_threshold_warning_global":
+      "Os limites globais passam de 100% e agora se aplicam aos dois disjuntores juntos, o que pode deixar passar uma sobrecarga real. Altere-os em {settings}, acima.",
+    "monitoringRating.warning_announcement": "{circuit}: {warning}",
+    "error.package_ratings_failed": "N\u00e3o foi poss\u00edvel atualizar as correntes nominais copiadas do app SPAN",
+    "sidepanel.judged_against": "Avaliado com base em: {rating}",
     "sidepanel.shedding_priority": "Prioridade de Desligamento",
     "sidepanel.priority_label": "Prioridade",
     "sidepanel.monitoring": "Monitoramento",

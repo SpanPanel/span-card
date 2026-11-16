@@ -1,4 +1,4 @@
-import { buildChartOptions } from "./chart-options.js";
+import { buildChartOptions, type ChartLimit } from "./chart-options.js";
 import "./span-chart.js";
 import type { SpanChart } from "./span-chart.js";
 import type { HomeAssistant, HistoryPoint, ChartMetricDef } from "../types.js";
@@ -21,10 +21,10 @@ export function updateChart(
   metric: ChartMetricDef | undefined,
   isProducer: boolean,
   heightPx: number | undefined,
-  breakerRatingA?: number,
+  limit?: ChartLimit,
   useLinearInterpolation?: boolean
 ): void {
-  const { options, series } = buildChartOptions(history, durationMs, metric, isProducer, breakerRatingA, useLinearInterpolation);
+  const { options, series } = buildChartOptions(history, durationMs, metric, isProducer, limit, useLinearInterpolation);
   const minH = heightPx ?? 120;
   container.style.minHeight = minH + "px";
 

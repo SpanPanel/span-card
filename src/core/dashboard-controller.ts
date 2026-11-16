@@ -2,17 +2,35 @@ import { DEFAULT_GRAPH_HORIZON, GRAPH_HORIZONS, INTEGRATION_DOMAIN, LIVE_SAMPLE_
 import { getCircuitChartEntity } from "../helpers/chart.js";
 import { getHorizonDurationMs, getMaxHistoryPoints, getMinGapMs, recordSample } from "../helpers/history.js";
 import { readNumber } from "../helpers/read-number.js";
+import { meterSlots, slotMembers, slotsByMember, type MeterSlot } from "../helpers/shared-meters.js";
 import { subDeviceCharts } from "../helpers/sub-device-power.js";
 import { loadHistory, collectSubDeviceEntityIds } from "./history-loader.js";
 import { updateCircuitDOM, updateSubDeviceDOM } from "./dom-updater.js";
+import { updateMetersDOM } from "./meters-strip.js";
 import { getEffectiveHorizon, getEffectiveSubDeviceHorizon } from "./graph-settings.js";
-import { MonitoringStatusCache, MonitoringStatusMultiCache, mergeMonitoringStatuses } from "./monitoring-status.js";
+import {
+  MonitoringStatusCache,
+  MonitoringStatusMultiCache,
+  circuitMonitoringInfo,
+  mergeMonitoringStatuses,
+  monitoringStatusFrom,
+} from "./monitoring-status.js";
 import { GraphSettingsCache } from "./graph-settings.js";
 import { groupFavoritesByPanel } from "./favorites-sections.js";
 import { switchPresence } from "./circuit-state.js";
 import type { FavoritesPanelInfo, FavoritesPanelGroup } from "./favorites-sections.js";
-import type { CircuitModeConfig, FavoritesPanelSection, SidePanelConfig } from "./side-panel.js";
-import type { CardConfig, FavoriteRef, GraphSettings, HistoryMap, HomeAssistant, MonitoringStatus, MonitoringStatusResponse, PanelTopology } from "../types.js";
+import type { CircuitModeConfig, CircuitRatingView, FavoritesPanelSection, SidePanelConfig } from "./side-panel.js";
+import type {
+  CardConfig,
+  Circuit,
+  FavoriteRef,
+  GraphSettings,
+  HistoryMap,
+  HomeAssistant,
+  MonitoringStatus,
+  MonitoringStatusResponse,
+  PanelTopology,
+} from "../types.js";
 import type { ErrorStore } from "./error-store.js";
 import { RetryManager } from "./retry-manager.js";
 import { t } from "../i18n.js";
@@ -28,6 +46,19 @@ interface SpanSidePanelElement extends HTMLElement {
   hass: HomeAssistant;
   errorStore: ErrorStore | null;
   open(config: SidePanelConfig): void;
+  readonly openCircuit: { uuid: string; configEntryId: string | null } | null;
+  refreshRating(view: CircuitRatingView): void;
+}
+
+/**
+ * What a circuit's side panel shows of the slot it is drawn in: every member, each with its own id, and for circuits
+ * that share a meter the group's capacity. A circuit in no slot stands alone as `circuitId`.
+ */
+function slotView(slot: MeterSlot | undefined, circuitId: string, circuit: Circuit): Pick<CircuitRatingView, "members" | "capacityA"> {
+  return {
+    members: slot ? slotMembers(slot) : [{ uuid: circuitId, circuit }],
+    capacityA: slot && slot.members.length > 1 ? (slot.circuit.breaker_rating_a ?? null) : null,
+  };
 }
 
 /**
@@ -67,6 +98,9 @@ export class DashboardController {
    * config entry. ``null`` means normal single-panel mode.
    */
   private _favRefs: Record<string, FavoriteRef> | null = null;
+
+  /** The Favorites view's monitoring status, merged across its panels by `fetchMergedMonitoringStatus`. */
+  private _favoritesMonitoringStatus: MonitoringStatus | null = null;
 
   private _perPanelInfo: Map<string, FavoritesPanelInfo> = new Map();
 
@@ -129,6 +163,16 @@ export class DashboardController {
 
   clearFavoriteRefs(): void {
     this._favRefs = null;
+    this._favoritesMonitoringStatus = null;
+  }
+
+  /**
+   * The monitoring status this view draws from: in the Favorites view the status
+   * merged across its panels, else this panel's. Null while monitoring is
+   * disabled or its status not yet fetched.
+   */
+  get monitoringStatus(): MonitoringStatus | null {
+    return this._favRefs ? this._favoritesMonitoringStatus : this.monitoringCache.status;
   }
 
   /**
@@ -225,7 +269,9 @@ export class DashboardController {
     // render. When settings change, ``monitoringMultiCache.invalidate``
     // is called alongside the existing ``monitoringCache.invalidate``.
     const statuses = await Promise.all(entryIds.map(eid => this.monitoringMultiCache.fetchOne(hass, eid)));
-    return mergeMonitoringStatuses(statuses);
+    const merged = mergeMonitoringStatuses(statuses);
+    this._favoritesMonitoringStatus = merged;
+    return merged;
   }
 
   /**
@@ -374,8 +420,9 @@ export class DashboardController {
 
   updateDOM(root: DOMRoot): void {
     if (!this._hass || !this._topology || !this._config) return;
-    updateCircuitDOM(root, this._hass, this._topology, this._config, this.powerHistory, this.horizonMap);
+    updateCircuitDOM(root, this._hass, this._topology, this._config, this.powerHistory, this.horizonMap, this.monitoringStatus);
     updateSubDeviceDOM(root, this._hass, this._topology, this._config, this.powerHistory, this.subDeviceHorizonMap);
+    updateMetersDOM(root, this._hass, this._topology, this._config);
   }
 
   async onGraphSettingsChanged(root: DOMRoot): Promise<void> {
@@ -479,8 +526,7 @@ export class DashboardController {
           monitoringStatus = this.monitoringCache.status;
         }
 
-        const monitoringEntity = circuit.entities?.current ?? circuit.entities?.power;
-        const monitoringInfo = monitoringEntity ? (monitoringStatus?.circuits?.[monitoringEntity] ?? null) : null;
+        const monitoringInfo = circuitMonitoringInfo(monitoringStatus, circuit);
 
         const globalHorizon = graphSettings?.global_horizon ?? DEFAULT_GRAPH_HORIZON;
         const circuitOverride = graphSettings?.circuits?.[realUuid];
@@ -493,20 +539,25 @@ export class DashboardController {
         const favoritePanelDeviceId = ref?.panelDeviceId ?? this._panelFavorites?.panelDeviceId;
         const isFavorite = ref !== null || (this._panelFavorites?.circuitUuids.has(realUuid) ?? false);
 
+        // The panel describes the slot the circuit is drawn in: for a shared meter, every member and its capacity.
+        const slot = this._sidePanelSlot(uuid, ref);
+        // A favorite's panel says whether it takes a monitoring rating, not the merged view's topology.
+        const ownTopology = ref ? this._perPanelInfo.get(ref.panelDeviceId)?.topology : this._topology;
+
         const circuitConfig: CircuitModeConfig = {
           uuid: realUuid,
           name: circuit.name,
-          tabs: circuit.tabs,
           entities: circuit.entities,
-          breaker_rating_a: circuit.breaker_rating_a ?? undefined,
-          voltage: circuit.voltage,
+          ...slotView(slot, realUuid, circuit),
           is_user_controllable: circuit.is_user_controllable,
           always_on: circuit.always_on,
           relay_state: circuit.relay_state,
           priority: circuit.priority,
           device_type: circuit.device_type,
           monitoringInfo,
+          monitoringGlobals: monitoringStatus?.global_settings ?? null,
           showMonitoring: this._showMonitoring,
+          monitoringRatingOffered: ownTopology?.monitoring_rating_offered === true,
           graphHorizonInfo,
           showFavorites: this.showFavorites,
           favoritePanelDeviceId,
@@ -554,6 +605,42 @@ export class DashboardController {
         configEntryId: entryId,
       });
     }
+  }
+
+  /**
+   * The slot a circuit's side panel describes, found by the circuit's own id in its own panel's topology. In the
+   * Favorites view that is the contributing panel's, since the merged topology holds only the favorited circuits and a
+   * member favorited alone would lose the others; the merged one stands in only where that panel is not known.
+   */
+  private _sidePanelSlot(uuid: string, ref: FavoriteRef | null): MeterSlot | undefined {
+    const own = ref?.kind === "circuit" ? this._perPanelInfo.get(ref.panelDeviceId)?.topology : undefined;
+    if (own && ref) return slotsByMember(meterSlots(own)).get(ref.targetId);
+    return this._topology ? slotsByMember(meterSlots(this._topology)).get(uuid) : undefined;
+  }
+
+  /**
+   * Redraw the circuit side panel left open in `root` after a rating change on
+   * `entryId`, from `topology` (fetched after the change) and a monitoring status
+   * fetched uncached. Does nothing when no circuit panel is open, when it belongs to
+   * another entry, when the circuit is no longer in the topology, or when the change
+   * names circuits (`circuitIds`, null for any) none of which is drawn in its slot.
+   */
+  async refreshCircuitSidePanel(root: ParentNode, entryId: string, topology: PanelTopology, circuitIds: ReadonlySet<string> | null = null): Promise<void> {
+    const sidePanel = root.querySelector("span-side-panel") as SpanSidePanelElement | null;
+    const open = sidePanel?.openCircuit;
+    if (!sidePanel || !open || open.configEntryId !== entryId) return;
+
+    // The open panel is keyed by the circuit's own id, and `topology` is its own panel's.
+    const circuit = topology.circuits[open.uuid];
+    if (!circuit) return;
+    const slot = slotsByMember(meterSlots(topology)).get(open.uuid);
+    if (circuitIds && !(slot?.memberIds ?? [open.uuid]).some(id => circuitIds.has(id))) return;
+    const status = await this._fetchMonitoringStatusFresh(entryId);
+    // The panel may have been closed or reopened on another circuit while the status was fetched.
+    if (sidePanel.openCircuit?.uuid !== open.uuid) return;
+
+    const monitoringInfo = circuitMonitoringInfo(status, circuit);
+    sidePanel.refreshRating({ ...slotView(slot, open.uuid, circuit), monitoringInfo, monitoringGlobals: status?.global_settings ?? null });
   }
 
   /**
@@ -630,9 +717,7 @@ export class DashboardController {
             errorMessage: t("error.monitoring_failed"),
           })
         : await this._hass.callWS<{ response?: MonitoringStatusResponse }>(msg);
-      const response = resp?.response;
-      if (!response) return null;
-      return { circuits: response.circuits, mains: response.mains };
+      return monitoringStatusFrom(resp?.response);
     } catch (err) {
       console.warn("SPAN Panel: fresh monitoring status fetch failed", err);
       return null;

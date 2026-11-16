@@ -329,6 +329,39 @@ export const CARD_STYLES: string = `
     flex-shrink: 0;
   }
 
+  /* The pencil that marks a rating from a copied package, a button so a tap or a key can show what it says. */
+  .rating-user-set {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 24px;
+    min-height: 24px;
+    margin-left: 2px;
+    padding: 0 2px;
+    border: none;
+    border-radius: 3px;
+    background: none;
+    color: inherit;
+    font: inherit;
+    font-weight: 400;
+    line-height: inherit;
+    cursor: help;
+  }
+  .rating-user-set:focus-visible {
+    outline: 2px solid var(--primary-color, #03a9f4);
+    outline-offset: 1px;
+  }
+  .rating-copied-note {
+    display: block;
+    margin-top: 2px;
+    font-size: 0.85em;
+    color: var(--secondary-text-color, #727272);
+    white-space: normal;
+  }
+  .rating-copied-note[hidden] {
+    display: none;
+  }
+
   .circuit-name {
     font-size: 0.9em;
     font-weight: 500;
@@ -523,6 +556,40 @@ export const CARD_STYLES: string = `
     padding-bottom: 16px;
     border-bottom: 1px solid var(--divider-color, #333);
   }
+
+  /* Meters outside the panel: no breaker space, so a strip above the grid. */
+  .meters-strip {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-bottom: 20px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--divider-color, #333);
+  }
+  .meters-title { flex-basis: 100%; font-size: 0.7em; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--span-accent); }
+  .meter-tile {
+    flex: 1 1 220px;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    background: var(--secondary-background-color, var(--card-background-color, #2a2a2a));
+    border: 1px solid var(--divider-color, #333);
+    border-radius: 12px;
+    padding: 12px 16px;
+  }
+  .meter-name {
+    font-size: 0.9em;
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--primary-text-color, #e0e0e0);
+  }
+  .meter-readings { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; font-size: 0.85em; color: var(--secondary-text-color, #999); }
+  .meter-value { font-size: 1.05em; color: var(--primary-text-color, #fff); white-space: nowrap; }
+  .meter-value strong { font-weight: 700; font-size: 1.1em; }
+  .meter-direction:empty { display: none; }
 
   .sub-device {
     background: var(--secondary-background-color, var(--card-background-color, #2a2a2a));

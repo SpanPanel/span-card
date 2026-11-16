@@ -58,7 +58,7 @@ describe("the header's readings", () => {
     const hass = hassWith({ [SITE]: "unknown", [UPSTREAM]: "unavailable", [DOWNSTREAM]: "unknown", [SOLAR]: "unknown", [BATTERY]: "unavailable" });
     const root = rendered(hass);
 
-    updateCircuitDOM(root, hass, topology(), CONFIG, new Map(), undefined);
+    updateCircuitDOM(root, hass, topology(), CONFIG, new Map(), undefined, null);
 
     for (const name of ["consumption", "upstream", "downstream", "solar", "battery"]) {
       expect(stat(root, name).textContent).toBe("--");
@@ -70,7 +70,7 @@ describe("the header's readings", () => {
     const hass = hassWith({ [SITE]: "0", [UPSTREAM]: "0", [DOWNSTREAM]: "0", [SOLAR]: "0", [BATTERY]: "0" });
     const root = rendered(hass);
 
-    updateCircuitDOM(root, hass, topology(), CONFIG, new Map(), undefined);
+    updateCircuitDOM(root, hass, topology(), CONFIG, new Map(), undefined, null);
 
     for (const name of ["consumption", "upstream", "downstream", "solar"]) {
       expect(stat(root, name).textContent).toBe("0.0");
@@ -82,7 +82,7 @@ describe("the header's readings", () => {
     const hass = hassWith({ "sensor.a_power": "1000", "sensor.b_power": "unknown", "sensor.c_power": "500" });
     const root = rendered(hass);
 
-    updateCircuitDOM(root, hass, topology(), CONFIG, new Map(), undefined);
+    updateCircuitDOM(root, hass, topology(), CONFIG, new Map(), undefined, null);
 
     expect(stat(root, "consumption").textContent).toBe("1.5");
     expect(stat(root, "consumption").classList.contains("stat-partial")).toBe(true);
@@ -90,9 +90,17 @@ describe("the header's readings", () => {
 
   it("drops the partial mark once every circuit reads", () => {
     const root = rendered(hassWith({}));
-    updateCircuitDOM(root, hassWith({ "sensor.a_power": "1000", "sensor.b_power": "unknown" }), topology(), CONFIG, new Map(), undefined);
+    updateCircuitDOM(root, hassWith({ "sensor.a_power": "1000", "sensor.b_power": "unknown" }), topology(), CONFIG, new Map(), undefined, null);
 
-    updateCircuitDOM(root, hassWith({ "sensor.a_power": "1000", "sensor.b_power": "500", "sensor.c_power": "0" }), topology(), CONFIG, new Map(), undefined);
+    updateCircuitDOM(
+      root,
+      hassWith({ "sensor.a_power": "1000", "sensor.b_power": "500", "sensor.c_power": "0" }),
+      topology(),
+      CONFIG,
+      new Map(),
+      undefined,
+      null
+    );
 
     expect(stat(root, "consumption").textContent).toBe("1.5");
     expect(stat(root, "consumption").classList.contains("stat-partial")).toBe(false);
@@ -102,7 +110,7 @@ describe("the header's readings", () => {
     const hass = hassWith({ "sensor.a_power": "unknown", "sensor.b_power": "unavailable" });
     const root = rendered(hass);
 
-    updateCircuitDOM(root, hass, topology(), CONFIG, new Map(), undefined);
+    updateCircuitDOM(root, hass, topology(), CONFIG, new Map(), undefined, null);
 
     expect(stat(root, "consumption").textContent).toBe("--");
   });
@@ -123,7 +131,7 @@ describe("a slot's reading after an update", () => {
     const slot = root.querySelector('.circuit-slot[data-uuid="a"]')!;
     expect(slot.classList.contains("circuit-producer")).toBe(true);
 
-    updateCircuitDOM(root, hassWith({ "sensor.a_power": "unknown" }), topology(), CONFIG, new Map(), undefined);
+    updateCircuitDOM(root, hassWith({ "sensor.a_power": "unknown" }), topology(), CONFIG, new Map(), undefined, null);
 
     expect(slot.querySelector(".power-value")!.textContent!.trim()).toBe("--");
     expect(slot.classList.contains("circuit-producer")).toBe(false);
@@ -137,7 +145,7 @@ describe("a slot's reading after an update", () => {
     root.innerHTML = renderCircuitSlot("a", withCurrent, 1, "2", "single", hassWith({ "sensor.a_current": "4" }), amps, null, "unknown");
     root.querySelector(".chart-container")?.remove();
 
-    updateCircuitDOM(root, hassWith({ "sensor.a_current": "unavailable" }), top, amps, new Map(), undefined);
+    updateCircuitDOM(root, hassWith({ "sensor.a_current": "unavailable" }), top, amps, new Map(), undefined, null);
 
     expect(root.querySelector(".power-value")!.textContent!.trim()).toBe("--");
   });

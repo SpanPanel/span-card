@@ -1,7 +1,7 @@
 import { t } from "./i18n.js";
 import type { ChartMetricDef, GraphHorizonPreset, SheddingPriorityDef } from "./types.js";
 
-export const CARD_VERSION = "0.9.5";
+export const CARD_VERSION = "0.11.0";
 
 // -- Defaults --
 
@@ -33,6 +33,14 @@ export const SUB_DEVICE_TYPE_EVSE = "evse";
 export const SUB_DEVICE_TYPE_PV = "pv";
 export const SUB_DEVICE_KEY_PREFIX = "sub_";
 
+// -- Integration documentation --
+
+/**
+ * The integration's guide to tandem and multi-load breakers, at its MAIN 32 section, which the Monitoring tab's note links
+ * to. It names `main`, so the link follows the newest guide.
+ */
+export const TANDEM_GUIDE_URL = "https://github.com/SpanPanel/span/blob/main/tandems.md#main-32";
+
 // -- Chart layout constants --
 
 export const CIRCUIT_CHART_HEIGHT = 100;
@@ -40,10 +48,10 @@ export const CIRCUIT_COL_SPAN_CHART_HEIGHT = 200;
 export const BESS_CHART_COL_HEIGHT = 120;
 export const EVSE_CHART_HEIGHT = 150;
 
-// -- NEC breaker limits --
+// -- Current chart limits --
 
-export const NEC_CONTINUOUS_LOAD_FACTOR = 0.8;
-export const NEC_TRIP_RATING_FACTOR = 1.25;
+/** How far a current chart's axis rises above its highest limit line or reading: a quarter, as above the breaker rating before. */
+export const LIMIT_AXIS_HEADROOM = 1.25;
 
 // -- History thresholds --
 
@@ -53,7 +61,6 @@ export const MIN_HISTORY_DURATION_MS = 60_000;
 // -- UI debounce / timing --
 
 export const INPUT_DEBOUNCE_MS = 500;
-export const THRESHOLD_DEBOUNCE_MS = 800;
 
 // -- Chart metric definitions --
 

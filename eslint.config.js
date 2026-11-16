@@ -1,6 +1,22 @@
 import js from "@eslint/js";
 import tseslint from "typescript-eslint";
 
+// Home Assistant is retiring the `friendly_name` state attribute, so nothing in `src/` may read it. A read is
+// rejected wherever it writes the attribute's name out, in each of the forms a name can be written in:
+// `attrs.friendly_name`, `attrs["friendly_name"]`, `` attrs[`friendly_name`] `` and `const { friendly_name } = attrs`.
+const NO_FRIENDLY_NAME = "Do not read friendly_name: take the entity's own name from the registry, or ask hass.formatEntityName for the parts by name.";
+const NO_FRIENDLY_NAME_SELECTORS = [
+  // A property access, optional or not: `attrs.friendly_name`, `attrs?.friendly_name`.
+  "MemberExpression[property.name='friendly_name']",
+  // The name as a string, wherever it stands: `attrs["friendly_name"]`, `"friendly_name" in attrs`, a quoted key.
+  "Literal[value='friendly_name']",
+  // The name as a template literal's text: `` attrs[`friendly_name`] ``, a computed key.
+  "TemplateElement[value.cooked='friendly_name']",
+  // The name as a property key: `const { friendly_name } = attrs`, with or without a new name or a default, nested
+  // or in a parameter; and a key of an object literal.
+  "Property[key.name='friendly_name']",
+];
+
 export default tseslint.config(
   js.configs.recommended,
   ...tseslint.configs.recommended,
@@ -40,6 +56,7 @@ export default tseslint.config(
       "no-shadow": "off",
       "@typescript-eslint/no-shadow": "error",
       "consistent-return": "error",
+      "no-restricted-syntax": ["error", ...NO_FRIENDLY_NAME_SELECTORS.map(selector => ({ selector, message: NO_FRIENDLY_NAME }))],
     },
   },
   {

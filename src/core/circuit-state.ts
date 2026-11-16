@@ -1,5 +1,7 @@
 import { DEVICE_TYPE_PV, RELAY_STATE_CLOSED, SELECTABLE_PRIORITY_KEYS } from "../constants.js";
+import { measuresOutsidePanel } from "../helpers/layout.js";
 import { readNumber } from "../helpers/read-number.js";
+import { limitRatingA } from "../helpers/monitoring-rating.js";
 import { isAlertActive } from "./monitoring-status.js";
 import type { Circuit, HomeAssistant, MonitoringPointInfo } from "../types.js";
 
@@ -17,6 +19,14 @@ export function getCircuitStateClasses(_circuit: Circuit, monitoringInfo: Monito
   return classes.join(" ");
 }
 
+/**
+ * Whether a circuit is drawn and sorted as on: its relay is closed, or it is a
+ * meter outside the panel, which has no relay to open.
+ */
+export function drawsAsOn(c: CircuitControlFields & Pick<Circuit, "outside_panel">, hass: HomeAssistant): boolean {
+  return measuresOutsidePanel(c) || relayClosed(c, hass);
+}
+
 /** A circuit's power reading in watts, or null where its sensor has none. */
 export function circuitPowerW(c: Pick<Circuit, "entities">, hass: HomeAssistant): number | null {
   const entityId = c.entities?.power;
@@ -29,29 +39,39 @@ export function circuitCurrentA(c: Pick<Circuit, "entities">, hass: HomeAssistan
   return readNumber(entityId ? hass.states[entityId] : undefined);
 }
 
-/** Whether a circuit draws as production: a solar circuit, or one measured feeding power back. An unknown reading is not production. */
-export function readsAsProducer(c: Pick<Circuit, "device_type">, powerW: number | null): boolean {
-  return c.device_type === DEVICE_TYPE_PV || (powerW !== null && powerW < 0);
+/**
+ * Whether a circuit is a source of generation: as the topology flags it, else, for
+ * a topology that carries no flag, by its device type.
+ */
+export function isGeneration(c: Pick<Circuit, "device_type" | "is_generation">): boolean {
+  return c.is_generation ?? c.device_type === DEVICE_TYPE_PV;
+}
+
+/** Whether a circuit draws as production: a source of generation, or one measured feeding power back. An unknown reading is not production. */
+export function readsAsProducer(c: Pick<Circuit, "device_type" | "is_generation">, powerW: number | null): boolean {
+  return isGeneration(c) || (powerW !== null && powerW < 0);
 }
 
 /**
  * A circuit's breaker utilization in percent: the monitor's figure, else its
- * measured current over its breaker rating. Null when neither is known, never 0 %.
+ * measured current over the rating `limitRatingA` gives, its monitoring rating
+ * only while the circuit is monitored. Null when neither is known, never 0 %.
  *
  * A circuit whose current sensor has no reading has no utilization, whatever
  * the monitor says: the monitor can report 0 % before its first reading, and
  * keeps its last figure after the sensor goes unavailable.
  */
 export function circuitUtilizationPct(
-  c: Pick<Circuit, "entities" | "breaker_rating_a">,
+  c: Pick<Circuit, "entities" | "breaker_rating_a" | "monitoring_rating_a">,
   hass: HomeAssistant,
   monitoringInfo: MonitoringPointInfo | null
 ): number | null {
   const amps = circuitCurrentA(c, hass);
   if (c.entities?.current && amps === null) return null;
   const monitored = monitoringInfo?.utilization_pct ?? null;
-  if (monitored !== null || amps === null || !c.breaker_rating_a) return monitored;
-  return Math.round((Math.abs(amps) / c.breaker_rating_a) * 1000) / 10;
+  const rating = limitRatingA(c, monitoringInfo);
+  if (monitored !== null || amps === null || !rating) return monitored;
+  return Math.round((Math.abs(amps) / rating) * 1000) / 10;
 }
 
 /**
@@ -96,8 +116,9 @@ export function relayClosed(c: CircuitControlFields, hass: HomeAssistant): boole
 /**
  * `none` unless the circuit has a `switch` role, is user-controllable and the
  * switch has a state object; then `operable` while it reads on or off, and
- * `inert` otherwise. A non-admin's fallback topology guesses a switch for every
- * circuit, and a guess with no state object draws nothing.
+ * `inert` otherwise. A non-admin's fallback topology names every switch the
+ * entity registry holds, a disabled one included, and a switch with no state
+ * object draws nothing.
  */
 export function switchPresence(c: CircuitControlFields, hass: HomeAssistant): SwitchPresence {
   if (!c.entities?.switch || c.is_user_controllable === false) return "none";

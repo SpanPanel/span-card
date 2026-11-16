@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import type { HomeAssistant, PanelDevice, PanelTopology } from "../src/types.js";
+import type { Circuit, HomeAssistant, PanelDevice, PanelTopology } from "../src/types.js";
 import { discoverTopology, panelConfigEntryId } from "../src/card/card-discovery.js";
 
 // A card configured before Home Assistant 2026.8 can hold a device id that no
@@ -44,6 +44,71 @@ describe("discoverTopology", () => {
     const { panelDevice } = await discoverTopology(hass, CURRENT_ID);
 
     expect(panelDevice?.id).toBe(CURRENT_ID);
+  });
+});
+
+// From SPAN Panel 2.3.0 each circuit is a child device of its panel, and its
+// topology record names that device. The record's own `name` is the circuit's
+// name in the SPAN app; the device's is what Home Assistant shows, and the
+// user's rename of it comes first.
+describe("topology path labels a circuit by its device when the record carries device_id", () => {
+  const PANEL = { id: CURRENT_ID, name: "SPAN Panel", parent_device_id: null, via_device_id: null };
+
+  function circuit(record: Partial<Circuit>): Circuit {
+    return { name: "Kitchen Outlets", tabs: [7], entities: {}, ...record };
+  }
+
+  async function labelOf(record: Partial<Circuit>, devices: object[]): Promise<string | undefined> {
+    const hass = hassAnswering({ device_id: CURRENT_ID, circuits: { "b-7": circuit(record) } }, [PANEL, ...devices]);
+    const { topology } = await discoverTopology(hass, CURRENT_ID);
+    return topology?.circuits["b-7"]?.name;
+  }
+
+  it("takes the device's name where it differs from the record's", async () => {
+    const device = { id: "device-b-7", name: "Circuit 7", name_by_user: null, parent_device_id: CURRENT_ID };
+
+    expect(await labelOf({ name: "", device_id: "device-b-7" }, [device])).toBe("Circuit 7");
+  });
+
+  it("takes the user's rename of the device first", async () => {
+    const device = { id: "device-b-7", name: "Kitchen Outlets", name_by_user: "Coffee Bar", parent_device_id: CURRENT_ID };
+
+    expect(await labelOf({ device_id: "device-b-7" }, [device])).toBe("Coffee Bar");
+  });
+
+  it.each([
+    ["names no device, as from an integration that predates circuit devices", {}],
+    ["names none for this circuit", { device_id: null }],
+    ["names a device the list does not hold", { device_id: "gone" }],
+  ])("keeps the record's name where it %s", async (_case, record) => {
+    const device = { id: "device-b-7", name: "Kitchen Outlets", name_by_user: "Coffee Bar", parent_device_id: CURRENT_ID };
+
+    expect(await labelOf(record, [device])).toBe("Kitchen Outlets");
+  });
+
+  it("keeps the record's name where the device has none", async () => {
+    const device = { id: "device-b-7", name: null, name_by_user: null, parent_device_id: CURRENT_ID };
+
+    expect(await labelOf({ device_id: "device-b-7" }, [device])).toBe("Kitchen Outlets");
+  });
+
+  // A charger's feed circuit keeps its sensors on the charger's device, which
+  // the integration names with the panel's name in front. Its record names the
+  // circuit's own device, which holds its breaker switch, or none: never the
+  // charger's.
+  describe("for a charger's feed circuit", () => {
+    const charger = { id: "charger-device", name: "SPAN Panel EV Charger (FLEX⁺)", name_by_user: null, via_device_id: CURRENT_ID, parent_device_id: null };
+    const feed = { name: "FLEX⁺", tabs: [30, 32], entities: { power: "sensor.span_panel_ev_charger_flex_power" } };
+
+    it("keeps the record's name where the circuit has no device, without the panel's name the charger's carries", async () => {
+      expect(await labelOf({ ...feed, device_id: null }, [charger])).toBe("FLEX⁺");
+    });
+
+    it("takes the name of the circuit's own device where it has one", async () => {
+      const device = { id: "device-ev-1", name: "FLEX⁺", name_by_user: "Garage Charger", parent_device_id: CURRENT_ID };
+
+      expect(await labelOf({ ...feed, device_id: "device-ev-1" }, [charger, device])).toBe("Garage Charger");
+    });
   });
 });
 

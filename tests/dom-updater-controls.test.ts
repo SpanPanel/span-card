@@ -31,7 +31,7 @@ function rendered(hass: HomeAssistant, priority: string): HTMLElement {
 }
 
 function update(root: HTMLElement, hass: HomeAssistant): void {
-  updateCircuitDOM(root, hass, TOPOLOGY, {} as CardConfig, new Map(), undefined);
+  updateCircuitDOM(root, hass, TOPOLOGY, {} as CardConfig, new Map(), undefined, null);
 }
 
 describe("updateCircuitDOM", () => {

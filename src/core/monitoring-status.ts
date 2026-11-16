@@ -1,13 +1,25 @@
 import { INTEGRATION_DOMAIN } from "../constants.js";
 import { t } from "../i18n.js";
 import { RetryManager } from "./retry-manager.js";
-import type { HomeAssistant, MonitoringPointInfo, MonitoringStatus } from "../types.js";
+import type { Circuit, HomeAssistant, MonitoringPointInfo, MonitoringStatus, MonitoringStatusResponse, PanelTopology } from "../types.js";
 import type { ErrorStore } from "./error-store.js";
 
 const MONITORING_POLL_INTERVAL_MS = 30_000;
 
 interface CallServiceResponse {
-  response?: MonitoringStatus;
+  response?: MonitoringStatusResponse;
+}
+
+/**
+ * The status a `get_monitoring_status` answer gives, or null when it gives none.
+ * With monitoring off the integration answers `enabled: false` and no points:
+ * that is no monitoring, not monitoring of zero circuits and zero mains.
+ */
+export function monitoringStatusFrom(response: MonitoringStatusResponse | null | undefined): MonitoringStatus | null {
+  if (!response || response.enabled === false) return null;
+  const status: MonitoringStatus = { circuits: response.circuits, mains: response.mains };
+  if (response.global_settings) status.global_settings = response.global_settings;
+  return status;
 }
 
 /**
@@ -67,7 +79,7 @@ export class MonitoringStatusCache {
               errorMessage: t("error.monitoring_failed"),
             })
           : await hass.callWS<CallServiceResponse>(msg);
-        const next = resp?.response ?? null;
+        const next = monitoringStatusFrom(resp?.response);
         if (requestGen === this._generation) {
           this._status = next;
           this._lastFetch = Date.now();
@@ -190,6 +202,36 @@ export function getCircuitMonitoringInfo(status: MonitoringStatus | null, entity
 }
 
 /**
+ * The key a circuit's monitoring status entry goes by: the circuit's current
+ * sensor, else its power sensor. "" for a circuit with neither.
+ */
+function circuitMonitoringKey(circuit: Pick<Circuit, "entities">): string {
+  return circuit.entities?.current ?? circuit.entities?.power ?? "";
+}
+
+/** A circuit's monitoring status entry (`circuitMonitoringKey`). Null where the status has none for it. */
+export function circuitMonitoringInfo(status: MonitoringStatus | null, circuit: Pick<Circuit, "entities">): MonitoringPointInfo | null {
+  return getCircuitMonitoringInfo(status, circuitMonitoringKey(circuit));
+}
+
+/**
+ * Each circuit's label by the key its monitoring status entry goes by
+ * (`circuitMonitoringKey`), for a view that draws the status's entries, not
+ * the topology's circuits. The status names a circuit as the SPAN app does;
+ * the label is the one discovery wrote into the topology, which every other
+ * view shows: the name of the circuit's device, the user's rename of it
+ * first. A circuit with no label has none here, and no topology gives none.
+ */
+export function circuitLabelsByMonitoringKey(topology: PanelTopology | null): Map<string, string> {
+  const labels = new Map<string, string>();
+  for (const circuit of Object.values(topology?.circuits ?? {})) {
+    const key = circuitMonitoringKey(circuit);
+    if (key && circuit.name) labels.set(key, circuit.name);
+  }
+  return labels;
+}
+
+/**
  * Check if a monitored point has custom (non-global) overrides.
  */
 export function hasCustomOverrides(monitoringInfo: MonitoringPointInfo | null): boolean {
@@ -197,15 +239,59 @@ export function hasCustomOverrides(monitoringInfo: MonitoringPointInfo | null): 
   return monitoringInfo.continuous_threshold_pct !== undefined;
 }
 
+/** How a point's utilization reads: under its continuous threshold, at or above it, or at or above its spike threshold. */
+export type UtilizationLevel = "normal" | "warning" | "alert";
+
 /**
- * Get CSS class for utilization level.
+ * The thresholds a point is judged against where monitoring reports none: the integration's defaults, which the card
+ * judged every point against before it read each point's own.
+ */
+const FALLBACK_CONTINUOUS_THRESHOLD_PCT = 80;
+const FALLBACK_SPIKE_THRESHOLD_PCT = 100;
+
+/** A point's monitoring thresholds, in percent of the rating it is judged against. */
+export interface PointThresholds {
+  /** At or above this, the point is a warning, and sustained, a continuous-overload alert. */
+  readonly continuousPct: number;
+  /** At or above this, the point is an alert. */
+  readonly spikePct: number;
+}
+
+/**
+ * The thresholds a point is judged at: its own, as `get_monitoring_status` reports them (the point's override, else
+ * the global setting). 80 % and 100 % stand in only where there is no monitoring info, such as with monitoring off,
+ * where the utilization comes from the breaker rating.
+ */
+export function pointThresholds(monitoringInfo: MonitoringPointInfo | null): PointThresholds {
+  return {
+    continuousPct: monitoringInfo?.continuous_threshold_pct ?? FALLBACK_CONTINUOUS_THRESHOLD_PCT,
+    spikePct: monitoringInfo?.spike_threshold_pct ?? FALLBACK_SPIKE_THRESHOLD_PCT,
+  };
+}
+
+/**
+ * A point's utilization level against its own thresholds (`pointThresholds`): a warning at or above the continuous
+ * threshold and an alert at or above the spike threshold, as the monitor judges them, so a point set above 100 % is
+ * not an alert below its thresholds.
+ */
+export function utilizationLevel(pct: number, monitoringInfo: MonitoringPointInfo | null): UtilizationLevel {
+  const { continuousPct, spikePct } = pointThresholds(monitoringInfo);
+  if (pct >= spikePct) return "alert";
+  if (pct >= continuousPct) return "warning";
+  return "normal";
+}
+
+/** The CSS class that colours a point's utilization by its level (`utilizationLevel`). */
+export function utilizationClass(pct: number, monitoringInfo: MonitoringPointInfo | null): string {
+  return `utilization-${utilizationLevel(pct, monitoringInfo)}`;
+}
+
+/**
+ * Get CSS class for the utilization the monitor reports, by its level; empty while it reports none.
  */
 export function getUtilizationClass(monitoringInfo: MonitoringPointInfo | null): string {
   if (!monitoringInfo?.utilization_pct) return "";
-  const pct = monitoringInfo.utilization_pct;
-  if (pct >= 100) return "utilization-alert";
-  if (pct >= 80) return "utilization-warning";
-  return "utilization-normal";
+  return utilizationClass(monitoringInfo.utilization_pct, monitoringInfo);
 }
 
 /**
@@ -217,17 +303,25 @@ export function isAlertActive(monitoringInfo: MonitoringPointInfo | null): boole
 }
 
 /**
- * Build HTML for the monitoring summary bar.
+ * Build HTML for the monitoring summary bar: how many circuits and mains are monitored, each circuit counted, and
+ * how many warnings, alerts and overrides there are, each monitored point counted once.
  */
 export function buildMonitoringSummaryHTML(status: MonitoringStatus | null): string {
   if (!status) return "";
 
   const circuits: MonitoringPointInfo[] = Object.values(status.circuits ?? {});
   const mains: MonitoringPointInfo[] = Object.values(status.mains ?? {});
-  const all: MonitoringPointInfo[] = [...circuits, ...mains];
+  // One judgement per monitored point: every member of a shared meter reports its group's under the group's
+  // `point_id`. An entry naming no point, from an older integration, is a point of its own.
+  const circuitPoints = new Map(
+    Object.entries(status.circuits ?? {}).map(([key, p]) => [p.point_id !== undefined ? `point:${p.point_id}` : `entry:${key}`, p])
+  );
+  const all: MonitoringPointInfo[] = [...circuitPoints.values(), ...mains];
 
-  const warnings = all.filter(p => p.utilization_pct != null && p.utilization_pct >= 80 && p.utilization_pct < 100).length;
-  const alerts = all.filter(p => p.utilization_pct != null && p.utilization_pct >= 100).length;
+  // Each point by its own thresholds, as the monitor judges it.
+  const levels = all.flatMap(p => (p.utilization_pct != null ? [utilizationLevel(p.utilization_pct, p)] : []));
+  const warnings = levels.filter(level => level === "warning").length;
+  const alerts = levels.filter(level => level === "alert").length;
   const overrides = all.filter(p => p.has_override).length;
 
   return `

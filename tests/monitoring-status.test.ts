@@ -1,5 +1,15 @@
 import { describe, it, expect } from "vitest";
-import { getCircuitMonitoringInfo, hasCustomOverrides, getUtilizationClass, isAlertActive, mergeMonitoringStatuses } from "../src/core/monitoring-status.js";
+import {
+  getCircuitMonitoringInfo,
+  hasCustomOverrides,
+  getUtilizationClass,
+  isAlertActive,
+  mergeMonitoringStatuses,
+  monitoringStatusFrom,
+  buildMonitoringSummaryHTML,
+  utilizationLevel,
+} from "../src/core/monitoring-status.js";
+import { coerceMonitoringStatusResponse } from "../src/panel/tab-monitoring.js";
 import type { MonitoringPointInfo, MonitoringStatus } from "../src/types.js";
 
 describe("getCircuitMonitoringInfo", () => {
@@ -175,5 +185,166 @@ describe("mergeMonitoringStatuses", () => {
     };
     const merged = mergeMonitoringStatuses([s1, s2]);
     expect(merged?.circuits?.["sensor.a_power"]?.utilization_pct).toBe(99);
+  });
+});
+
+describe("monitoringStatusFrom", () => {
+  it("is no status when monitoring is off", () => {
+    expect(monitoringStatusFrom({ enabled: false })).toBeNull();
+    expect(monitoringStatusFrom(undefined)).toBeNull();
+  });
+
+  it("is the monitored points and the global settings when monitoring is on", () => {
+    const circuits = { "sensor.circuit_1_power": { utilization_pct: 55 } };
+    const mains = { "sensor.mains_power": { utilization_pct: 20 } };
+    const global_settings = { continuous_threshold_pct: 80, spike_threshold_pct: 100 };
+    expect(monitoringStatusFrom({ enabled: true, circuits, mains, global_settings })).toEqual({ circuits, mains, global_settings });
+  });
+
+  it("merges panels' points but no one panel's global settings, which differ by panel", () => {
+    const merged = mergeMonitoringStatuses([
+      { circuits: {}, mains: {}, global_settings: { continuous_threshold_pct: 80 } },
+      { circuits: {}, mains: {}, global_settings: { continuous_threshold_pct: 150 } },
+    ]);
+    expect(merged).toEqual({ circuits: {}, mains: {} });
+  });
+});
+
+/** The thresholds the #260 user was told to set on a 20 A tandem judged as its pair. */
+const TANDEM: MonitoringPointInfo = { continuous_threshold_pct: 160, spike_threshold_pct: 200 };
+const DEFAULTS: MonitoringPointInfo = { continuous_threshold_pct: 80, spike_threshold_pct: 100 };
+
+describe("utilizationLevel", () => {
+  it("judges a point against its own thresholds: a warning from the continuous one, an alert from the spike one", () => {
+    expect([150, 159.9, 160, 199.9, 200, 250].map(pct => utilizationLevel(pct, TANDEM))).toEqual(["normal", "normal", "warning", "warning", "alert", "alert"]);
+  });
+
+  it("judges the default thresholds as the card always has", () => {
+    expect([0, 79.9, 80, 99.9, 100, 150].map(pct => utilizationLevel(pct, DEFAULTS))).toEqual(["normal", "normal", "warning", "warning", "alert", "alert"]);
+  });
+
+  it("falls back to 80 % and 100 % only where monitoring gives no thresholds", () => {
+    for (const info of [null, {}]) {
+      expect([79.9, 80, 99.9, 100].map(pct => utilizationLevel(pct, info))).toEqual(["normal", "warning", "warning", "alert"]);
+    }
+  });
+});
+
+describe("the monitoring summary's counts", () => {
+  /** The summary's warning and alert counts, null where it shows none. */
+  function counts(points: MonitoringPointInfo[]): { warnings: number | null; alerts: number | null } {
+    const div = document.createElement("div");
+    const circuits = Object.fromEntries(points.map((point, i) => [`sensor.c${i}_power`, point]));
+    div.innerHTML = buildMonitoringSummaryHTML({ circuits, mains: {} });
+    const count = (selector: string) => {
+      const text = div.querySelector(selector)?.textContent;
+      return text ? Number.parseInt(text, 10) : null;
+    };
+    return { warnings: count(".count-warning"), alerts: count(".count-alert") };
+  }
+
+  it("counts a point against its own thresholds", () => {
+    // 150 % is under the tandem's 160 % continuous threshold: neither a warning nor an alert, as the monitor judges it.
+    expect(counts([{ ...TANDEM, utilization_pct: 150 }])).toEqual({ warnings: null, alerts: null });
+    expect(
+      counts([
+        { ...TANDEM, utilization_pct: 170 },
+        { ...TANDEM, utilization_pct: 200 },
+      ])
+    ).toEqual({ warnings: 1, alerts: 1 });
+  });
+
+  it("counts default thresholds as before", () => {
+    const points = [79, 80, 99, 100, 150].map(utilization_pct => ({ ...DEFAULTS, utilization_pct }));
+    expect(counts(points)).toEqual({ warnings: 2, alerts: 2 });
+  });
+
+  it("counts a shared meter once, however many of its members report it", () => {
+    // Every member of a group reports the group's judgement under the group's point id.
+    const tandem = (utilization_pct: number) => ({ ...TANDEM, utilization_pct, point_id: "t-a" });
+    expect(counts([tandem(170), tandem(170)])).toEqual({ warnings: 1, alerts: null });
+    expect(counts([tandem(210), tandem(210), { ...DEFAULTS, utilization_pct: 120, point_id: "c-1" }])).toEqual({ warnings: null, alerts: 2 });
+  });
+
+  it("counts each entry as its own point where the integration names none, as an older one does", () => {
+    expect(
+      counts([
+        { ...DEFAULTS, utilization_pct: 85 },
+        { ...DEFAULTS, utilization_pct: 85 },
+      ])
+    ).toEqual({ warnings: 2, alerts: null });
+  });
+
+  it("counts a shared meter's override once", () => {
+    const div = document.createElement("div");
+    const member = { has_override: true, point_id: "t-a" };
+    div.innerHTML = buildMonitoringSummaryHTML({ circuits: { "sensor.a_power": member, "sensor.b_power": member }, mains: {} });
+    expect(Number.parseInt(div.querySelector(".count-overrides")!.textContent!, 10)).toBe(1);
+  });
+
+  it("counts a point that reports no thresholds against 80 % and 100 %", () => {
+    expect(counts([{ utilization_pct: 85 }, { utilization_pct: 120 }])).toEqual({ warnings: 1, alerts: 1 });
+  });
+});
+
+describe("coerceMonitoringStatusResponse", () => {
+  /** A circuit entry as an integration that publishes package-ratings forms and states reports it. */
+  const ENTRY = { name: "Oven", point_id: "c-1", breaker_rating_a: 20, monitoring_rating_a: 40, package_ratings_a: [20, 20] };
+
+  it("keeps whether the panel takes package ratings", () => {
+    expect(coerceMonitoringStatusResponse({ enabled: true, monitoring_rating_offered: true })).toEqual({ enabled: true, monitoring_rating_offered: true });
+    expect(coerceMonitoringStatusResponse({ enabled: true, monitoring_rating_offered: false })).toEqual({ enabled: true, monitoring_rating_offered: false });
+  });
+
+  it("drops a monitoring_rating_offered that is not a boolean, which offers nothing", () => {
+    expect(coerceMonitoringStatusResponse({ enabled: true, monitoring_rating_offered: "true" })).toEqual({ enabled: true });
+  });
+
+  it.each([
+    ["one_space", "applies"],
+    ["two_spaces", "averaged_legs"],
+    ["one_space", "pending"],
+    [null, null],
+  ])("keeps a circuit entry's form %j and state %j, and the rest of the entry", (form, state) => {
+    const entry = { ...ENTRY, package_ratings_form: form, package_ratings_state: state };
+    expect(coerceMonitoringStatusResponse({ circuits: { "sensor.oven_current": entry } })?.circuits).toEqual({ "sensor.oven_current": entry });
+  });
+
+  it("keeps the form and state on the mains' entries, where the integration publishes them null", () => {
+    const leg = { name: "Mains", package_ratings_form: null, package_ratings_state: null };
+    expect(coerceMonitoringStatusResponse({ mains: { "sensor.mains_current": leg } })?.mains).toEqual({ "sensor.mains_current": leg });
+  });
+
+  it("drops a form or state outside its type, keeping the rest of the entry", () => {
+    const status = coerceMonitoringStatusResponse({
+      circuits: {
+        "sensor.oven_current": { ...ENTRY, package_ratings_form: "three", package_ratings_state: "applies" },
+        "sensor.dryer_current": { ...ENTRY, package_ratings_form: "two_spaces", package_ratings_state: "judged" },
+        "sensor.range_current": { ...ENTRY, package_ratings_form: 1, package_ratings_state: true },
+      },
+    });
+    expect(status?.circuits).toEqual({
+      "sensor.oven_current": { ...ENTRY, package_ratings_state: "applies" },
+      "sensor.dryer_current": { ...ENTRY, package_ratings_form: "two_spaces" },
+      "sensor.range_current": ENTRY,
+    });
+  });
+
+  it("leaves an entry from an integration that predates forms and states without them", () => {
+    const entry = coerceMonitoringStatusResponse({ circuits: { "sensor.oven_current": ENTRY } })?.circuits?.["sensor.oven_current"];
+    expect(entry).toEqual(ENTRY);
+    expect(entry).not.toHaveProperty("package_ratings_form");
+    expect(entry).not.toHaveProperty("package_ratings_state");
+  });
+
+  it("drops an entry that is not an object, keeping the others", () => {
+    expect(coerceMonitoringStatusResponse({ circuits: { "sensor.a": null, "sensor.b": "x", "sensor.oven_current": ENTRY } })?.circuits).toEqual({
+      "sensor.oven_current": ENTRY,
+    });
+  });
+
+  it("is null for an answer that is not an object", () => {
+    expect(coerceMonitoringStatusResponse(null)).toBeNull();
+    expect(coerceMonitoringStatusResponse("enabled")).toBeNull();
   });
 });

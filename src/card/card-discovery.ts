@@ -1,28 +1,11 @@
 import { INTEGRATION_DOMAIN } from "../constants.js";
 import { resolveAndAssignAreas } from "../core/area-resolver.js";
 import { RetryManager } from "../core/retry-manager.js";
+import { isPositiveInteger, measuresOutsidePanel, positionRange } from "../helpers/layout.js";
 import { t } from "../i18n.js";
-import type { HomeAssistant, PanelTopology, PanelDevice, DiscoveryResult, Circuit, CircuitEntities } from "../types.js";
-
-// ── HA registry response shapes (internal) ─────────────────────────────────
-
-interface DeviceRegistryEntry {
-  id: string;
-  name?: string;
-  name_by_user?: string;
-  config_entry_id?: string;
-  identifiers?: [string, string][];
-  via_device_id?: string | null;
-  sw_version?: string;
-  model?: string;
-}
-
-interface EntityRegistryEntry {
-  entity_id: string;
-  device_id?: string;
-  unique_id: string;
-  platform?: string;
-}
+import { deviceName, entityOwnName } from "../core/registry-types.js";
+import type { DeviceRegistryEntry, EntityRegistryEntry } from "../core/registry-types.js";
+import type { HomeAssistant, PanelTopology, PanelDevice, DiscoveryResult, Circuit, CircuitEntities, SubDevice, SubDeviceEntityInfo } from "../types.js";
 
 // ── Primary discovery via custom WebSocket API ───────────────────────────────
 
@@ -34,8 +17,9 @@ export async function discoverTopology(hass: HomeAssistant, deviceId: string | u
   const topologyMsg = { type: `${INTEGRATION_DOMAIN}/panel_topology`, device_id: deviceId };
   const topology = retry ? await retry.callWS<PanelTopology>(hass, topologyMsg, { errorId: "fetch:topology" }) : await hass.callWS<PanelTopology>(topologyMsg);
 
-  const panelSize = topology.panel_size ?? panelSizeFromCircuits(topology.circuits);
-  if (!panelSize) {
+  const panelSize = isPositiveInteger(topology.panel_size) ? topology.panel_size : panelSizeFromCircuits(topology.circuits);
+  // A panel that does not know its size still loads when it reports its positions.
+  if (!positionRange(topology, panelSize)) {
     throw new Error(t("card.topology_error"));
   }
 
@@ -47,11 +31,28 @@ export async function discoverTopology(hass: HomeAssistant, deviceId: string | u
   // differ when the card was configured before Home Assistant 2026.8, whose split
   // of shared devices left the old id naming no device in this list.
   const panelDeviceId = topology.panel_device_id ?? deviceId;
-  const panelDevice = deviceToPanelDevice(devices.find(d => d.id === panelDeviceId));
+  const panelDevice = devices.find(d => d.id === panelDeviceId) ?? null;
 
+  labelCircuitsByDevice(topology.circuits, devices);
   await resolveAndAssignAreas(hass, topology);
 
   return { topology, panelDevice, panelSize };
+}
+
+/**
+ * Label each circuit by its own device, where its record names one the device
+ * list holds and that device has a name. The record's `name` is the circuit's
+ * name in the SPAN app; the device's is the one Home Assistant shows, the
+ * user's rename of the device first. A record that names no device, as from an
+ * integration that predates circuit devices, keeps the name it came with.
+ */
+function labelCircuitsByDevice(circuits: Record<string, Circuit>, devices: DeviceRegistryEntry[]): void {
+  const deviceById = new Map(devices.map(d => [d.id, d]));
+  for (const circuit of Object.values(circuits)) {
+    const device = circuit.device_id ? deviceById.get(circuit.device_id) : undefined;
+    const name = device ? deviceName(device) : "";
+    if (name) circuit.name = name;
+  }
 }
 
 // ── Backward-compatible panel size derivation ────────────────────────────────
@@ -59,7 +60,7 @@ export async function discoverTopology(hass: HomeAssistant, deviceId: string | u
 function panelSizeFromCircuits(circuits: Record<string, Circuit>): number {
   let maxTab = 0;
   for (const circuit of Object.values(circuits)) {
-    if (!circuit) continue;
+    if (!circuit || measuresOutsidePanel(circuit)) continue;
     for (const tab of circuit.tabs) {
       if (tab > maxTab) maxTab = tab;
     }
@@ -79,40 +80,120 @@ export function panelConfigEntryId(topology: PanelTopology | null, panelDevice: 
   return topology?.config_entry_id ?? panelDevice?.config_entry_id ?? null;
 }
 
-// ── Map device registry entry to PanelDevice ─────────────────────────────────
-
-function deviceToPanelDevice(entry: DeviceRegistryEntry | undefined): PanelDevice | null {
-  if (!entry) return null;
-  return {
-    id: entry.id,
-    name: entry.name,
-    name_by_user: entry.name_by_user,
-    config_entry_id: entry.config_entry_id,
-    identifiers: entry.identifiers,
-    via_device_id: entry.via_device_id,
-    sw_version: entry.sw_version,
-    model: entry.model,
-  };
-}
-
 // ── Fallback discovery from entity registry ──────────────────────────────────
 
 const POWER_SUFFIX = "_power";
+const BREAKER_RATING_SUFFIX = "_breaker_rating";
+/** What a circuit's power sensor is called on a device that already names the circuit: its label alone. */
+const POWER_LABEL = "Power";
+
+/** A circuit power sensor's unique id, taken apart. */
+interface PowerSensorId {
+  circuitId: string;
+  /** What comes before the circuit id: `span_{serial}`, as this unique id spells the serial. */
+  panelPrefix: string;
+}
 
 /**
- * The circuit id in a circuit power sensor's unique id, null for any other
- * sensor. The unique id is `span_{serial}_{circuit id}_power`, the serial
- * lower-cased, and the circuit id is opaque: everything between that prefix
- * and the suffix, `_` included. Where the unique id does not start with the
- * panel's serial, the serial is taken to be its second `_` segment.
+ * The parts of a circuit power sensor's unique id, null for any other sensor.
+ * The unique id is `span_{serial}_{circuit id}_power`, the serial lower-cased,
+ * and the circuit id is opaque: everything between that prefix and the suffix,
+ * `_` included. Where the unique id does not start with the panel's serial, the
+ * serial is taken to be its second `_` segment.
  */
-function circuitIdOfPowerSensor(uniqueId: string, serial: string): string | null {
+function parsePowerSensorId(uniqueId: string, serial: string): PowerSensorId | null {
   if (!uniqueId.endsWith(POWER_SUFFIX)) return null;
   const prefix = `span_${serial.toLowerCase()}_`;
   const circuitId = serial && uniqueId.startsWith(prefix) ? uniqueId.slice(prefix.length, -POWER_SUFFIX.length) : uniqueId.split("_").slice(2, -1).join("_");
-  return circuitId || null;
+  if (!circuitId) return null;
+  return { circuitId, panelPrefix: uniqueId.slice(0, -(circuitId.length + POWER_SUFFIX.length + 1)) };
 }
 
+/** The serial the panel device names in its integration identifier, "" where it names none. */
+function panelSerial(panelDevice: DeviceRegistryEntry): string {
+  let serial = "";
+  for (const pair of panelDevice.identifiers ?? []) {
+    // Identifier pairs are [domain, value]. Skip malformed shapes rather
+    // than silently indexing past the end.
+    if (!Array.isArray(pair) || pair.length < 2) continue;
+    const [domain, value] = pair;
+    if (domain === INTEGRATION_DOMAIN && typeof value === "string") {
+      serial = value;
+    }
+  }
+  return serial;
+}
+
+/** The identifier the integration gives a circuit's own device: the panel's serial as its device spells it, then the circuit id. */
+function circuitDeviceIdentifier(serial: string, circuitId: string): string {
+  return `${serial}_circuit_${circuitId}`;
+}
+
+/** The tabs a circuit entity's `tabs` attribute names, as `tabs [7]` or `tabs [10:12]`; null for anything else. */
+function parseTabs(tabsAttr: unknown): number[] | null {
+  if (typeof tabsAttr !== "string" || !tabsAttr.startsWith("tabs [")) return null;
+  const content = tabsAttr.slice(6, -1);
+  const tabs = content.includes(":") ? content.split(":").map(Number) : [Number(content)];
+  return tabs.every(Number.isFinite) ? tabs : null;
+}
+
+/** The names a panel's device goes by: the user's and the integration's, each where it has one. */
+function panelNamesOf(panelDevice: DeviceRegistryEntry): string[] {
+  return [panelDevice.name_by_user, panelDevice.name].flatMap(name => (name?.trim() ? [name.trim()] : []));
+}
+
+/**
+ * A name without the panel's in front, which a label on the panel's own
+ * dashboard has no use for. Either of the panel's names may lead: the user's,
+ * as in a name they typed, or the integration's, which it builds a charger's
+ * device name from whatever the user calls the panel. The longer is taken
+ * where both lead, and a name that is the panel's and nothing more is kept.
+ */
+function withoutPanelName(name: string, panelNames: readonly string[]): string {
+  const leading = panelNames.filter(panelName => name.startsWith(`${panelName} `)).sort((a, b) => b.length - a.length)[0];
+  return leading === undefined ? name : name.slice(leading.length + 1);
+}
+
+/**
+ * A circuit's label read from its power sensor's own name, for a sensor that
+ * is not on a device of the circuit's own: the name without its ` Power`
+ * ending and without the panel's name in front. "" where nothing is left,
+ * which is a sensor with no name or one named `Power` alone.
+ */
+function labelFromPowerSensorName(ownName: string, panelNames: readonly string[]): string {
+  if (ownName === POWER_LABEL) return "";
+  const label = ownName.endsWith(` ${POWER_LABEL}`) ? ownName.slice(0, -(POWER_LABEL.length + 1)) : ownName;
+  return withoutPanelName(label, panelNames);
+}
+
+/** A device's name and its entities' own names, for a battery or a charger: the shape topology gives a sub-device. */
+function subDeviceRecord(sub: DeviceRegistryEntry, entities: EntityRegistryEntry[]): SubDevice {
+  const modelLower = (sub.model ?? "").toLowerCase();
+  const isBess = modelLower.includes("battery") || (sub.identifiers ?? []).some(p => p[1].toLowerCase().includes("bess"));
+  const isEvse = modelLower.includes("drive") || (sub.identifiers ?? []).some(p => p[1].toLowerCase().includes("evse"));
+
+  const entMap: Record<string, SubDeviceEntityInfo> = {};
+  for (const e of entities) {
+    const info: SubDeviceEntityInfo = { domain: e.entity_id.split(".")[0] ?? "", unique_id: e.unique_id };
+    // The entity's own name, which is what the tile's readings are found by
+    // and its rows are labelled with; an entity with none is given none.
+    const ownName = entityOwnName(e);
+    if (ownName) info.original_name = ownName;
+    entMap[e.entity_id] = info;
+  }
+
+  return { name: deviceName(sub), type: isBess ? "bess" : isEvse ? "evse" : "unknown", entities: entMap };
+}
+
+/**
+ * Build a topology from the device and entity registries, for a user who may
+ * not ask the integration for one: only an administrator may.
+ *
+ * A circuit is found by its power sensor, wherever that sits among the panel's
+ * devices: on the circuit's own device, a child of the panel's; on the panel
+ * device, where the integration has not given circuits devices yet; or on a
+ * charger's device, which keeps its feed circuit's sensors.
+ */
 export async function discoverEntitiesFallback(hass: HomeAssistant, deviceId: string | undefined, retry?: RetryManager | null): Promise<DiscoveryResult> {
   const devicesMsg = { type: "config/device_registry/list" };
   const entitiesMsg = { type: "config/entity_registry/list" };
@@ -121,67 +202,88 @@ export async function discoverEntitiesFallback(hass: HomeAssistant, deviceId: st
     retry ? retry.callWS<EntityRegistryEntry[]>(hass, entitiesMsg, { errorId: "fetch:topology" }) : hass.callWS<EntityRegistryEntry[]>(entitiesMsg),
   ]);
 
-  const panelDevice = deviceToPanelDevice(devices.find(d => d.id === deviceId));
+  const panelDevice = devices.find(d => d.id === deviceId);
   if (!panelDevice) return { topology: null, panelDevice: null, panelSize: 0 };
 
-  const allEntities = entities.filter(e => e.device_id === deviceId);
-  const subDevices = devices.filter(d => d.via_device_id === deviceId);
-  const subDeviceIds = new Set(subDevices.map(d => d.id));
-  const subEntities = entities.filter(e => e.device_id !== undefined && subDeviceIds.has(e.device_id));
+  const serial = panelSerial(panelDevice);
+  const panelName = deviceName(panelDevice);
+  const panelNames = panelNamesOf(panelDevice);
 
-  let serial = "";
-  if (panelDevice.identifiers) {
-    for (const pair of panelDevice.identifiers) {
-      // Identifier pairs are [domain, value]. Skip malformed shapes rather
-      // than silently indexing past the end.
-      if (!Array.isArray(pair) || pair.length < 2) continue;
-      const [domain, value] = pair;
-      if (domain === INTEGRATION_DOMAIN && typeof value === "string") {
-        serial = value;
-      }
+  // The panel's devices: itself, each circuit's, a child of it, and each
+  // battery's and charger's, reached through it.
+  const circuitDevices = devices.filter(d => d.parent_device_id === panelDevice.id);
+  const subDevices = devices.filter(d => d.via_device_id === panelDevice.id);
+  const circuitDeviceIds = new Set(circuitDevices.map(d => d.id));
+  const deviceById = new Map([panelDevice, ...circuitDevices, ...subDevices].map(d => [d.id, d]));
+  const circuitDeviceByIdentifier = new Map<string, DeviceRegistryEntry>();
+  for (const device of circuitDevices) {
+    for (const pair of device.identifiers ?? []) {
+      if (pair[0] === INTEGRATION_DOMAIN) circuitDeviceByIdentifier.set(pair[1], device);
     }
   }
 
-  const circuits: Record<string, Circuit> = {};
-  const devName = panelDevice.name_by_user ?? panelDevice.name ?? "";
+  const entitiesByDevice = new Map<string, EntityRegistryEntry[]>();
+  for (const entity of entities) {
+    if (typeof entity.device_id !== "string" || !deviceById.has(entity.device_id)) continue;
+    const onDevice = entitiesByDevice.get(entity.device_id);
+    if (onDevice) onDevice.push(entity);
+    else entitiesByDevice.set(entity.device_id, [entity]);
+  }
+  const panelEntities = entitiesByDevice.get(panelDevice.id) ?? [];
+  const familyEntities = [...entitiesByDevice.values()].flat();
 
-  for (const ent of [...allEntities, ...subEntities]) {
+  // A circuit's other entities are found by the unique ids the integration
+  // gives them, never by their entity ids, which each follow their own entity.
+  // A switch's unique id carries the serial as the panel reports it and a
+  // sensor's carries it lower-cased, so switches are matched without case.
+  const sensorByUniqueId = new Map<string, string>();
+  const switchByUniqueId = new Map<string, string>();
+  for (const entity of familyEntities) {
+    if (entity.entity_id.startsWith("sensor.")) sensorByUniqueId.set(entity.unique_id, entity.entity_id);
+    else if (entity.entity_id.startsWith("switch.")) switchByUniqueId.set(entity.unique_id.toLowerCase(), entity.entity_id);
+  }
+
+  const circuits: Record<string, Circuit> = {};
+
+  for (const ent of familyEntities) {
     const state = hass.states[ent.entity_id];
     if (!state) continue;
     const attrs = state.attributes;
-    const tabsAttr = attrs.tabs;
-    if (typeof tabsAttr !== "string" || !tabsAttr.startsWith("tabs [")) continue;
-
-    const content = tabsAttr.slice(6, -1);
-    let tabs: number[];
-    if (content.includes(":")) {
-      tabs = content.split(":").map(Number);
-    } else {
-      tabs = [Number(content)];
-    }
-    if (!tabs.every(Number.isFinite)) continue;
+    const tabs = parseTabs(attrs.tabs);
+    if (!tabs) continue;
 
     // A circuit's sensors all carry its tabs; its power sensor alone stands for it.
-    const circuitUuid = circuitIdOfPowerSensor(ent.unique_id, serial);
-    if (!circuitUuid) continue;
+    const powerId = parsePowerSensorId(ent.unique_id, serial);
+    if (!powerId) continue;
+    const { circuitId, panelPrefix } = powerId;
 
-    let displayName = (typeof attrs.friendly_name === "string" ? attrs.friendly_name : undefined) ?? ent.entity_id;
-    if (displayName.endsWith(" Power")) displayName = displayName.slice(0, -" Power".length);
-    if (devName && displayName.startsWith(devName + " ")) {
-      displayName = displayName.slice(devName.length + 1);
-    }
+    // The circuit's own device: the one its power sensor is on, else the one
+    // the integration names for the circuit, which holds a charger's feed
+    // circuit's breaker switch while the charger's device holds its sensors.
+    const sensorDevice = typeof ent.device_id === "string" ? deviceById.get(ent.device_id) : undefined;
+    const circuitDevice =
+      sensorDevice && circuitDeviceIds.has(sensorDevice.id) ? sensorDevice : circuitDeviceByIdentifier.get(circuitDeviceIdentifier(serial, circuitId));
 
-    const base = ent.entity_id.replace(/^sensor\./, "").replace(/_power$/, "");
+    // Labelled by the circuit's device, the user's rename first. Without one,
+    // by the sensor's own name; and where that says only what it measures, as
+    // on a charger's device, by the device the sensor is on. Neither of the
+    // last two carries the panel's name, which the integration puts in front
+    // of a charger's.
+    const displayName =
+      (circuitDevice ? deviceName(circuitDevice) : "") ||
+      labelFromPowerSensorName(entityOwnName(ent), panelNames) ||
+      (sensorDevice && sensorDevice !== panelDevice ? withoutPanelName(deviceName(sensorDevice), panelNames) : "") ||
+      ent.entity_id;
 
     const voltage = typeof attrs.voltage === "number" ? attrs.voltage : tabs.length === 2 ? 240 : 120;
 
-    const circuitEntities: CircuitEntities = {
-      power: ent.entity_id,
-      switch: `switch.${base}_breaker`,
-      breaker_rating: `sensor.${base}_breaker_rating`,
-    };
+    const circuitEntities: CircuitEntities = { power: ent.entity_id };
+    const breakerSwitch = switchByUniqueId.get(`${panelPrefix}_relay_${circuitId}`.toLowerCase());
+    if (breakerSwitch) circuitEntities.switch = breakerSwitch;
+    const breakerRating = sensorByUniqueId.get(`${panelPrefix}_${circuitId}${BREAKER_RATING_SUFFIX}`);
+    if (breakerRating) circuitEntities.breaker_rating = breakerRating;
 
-    circuits[circuitUuid] = {
+    const circuit: Circuit = {
       tabs,
       name: displayName,
       voltage,
@@ -191,12 +293,14 @@ export async function discoverEntitiesFallback(hass: HomeAssistant, deviceId: st
       breaker_rating_a: null,
       entities: circuitEntities,
     };
+    if (circuitDevice) circuit.device_id = circuitDevice.id;
+    circuits[circuitId] = circuit;
   }
 
   let panelSize = 0;
-  for (const ent of allEntities) {
+  for (const ent of panelEntities) {
     const state = hass.states[ent.entity_id];
-    if (state && typeof state.attributes.panel_size === "number") {
+    if (state && isPositiveInteger(state.attributes.panel_size)) {
       panelSize = state.attributes.panel_size;
       break;
     }
@@ -208,30 +312,9 @@ export async function discoverEntitiesFallback(hass: HomeAssistant, deviceId: st
     throw new Error(t("card.panel_size_error"));
   }
 
-  const subDeviceMap: Record<string, { name: string; type: string; entities: Record<string, { domain: string; original_name: string }> }> = {};
-
+  const subDeviceMap: Record<string, SubDevice> = {};
   for (const sub of subDevices) {
-    const subEnts = entities.filter(e => e.device_id === sub.id);
-    const modelLower = (sub.model ?? "").toLowerCase();
-    const isBess = modelLower.includes("battery") || (sub.identifiers ?? []).some(p => p[1].toLowerCase().includes("bess"));
-    const isEvse = modelLower.includes("drive") || (sub.identifiers ?? []).some(p => p[1].toLowerCase().includes("evse"));
-
-    const entMap: Record<string, { domain: string; original_name: string }> = {};
-    for (const e of subEnts) {
-      const domainPart = e.entity_id.split(".")[0];
-      const subState = hass.states[e.entity_id];
-      const friendlyName = subState?.attributes?.friendly_name;
-      entMap[e.entity_id] = {
-        domain: domainPart ?? "",
-        original_name: typeof friendlyName === "string" ? friendlyName : e.entity_id,
-      };
-    }
-
-    subDeviceMap[sub.id] = {
-      name: sub.name_by_user ?? sub.name ?? "",
-      type: isBess ? "bess" : isEvse ? "evse" : "unknown",
-      entities: entMap,
-    };
+    subDeviceMap[sub.id] = subDeviceRecord(sub, entitiesByDevice.get(sub.id) ?? []);
   }
 
   const topology: PanelTopology = {
@@ -239,7 +322,7 @@ export async function discoverEntitiesFallback(hass: HomeAssistant, deviceId: st
     firmware: panelDevice.sw_version ?? "",
     panel_size: panelSize,
     device_id: deviceId,
-    device_name: panelDevice.name_by_user ?? panelDevice.name ?? t("header.default_name"),
+    device_name: panelName || t("header.default_name"),
     circuits,
     sub_devices: subDeviceMap,
   };

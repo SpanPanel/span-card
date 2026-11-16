@@ -16,7 +16,10 @@ import { ListViewController, type FavoritesViewStateDetail } from "../core/list-
 import { DashboardController } from "../core/dashboard-controller.js";
 import { buildTabBarHTML } from "../core/tab-bar-renderer.js";
 import { subscribeAreaUpdates } from "../core/area-resolver.js";
+import { DEVICE_REGISTRY_UPDATED, renamedDeviceId, topologyNamesDevice } from "../core/device-rename.js";
 import { subscribeEntryReloads } from "../core/entry-reload.js";
+import { isPanelDevice, type DeviceRegistryEntry } from "../core/registry-types.js";
+import { mergeCircuitIds, subscribePackageRatingChanges } from "../core/rating-events.js";
 import { sameTopologyStructure } from "../core/topology-structure.js";
 import { discoverTopology } from "../card/card-discovery.js";
 import { RetryManager } from "../core/retry-manager.js";
@@ -55,6 +58,26 @@ function isPanelOnlyTab(tab: TabName): tab is "dashboard" | "adopted" {
   return tab === "dashboard" || tab === "adopted";
 }
 
+/** The tab, and the panel, a render of the tab content is for. */
+interface TabView {
+  readonly tab: TabName;
+  readonly panelId: string | null;
+}
+
+/** One contributing panel's block in the Favorites view's Monitoring stack: its name, and the body its tab draws its table in. */
+interface FavoritesMonitoringBlock {
+  readonly tab: MonitoringTab;
+  readonly block: HTMLElement;
+  readonly heading: HTMLElement;
+  readonly body: HTMLElement;
+}
+
+/** The Favorites view's Monitoring tab: one block per contributing panel's config entry, in the order the view draws them. */
+interface FavoritesMonitoringStack {
+  readonly wrapper: HTMLElement;
+  readonly blocks: Map<string, FavoritesMonitoringBlock>;
+}
+
 @customElement("span-panel")
 export class SpanPanelElement extends LitElement {
   @property({ attribute: false })
@@ -88,10 +111,15 @@ export class SpanPanelElement extends LitElement {
   private _favCache = new FavoritesCache();
   private _favCtrl = new FavoritesController();
   /**
-   * Per-panel monitoring tabs used when rendering the Favorites view's
-   * Monitoring tab — one block per contributing panel's config entry.
+   * The Favorites view's Monitoring tab as drawn, one block and tab per
+   * contributing panel's config entry; null where that view is not shown. A
+   * re-render of the same view draws each panel's table over itself, in place.
    */
-  private _favoritesMonitoringTabs: Map<string, MonitoringTab> = new Map();
+  private _favoritesMonitoring: FavoritesMonitoringStack | null = null;
+  /** Counts detaches, so a draw of the Favorites view's Monitoring stack can tell one stopped its tabs while it drew. */
+  private _detaches = 0;
+  /** True where a detach left the Favorites view's Monitoring stack partly drawn: the next attach draws the rest. */
+  private _renderOnAttach = false;
   private readonly _errorStore = new ErrorStore();
   private _watchedPanelId: string | null = null;
   private _discovering = false;
@@ -108,13 +136,27 @@ export class SpanPanelElement extends LitElement {
   /** The topology the area tab last rendered; the area subscription reads it through a getter. */
   private _areaTopology: PanelTopology | null = null;
   private _reloadSub: Promise<() => Promise<void>> | null = null;
+  /** One package ratings subscription per panel entry, each held as the promise it was handed. */
+  private readonly _ratingSubs = new Map<string, Promise<() => void>>();
+  /** Per panel, the rating refresh: a burst of events is one fetch in flight and at most one trailing, which sees the last change. */
+  private readonly _ratingRefreshes = new Map<string, () => Promise<void>>();
+  /** Per panel, the circuits the rating events since its last refresh named; null when one named none. */
+  private readonly _ratingChangedIds = new Map<string, ReadonlySet<string> | null>();
   /**
-   * The topology the current view rendered, by panel device id. An entry reload
-   * re-renders the view only when its panel's topology changed structure since.
-   * The Monitoring tab records one fetched beside it; the Adopted tab records
-   * none, because a reload refreshes its rows instead.
+   * The topology the current view rendered, by panel device id. An entry reload,
+   * or a rename of a device the topology names, re-renders the view only when
+   * its panel's topology changed structure since. The Monitoring tab records
+   * one fetched beside it; the Adopted tab records none, because a reload
+   * refreshes its rows instead.
    */
   private readonly _renderedTopologies = new Map<string, PanelTopology>();
+  /**
+   * The view `#tab-content` was last rendered for. A re-render of the same
+   * view's Monitoring tab, a panel's or the Favorites view's, draws over the
+   * tables it shows, so the tab keeps focus, and what is typed and not yet
+   * stored, across it.
+   */
+  private _renderedView: TabView | null = null;
   /** What the favorites view last passed to `watchPanelStatuses`, re-applied on re-attach. */
   private _favoritesWatchEntries: { entityId: string; panelName: string }[] = [];
   private readonly _panelsRefresh = coalesceRuns(() => this._refreshPanels());
@@ -127,6 +169,15 @@ export class SpanPanelElement extends LitElement {
   });
   private _onFavoritesChanged: (() => void) | null = null;
   private _deviceRegistryUnsub: Promise<() => void> | null = null;
+  /** The shown panels a device rename named since the last check, which the next check answers. */
+  private readonly _renamedPanelIds = new Set<string>();
+  /** A burst of renames is one check in flight and at most one trailing, which sees the last rename. */
+  private readonly _renameRefresh = coalesceRuns(async () => {
+    // A view that re-rendered meanwhile drew its labels from a topology at least as new.
+    const panelIds = [...this._renamedPanelIds].filter(panelId => this._renderedTopologies.has(panelId));
+    this._renamedPanelIds.clear();
+    await Promise.all(panelIds.map(panelId => this._renderIfRestructured(panelId)));
+  });
   /**
    * True when a tab re-render was requested while any sidebar (favorites
    * mode, real-panel gear mode, per-circuit, or sub-device) was open.
@@ -270,11 +321,16 @@ export class SpanPanelElement extends LitElement {
 
     this._subscribeDeviceRegistry();
     this._subscribeEntryReloads();
+    this._syncRatingSubscriptions();
     // `disconnectedCallback` disposed the error store, and nothing else re-watches:
     // `_updatePanelStatusWatch` runs only when the selected panel changes.
     if (this._discovered) {
       this._reapplyPanelStatusWatch();
       if (this._activeTab === "area" && !this._isFavoritesView) this._subscribeAreaTab();
+    }
+    if (this._renderOnAttach) {
+      this._renderOnAttach = false;
+      this._requestTabRender();
     }
   }
 
@@ -284,8 +340,10 @@ export class SpanPanelElement extends LitElement {
     this._adoptedTab.stop();
     this._listCtrl.stop();
     this._listDashCtrl.stopIntervals();
-    for (const tab of this._favoritesMonitoringTabs.values()) tab.stop();
-    this._favoritesMonitoringTabs.clear();
+    // Stopped as the user leaves, and kept, as the panel's own tab is: `#tab-content`
+    // survives a re-attach, and the view's next render draws over their tables.
+    this._detaches += 1;
+    this._stopFavoritesMonitoring();
     this._unsubscribeAreaTab();
     if (this._onFavoritesChanged) {
       document.removeEventListener(FAVORITES_CHANGED_EVENT, this._onFavoritesChanged);
@@ -293,6 +351,7 @@ export class SpanPanelElement extends LitElement {
     }
     this._unsubscribeDeviceRegistry();
     this._unsubscribeEntryReloads();
+    this._unsubscribeRatingChanges();
     this._watchedPanelId = null;
     if (this._persistFavoritesViewStateTimer) {
       clearTimeout(this._persistFavoritesViewStateTimer);
@@ -327,6 +386,8 @@ export class SpanPanelElement extends LitElement {
         this._subscribeEntryReloads();
       }
     }
+
+    if (changedProps.has("_panels") || changedProps.has("hass")) this._syncRatingSubscriptions();
 
     // Render tab content when discovery completes or active tab/panel/metric changes
     if (
@@ -609,7 +670,24 @@ export class SpanPanelElement extends LitElement {
 
   private _subscribeDeviceRegistry(): void {
     if (this._deviceRegistryUnsub || !this.hass?.connection) return;
-    this._deviceRegistryUnsub = this.hass.connection.subscribeEvents(() => this._refreshPanels(), "device_registry_updated");
+    this._deviceRegistryUnsub = this.hass.connection.subscribeEvents<unknown>(event => this._onDeviceRegistryUpdated(event), DEVICE_REGISTRY_UPDATED);
+  }
+
+  /**
+   * A device changed. The panel list may have; and where the change is a rename
+   * of a device the view shows by name -- a circuit's, a battery's or a
+   * charger's, or the panel's -- the view's labels have, which no reload of
+   * the panel's entry follows. Each panel that shows the device is checked for
+   * a change of structure, which a label is part of.
+   */
+  private _onDeviceRegistryUpdated(event: unknown): void {
+    void this._refreshPanels();
+    const deviceId = renamedDeviceId(event);
+    if (!deviceId) return;
+    for (const [panelId, topology] of this._renderedTopologies) {
+      if (topologyNamesDevice(topology, deviceId)) this._renamedPanelIds.add(panelId);
+    }
+    if (this._renamedPanelIds.size > 0) void this._renameRefresh();
   }
 
   private _unsubscribeDeviceRegistry(): void {
@@ -637,6 +715,92 @@ export class SpanPanelElement extends LitElement {
     const sub = this._reloadSub;
     this._reloadSub = null;
     void sub?.then(unsubscribe => unsubscribe());
+  }
+
+  /**
+   * Keep one package ratings subscription per panel entry, adding those a refreshed
+   * panel list brought in and dropping those it lost. An administrator-only event:
+   * a non-admin's views read the entity fallback, which carries no rating.
+   */
+  private _syncRatingSubscriptions(): void {
+    const hass = this.hass;
+    // A panel-list refresh that lands after a detach must not subscribe: nothing would remove it.
+    if (!this.isConnected || !hass?.connection || hass.user?.is_admin === false) return;
+    const wanted = new Set<string>();
+    for (const panel of this._panels) {
+      if (panel.id !== FAVORITES_PANEL_ID && panel.config_entry_id) wanted.add(panel.config_entry_id);
+    }
+    for (const [entryId, sub] of this._ratingSubs) {
+      if (wanted.has(entryId)) continue;
+      this._ratingSubs.delete(entryId);
+      void sub.then(unsubscribe => unsubscribe());
+    }
+    for (const entryId of wanted) {
+      if (this._ratingSubs.has(entryId)) continue;
+      this._ratingSubs.set(
+        entryId,
+        subscribePackageRatingChanges(hass, entryId, circuitIds => this._onRatingChanged(entryId, circuitIds)).catch((err: unknown): (() => void) => {
+          console.warn("SPAN Panel: monitoring rating subscription failed", err);
+          return () => {};
+        })
+      );
+    }
+  }
+
+  private _unsubscribeRatingChanges(): void {
+    const subs = [...this._ratingSubs.values()];
+    this._ratingSubs.clear();
+    for (const sub of subs) void sub.then(unsubscribe => unsubscribe());
+  }
+
+  /**
+   * A breaker rating changed on `entryId`. Whatever view shows that panel redraws
+   * from the integration's answer: the monitoring caches are dropped, the topology
+   * is re-fetched through the same check an entry reload uses (a rating is part of
+   * the structure it compares, so a changed one re-renders the view), and an open
+   * circuit panel has its rating-bearing parts rebuilt in place where the events
+   * since the last refresh name a circuit it draws. A re-render waits for an open
+   * side panel to close, as any deferred render does.
+   */
+  private _onRatingChanged(entryId: string, circuitIds: ReadonlySet<string> | null): void {
+    const panel = this._panels.find(p => p.id !== FAVORITES_PANEL_ID && p.config_entry_id === entryId);
+    if (!panel) return;
+    this._dashboardTab.invalidateMonitoring();
+    this._listDashCtrl.monitoringCache.invalidate();
+    this._listDashCtrl.monitoringMultiCache.invalidate();
+    const shown = this._isFavoritesView ? this._renderedTopologies.has(panel.id) : panel.id === this._selectedPanelId;
+    // The Adopted tab renders rows of its own, and an open editor keeps what the user typed.
+    if (!shown || (!this._isFavoritesView && this._activeTab === "adopted")) return;
+    const pending = this._ratingChangedIds.has(panel.id) ? (this._ratingChangedIds.get(panel.id) ?? null) : new Set<string>();
+    this._ratingChangedIds.set(panel.id, mergeCircuitIds(pending, circuitIds));
+    let refresh = this._ratingRefreshes.get(panel.id);
+    if (!refresh) {
+      const panelId = panel.id;
+      // A run answers the events before it started; one arriving during it is the follow-up's.
+      refresh = coalesceRuns(() => {
+        const named = this._takeRatingChangedIds(panelId);
+        return this._renderIfRestructured(panelId, topology => this._refreshOpenSidePanel(entryId, topology, named));
+      });
+      this._ratingRefreshes.set(panelId, refresh);
+    }
+    void refresh();
+  }
+
+  /** The circuits the rating events for `panelId` named since its last refresh, which this refresh now answers. */
+  private _takeRatingChangedIds(panelId: string): ReadonlySet<string> | null {
+    const named = this._ratingChangedIds.has(panelId) ? (this._ratingChangedIds.get(panelId) ?? null) : null;
+    this._ratingChangedIds.delete(panelId);
+    return named;
+  }
+
+  private async _refreshOpenSidePanel(entryId: string, topology: PanelTopology, circuitIds: ReadonlySet<string> | null): Promise<void> {
+    const container = this._root.getElementById("tab-content");
+    if (!container) return;
+    if (this._activeTab === "dashboard" && !this._isFavoritesView) {
+      await this._dashboardTab.refreshSidePanel(entryId, topology, circuitIds);
+    } else {
+      await this._listDashCtrl.refreshCircuitSidePanel(container, entryId, topology, circuitIds);
+    }
   }
 
   /**
@@ -677,7 +841,7 @@ export class SpanPanelElement extends LitElement {
    * structure. A view that rendered no topology for the panel re-renders; a
    * failed fetch keeps the view and is only logged.
    */
-  private async _renderIfRestructured(panelId: string): Promise<void> {
+  private async _renderIfRestructured(panelId: string, onTopology?: (topology: PanelTopology) => Promise<void>): Promise<void> {
     const rendered = this._renderedTopologies.get(panelId);
     if (!rendered || !this.hass) {
       this._requestTabRender();
@@ -692,6 +856,10 @@ export class SpanPanelElement extends LitElement {
     }
     // The view re-rendered meanwhile, from a topology at least as new.
     if (this._renderedTopologies.get(panelId) !== rendered) return;
+    if (topology && onTopology) {
+      await onTopology(topology);
+      if (this._renderedTopologies.get(panelId) !== rendered) return;
+    }
     if (topology && sameTopologyStructure(topology, rendered)) return;
     this._requestTabRender();
   }
@@ -749,10 +917,10 @@ export class SpanPanelElement extends LitElement {
   private async _refreshPanels(): Promise<void> {
     if (!this.hass || !this._discovered) return;
 
-    const devices = await this.hass.callWS<PanelDevice[]>({
+    const devices = await this.hass.callWS<DeviceRegistryEntry[]>({
       type: "config/device_registry/list",
     });
-    const realPanels = devices.filter((d: PanelDevice) => d.identifiers?.some(id => id[0] === INTEGRATION_DOMAIN) && !d.via_device_id);
+    const realPanels: PanelDevice[] = devices.filter(isPanelDevice);
 
     const prevPanels = this._panels.filter(p => p.id !== FAVORITES_PANEL_ID);
     const prevById = new Map(prevPanels.map(p => [p.id, p]));
@@ -814,14 +982,14 @@ export class SpanPanelElement extends LitElement {
       let realPanels: PanelDevice[];
       try {
         const retry = new RetryManager(this._errorStore);
-        const devices = await retry.callWS<PanelDevice[]>(
+        const devices = await retry.callWS<DeviceRegistryEntry[]>(
           this.hass,
           { type: "config/device_registry/list" },
           {
             errorId: "fetch:topology",
           }
         );
-        realPanels = devices.filter((d: PanelDevice) => d.identifiers?.some(id => id[0] === INTEGRATION_DOMAIN) && !d.via_device_id);
+        realPanels = devices.filter(isPanelDevice);
       } catch (err) {
         console.error("SPAN Panel: device discovery failed", err);
         this._errorStore.add({
@@ -1068,21 +1236,29 @@ export class SpanPanelElement extends LitElement {
   private async _renderTab(): Promise<void> {
     const superseded = this._beginRender();
 
+    const container = this._root.getElementById("tab-content");
+    const shown = this._renderedView;
+    const view: TabView = { tab: this._activeTab, panelId: this._selectedPanelId };
+    const sameView = container !== null && shown !== null && shown.tab === view.tab && shown.panelId === view.panelId;
+
     this._dashboardTab.stop();
-    this._monitoringTab.stop();
+    // A Monitoring tab is stopped only as the user leaves it: a re-render of the
+    // view it shows draws over its tables, and what it is saving still lands.
+    if (!sameView) {
+      this._monitoringTab.stop();
+      this._dropFavoritesMonitoring();
+    }
     this._adoptedTab.stop();
     this._listCtrl.stop();
     this._listDashCtrl.stopIntervals();
-    for (const tab of this._favoritesMonitoringTabs.values()) tab.stop();
-    this._favoritesMonitoringTabs.clear();
     this._favoritesPanelStats = [];
     this._renderedTopologies.clear();
 
-    const container = this._root.getElementById("tab-content");
     if (!container) return;
+    this._renderedView = view;
 
     if (this._isFavoritesView) {
-      await this._renderFavoritesTab(container, superseded);
+      await this._renderFavoritesTab(container, superseded, sameView);
       return;
     }
 
@@ -1173,14 +1349,21 @@ export class SpanPanelElement extends LitElement {
         break;
       }
       case "monitoring": {
-        container.innerHTML = "";
+        // A re-render of this panel's tab, as a ratings change or an entry reload
+        // makes, is the tab's to draw over whole: it keeps focus, and what is typed
+        // in any row, across it (`MonitoringTab.render`). Another tab's content, or
+        // another panel's, is cleared so none of it shows while the status loads.
+        if (!sameView) container.innerHTML = "";
         const monDevice = this._panels.find(p => p.id === this._selectedPanelId);
         const monEntryId = monDevice?.config_entry_id ?? null;
         // Monitoring is a pure configuration view — no panel-stats header. It
-        // renders no topology, but one is fetched beside it as the baseline an
-        // entry reload compares against, so a reload that changed nothing
-        // keeps a threshold the user has not saved yet.
-        const [, baseline] = await Promise.all([this._monitoringTab.render(container, this.hass, monEntryId ?? undefined), this._fetchBaselineTopology()]);
+        // renders no topology, but one is fetched beside it. Its circuits'
+        // labels are the rows', as every other view names a circuit; and it
+        // is the baseline an entry reload or a device rename compares
+        // against, so one that changed nothing keeps a threshold the user
+        // has not saved yet, and a rename draws the rows by their new labels.
+        const fetched = this._fetchBaselineTopology();
+        const [, baseline] = await Promise.all([this._monitoringTab.render(container, this.hass, monEntryId ?? undefined, fetched), fetched]);
         if (!superseded()) this._recordRenderedTopology(baseline);
         break;
       }
@@ -1199,9 +1382,18 @@ export class SpanPanelElement extends LitElement {
    * Skips the "By Panel" tab entirely — that tab is filtered out of the
    * tab bar and ``_onPanelChange`` auto-reroutes to Activity when the
    * user switches panels while it was active.
+   *
+   * A re-render of the Monitoring tab the container shows (`sameView`) leaves
+   * each panel's table for its tab to draw over in place
+   * (`_renderFavoritesMonitoring`); any other view starts from a cleared
+   * container, so nothing stale shows while it loads.
    */
-  private async _renderFavoritesTab(container: HTMLElement, superseded: () => boolean): Promise<void> {
-    container.innerHTML = "";
+  private async _renderFavoritesTab(container: HTMLElement, superseded: () => boolean, sameView: boolean): Promise<void> {
+    const shownStack = sameView ? this._shownFavoritesMonitoring(container) : null;
+    if (!shownStack) {
+      this._dropFavoritesMonitoring();
+      container.innerHTML = "";
+    }
     if (!this.hass) return;
 
     const realPanels = this._panels.filter(p => p.id !== FAVORITES_PANEL_ID);
@@ -1243,6 +1435,8 @@ export class SpanPanelElement extends LitElement {
     const hasCircuits = Object.keys(merged.circuits).length > 0;
     const hasSubDevices = Object.keys(merged.sub_devices ?? {}).length > 0;
     if (!hasCircuits && !hasSubDevices) {
+      this._dropFavoritesMonitoring();
+      container.innerHTML = "";
       const empty = document.createElement("p");
       empty.style.color = "var(--secondary-text-color)";
       empty.style.padding = "24px";
@@ -1256,7 +1450,12 @@ export class SpanPanelElement extends LitElement {
 
     if (this._activeTab === "monitoring") {
       this._listCtrl.setViewName(null);
-      await this._renderFavoritesMonitoring(container, build.entryIds, realPanels);
+      // Each contributing panel's topology by its config entry, which its table's rows take their labels from.
+      const topologies = new Map<string, PanelTopology>();
+      for (const info of perPanelInfoMap.values()) {
+        if (info.configEntryId) topologies.set(info.configEntryId, info.topology);
+      }
+      await this._renderFavoritesMonitoring(container, build.entryIds, realPanels, shownStack, topologies);
       return;
     }
 
@@ -1307,16 +1506,33 @@ export class SpanPanelElement extends LitElement {
     }
   }
 
-  private async _renderFavoritesMonitoring(container: HTMLElement, entryIds: string[], realPanels: PanelDevice[]): Promise<void> {
-    if (!this.hass) return;
+  /**
+   * Draw the Favorites view's Monitoring tab: under each contributing panel's
+   * name, that panel's table, drawn by a tab of its own. `shown` is the stack the
+   * container shows, on a re-render of the same view: each panel still in the
+   * view keeps its block, and its tab draws over its table in place, keeping
+   * focus and what is typed across it, as a panel's own Monitoring tab does. A
+   * panel that left the view goes with its tab; one that joined it is added in
+   * its place. `topologies` holds each panel's topology by its config entry,
+   * which its table's rows take their labels from.
+   */
+  private async _renderFavoritesMonitoring(
+    container: HTMLElement,
+    entryIds: string[],
+    realPanels: PanelDevice[],
+    shown: FavoritesMonitoringStack | null,
+    topologies: ReadonlyMap<string, PanelTopology>
+  ): Promise<void> {
+    const hass = this.hass;
+    if (!hass) return;
 
     // Monitoring is a pure configuration view — no panel-stats header,
     // matching the real-panel Monitoring tab (see ``_renderTab`` case
     // "monitoring"). The gear/slide-to-enable/legend/W-A summary belongs
     // on the dashboard views (Activity, Area), not here.
-    const wrapper = document.createElement("div");
-    wrapper.className = "favorites-monitoring-stack";
-    container.appendChild(wrapper);
+    const stack = shown ?? this._newFavoritesMonitoringStack(container);
+    // The stack is the instance's before any tab draws, so `_renderTab` and a detach stop every tab in it.
+    this._favoritesMonitoring = stack;
 
     const panelsByEntry = new Map<string, PanelDevice>();
     for (const panel of realPanels) {
@@ -1324,40 +1540,89 @@ export class SpanPanelElement extends LitElement {
       if (eid) panelsByEntry.set(eid, panel);
     }
 
-    // Build into a local map and only assign to the instance field after
-    // every render attempts so a single failure can't orphan tabs that
-    // _renderTab's cleanup loop never sees.
-    const tabs = new Map<string, MonitoringTab>();
-    for (const entryId of entryIds) {
+    for (const [entryId, gone] of stack.blocks) {
+      if (entryIds.includes(entryId)) continue;
+      gone.tab.stop();
+      gone.block.remove();
+      stack.blocks.delete(entryId);
+    }
+
+    const detaches = this._detaches;
+    for (const [index, entryId] of entryIds.entries()) {
+      // No table is drawn, nor a tab made, while the dashboard is detached: the
+      // detach stopped every tab in the stack, so none is left running.
+      if (!this.isConnected) break;
+      if (this._favoritesMonitoring !== stack) return;
       const panel = panelsByEntry.get(entryId);
-      const block = document.createElement("div");
-      block.className = "favorites-monitoring-block";
-      block.style.marginBottom = "24px";
-
-      const heading = document.createElement("h2");
-      heading.style.margin = "8px 0 12px";
-      heading.style.fontSize = "1em";
-      heading.textContent = panel?.name_by_user ?? panel?.name ?? entryId;
-      block.appendChild(heading);
-
-      const body = document.createElement("div");
-      block.appendChild(body);
-      wrapper.appendChild(block);
-
-      const tab = new MonitoringTab();
-      tab.errorStore = this._errorStore;
-      tabs.set(entryId, tab);
+      const name = panel?.name_by_user ?? panel?.name ?? entryId;
+      const block = stack.blocks.get(entryId) ?? this._newFavoritesMonitoringBlock();
+      stack.blocks.set(entryId, block);
+      if (block.heading.textContent !== name) block.heading.textContent = name;
+      // A block already in its place stays there: moving it would take focus from a field in it.
+      const at = stack.wrapper.children.item(index);
+      if (at !== block.block) stack.wrapper.insertBefore(block.block, at);
       try {
-        await tab.render(body, this.hass, entryId);
+        await block.tab.render(block.body, hass, entryId, topologies.get(entryId) ?? null);
       } catch (err) {
         console.warn("SPAN Panel: favorites monitoring render failed", entryId, err);
         const errEl = document.createElement("p");
         errEl.style.color = "var(--error-color)";
         errEl.textContent = errorText(err);
-        body.appendChild(errEl);
+        block.body.appendChild(errEl);
       }
     }
-    this._favoritesMonitoringTabs = tabs;
+    // Detached, or detached while the stack was drawn, which stopped its tabs: a table may be left undrawn.
+    if (!this.isConnected || this._detaches !== detaches) this._renderWhenAttached();
+  }
+
+  /** Render the view again: now where the dashboard is attached, else as it is attached again (`connectedCallback`). */
+  private _renderWhenAttached(): void {
+    if (this.isConnected) this._requestTabRender();
+    else this._renderOnAttach = true;
+  }
+
+  /** A new, empty Monitoring stack for the Favorites view, drawn in `container`. */
+  private _newFavoritesMonitoringStack(container: HTMLElement): FavoritesMonitoringStack {
+    const wrapper = document.createElement("div");
+    wrapper.className = "favorites-monitoring-stack";
+    container.appendChild(wrapper);
+    return { wrapper, blocks: new Map() };
+  }
+
+  /** A contributing panel's block for the Favorites view's Monitoring stack, with a tab of its own to draw its table. */
+  private _newFavoritesMonitoringBlock(): FavoritesMonitoringBlock {
+    const block = document.createElement("div");
+    block.className = "favorites-monitoring-block";
+    block.style.marginBottom = "24px";
+
+    const heading = document.createElement("h2");
+    heading.style.margin = "8px 0 12px";
+    heading.style.fontSize = "1em";
+    block.appendChild(heading);
+
+    const body = document.createElement("div");
+    block.appendChild(body);
+
+    const tab = new MonitoringTab();
+    tab.errorStore = this._errorStore;
+    return { tab, block, heading, body };
+  }
+
+  /** The Favorites view's Monitoring stack where `container` shows it, for a re-render of that view to draw over; else null. */
+  private _shownFavoritesMonitoring(container: HTMLElement): FavoritesMonitoringStack | null {
+    const stack = this._favoritesMonitoring;
+    return stack !== null && stack.wrapper.parentElement === container ? stack : null;
+  }
+
+  /** Stop every tab of the Favorites view's Monitoring stack, as the user leaves it; the stack stays for the view to draw over. */
+  private _stopFavoritesMonitoring(): void {
+    for (const { tab } of this._favoritesMonitoring?.blocks.values() ?? []) tab.stop();
+  }
+
+  /** Stop every tab of the Favorites view's Monitoring stack, and let the stack go: the view is left, or drawn afresh. */
+  private _dropFavoritesMonitoring(): void {
+    this._stopFavoritesMonitoring();
+    this._favoritesMonitoring = null;
   }
 
   /**

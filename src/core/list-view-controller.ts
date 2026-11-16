@@ -2,9 +2,10 @@ import { escapeHtml } from "../helpers/sanitize.js";
 import { attrSelectorValue } from "../helpers/selector.js";
 import { formatCircuitCurrentHTML, formatCircuitPowerHTML } from "../helpers/format.js";
 import { getChartMetric } from "../helpers/chart.js";
+import { judgedAs, meterSlots, slotsByMember } from "../helpers/shared-meters.js";
 import { t } from "../i18n.js";
-import { getCircuitMonitoringInfo } from "./monitoring-status.js";
-import { circuitCurrentA, circuitPowerW, relayClosed, shedPriorityKey, switchPresence } from "./circuit-state.js";
+import { circuitMonitoringInfo } from "./monitoring-status.js";
+import { circuitCurrentA, circuitPowerW, drawsAsOn, shedPriorityKey, switchPresence } from "./circuit-state.js";
 import { applySheddingIcon, applyTogglePill } from "./circuit-controls.js";
 import { buildSearchBarHTML, buildListRowHTML, buildExpandedChartHTML, buildAreaHeaderHTML } from "./list-renderer.js";
 import { observeFold } from "./truncation-fold.js";
@@ -24,7 +25,7 @@ interface CircuitSortInfo {
 }
 
 function getCircuitSortInfo(circuit: Circuit, hass: HomeAssistant, config: CardConfig): CircuitSortInfo {
-  const isOn = relayClosed(circuit, hass);
+  const isOn = drawsAsOn(circuit, hass);
   const isCurrentMode = (config.chart_metric || "power") === "current";
   const value = isCurrentMode ? circuitCurrentA(circuit, hass) : circuitPowerW(circuit, hass);
   return { isOn, value };
@@ -107,10 +108,6 @@ function reorderListRows(root: Element | ShadowRoot, hass: HomeAssistant, topolo
       after = unit.cell;
     }
   }
-}
-
-function getCircuitEntityId(circuit: Circuit): string {
-  return circuit.entities?.current ?? circuit.entities?.power ?? "";
 }
 
 export const FAVORITES_VIEW_STATE_CHANGED_EVENT = "favorites-view-state-changed";
@@ -207,16 +204,18 @@ export class ListViewController {
 
     const entries: [string, Circuit][] = Object.entries(topology.circuits);
     const sorted = sortCircuitEntries(entries, hass, config);
+    // Every member of a shared meter gets a row, each judged as its slot is.
+    const slots = slotsByMember(meterSlots(topology));
 
     let html = headerHTML + buildSearchBarHTML(this._searchQuery);
     html += `<div class="list-view" data-columns="${this._columns}" style="--list-cols:${this._columns};">`;
 
     for (const [uuid, circuit] of sorted) {
-      const monitoringInfo = getCircuitMonitoringInfo(monitoringStatus, getCircuitEntityId(circuit));
+      const monitoringInfo = circuitMonitoringInfo(monitoringStatus, circuit);
       const sheddingPriority = shedPriorityKey(circuit, hass);
       const isExpanded = this._expandedUuids.has(uuid);
       html += `<div class="list-cell" data-cell-uuid="${escapeHtml(uuid)}">`;
-      html += buildListRowHTML(uuid, circuit, hass, config, monitoringInfo, sheddingPriority, isExpanded);
+      html += buildListRowHTML(uuid, circuit, hass, config, monitoringInfo, sheddingPriority, isExpanded, judgedAs(circuit, slots.get(uuid)));
       if (isExpanded) {
         html += buildExpandedChartHTML(uuid, circuit, hass, config, monitoringInfo);
       }
@@ -252,6 +251,8 @@ export class ListViewController {
     this._monitoringStatus = monitoringStatus;
 
     const unassignedLabel = t("list.unassigned_area");
+    // Every member of a shared meter gets a row, each judged as its slot is.
+    const slots = slotsByMember(meterSlots(topology));
 
     // Group circuits by area
     const areaGroups = new Map<string, [string, Circuit][]>();
@@ -283,11 +284,11 @@ export class ListViewController {
       html += buildAreaHeaderHTML(areaName);
 
       for (const [uuid, circuit] of sorted) {
-        const monitoringInfo = getCircuitMonitoringInfo(monitoringStatus, getCircuitEntityId(circuit));
+        const monitoringInfo = circuitMonitoringInfo(monitoringStatus, circuit);
         const sheddingPriority = shedPriorityKey(circuit, hass);
         const isExpanded = this._expandedUuids.has(uuid);
         html += `<div class="list-cell" data-cell-uuid="${escapeHtml(uuid)}">`;
-        html += buildListRowHTML(uuid, circuit, hass, config, monitoringInfo, sheddingPriority, isExpanded);
+        html += buildListRowHTML(uuid, circuit, hass, config, monitoringInfo, sheddingPriority, isExpanded, judgedAs(circuit, slots.get(uuid)));
         if (isExpanded) {
           html += buildExpandedChartHTML(uuid, circuit, hass, config, monitoringInfo);
         }
@@ -566,7 +567,7 @@ export class ListViewController {
       const circuit = this._topology.circuits[uuid];
       if (!circuit) return;
 
-      const monitoringInfo = getCircuitMonitoringInfo(this._monitoringStatus, getCircuitEntityId(circuit));
+      const monitoringInfo = circuitMonitoringInfo(this._monitoringStatus, circuit);
       const html = buildExpandedChartHTML(uuid, circuit, this._hass, this._config, monitoringInfo);
       row.insertAdjacentHTML("afterend", html);
       if (chevron) chevron.classList.add("expanded");

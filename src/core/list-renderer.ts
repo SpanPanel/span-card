@@ -2,16 +2,11 @@ import { escapeHtml } from "../helpers/sanitize.js";
 import { formatCircuitCurrentHTML, formatCircuitPowerHTML } from "../helpers/format.js";
 import { t } from "../i18n.js";
 import { getChartMetric } from "../helpers/chart.js";
-import {
-  circuitCurrentA,
-  circuitPowerW,
-  circuitUtilizationPct,
-  getCircuitStateClasses,
-  readsAsProducer,
-  relayClosed,
-  switchPresence,
-} from "./circuit-state.js";
+import { measuresOutsidePanel } from "../helpers/layout.js";
+import { slotRatingLabel } from "../helpers/shared-meters.js";
+import { circuitCurrentA, circuitPowerW, circuitUtilizationPct, drawsAsOn, getCircuitStateClasses, readsAsProducer, switchPresence } from "./circuit-state.js";
 import { buildSheddingIconHTML, buildTogglePillHTML } from "./circuit-controls.js";
+import { utilizationClass } from "./monitoring-status.js";
 import type { Circuit, HomeAssistant, CardConfig, MonitoringPointInfo } from "../types.js";
 
 /**
@@ -44,7 +39,10 @@ export function buildUnitToggleHTML(config: CardConfig): string {
 }
 
 /**
- * Build a compact circuit row for the collapsed list view.
+ * Build a compact circuit row for the collapsed list view. `judged` is the
+ * circuit as current monitoring judges it (`judgedAs`): the row's utilization is
+ * read against its rating, which for a member of a shared meter is the group's
+ * capacity, while the badge shows the circuit's own breaker.
  */
 export function buildListRowHTML(
   uuid: string,
@@ -53,13 +51,13 @@ export function buildListRowHTML(
   config: CardConfig,
   monitoringInfo: MonitoringPointInfo | null,
   sheddingPriority: string,
-  isExpanded: boolean
+  isExpanded: boolean,
+  judged: Pick<Circuit, "entities" | "breaker_rating_a" | "monitoring_rating_a">
 ): string {
-  const isOn = relayClosed(circuit, hass);
+  const isOn = drawsAsOn(circuit, hass);
   const presence = switchPresence(circuit, hass);
 
-  const breakerAmps = circuit.breaker_rating_a;
-  const breakerLabel = breakerAmps ? `${Math.round(breakerAmps)}A` : "";
+  const breakerLabel = slotRatingLabel([circuit]);
   const name = escapeHtml(circuit.name || t("grid.unknown"));
 
   // Power / current value
@@ -77,10 +75,9 @@ export function buildListRowHTML(
 
   // Utilization — prefer monitoring data, fall back to live current / breaker rating
   let utilizationHTML = "";
-  const utilizationPct = circuitUtilizationPct(circuit, hass, monitoringInfo);
+  const utilizationPct = circuitUtilizationPct(judged, hass, monitoringInfo);
   if (utilizationPct !== null) {
-    const utilClass = utilizationPct >= 100 ? "utilization-alert" : utilizationPct >= 80 ? "utilization-warning" : "utilization-normal";
-    utilizationHTML = `<span class="utilization ${utilClass}">${Math.round(utilizationPct)}%</span>`;
+    utilizationHTML = `<span class="utilization ${utilizationClass(utilizationPct, monitoringInfo)}">${Math.round(utilizationPct)}%</span>`;
   }
 
   // Gear — matches the breaker-grid's gear so onGearClick handles it unchanged.
@@ -92,8 +89,10 @@ export function buildListRowHTML(
 
   // A switch -- operable, or dimmed and inert while unavailable -- gets the pill,
   // armed by the header's slide-confirm; a circuit with none keeps a static badge.
-  const statusControl =
-    presence === "none"
+  // A meter outside the panel has no relay to be on or off, so it gets neither.
+  const statusControl = measuresOutsidePanel(circuit)
+    ? ""
+    : presence === "none"
       ? `<span class="list-status-badge ${isOn ? "list-status-on" : "list-status-off"}">${isOn ? "ON" : "OFF"}</span>`
       : buildTogglePillHTML(isOn, presence);
 
@@ -132,7 +131,7 @@ export function buildExpandedChartHTML(
 ): string {
   const isProducer = readsAsProducer(circuit, circuitPowerW(circuit, hass));
 
-  const isOn = relayClosed(circuit, hass);
+  const isOn = drawsAsOn(circuit, hass);
 
   const stateClasses = getCircuitStateClasses(circuit, monitoringInfo, isOn, isProducer);
   const safeUuid = escapeHtml(uuid);

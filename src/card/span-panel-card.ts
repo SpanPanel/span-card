@@ -6,19 +6,23 @@ import { escapeHtml } from "../helpers/sanitize.js";
 import { loadListColumns } from "../helpers/list-columns.js";
 import { buildHeaderHTML } from "../core/header-renderer.js";
 import { buildGridHTML } from "../core/grid-renderer.js";
+import { buildMetersStripHTML, metersStripCardSize } from "../core/meters-strip.js";
 import { buildSubDevicesHTML } from "../core/sub-device-renderer.js";
 import { buildMonitoringSummaryHTML } from "../core/monitoring-status.js";
 import { DashboardController } from "../core/dashboard-controller.js";
 import { ListViewController } from "../core/list-view-controller.js";
 import { buildTabBarHTML, bindTabBarEvents } from "../core/tab-bar-renderer.js";
 import { subscribeAreaUpdates } from "../core/area-resolver.js";
+import { subscribeDeviceRenames } from "../core/device-rename.js";
 import { subscribeEntryReloads } from "../core/entry-reload.js";
+import { subscribePackageRatingChanges } from "../core/rating-events.js";
 import { coalesceRuns, makeRenderToken } from "../panel/coalesce.js";
 import { ErrorStore } from "../core/error-store.js";
 import { discoverTopology, discoverEntitiesFallback, panelConfigEntryId } from "./card-discovery.js";
 import { RetryManager } from "../core/retry-manager.js";
 import { errorText } from "../helpers/error-text.js";
 import { deepEqual } from "../helpers/deep-equal.js";
+import { positionRange, positionRowCount, type PositionRange } from "../helpers/layout.js";
 import { sameTopologyStructure } from "../core/topology-structure.js";
 import { CARD_STYLES } from "./card-styles.js";
 import "../core/side-panel.js";
@@ -73,7 +77,8 @@ export class SpanPanelCard extends LitElement {
   @state() private _activeTab: "panel" | "activity" | "area" = "panel";
 
   private _panelDevice: PanelDevice | null = null;
-  private _panelSize = 0;
+  /** The breaker positions the grid draws; null until a topology places one. */
+  private _positions: PositionRange | null = null;
   private _historyLoaded = false;
   private readonly _ctrl = new DashboardController();
   private readonly _listCtrl = new ListViewController(this._ctrl);
@@ -84,7 +89,9 @@ export class SpanPanelCard extends LitElement {
    * device-registry subscription. A flag cannot tell one attachment from the next.
    */
   private _areaSub: Promise<() => void> | null = null;
+  private _renameSub: Promise<() => void> | null = null;
   private _reloadSub: Promise<() => Promise<void>> | null = null;
+  private _ratingSub: Promise<() => void> | null = null;
   /** Set by first discovery; a refresh asks the same source. */
   private _topologySource: TopologySource | null = null;
   /** At most one re-fetch in flight, and at most one more after it. */
@@ -146,7 +153,7 @@ export class SpanPanelCard extends LitElement {
     this._topology = null;
     this._topologySource = null;
     this._panelDevice = null;
-    this._panelSize = 0;
+    this._positions = null;
     this._activeTab = "panel";
     this._ctrl.reset();
     this._ctrl.setConfig(config);
@@ -154,7 +161,8 @@ export class SpanPanelCard extends LitElement {
   }
 
   getCardSize(): number {
-    return Math.ceil(this._panelSize / 2) + 3;
+    const meters = this._topology ? metersStripCardSize(this._topology, this._config) : 0;
+    return (this._positions ? positionRowCount(this._positions) : 0) + 3 + meters;
   }
 
   static getConfigElement(): HTMLElement {
@@ -276,7 +284,7 @@ export class SpanPanelCard extends LitElement {
   private _adoptTopology(result: DiscoveryResult): void {
     this._topology = result.topology;
     this._panelDevice = result.panelDevice;
-    this._panelSize = result.panelSize;
+    this._positions = positionRange(result.topology, result.panelSize);
   }
 
   /**
@@ -313,12 +321,13 @@ export class SpanPanelCard extends LitElement {
 
   /**
    * Re-fetch after the panel's entry reloads, which is how the integration adds
-   * or removes a circuit's controls. It asks the source first discovery used, in
-   * one attempt: the entry has already reached `loaded`, so retries buy nothing,
-   * and a non-admin's card must never ask `panel_topology`. A failure keeps the
-   * rendered topology and is only logged; it is a background refresh. Neither
-   * subscription is re-created -- the area one reads the topology through its
-   * getter -- and history, keyed by entity id, is kept.
+   * or removes a circuit's controls, and after a device the card shows by name
+   * is renamed, which no reload follows. It asks the source first discovery
+   * used, in one attempt: the entry has already reached `loaded`, so retries buy
+   * nothing, and a non-admin's card must never ask `panel_topology`. A failure
+   * keeps the rendered topology and is only logged; it is a background refresh.
+   * No subscription is re-created -- the area and rename ones read the topology
+   * through their getter -- and history, keyed by entity id, is kept.
    */
   private async _refreshTopology(): Promise<void> {
     const source = this._topologySource;
@@ -358,7 +367,7 @@ export class SpanPanelCard extends LitElement {
 
   // ── Subscriptions ──────────────────────────────────────────────────────
 
-  /** Subscribe to area changes and entry reloads, and watch the panel status. Detaches first, so attaches never stack. */
+  /** Subscribe to area changes, device renames and entry reloads, and watch the panel status. Detaches first, so attaches never stack. */
   private _attachSubscriptions(initialIsReseed: boolean): void {
     this._detachSubscriptions();
     if (!this.hass) return;
@@ -374,6 +383,17 @@ export class SpanPanelCard extends LitElement {
       this._errorStore.add({ key: "subscribe:area", level: "warning", message: t("error.areas_failed"), persistent: false });
       return () => {};
     });
+    // A circuit is labelled by its device, and discovery wrote that label: a rename re-fetches.
+    this._renameSub = subscribeDeviceRenames(
+      this.hass,
+      () => this._topology,
+      () => {
+        void this._topologyRefresh();
+      }
+    ).catch((err: unknown): (() => void) => {
+      console.warn("SPAN Panel: device rename subscription failed", err);
+      return () => {};
+    });
     this._reloadSub = subscribeEntryReloads(
       this.hass,
       entry => entry.entry_id === this._configEntryId,
@@ -385,17 +405,47 @@ export class SpanPanelCard extends LitElement {
       console.warn("SPAN Panel: config entry subscription failed", err);
       return async () => {};
     });
+    // Only `panel_topology` carries a rating, and only an administrator can read it or hear this event.
+    const entryId = this._configEntryId;
+    if (this._topologySource === "panel_topology" && entryId) {
+      this._ratingSub = subscribePackageRatingChanges(this.hass, entryId, () => {
+        void this._onRatingChanged();
+      }).catch((err: unknown): (() => void) => {
+        console.warn("SPAN Panel: monitoring rating subscription failed", err);
+        return () => {};
+      });
+    }
     this._watchPanelStatus();
+  }
+
+  /**
+   * A breaker rating changed on this panel: redraw from the integration's answer.
+   * The monitoring status is fetched first, so the re-render the coalesced topology
+   * refresh makes (a rating is part of the structure it compares) reads the new rating.
+   * The card's circuit panel shows no Monitoring section, and its subtitle reads the
+   * panel's ratings, which a copied package does not change, so it has nothing to redraw.
+   */
+  private async _onRatingChanged(): Promise<void> {
+    if (!this.hass || !this._discovered) return;
+    this._ctrl.monitoringCache.invalidate();
+    await this._ctrl.monitoringCache.fetch(this.hass, this._configEntryId);
+    await this._topologyRefresh();
   }
 
   /** The only teardown path: unsubscribe through each held promise, whenever it resolves. */
   private _detachSubscriptions(): void {
     const area = this._areaSub;
+    const rename = this._renameSub;
     const reload = this._reloadSub;
+    const rating = this._ratingSub;
     this._areaSub = null;
+    this._renameSub = null;
     this._reloadSub = null;
+    this._ratingSub = null;
     void area?.then(unsubscribe => unsubscribe());
+    void rename?.then(unsubscribe => unsubscribe());
     void reload?.then(unsubscribe => unsubscribe());
+    void rating?.then(unsubscribe => unsubscribe());
   }
 
   /** `watchPanelStatus` replaces the watch set wholesale and keeps `wasOffline`, so calling it again is safe. */
@@ -424,7 +474,7 @@ export class SpanPanelCard extends LitElement {
 
   private _populateCardContent(): void {
     const container = this._root.querySelector("#card-content");
-    if (!container || !this.hass || !this._topology || !this._panelSize) return;
+    if (!container || !this.hass || !this._topology || !this._positions) return;
 
     // Populate tab bar
     const tabsContainer = this._root.querySelector("#card-tabs");
@@ -454,17 +504,19 @@ export class SpanPanelCard extends LitElement {
     }
 
     if (this._activeTab === "panel") {
-      const totalRows = Math.ceil(this._panelSize / 2);
+      const totalRows = positionRowCount(this._positions);
       const headerHTML = buildHeaderHTML(this._topology, this._config);
       const monitoringStatus = this._ctrl.monitoringCache.status;
       const monitoringSummaryHTML = buildMonitoringSummaryHTML(monitoringStatus);
-      const gridHTML = buildGridHTML(this._topology, totalRows, this.hass, this._config, monitoringStatus);
+      const gridHTML = buildGridHTML(this._topology, this._positions, this.hass, this._config, monitoringStatus);
       const subDevHTML = buildSubDevicesHTML(this._topology, this.hass, this._config, { showFavorites: this._ctrl.showFavorites });
+      const metersHTML = buildMetersStripHTML(this._topology, this.hass, this._config);
 
       container.innerHTML = `
         ${headerHTML}
         ${monitoringSummaryHTML}
         ${subDevHTML ? `<div class="sub-devices">${subDevHTML}</div>` : ""}
+        ${metersHTML}
         ${this._config.show_panel !== false ? `<div class="panel-grid" style="grid-template-rows: repeat(${totalRows}, auto);">${gridHTML}</div>` : ""}
       `;
 

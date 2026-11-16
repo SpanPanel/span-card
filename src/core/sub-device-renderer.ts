@@ -7,6 +7,7 @@ import { resolveSubDevicePower, tileRenderedEntityIds, stateWatts, type SubDevic
 import { subDeviceHasSettings } from "../helpers/sub-device-settings.js";
 import { orderSubDevices, panelOfSubDevice } from "./sub-device-order.js";
 import { SUB_DEVICE_TYPE_BESS, SUB_DEVICE_TYPE_EVSE, SUB_DEVICE_TYPE_PV, SUB_DEVICE_KEY_PREFIX } from "../constants.js";
+import { deviceName } from "./registry-types.js";
 import type { PanelTopology, HomeAssistant, CardConfig, SubDevice, SubDeviceSolar } from "../types.js";
 
 interface BessChartDef {
@@ -149,17 +150,33 @@ function tileLabel(sub: SubDevice): string {
  */
 export function buildSolarDetailHTML(solar: SubDeviceSolar, power: SubDevicePower, hass: HomeAssistant): string {
   let html = "";
-  const identity: string = [solar.vendor, solar.model].filter((part): part is string => !!part).join(" · ");
+  // eBus connection/feeds-role SOLAR: a source known only by a circuit's role has no vendor or model to show.
+  const identity: string = solar.identity === "role" ? "" : [solar.vendor, solar.model].filter((part): part is string => !!part).join(" · ");
   if (identity) html += `<div class="sub-identity">${escapeHtml(identity)}</div>`;
   if (power.siteTotalEid) {
+    // Held hidden while the site total is unknown, so it never reads 0; the live update shows it once it reads.
+    const watts = stateWatts(hass, power.siteTotalEid);
     html += `
-      <div class="sub-entity">
+      <div class="sub-entity"${watts === null ? " hidden" : ""}>
         <span class="sub-entity-name">${escapeHtml(t("subdevice.site_total"))}:</span>
-        <span class="sub-site-total-value" data-site-total-eid="${escapeHtml(power.siteTotalEid)}">${formatPowerHTML(stateWatts(hass, power.siteTotalEid))}</span>
+        <span class="sub-site-total-value" data-site-total-eid="${escapeHtml(power.siteTotalEid)}">${formatPowerHTML(watts)}</span>
       </div>`;
   }
   if (solar.role === "inverter" && !power.headlineEid) html += `<div class="sub-note">${escapeHtml(t("subdevice.in_site_total"))}</div>`;
   return html;
+}
+
+/**
+ * The name Home Assistant's registries give an entity the integration sent no
+ * name for: the entity's own, else its device's, which is how Home Assistant
+ * names an entity with none of its own, else the entity id.
+ */
+function registryEntityName(hass: HomeAssistant, entityId: string): string {
+  const entry = hass.entities?.[entityId];
+  const ownName = entry?.name?.trim();
+  if (ownName) return ownName;
+  const device = entry?.device_id ? hass.devices?.[entry.device_id] : undefined;
+  return (device && deviceName(device)) || entityId;
 }
 
 /**
@@ -175,7 +192,7 @@ export function buildSubEntityHTML(sub: SubDevice, hass: HomeAssistant, config: 
     if (visibleEnts[entityId] !== true) continue;
     const state = hass.states[entityId];
     if (!state) continue;
-    let name: string = info.original_name || (state.attributes.friendly_name as string) || entityId;
+    let name: string = info.original_name || registryEntityName(hass, entityId);
     const devName: string = sub.name || "";
     if (name.startsWith(devName + " ")) name = name.slice(devName.length + 1);
     let displayValue: string;

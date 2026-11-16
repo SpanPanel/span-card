@@ -1,8 +1,11 @@
 import { discoverTopology } from "../card/card-discovery.js";
 import { escapeHtml } from "../helpers/sanitize.js";
 import { errorText } from "../helpers/error-text.js";
+import { positionRange, positionRowCount, type PositionRange } from "../helpers/layout.js";
+import { t } from "../i18n.js";
 import { buildHeaderHTML } from "../core/header-renderer.js";
 import { buildGridHTML } from "../core/grid-renderer.js";
+import { buildMetersStripHTML } from "../core/meters-strip.js";
 import { buildSubDevicesHTML } from "../core/sub-device-renderer.js";
 import { buildMonitoringSummaryHTML } from "../core/monitoring-status.js";
 import { DashboardController } from "../core/dashboard-controller.js";
@@ -67,11 +70,12 @@ export class DashboardTab {
     this._container = container;
     this._ctrl.hass = hass;
 
-    let topology, panelSize;
+    let topology, positions: PositionRange | null;
     try {
       const result = await discoverTopology(hass, deviceId);
       topology = result.topology;
-      panelSize = result.panelSize;
+      positions = positionRange(topology, result.panelSize);
+      if (!positions) throw new Error(t("card.topology_error"));
     } catch (err) {
       container.innerHTML = `<p style="color:var(--error-color);">${escapeHtml(errorText(err))}</p>`;
       return null;
@@ -81,19 +85,21 @@ export class DashboardTab {
     await this._ctrl.monitoringCache.fetch(hass, configEntryId ?? null);
     await this._ctrl.fetchAndBuildHorizonMaps();
 
-    const totalRows = Math.ceil(panelSize / 2);
+    const totalRows = positionRowCount(positions);
     const monitoringStatus = this._ctrl.monitoringCache.status;
 
     const headerHTML = buildHeaderHTML(topology!, config);
     const monitoringSummaryHTML = buildMonitoringSummaryHTML(monitoringStatus);
-    const gridHTML = buildGridHTML(topology!, totalRows, hass, config, monitoringStatus);
+    const gridHTML = buildGridHTML(topology!, positions, hass, config, monitoringStatus);
     const subDevHTML = buildSubDevicesHTML(topology!, hass, config, { showFavorites: this._ctrl.showFavorites });
+    const metersHTML = buildMetersStripHTML(topology!, hass, config);
 
     container.innerHTML = `
       <style>${CARD_STYLES}</style>
       ${headerHTML}
       ${monitoringSummaryHTML}
       ${subDevHTML ? `<div class="sub-devices">${subDevHTML}</div>` : ""}
+      ${metersHTML}
       ${
         config.show_panel !== false
           ? `
@@ -148,6 +154,16 @@ export class DashboardTab {
       foldClass: "is-folded",
     });
     return topology;
+  }
+
+  /** Drop the monitoring status cached for this tab, so the next read asks the integration again. */
+  invalidateMonitoring(): void {
+    this._ctrl.monitoringCache.invalidate();
+  }
+
+  /** Redraw the circuit side panel left open in this tab after a rating change on `entryId` naming `circuitIds` (null for any). */
+  async refreshSidePanel(entryId: string, topology: PanelTopology, circuitIds: ReadonlySet<string> | null = null): Promise<void> {
+    if (this._container) await this._ctrl.refreshCircuitSidePanel(this._container, entryId, topology, circuitIds);
   }
 
   stop(): void {
