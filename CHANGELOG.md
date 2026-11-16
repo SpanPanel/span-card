@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.11.0
 
 ### Added
 
@@ -14,7 +14,8 @@
 - **On MAIN 32, a tandem's other breaker rating, copied from the SPAN app, can be entered in the Monitoring tab's Rating column or in a circuit's Monitoring
   section**, beside the panel's own rating, so current monitoring judges that space against both breakers together; instructions above the table say what to
   copy.
-- **On MAIN 32, a circuit across two spaces takes the copy too**, kept without being applied because the panel reports only the average of its two legs, with a
+- **On MAIN 32, the second breaker rating the SPAN app shows for a circuit across two spaces, such as the 30 in 20-30A, can be entered in the Monitoring tab's
+  Rating column or the circuit's Monitoring section**, and is kept without being applied because the panel reports only the average of its two legs, with a
   recommendation and a button to turn monitoring off for that circuit.
 - **What current monitoring judges a circuit against is shown in its Monitoring section and in a Rating column on the Monitoring tab**, marked where it comes
   from ratings you copied.
