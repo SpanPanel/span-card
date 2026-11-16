@@ -263,6 +263,7 @@ const translations: Record<string, Record<string, string>> = {
       "If you raised a tandem's thresholds above 100% to stop its alerts, select {reset} on its row. Those thresholds now apply to both breakers together.",
     "monitoringRating.note_two_spaces":
       "For a circuit that spans two spaces, enter the second rating the same way if your SPAN app shows two, such as 20-30A. SPAN Panel MAIN 32 panels report only the average of such a circuit's two legs, which can hide an overloaded leg, so the copy can't be applied and we recommend turning monitoring off for that circuit.",
+    "monitoringRating.note_guide": "Read more in the guide to tandem and multi-load breakers.",
     "monitoringRating.panel_plus": "{panel} A +",
     "monitoringRating.judged_equals": "= {rating} A",
     "monitoringRating.clear_label": "Remove copied ratings for {circuit}",
@@ -568,6 +569,7 @@ const translations: Record<string, Record<string, string>> = {
       "Si subi\u00f3 los umbrales de un t\u00e1ndem por encima del 100 % para detener sus alertas, seleccione {reset} en su fila. Esos umbrales se aplican ahora a ambos interruptores juntos.",
     "monitoringRating.note_two_spaces":
       "Para un circuito que ocupa dos espacios, introduzca el segundo calibre del mismo modo si su app de SPAN muestra dos, como 20-30A. Los paneles SPAN Panel MAIN 32 informan solo el promedio de las dos fases de un circuito as\u00ed, lo que puede ocultar una fase sobrecargada, por lo que la copia no se puede aplicar y recomendamos desactivar el monitoreo de ese circuito.",
+    "monitoringRating.note_guide": "Lea m\u00e1s en la gu\u00eda de interruptores t\u00e1ndem y de cargas m\u00faltiples.",
     "monitoringRating.panel_plus": "{panel} A +",
     "monitoringRating.judged_equals": "= {rating} A",
     "monitoringRating.clear_label": "Quitar los calibres copiados de {circuit}",
@@ -864,6 +866,7 @@ const translations: Record<string, Record<string, string>> = {
       "Si vous avez relev\u00e9 les seuils d'un tandem au-dessus de 100 % pour faire cesser ses alertes, s\u00e9lectionnez {reset} sur sa ligne. Ces seuils s'appliquent d\u00e9sormais aux deux disjoncteurs ensemble.",
     "monitoringRating.note_two_spaces":
       "Pour un circuit qui occupe deux emplacements, saisissez le second calibre de la m\u00eame fa\u00e7on si votre application SPAN en affiche deux, par exemple 20-30A. Les panneaux SPAN Panel MAIN 32 n'indiquent que la moyenne des deux phases d'un tel circuit, ce qui peut masquer une phase en surcharge : la copie ne peut donc pas \u00eatre appliqu\u00e9e, et nous recommandons de d\u00e9sactiver la surveillance de ce circuit.",
+    "monitoringRating.note_guide": "Pour en savoir plus, consultez le guide des disjoncteurs tandem et \u00e0 charges multiples.",
     "monitoringRating.panel_plus": "{panel} A +",
     "monitoringRating.judged_equals": "= {rating} A",
     "monitoringRating.clear_label": "Supprimer les calibres copi\u00e9s de {circuit}",
@@ -1177,6 +1180,8 @@ const translations: Record<string, Record<string, string>> = {
       "\u30a2\u30e9\u30fc\u30c8\u3092\u6b62\u3081\u308b\u305f\u3081\u306b\u30bf\u30f3\u30c7\u30e0\u306e\u3057\u304d\u3044\u5024\u3092 100% \u3088\u308a\u4e0a\u306b\u4e0a\u3052\u3066\u3044\u305f\u5834\u5408\u306f\u3001\u305d\u306e\u884c\u306e{reset}\u3092\u9078\u629e\u3057\u3066\u304f\u3060\u3055\u3044\u3002\u305d\u308c\u3089\u306e\u3057\u304d\u3044\u5024\u306f\u4eca\u5f8c\u3001\u4e21\u65b9\u306e\u30d6\u30ec\u30fc\u30ab\u30fc\u306e\u5408\u8a08\u306b\u9069\u7528\u3055\u308c\u307e\u3059\u3002",
     "monitoringRating.note_two_spaces":
       "2 \u3064\u306e\u30b9\u30da\u30fc\u30b9\u306b\u307e\u305f\u304c\u308b\u56de\u8def\u3067\u3082\u3001SPAN \u30a2\u30d7\u30ea\u306b 20-30A \u306e\u3088\u3046\u306b 2 \u3064\u306e\u5b9a\u683c\u304c\u8868\u793a\u3055\u308c\u3066\u3044\u308c\u3070\u3001\u540c\u3058\u65b9\u6cd5\u3067 2 \u3064\u76ee\u306e\u5b9a\u683c\u3092\u5165\u529b\u3057\u307e\u3059\u3002SPAN Panel MAIN 32 \u30d1\u30cd\u30eb\u306f\u305d\u306e\u3088\u3046\u306a\u56de\u8def\u306e 2 \u672c\u306e\u7dda\u306e\u5e73\u5747\u5024\u3057\u304b\u5831\u544a\u305b\u305a\u3001\u904e\u8ca0\u8377\u306e\u7dda\u304c\u898b\u3048\u306a\u304f\u306a\u308b\u3053\u3068\u304c\u3042\u308b\u305f\u3081\u3001\u30b3\u30d4\u30fc\u306f\u9069\u7528\u3067\u304d\u307e\u305b\u3093\u3002\u305d\u306e\u56de\u8def\u306e\u30e2\u30cb\u30bf\u30ea\u30f3\u30b0\u3092\u30aa\u30d5\u306b\u3059\u308b\u3053\u3068\u3092\u304a\u3059\u3059\u3081\u3057\u307e\u3059\u3002",
+    "monitoringRating.note_guide":
+      "\u8a73\u3057\u304f\u306f\u3001\u30bf\u30f3\u30c7\u30e0\u30d6\u30ec\u30fc\u30ab\u30fc\u3068\u8907\u6570\u8ca0\u8377\u30d6\u30ec\u30fc\u30ab\u30fc\u306e\u30ac\u30a4\u30c9\u3092\u3054\u89a7\u304f\u3060\u3055\u3044\u3002",
     "monitoringRating.panel_plus": "{panel} A +",
     "monitoringRating.judged_equals": "= {rating} A",
     "monitoringRating.clear_label": "{circuit} \u306e\u30b3\u30d4\u30fc\u3057\u305f\u5b9a\u683c\u3092\u524a\u9664",
@@ -1477,6 +1482,7 @@ const translations: Record<string, Record<string, string>> = {
       "Se voc\u00ea aumentou os limites de um tandem acima de 100% para interromper os alertas dele, selecione {reset} na linha dele. Esses limites agora se aplicam aos dois disjuntores juntos.",
     "monitoringRating.note_two_spaces":
       "Para um circuito que ocupa dois espa\u00e7os, digite a segunda corrente nominal da mesma forma se o seu app SPAN mostrar duas, como 20-30A. Os pain\u00e9is SPAN Panel MAIN 32 informam apenas a m\u00e9dia das duas fases de um circuito assim, o que pode esconder uma fase sobrecarregada, ent\u00e3o a c\u00f3pia n\u00e3o pode ser aplicada e recomendamos desativar o monitoramento desse circuito.",
+    "monitoringRating.note_guide": "Leia mais no guia de disjuntores tandem e de cargas m\u00faltiplas.",
     "monitoringRating.panel_plus": "{panel} A +",
     "monitoringRating.judged_equals": "= {rating} A",
     "monitoringRating.clear_label": "Remover as correntes nominais copiadas de {circuit}",

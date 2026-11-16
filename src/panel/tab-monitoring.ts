@@ -1,4 +1,4 @@
-import { INTEGRATION_DOMAIN, INPUT_DEBOUNCE_MS } from "../constants.js";
+import { INTEGRATION_DOMAIN, INPUT_DEBOUNCE_MS, TANDEM_GUIDE_URL } from "../constants.js";
 import { escapeHtml } from "../helpers/sanitize.js";
 import { errorText, serviceErrorMessage } from "../helpers/error-text.js";
 import { t, tf } from "../i18n.js";
@@ -80,6 +80,8 @@ const NOTE_STYLE = `
   background:var(--secondary-background-color,#252530);
   font-size:0.85em;line-height:1.45;
 `;
+/** The note's link to the tandem guide, styled as the Settings tab's link to the integration. */
+const LINK_STYLE = "color:var(--primary-color);text-decoration:none;";
 /**
  * A row's warning, under its cells. A table too wide for a phone scrolls across,
  * so the warning keeps to the left of the view, as wide as the screen, and wraps.
@@ -428,10 +430,14 @@ function sameWarnings(a: ReadonlyMap<string, CopyWarning>, b: ReadonlyMap<string
  * The note above the table on a panel that takes copies (spec §14.6): why a
  * MAIN 32's tandems raise false alerts, and how to copy their ratings from the
  * SPAN app into the table. It names the column and the Reset by the labels the
- * tab shows.
+ * tab shows, and ends with a link to the integration's tandem guide, which
+ * opens in a new tab.
  */
 function ratingNoteHTML(): string {
-  const paragraph = (text: string): string => `<p style="margin:8px 0 0;">${escapeHtml(text)}</p>`;
+  const paragraphOf = (html: string): string => `<p style="margin:8px 0 0;">${html}</p>`;
+  const paragraph = (text: string): string => paragraphOf(escapeHtml(text));
+  const guide = `<a href="${escapeHtml(TANDEM_GUIDE_URL)}" target="_blank" rel="noopener noreferrer"
+    style="${LINK_STYLE}">${escapeHtml(t("monitoringRating.note_guide"))}</a>`;
   const steps = [
     t("monitoringRating.note_step_find"),
     tf("monitoringRating.note_step_enter", { column: t("monitoring.rating") }),
@@ -447,6 +453,7 @@ function ratingNoteHTML(): string {
     ${paragraph(t("monitoringRating.note_judged"))}
     ${paragraph(tf("monitoringRating.note_thresholds", { reset: t("monitoring.reset") }))}
     ${paragraph(t("monitoringRating.note_two_spaces"))}
+    ${paragraphOf(guide)}
   </div>`;
 }
 

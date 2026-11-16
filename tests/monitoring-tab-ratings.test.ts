@@ -29,6 +29,10 @@ const CIRCUITS: ReadonlyArray<readonly [string, string, string, PackageRatingsFo
 
 /** The §14.6 text, as approved. */
 const NOTE_TITLE = "Tandem breakers on SPAN Panel MAIN 32";
+/** The note's last paragraph, as approved: its whole text is the link to the tandem guide. */
+const NOTE_GUIDE = "Read more in the guide to tandem and multi-load breakers.";
+/** Where that link goes: the integration's tandem guide on `main`, at its MAIN 32 section. */
+const TANDEM_GUIDE = "https://github.com/SpanPanel/span/blob/main/tandems.md#main-32";
 const NOTE_PARAGRAPHS = [
   "SPAN Panel MAIN 32 panels do not report which breakers are tandems, or the rating of a tandem's second breaker. A tandem puts two breakers in " +
     "one space, but the panel reports it as one circuit with only the first breaker's rating, while one sensor reads both breakers together. A " +
@@ -40,6 +44,7 @@ const NOTE_PARAGRAPHS = [
   "For a circuit that spans two spaces, enter the second rating the same way if your SPAN app shows two, such as 20-30A. SPAN Panel MAIN 32 " +
     "panels report only the average of such a circuit's two legs, which can hide an overloaded leg, so the copy can't be applied and we recommend " +
     "turning monitoring off for that circuit.",
+  NOTE_GUIDE,
 ];
 const NOTE_STEPS = [
   "In the SPAN app, find each circuit whose breaker shows two ratings, such as 20-20A.",
@@ -299,6 +304,19 @@ describe("the MAIN 32 note above the table", () => {
     expect(textOf(note.querySelector("h4"))).toBe(NOTE_TITLE);
     expect([...note.querySelectorAll("p")].map(textOf)).toEqual(NOTE_PARAGRAPHS);
     expect([...note.querySelectorAll("ol > li")].map(textOf)).toEqual(NOTE_STEPS);
+  });
+
+  it("ends with a link to the tandem guide's MAIN 32 section, which opens in a new tab", async () => {
+    const { container } = await shown(integration({ offered: true }));
+    const last = container.querySelector(".rating-note")!.lastElementChild!;
+    const link = last.querySelector("a")!;
+
+    expect(last.tagName).toBe("P");
+    expect(link.getAttribute("href")).toBe(TANDEM_GUIDE);
+    expect(link.getAttribute("target")).toBe("_blank");
+    expect(link.getAttribute("rel")).toBe("noopener noreferrer");
+    expect(textOf(link)).toBe(NOTE_GUIDE);
+    expect(textOf(last)).toBe(NOTE_GUIDE);
   });
 
   it("sits above the table the fields are in", async () => {
@@ -962,6 +980,7 @@ describe("the Monitoring tab's copy text in each language", () => {
     "note_judged",
     "note_thresholds",
     "note_two_spaces",
+    "note_guide",
     "clear_label",
     "table_threshold_warning",
     "table_threshold_warning_global",
