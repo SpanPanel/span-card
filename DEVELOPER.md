@@ -48,6 +48,8 @@ src/
     monitoring-status.ts    # Monitoring status cache + utilization helpers
     graph-settings.ts       # Graph horizon settings cache + effective horizon lookup
     side-panel.ts           # Sliding configuration panel (custom element)
+    registry-types.ts       # Device and entity registry entries, and the panel filter
+    device-rename.ts        # Device renames, which a showing topology's labels follow
 
   panel/
     index.ts                # Integration panel entry point
@@ -114,9 +116,10 @@ Home Assistant
 
 ### Key Types
 
-All shared types live in `src/types.ts`:
+Shared types live in `src/types.ts`:
 
 - `HomeAssistant` — subset of the HA frontend type used by this project
+- `PanelDevice` — a SPAN panel's device registry entry
 - `PanelTopology` — circuits, sub-devices, panel entities
 - `Circuit` — name, tabs, entities, breaker rating, shedding info
 - `CardConfig` — user-facing card configuration
@@ -124,6 +127,13 @@ All shared types live in `src/types.ts`:
 - `ChartMetricDef` — defines how a metric is formatted and displayed
 - `GraphSettings` — per-circuit and global graph horizon overrides
 - `MonitoringStatus` — utilization, alerts, thresholds
+
+The Home Assistant registry entries live in `src/core/registry-types.ts`:
+
+- `DeviceRegistryEntry`, `EntityRegistryEntry` — the fields the card reads of the device and entity registry lists
+- `isPanelDevice()` — tells a panel from the integration's other devices: its batteries and chargers, and the child device of each circuit
+- `deviceName()` — a device's name as Home Assistant shows it
+- `entityOwnName()` — an entity's own name, the user's before the integration's, without its device's
 
 ## TypeScript
 
@@ -156,6 +166,15 @@ ESLint uses the flat config format with `typescript-eslint`:
 - `@typescript-eslint/no-shadow`
 - `consistent-return`
 - Unused vars with `argsIgnorePattern: ^_`
+- `no-restricted-syntax` keeps reads of the `friendly_name` state attribute, which Home Assistant is retiring, out of `src/`: take an entity's own name from the
+  registry, or ask `hass.formatEntityName` for the parts by name. The rule rejects the attribute's name wherever it is written out:
+  - a property access: `attrs.friendly_name`, `attrs?.friendly_name`
+  - a string: `attrs["friendly_name"]`, `"friendly_name" in attrs`, a quoted key
+  - a template literal's text: ``attrs[`friendly_name`]``
+  - a property key: `const { friendly_name } = attrs`, whether given a new name or a default, nested or in a parameter, and a key of an object literal
+
+  It cannot see a name that is never written out: a key put together at run time (`"friendly_" + "name"`), a key held in a variable, or code that reads every
+  attribute at once. `tests/friendly-name-lint.test.ts` holds a case of each form.
 
 Prettier handles formatting (160 char width, 2-space indent, double quotes).
 

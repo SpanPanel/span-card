@@ -96,9 +96,9 @@ describe("switchPresence", () => {
     expect(switchPresence(circuit({ is_user_controllable: false }), hassWith({ [SWITCH]: { state: "on" } }))).toBe("none");
   });
 
-  it("is none for a non-admin's guessed switch that does not exist (fallback topology)", () => {
-    const guessed = circuit({ entities: { power: POWER, switch: "switch.solar_breaker" } });
-    expect(switchPresence(guessed, hassWith({ [POWER]: { state: "0" } }))).toBe("none");
+  it("is none for a switch with no state object, as a non-admin's fallback topology names a disabled one", () => {
+    const disabled = circuit({ entities: { power: POWER, switch: "switch.solar_breaker" } });
+    expect(switchPresence(disabled, hassWith({ [POWER]: { state: "0" } }))).toBe("none");
   });
 });
 

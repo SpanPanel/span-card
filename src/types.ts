@@ -1,3 +1,5 @@
+import type { DeviceRegistryEntry, EntityDisplayEntry } from "./core/registry-types.js";
+
 // -- Home Assistant types (subset used by this project) --
 
 export interface HassEntity {
@@ -11,14 +13,30 @@ export interface HassEntity {
 /** Home Assistant's frontend translator: a key and its placeholders to text, "" where it holds no such key. */
 export type LocalizeFunc = (key: string, values?: Record<string, string | number>) => string;
 
+/**
+ * One part of a name the frontend's `formatEntityName` composes: the entity's own name, the name of its device, of
+ * that device's parent, of its area or its floor, or a literal text.
+ */
+export type EntityNameItem = { type: "entity" | "device" | "parent_device" | "area" | "floor" } | { type: "text"; text: string };
+
 export interface HomeAssistant {
   states: Record<string, HassEntity>;
+  /** The enabled entities of the entity registry, by entity id. */
+  entities?: Record<string, EntityDisplayEntry>;
+  /** The device registry, by device id, a child device's entry completed from its parent's. */
+  devices?: Record<string, DeviceRegistryEntry>;
   services: Record<string, Record<string, unknown>>;
   language: string;
   user?: { is_admin: boolean };
   callService: (domain: string, service: string, data?: Record<string, unknown>, target?: Record<string, unknown>) => Promise<void>;
   callWS: <T = unknown>(msg: Record<string, unknown>) => Promise<T>;
   formatEntityState?: (entity: HassEntity) => string;
+  /**
+   * The frontend's entity naming: the parts `items` asks for, in that order, joined by a space or `separator`.
+   * The frontend also accepts a call without items and answers it from the state's attributes; the card always
+   * names the parts it wants, so the items are required here.
+   */
+  formatEntityName?: (stateObj: HassEntity, items: EntityNameItem[], options?: { separator?: string }) => string;
   /** The frontend's translator for the strings it has loaded; "" for a key it does not hold. */
   localize?: LocalizeFunc;
   /** Load a backend translation category, as the frontend does, resolving to a translator that holds it. */
@@ -53,9 +71,18 @@ export interface CircuitEntities {
 }
 
 export interface Circuit {
+  /**
+   * The circuit's label. The integration sends its name in the SPAN app; discovery replaces that with the name of
+   * the circuit's device where it has one, which is what Home Assistant shows and carries the user's rename.
+   */
   name: string;
   tabs: number[];
   entities: CircuitEntities;
+  /**
+   * The circuit's own device, a child of the panel's, by its registry id. Null where the circuit has none; absent
+   * from an integration that predates circuit devices, and from entity discovery where it finds none.
+   */
+  device_id?: string | null;
   /** The panel's own breaker rating; null when it publishes none. */
   breaker_rating_a?: number | null;
   /**
@@ -197,17 +224,8 @@ export interface SharedMeterGroup {
   monitoring_rating_user_set?: boolean;
 }
 
-export interface PanelDevice {
-  id: string;
-  name?: string;
-  name_by_user?: string;
-  /** The one config entry that owns the device (Home Assistant 2026.8+). */
-  config_entry_id?: string;
-  identifiers?: [string, string][];
-  via_device_id?: string | null;
-  sw_version?: string;
-  model?: string;
-}
+/** A SPAN panel's device registry entry, or the sidebar's stand-in for one: its Favorites choice. */
+export type PanelDevice = DeviceRegistryEntry;
 
 export interface DiscoveryResult {
   topology: PanelTopology | null;

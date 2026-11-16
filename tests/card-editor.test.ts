@@ -68,11 +68,11 @@ const SUB_DEVICES: Record<string, SubDevice> = {
   },
 };
 
-function hassWith(topology: PanelTopology): HomeAssistant {
+const PANEL_DEVICE = { id: PANEL_DEVICE_ID, name: "Span Panel", identifiers: [["span_panel", "sp3-test-001"]], via_device_id: null };
+
+function hassWith(topology: PanelTopology, devices: object[] = [PANEL_DEVICE]): HomeAssistant {
   const callWS = async (msg: Record<string, unknown>): Promise<unknown> => {
-    if (msg.type === "config/device_registry/list") {
-      return [{ id: PANEL_DEVICE_ID, name: "Span Panel", identifiers: [["span_panel", "sp3-test-001"]], via_device_id: null }];
-    }
+    if (msg.type === "config/device_registry/list") return devices;
     if (msg.type === "span_panel/panel_topology") return topology;
     throw new Error(`unexpected ${String(msg.type)}`);
   };
@@ -95,13 +95,59 @@ function outline(container: HTMLElement): string[] {
   });
 }
 
-async function openEditor(): Promise<SpanPanelCardEditor> {
+async function openEditor(devices?: object[]): Promise<SpanPanelCardEditor> {
   const editor = document.createElement(TAG) as SpanPanelCardEditor;
   editor.setConfig({ device_id: PANEL_DEVICE_ID } as CardConfig);
-  editor.hass = hassWith({ circuits: {}, sub_devices: SUB_DEVICES } as unknown as PanelTopology);
+  editor.hass = hassWith({ circuits: {}, sub_devices: SUB_DEVICES } as unknown as PanelTopology, devices);
   await vi.waitFor(() => expect(outline(sectionContainer(editor, "Solar (PV)")).length).toBeGreaterThan(0));
   return editor;
 }
+
+/** The panel picker's choices, as [device id, label], without its empty first option. */
+function panelChoices(editor: HTMLElement): [string, string | null][] {
+  const select = editor.querySelector("select");
+  if (!select) throw new Error("no panel picker");
+  return Array.from(select.options)
+    .filter(option => option.value !== "")
+    .map(option => [option.value, option.textContent]);
+}
+
+describe("the card editor's panel picker", () => {
+  it("the editor lists only panels", async () => {
+    // The raw device list: a circuit's device is a child of the panel, with a
+    // `parent_device_id` and no `via_device_id` key, and it is listed first.
+    const circuitDevice = {
+      id: "circuit-device-1",
+      name: "Kitchen Outlets",
+      name_by_user: null,
+      area_id: "kitchen",
+      identifiers: [["span_panel", "sp3-test-001_circuit_0123456789abcdef"]],
+      parent_device_id: PANEL_DEVICE_ID,
+    };
+    const battery = {
+      id: "bess-1",
+      name: "Battery",
+      identifiers: [["span_panel", "sp3-test-001_bess"]],
+      via_device_id: PANEL_DEVICE_ID,
+      parent_device_id: null,
+    };
+    const secondPanel = {
+      id: "panel-device-2",
+      name: "Garage Panel",
+      identifiers: [["span_panel", "sp3-test-002"]],
+      via_device_id: null,
+      parent_device_id: null,
+    };
+    const stranger = { id: "other-1", name: "Thermostat", identifiers: [["other_domain", "abc"]], via_device_id: null, parent_device_id: null };
+
+    const editor = await openEditor([circuitDevice, battery, PANEL_DEVICE, stranger, secondPanel]);
+
+    expect(panelChoices(editor)).toEqual([
+      [PANEL_DEVICE_ID, "Span Panel (sp3-test-001)"],
+      ["panel-device-2", "Garage Panel (sp3-test-002)"],
+    ]);
+  });
+});
 
 describe("the card editor's entity checkboxes", () => {
   it("lists both chargers, each under its own heading with its own checkboxes", async () => {

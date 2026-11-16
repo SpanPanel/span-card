@@ -1,4 +1,4 @@
-import { INTEGRATION_DOMAIN, INPUT_DEBOUNCE_MS } from "../constants.js";
+import { INTEGRATION_DOMAIN, INPUT_DEBOUNCE_MS, TANDEM_GUIDE_URL } from "../constants.js";
 import { escapeHtml } from "../helpers/sanitize.js";
 import { errorText, serviceErrorMessage } from "../helpers/error-text.js";
 import { t, tf } from "../i18n.js";
@@ -14,8 +14,18 @@ import {
 import { focusedIn, isFocusLost } from "../helpers/focus.js";
 import { bindLimitField, isLimitField, LIMIT_RANGES, type LimitField, type LimitFieldHandle } from "../helpers/number-field.js";
 import { bindOtherBreakerField, reportPackageRatingsFailure, type OtherBreakerFieldHandle } from "../helpers/other-breaker-field.js";
+import { circuitLabelsByMonitoringKey } from "../core/monitoring-status.js";
 import type { ErrorStore } from "../core/error-store.js";
-import type { HomeAssistant, MonitoringPointInfo, MonitoringStatusResponse, CallServiceResponse, PackageRatingsForm, PackageRatingsState } from "../types.js";
+import type {
+  EntityNameItem,
+  HomeAssistant,
+  MonitoringPointInfo,
+  MonitoringStatusResponse,
+  CallServiceResponse,
+  PackageRatingsForm,
+  PackageRatingsState,
+  PanelTopology,
+} from "../types.js";
 
 const FIELD_STYLE = `
   display:flex;align-items:center;gap:8px;margin-bottom:8px;
@@ -70,6 +80,8 @@ const NOTE_STYLE = `
   background:var(--secondary-background-color,#252530);
   font-size:0.85em;line-height:1.45;
 `;
+/** The note's link to the tandem guide, styled as the Settings tab's link to the integration. */
+const LINK_STYLE = "color:var(--primary-color);text-decoration:none;";
 /**
  * A row's warning, under its cells. A table too wide for a phone scrolls across,
  * so the warning keeps to the left of the view, as wide as the screen, and wraps.
@@ -418,10 +430,14 @@ function sameWarnings(a: ReadonlyMap<string, CopyWarning>, b: ReadonlyMap<string
  * The note above the table on a panel that takes copies (spec §14.6): why a
  * MAIN 32's tandems raise false alerts, and how to copy their ratings from the
  * SPAN app into the table. It names the column and the Reset by the labels the
- * tab shows.
+ * tab shows, and ends with a link to the integration's tandem guide, which
+ * opens in a new tab.
  */
 function ratingNoteHTML(): string {
-  const paragraph = (text: string): string => `<p style="margin:8px 0 0;">${escapeHtml(text)}</p>`;
+  const paragraphOf = (html: string): string => `<p style="margin:8px 0 0;">${html}</p>`;
+  const paragraph = (text: string): string => paragraphOf(escapeHtml(text));
+  const guide = `<a href="${escapeHtml(TANDEM_GUIDE_URL)}" target="_blank" rel="noopener noreferrer"
+    style="${LINK_STYLE}">${escapeHtml(t("monitoringRating.note_guide"))}</a>`;
   const steps = [
     t("monitoringRating.note_step_find"),
     tf("monitoringRating.note_step_enter", { column: t("monitoring.rating") }),
@@ -437,6 +453,7 @@ function ratingNoteHTML(): string {
     ${paragraph(t("monitoringRating.note_judged"))}
     ${paragraph(tf("monitoringRating.note_thresholds", { reset: t("monitoring.reset") }))}
     ${paragraph(t("monitoringRating.note_two_spaces"))}
+    ${paragraphOf(guide)}
   </div>`;
 }
 
@@ -457,10 +474,31 @@ function bindBusyButton(button: HTMLElement, act: () => Promise<boolean>): void 
   });
 }
 
+/** The target the integration fires an event for, where every other target is a notify entity or service. */
+const EVENT_BUS_TARGET = "event_bus";
+
+/**
+ * The parts of a notify entity's name the picker asks Home Assistant for: its device's, then its own. They are named
+ * because the frontend's formatter, asked for none, answers from the state's name attribute, which is being retired.
+ */
+const NOTIFY_TARGET_NAME_ITEMS: EntityNameItem[] = [{ type: "device" }, { type: "entity" }];
+
+/**
+ * A notify target's label in the picker: the event bus by its name, and a notify entity by the name Home Assistant's
+ * own screens give it, with its id after. A target with no state, which is a notify service no entity stands for, and
+ * one Home Assistant has no name for keep the id alone.
+ */
+function notifyTargetLabel(hass: HomeAssistant, target: string): string {
+  if (target === EVENT_BUS_TARGET) return t("notification.event_bus_target");
+  const stateObj = hass.states[target];
+  const name = stateObj ? hass.formatEntityName?.(stateObj, NOTIFY_TARGET_NAME_ITEMS).trim() : undefined;
+  return name ? `${name} (${target})` : target;
+}
+
 /** The notify targets button's text: the targets chosen, the event bus by its name, or that none is. */
 function targetsText(targets: readonly string[]): string {
   return targets.length
-    ? targets.map(target => (target === "event_bus" ? t("notification.event_bus_target") : target)).join(", ")
+    ? targets.map(target => (target === EVENT_BUS_TARGET ? t("notification.event_bus_target") : target)).join(", ")
     : t("notification.none_selected");
 }
 
@@ -573,10 +611,44 @@ class PendingSave {
   }
 }
 
+/**
+ * The topology of the panel a tab is drawn for, whose circuits' labels its rows
+ * go by: at hand, still being fetched, or null where there is none to be had.
+ */
+export type TopologySource = PanelTopology | null | Promise<PanelTopology | null>;
+
+type CircuitLabels = ReadonlyMap<string, string>;
+
+/** No circuit has a label: every row goes by what the monitoring status calls it. */
+const NO_CIRCUIT_LABELS: Promise<CircuitLabels> = Promise.resolve(new Map<string, string>());
+
+/**
+ * The labels `topology` gives the tab's circuit rows, once it is at hand
+ * (`circuitLabelsByMonitoringKey`). One that fails to arrive gives none, and
+ * the table is drawn all the same.
+ */
+function circuitLabelsOf(topology: TopologySource): Promise<CircuitLabels> {
+  return Promise.resolve(topology).then(circuitLabelsByMonitoringKey, (err: unknown) => {
+    console.warn("SPAN Panel: no topology to label the Monitoring tab's circuits by:", errorText(err));
+    return new Map<string, string>();
+  });
+}
+
+/**
+ * What a circuit's row is called: the label every other view shows for the
+ * circuit, which is its device's name; else its name in the SPAN app, which is
+ * "" for a circuit with none there; else the entity its entry goes by.
+ */
+function circuitRowName(entityId: string, info: MonitoringPointInfo, labels: CircuitLabels): string {
+  return labels.get(entityId) || info.name || entityId;
+}
+
 export class MonitoringTab {
   errorStore: ErrorStore | null = null;
   private readonly _pendingSaves = new Map<PausedSetting, PendingSave>();
   private _configEntryId: string | null;
+  /** The labels of the circuits of the panel the tab was last drawn for, which a redraw of its own keeps. */
+  private _circuitLabels: Promise<CircuitLabels> = NO_CIRCUIT_LABELS;
   private _notifyCloseHandler: ((e: MouseEvent) => void) | null;
   private _headerHTML: string;
   /** Moves on each stop, so what a save started before the user left the tab draws nothing after. */
@@ -602,10 +674,23 @@ export class MonitoringTab {
     this._flushPendingSaves().catch(() => undefined);
   }
 
-  async render(container: HTMLElement, hass: HomeAssistant, configEntryId?: string, headerHTML: string = ""): Promise<void> {
+  /**
+   * Read the panel's monitoring status and draw the tab in `container`.
+   *
+   * `configEntryId` names the panel; a redraw of the tab's own leaves it out
+   * and keeps the panel it had. `topology` is that panel's, which each circuit
+   * row takes its label from, so the tab names a circuit as every other view
+   * does; the tab is drawn once both it and the status are at hand. Left out,
+   * the labels the tab holds are kept for the same panel, and another panel's
+   * rows go by what the status calls them.
+   */
+  async render(container: HTMLElement, hass: HomeAssistant, configEntryId?: string, topology?: TopologySource, headerHTML: string = ""): Promise<void> {
     // Focus, and what was typed, is kept across a redraw of the same panel's settings, never carried to another's.
     const samePanel = configEntryId === undefined || configEntryId === this._configEntryId;
     if (configEntryId !== undefined) this._configEntryId = configEntryId;
+    if (topology !== undefined) this._circuitLabels = circuitLabelsOf(topology);
+    else if (!samePanel) this._circuitLabels = NO_CIRCUIT_LABELS;
+    const labelsRead = this._circuitLabels;
     this._headerHTML = headerHTML;
     if (this._notifyCloseHandler) {
       document.removeEventListener("click", this._notifyCloseHandler as EventListener);
@@ -633,6 +718,7 @@ export class MonitoringTab {
       console.warn("SPAN Panel: monitoring status fetch failed", err);
       status = null;
     }
+    const labels = await labelsRead;
     if (epoch !== this._epoch || seq !== this._renderSeq) return;
     // A press under way lands on the control pressed before that control is drawn again.
     await PressWatch.of(container).settled();
@@ -655,7 +741,7 @@ export class MonitoringTab {
       if (!excludedServices.has(svc)) targetSet.add(`notify.${svc}`);
     }
     // Event bus is a virtual target — always available
-    targetSet.add("event_bus");
+    targetSet.add(EVENT_BUS_TARGET);
     const allNotifyTargets = [...targetSet].sort();
 
     const rawTargets = globalSettings.notify_targets ?? "";
@@ -665,7 +751,10 @@ export class MonitoringTab {
     const messageTemplate = globalSettings.notification_message_template ?? "{name} at {current_a}A ({utilization_pct}% of {breaker_rating_a}A rating)";
     const currentPriority = globalSettings.notification_priority ?? "default";
 
-    const circuitEntries = Object.entries(circuits).sort(([, a], [, b]) => (a.name ?? "").localeCompare(b.name ?? ""));
+    // Each circuit's row by the name it shows, which the rows are ordered by.
+    const circuitNames = new Map(Object.entries(circuits).map(([entityId, info]) => [entityId, circuitRowName(entityId, info, labels)]));
+    const circuitName = (entityId: string): string => circuitNames.get(entityId) ?? entityId;
+    const circuitEntries = Object.entries(circuits).sort(([a], [b]) => circuitName(a).localeCompare(circuitName(b)));
     const mainsEntries = Object.entries(mains);
     const allPoints: [string, MonitoringPointInfo][] = [...circuitEntries, ...mainsEntries];
     const allEnabled = allPoints.length > 0 && allPoints.every(([, c]) => isMonitored(c));
@@ -684,7 +773,7 @@ export class MonitoringTab {
     const names = new Map<string, string>();
     const circuitRows = circuitEntries
       .map(([entityId, info]) => {
-        const written = info.name ?? entityId;
+        const written = circuitName(entityId);
         const name = escapeHtml(written);
         const enabled = isMonitored(info);
         const hasOverride = info.has_override === true;
@@ -847,20 +936,12 @@ export class MonitoringTab {
                       : allNotifyTargets
                           .map(target => {
                             const checked = selectedTargets.includes(target);
-                            const isEventBus = target === "event_bus";
-                            const stateObj = isEventBus ? null : hass.states[target];
-                            const friendly = stateObj?.attributes?.friendly_name as string | undefined;
-                            const displayLabel = isEventBus
-                              ? t("notification.event_bus_target")
-                              : friendly
-                                ? `${escapeHtml(friendly)} (${escapeHtml(target)})`
-                                : escapeHtml(target);
                             return `<label style="display:flex;align-items:center;gap:8px;padding:6px 12px;cursor:pointer;font-size:0.85em;"
                                        class="notify-option">
                               <input type="checkbox" class="notify-target-cb" value="${escapeHtml(target)}"
                                      ${checked ? "checked" : ""}
                                      style="width:14px;height:14px;accent-color:var(--primary-color,#4dd9af);">
-                              <span>${displayLabel}</span>
+                              <span>${escapeHtml(notifyTargetLabel(hass, target))}</span>
                             </label>`;
                           })
                           .join("")

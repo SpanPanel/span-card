@@ -13,6 +13,7 @@ import { DashboardController } from "../core/dashboard-controller.js";
 import { ListViewController } from "../core/list-view-controller.js";
 import { buildTabBarHTML, bindTabBarEvents } from "../core/tab-bar-renderer.js";
 import { subscribeAreaUpdates } from "../core/area-resolver.js";
+import { subscribeDeviceRenames } from "../core/device-rename.js";
 import { subscribeEntryReloads } from "../core/entry-reload.js";
 import { subscribePackageRatingChanges } from "../core/rating-events.js";
 import { coalesceRuns, makeRenderToken } from "../panel/coalesce.js";
@@ -88,6 +89,7 @@ export class SpanPanelCard extends LitElement {
    * device-registry subscription. A flag cannot tell one attachment from the next.
    */
   private _areaSub: Promise<() => void> | null = null;
+  private _renameSub: Promise<() => void> | null = null;
   private _reloadSub: Promise<() => Promise<void>> | null = null;
   private _ratingSub: Promise<() => void> | null = null;
   /** Set by first discovery; a refresh asks the same source. */
@@ -319,12 +321,13 @@ export class SpanPanelCard extends LitElement {
 
   /**
    * Re-fetch after the panel's entry reloads, which is how the integration adds
-   * or removes a circuit's controls. It asks the source first discovery used, in
-   * one attempt: the entry has already reached `loaded`, so retries buy nothing,
-   * and a non-admin's card must never ask `panel_topology`. A failure keeps the
-   * rendered topology and is only logged; it is a background refresh. Neither
-   * subscription is re-created -- the area one reads the topology through its
-   * getter -- and history, keyed by entity id, is kept.
+   * or removes a circuit's controls, and after a device the card shows by name
+   * is renamed, which no reload follows. It asks the source first discovery
+   * used, in one attempt: the entry has already reached `loaded`, so retries buy
+   * nothing, and a non-admin's card must never ask `panel_topology`. A failure
+   * keeps the rendered topology and is only logged; it is a background refresh.
+   * No subscription is re-created -- the area and rename ones read the topology
+   * through their getter -- and history, keyed by entity id, is kept.
    */
   private async _refreshTopology(): Promise<void> {
     const source = this._topologySource;
@@ -364,7 +367,7 @@ export class SpanPanelCard extends LitElement {
 
   // ── Subscriptions ──────────────────────────────────────────────────────
 
-  /** Subscribe to area changes and entry reloads, and watch the panel status. Detaches first, so attaches never stack. */
+  /** Subscribe to area changes, device renames and entry reloads, and watch the panel status. Detaches first, so attaches never stack. */
   private _attachSubscriptions(initialIsReseed: boolean): void {
     this._detachSubscriptions();
     if (!this.hass) return;
@@ -378,6 +381,17 @@ export class SpanPanelCard extends LitElement {
     ).catch((err: unknown): (() => void) => {
       console.warn("SPAN Panel: area subscription failed", err);
       this._errorStore.add({ key: "subscribe:area", level: "warning", message: t("error.areas_failed"), persistent: false });
+      return () => {};
+    });
+    // A circuit is labelled by its device, and discovery wrote that label: a rename re-fetches.
+    this._renameSub = subscribeDeviceRenames(
+      this.hass,
+      () => this._topology,
+      () => {
+        void this._topologyRefresh();
+      }
+    ).catch((err: unknown): (() => void) => {
+      console.warn("SPAN Panel: device rename subscription failed", err);
       return () => {};
     });
     this._reloadSub = subscribeEntryReloads(
@@ -421,12 +435,15 @@ export class SpanPanelCard extends LitElement {
   /** The only teardown path: unsubscribe through each held promise, whenever it resolves. */
   private _detachSubscriptions(): void {
     const area = this._areaSub;
+    const rename = this._renameSub;
     const reload = this._reloadSub;
     const rating = this._ratingSub;
     this._areaSub = null;
+    this._renameSub = null;
     this._reloadSub = null;
     this._ratingSub = null;
     void area?.then(unsubscribe => unsubscribe());
+    void rename?.then(unsubscribe => unsubscribe());
     void reload?.then(unsubscribe => unsubscribe());
     void rating?.then(unsubscribe => unsubscribe());
   }

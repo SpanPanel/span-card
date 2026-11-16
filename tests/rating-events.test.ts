@@ -1155,6 +1155,23 @@ describe("the sidebar dashboard", () => {
         };
       }
 
+      // The monitoring status names a circuit as the SPAN app does; each panel's rows go by its topology's labels.
+      it("labels each panel's rows as that panel's topology labels its circuits", async () => {
+        const oven = circuit(20, 20);
+        holds(oven, dryerOf(circuit(20, 20)));
+        // The user renamed the Oven's device in Home Assistant, which discovery wrote into the topology.
+        rendered = { ...rendered, circuits: { ...rendered.circuits, "c-1": { ...oven, name: "Range" } } };
+        favorites["panel-2"] = { circuits: ["c-1"], sub_devices: [] };
+        const rowLabel = (panel: Panel, entity: string): string | null | undefined =>
+          content(panel).querySelector(`.circuit-toggle[data-entity="${entity}"]`)?.closest("label")?.querySelector("span")?.textContent;
+
+        const panel = await mountFavorites(new FakeConnection());
+        await vi.waitFor(() => expect(rowLabel(panel, HEATER)).toBe("Heater"));
+
+        expect(rowLabel(panel, OVEN)).toBe("Range");
+        expect(rowLabel(panel, DRYER)).toBe("Dryer");
+      });
+
       it("keeps what is typed in one row's field, and its focus, across a refresh for a copy changed in another row", async () => {
         holds(circuit(20, 20), dryerOf(circuit(20, 20)));
         const connection = new FakeConnection();

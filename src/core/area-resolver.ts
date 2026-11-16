@@ -1,5 +1,6 @@
 import type { HomeAssistant, PanelTopology } from "../types.js";
 import type { ErrorStore } from "./error-store.js";
+import type { DeviceRegistryEntry, EntityRegistryEntry } from "./registry-types.js";
 import { t } from "../i18n.js";
 
 interface AreaRegistryEntry {
@@ -7,24 +8,27 @@ interface AreaRegistryEntry {
   name: string;
 }
 
-interface EntityRegistryEntry {
-  entity_id: string;
-  area_id?: string;
-  device_id?: string;
-}
-
-interface DeviceRegistryEntry {
-  id: string;
-  area_id?: string;
-}
+/** The registry events after which a circuit's area can differ: each registry an area is read from. */
+const REGISTRY_EVENTS = ["entity_registry_updated", "area_registry_updated", "device_registry_updated"] as const;
 
 /**
  * Fetch HA registries and assign area names to each circuit in the topology.
  *
- * Resolution order per circuit:
- *   1. First entity in `circuit.entities` that has an explicit area assignment.
- *   2. The panel device's area (via `topology.panel_device_id`, else `topology.device_id`).
- *   3. `undefined` (no area).
+ * Resolution order per circuit. A circuit is a device, and Home Assistant
+ * files a device under its own area, so the circuit's device is asked before
+ * its entities. An entity's own area says where that entity is filed, as for a
+ * breaker switch kept out of its room's area-wide actions, not where the
+ * circuit is.
+ *   1. The circuit's own device, which its record names in `device_id`.
+ *   2. The first entity in `circuit.entities` with an area of its own. This is
+ *      the circuit's area where it has no device, as before the integration
+ *      gives circuits devices, and where its device has no area.
+ *   3. Each device its entities are on, found through the entity registry: a
+ *      charger's, which keeps its feed circuit's sensors, and the circuit's
+ *      own where the record names none.
+ *   4. The panel device's area (via `topology.panel_device_id`, else `topology.device_id`).
+ *   5. `undefined` (no area).
+ * The first of these that names an existing area gives it.
  */
 export async function resolveAndAssignAreas(hass: HomeAssistant, topology: PanelTopology): Promise<void> {
   const [areas, entities, devices] = await Promise.all([
@@ -39,61 +43,54 @@ export async function resolveAndAssignAreas(hass: HomeAssistant, topology: Panel
     areaNames.set(area.area_id, area.name);
   }
 
-  // entity_id → area_id (only entries with an explicit area)
+  // entity_id → area_id (only entries with an explicit area), and entity_id → the device it is on
   const entityArea = new Map<string, string>();
+  const entityDevice = new Map<string, string>();
   for (const ent of entities) {
     if (ent.area_id) {
       entityArea.set(ent.entity_id, ent.area_id);
     }
+    if (ent.device_id) {
+      entityDevice.set(ent.entity_id, ent.device_id);
+    }
   }
 
-  // device id → area_id
-  const deviceArea = new Map<string, string | undefined>();
+  // device id → area_id (only devices with an area)
+  const deviceArea = new Map<string, string>();
   for (const dev of devices) {
-    deviceArea.set(dev.id, dev.area_id);
+    if (dev.area_id) {
+      deviceArea.set(dev.id, dev.area_id);
+    }
   }
 
-  // Resolve fallback: the panel device's own area
-  let panelAreaName: string | undefined;
   // The panel's current device, which differs from the requested id when that
   // is one from before Home Assistant 2026.8 the device list no longer holds.
   const panelDeviceId = topology.panel_device_id ?? topology.device_id;
-  if (panelDeviceId) {
-    const panelDevAreaId = deviceArea.get(panelDeviceId);
-    if (panelDevAreaId) {
-      panelAreaName = areaNames.get(panelDevAreaId);
-    }
-  }
+
+  const areaOfDevice = (deviceId: string | null | undefined): string | undefined => (deviceId ? deviceArea.get(deviceId) : undefined);
 
   for (const circuit of Object.values(topology.circuits)) {
-    let resolved: string | undefined;
-
-    // Try each entity on the circuit for an explicit area assignment
-    for (const entityId of Object.values(circuit.entities)) {
-      if (!entityId) continue;
-      const areaId = entityArea.get(entityId);
-      if (areaId) {
-        resolved = areaNames.get(areaId);
-        break;
-      }
-    }
-
-    // Fall back to the panel device's area
-    if (!resolved) {
-      resolved = panelAreaName;
-    }
-
-    circuit.area = resolved;
+    const entityIds = Object.values(circuit.entities).filter((entityId): entityId is string => !!entityId);
+    // The areas that could be the circuit's, nearest first; an id that names no area is passed over.
+    const areaIds = [
+      areaOfDevice(circuit.device_id),
+      ...entityIds.map(entityId => entityArea.get(entityId)),
+      ...entityIds.map(entityId => areaOfDevice(entityDevice.get(entityId))),
+      areaOfDevice(panelDeviceId),
+    ];
+    circuit.area = areaIds.map(areaId => (areaId ? areaNames.get(areaId) : undefined)).find(name => !!name);
   }
 }
 
 /**
- * Subscribe to HA area and entity registry changes, re-resolving circuit areas
- * on whichever topology `getTopology` returns when the event arrives. A re-fetch
+ * Subscribe to HA area, entity and device registry changes, re-resolving circuit
+ * areas on whichever topology `getTopology` returns when the event arrives. The
+ * device registry is among them because a circuit's area is usually its
+ * device's, which the user sets without touching any entity. A re-fetch
  * replaces the topology; the subscription is never re-created for it, and never
  * bound to a stale object. The callback runs when any circuit's area changed.
  *
- * Returns an unsubscribe function that tears down both listeners.
+ * Returns an unsubscribe function that tears down all three listeners.
  */
 export async function subscribeAreaUpdates(
   hass: HomeAssistant,
@@ -101,7 +98,8 @@ export async function subscribeAreaUpdates(
   callback: () => void,
   errorStore?: ErrorStore | null
 ): Promise<() => void> {
-  if (!hass.connection) {
+  const connection = hass.connection;
+  if (!connection) {
     return () => {};
   }
 
@@ -137,13 +135,9 @@ export async function subscribeAreaUpdates(
     }
   };
 
-  const [unsubEntity, unsubArea] = await Promise.all([
-    hass.connection.subscribeEvents(handler, "entity_registry_updated"),
-    hass.connection.subscribeEvents(handler, "area_registry_updated"),
-  ]);
+  const unsubscribes = await Promise.all(REGISTRY_EVENTS.map(event => connection.subscribeEvents(handler, event)));
 
   return () => {
-    unsubEntity();
-    unsubArea();
+    for (const unsubscribe of unsubscribes) unsubscribe();
   };
 }

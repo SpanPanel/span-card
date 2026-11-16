@@ -29,6 +29,10 @@ const CIRCUITS: ReadonlyArray<readonly [string, string, string, PackageRatingsFo
 
 /** The §14.6 text, as approved. */
 const NOTE_TITLE = "Tandem breakers on SPAN Panel MAIN 32";
+/** The note's last paragraph, as approved: its whole text is the link to the tandem guide. */
+const NOTE_GUIDE = "Read more in the guide to tandem and multi-load breakers.";
+/** Where that link goes: the integration's tandem guide on `main`, at its MAIN 32 section. */
+const TANDEM_GUIDE = "https://github.com/SpanPanel/span/blob/main/tandems.md#main-32";
 const NOTE_PARAGRAPHS = [
   "SPAN Panel MAIN 32 panels do not report which breakers are tandems, or the rating of a tandem's second breaker. A tandem puts two breakers in " +
     "one space, but the panel reports it as one circuit with only the first breaker's rating, while one sensor reads both breakers together. A " +
@@ -40,6 +44,7 @@ const NOTE_PARAGRAPHS = [
   "For a circuit that spans two spaces, enter the second rating the same way if your SPAN app shows two, such as 20-30A. SPAN Panel MAIN 32 " +
     "panels report only the average of such a circuit's two legs, which can hide an overloaded leg, so the copy can't be applied and we recommend " +
     "turning monitoring off for that circuit.",
+  NOTE_GUIDE,
 ];
 const NOTE_STEPS = [
   "In the SPAN app, find each circuit whose breaker shows two ratings, such as 20-20A.",
@@ -299,6 +304,19 @@ describe("the MAIN 32 note above the table", () => {
     expect(textOf(note.querySelector("h4"))).toBe(NOTE_TITLE);
     expect([...note.querySelectorAll("p")].map(textOf)).toEqual(NOTE_PARAGRAPHS);
     expect([...note.querySelectorAll("ol > li")].map(textOf)).toEqual(NOTE_STEPS);
+  });
+
+  it("ends with a link to the tandem guide's MAIN 32 section, which opens in a new tab", async () => {
+    const { container } = await shown(integration({ offered: true }));
+    const last = container.querySelector(".rating-note")!.lastElementChild!;
+    const link = last.querySelector("a")!;
+
+    expect(last.tagName).toBe("P");
+    expect(link.getAttribute("href")).toBe(TANDEM_GUIDE);
+    expect(link.getAttribute("target")).toBe("_blank");
+    expect(link.getAttribute("rel")).toBe("noopener noreferrer");
+    expect(textOf(link)).toBe(NOTE_GUIDE);
+    expect(textOf(last)).toBe(NOTE_GUIDE);
   });
 
   it("sits above the table the fields are in", async () => {
@@ -740,13 +758,34 @@ describe("a warning a redraw brings", () => {
   /** The live region the tab says a new warning through. */
   const announcerOf = (container: HTMLElement): HTMLElement | null => container.querySelector<HTMLElement>(".rating-announcer");
 
-  /** Every text said through `region` from now on: each one set in it, a cleared region saying nothing. */
+  /** The `textContent` accessor `node` inherits: the nearest on its prototype chain, which must both read and write. */
+  function inheritedTextContent(node: Node): { get: (this: Node) => string | null; set: (this: Node, text: string | null) => void } {
+    for (let proto: object | null = Object.getPrototypeOf(node); proto !== null; proto = Object.getPrototypeOf(proto)) {
+      const descriptor = Object.getOwnPropertyDescriptor(proto, "textContent");
+      if (!descriptor) continue;
+      if (!descriptor.get || !descriptor.set) throw new Error("textContent is not an accessor that reads and writes");
+      return { get: descriptor.get, set: descriptor.set };
+    }
+    throw new Error("no textContent accessor to hook");
+  }
+
+  /**
+   * Every text said through `region` from now on: each one set in it, a cleared region saying nothing. Each is taken as
+   * the tab sets the region's `textContent`, the one way it writes there, and not from a MutationObserver: happy-dom
+   * holds an observer's callback only weakly, so a garbage collection before the write would leave it unheard.
+   */
   function sayings(region: HTMLElement): string[] {
     const said: string[] = [];
-    new MutationObserver(() => {
-      const text = textOf(region);
-      if (text) said.push(text);
-    }).observe(region, { childList: true, characterData: true, subtree: true });
+    const { get, set } = inheritedTextContent(region);
+    Object.defineProperty(region, "textContent", {
+      configurable: true,
+      get: () => get.call(region),
+      set: (text: string | null) => {
+        set.call(region, text);
+        const shown = textOf(region);
+        if (shown) said.push(shown);
+      },
+    });
     return said;
   }
 
@@ -962,6 +1001,7 @@ describe("the Monitoring tab's copy text in each language", () => {
     "note_judged",
     "note_thresholds",
     "note_two_spaces",
+    "note_guide",
     "clear_label",
     "table_threshold_warning",
     "table_threshold_warning_global",

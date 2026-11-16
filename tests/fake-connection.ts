@@ -57,6 +57,7 @@ export class FakeConnection {
 
 export const ENTRY_RELOADS = "config_entries/subscribe";
 export const ENTITY_REGISTRY = "entity_registry_updated";
+export const DEVICE_REGISTRY = "device_registry_updated";
 
 export function hassWith(connection: FakeConnection, overrides: Partial<HomeAssistant> = {}): HomeAssistant {
   return {

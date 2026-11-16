@@ -16,7 +16,9 @@ import { ListViewController, type FavoritesViewStateDetail } from "../core/list-
 import { DashboardController } from "../core/dashboard-controller.js";
 import { buildTabBarHTML } from "../core/tab-bar-renderer.js";
 import { subscribeAreaUpdates } from "../core/area-resolver.js";
+import { DEVICE_REGISTRY_UPDATED, renamedDeviceId, topologyNamesDevice } from "../core/device-rename.js";
 import { subscribeEntryReloads } from "../core/entry-reload.js";
+import { isPanelDevice, type DeviceRegistryEntry } from "../core/registry-types.js";
 import { mergeCircuitIds, subscribePackageRatingChanges } from "../core/rating-events.js";
 import { sameTopologyStructure } from "../core/topology-structure.js";
 import { discoverTopology } from "../card/card-discovery.js";
@@ -141,10 +143,11 @@ export class SpanPanelElement extends LitElement {
   /** Per panel, the circuits the rating events since its last refresh named; null when one named none. */
   private readonly _ratingChangedIds = new Map<string, ReadonlySet<string> | null>();
   /**
-   * The topology the current view rendered, by panel device id. An entry reload
-   * re-renders the view only when its panel's topology changed structure since.
-   * The Monitoring tab records one fetched beside it; the Adopted tab records
-   * none, because a reload refreshes its rows instead.
+   * The topology the current view rendered, by panel device id. An entry reload,
+   * or a rename of a device the topology names, re-renders the view only when
+   * its panel's topology changed structure since. The Monitoring tab records
+   * one fetched beside it; the Adopted tab records none, because a reload
+   * refreshes its rows instead.
    */
   private readonly _renderedTopologies = new Map<string, PanelTopology>();
   /**
@@ -166,6 +169,15 @@ export class SpanPanelElement extends LitElement {
   });
   private _onFavoritesChanged: (() => void) | null = null;
   private _deviceRegistryUnsub: Promise<() => void> | null = null;
+  /** The shown panels a device rename named since the last check, which the next check answers. */
+  private readonly _renamedPanelIds = new Set<string>();
+  /** A burst of renames is one check in flight and at most one trailing, which sees the last rename. */
+  private readonly _renameRefresh = coalesceRuns(async () => {
+    // A view that re-rendered meanwhile drew its labels from a topology at least as new.
+    const panelIds = [...this._renamedPanelIds].filter(panelId => this._renderedTopologies.has(panelId));
+    this._renamedPanelIds.clear();
+    await Promise.all(panelIds.map(panelId => this._renderIfRestructured(panelId)));
+  });
   /**
    * True when a tab re-render was requested while any sidebar (favorites
    * mode, real-panel gear mode, per-circuit, or sub-device) was open.
@@ -658,7 +670,24 @@ export class SpanPanelElement extends LitElement {
 
   private _subscribeDeviceRegistry(): void {
     if (this._deviceRegistryUnsub || !this.hass?.connection) return;
-    this._deviceRegistryUnsub = this.hass.connection.subscribeEvents(() => this._refreshPanels(), "device_registry_updated");
+    this._deviceRegistryUnsub = this.hass.connection.subscribeEvents<unknown>(event => this._onDeviceRegistryUpdated(event), DEVICE_REGISTRY_UPDATED);
+  }
+
+  /**
+   * A device changed. The panel list may have; and where the change is a rename
+   * of a device the view shows by name -- a circuit's, a battery's or a
+   * charger's, or the panel's -- the view's labels have, which no reload of
+   * the panel's entry follows. Each panel that shows the device is checked for
+   * a change of structure, which a label is part of.
+   */
+  private _onDeviceRegistryUpdated(event: unknown): void {
+    void this._refreshPanels();
+    const deviceId = renamedDeviceId(event);
+    if (!deviceId) return;
+    for (const [panelId, topology] of this._renderedTopologies) {
+      if (topologyNamesDevice(topology, deviceId)) this._renamedPanelIds.add(panelId);
+    }
+    if (this._renamedPanelIds.size > 0) void this._renameRefresh();
   }
 
   private _unsubscribeDeviceRegistry(): void {
@@ -888,10 +917,10 @@ export class SpanPanelElement extends LitElement {
   private async _refreshPanels(): Promise<void> {
     if (!this.hass || !this._discovered) return;
 
-    const devices = await this.hass.callWS<PanelDevice[]>({
+    const devices = await this.hass.callWS<DeviceRegistryEntry[]>({
       type: "config/device_registry/list",
     });
-    const realPanels = devices.filter((d: PanelDevice) => d.identifiers?.some(id => id[0] === INTEGRATION_DOMAIN) && !d.via_device_id);
+    const realPanels: PanelDevice[] = devices.filter(isPanelDevice);
 
     const prevPanels = this._panels.filter(p => p.id !== FAVORITES_PANEL_ID);
     const prevById = new Map(prevPanels.map(p => [p.id, p]));
@@ -953,14 +982,14 @@ export class SpanPanelElement extends LitElement {
       let realPanels: PanelDevice[];
       try {
         const retry = new RetryManager(this._errorStore);
-        const devices = await retry.callWS<PanelDevice[]>(
+        const devices = await retry.callWS<DeviceRegistryEntry[]>(
           this.hass,
           { type: "config/device_registry/list" },
           {
             errorId: "fetch:topology",
           }
         );
-        realPanels = devices.filter((d: PanelDevice) => d.identifiers?.some(id => id[0] === INTEGRATION_DOMAIN) && !d.via_device_id);
+        realPanels = devices.filter(isPanelDevice);
       } catch (err) {
         console.error("SPAN Panel: device discovery failed", err);
         this._errorStore.add({
@@ -1328,10 +1357,13 @@ export class SpanPanelElement extends LitElement {
         const monDevice = this._panels.find(p => p.id === this._selectedPanelId);
         const monEntryId = monDevice?.config_entry_id ?? null;
         // Monitoring is a pure configuration view — no panel-stats header. It
-        // renders no topology, but one is fetched beside it as the baseline an
-        // entry reload compares against, so a reload that changed nothing
-        // keeps a threshold the user has not saved yet.
-        const [, baseline] = await Promise.all([this._monitoringTab.render(container, this.hass, monEntryId ?? undefined), this._fetchBaselineTopology()]);
+        // renders no topology, but one is fetched beside it. Its circuits'
+        // labels are the rows', as every other view names a circuit; and it
+        // is the baseline an entry reload or a device rename compares
+        // against, so one that changed nothing keeps a threshold the user
+        // has not saved yet, and a rename draws the rows by their new labels.
+        const fetched = this._fetchBaselineTopology();
+        const [, baseline] = await Promise.all([this._monitoringTab.render(container, this.hass, monEntryId ?? undefined, fetched), fetched]);
         if (!superseded()) this._recordRenderedTopology(baseline);
         break;
       }
@@ -1418,7 +1450,12 @@ export class SpanPanelElement extends LitElement {
 
     if (this._activeTab === "monitoring") {
       this._listCtrl.setViewName(null);
-      await this._renderFavoritesMonitoring(container, build.entryIds, realPanels, shownStack);
+      // Each contributing panel's topology by its config entry, which its table's rows take their labels from.
+      const topologies = new Map<string, PanelTopology>();
+      for (const info of perPanelInfoMap.values()) {
+        if (info.configEntryId) topologies.set(info.configEntryId, info.topology);
+      }
+      await this._renderFavoritesMonitoring(container, build.entryIds, realPanels, shownStack, topologies);
       return;
     }
 
@@ -1476,13 +1513,15 @@ export class SpanPanelElement extends LitElement {
    * view keeps its block, and its tab draws over its table in place, keeping
    * focus and what is typed across it, as a panel's own Monitoring tab does. A
    * panel that left the view goes with its tab; one that joined it is added in
-   * its place.
+   * its place. `topologies` holds each panel's topology by its config entry,
+   * which its table's rows take their labels from.
    */
   private async _renderFavoritesMonitoring(
     container: HTMLElement,
     entryIds: string[],
     realPanels: PanelDevice[],
-    shown: FavoritesMonitoringStack | null
+    shown: FavoritesMonitoringStack | null,
+    topologies: ReadonlyMap<string, PanelTopology>
   ): Promise<void> {
     const hass = this.hass;
     if (!hass) return;
@@ -1523,7 +1562,7 @@ export class SpanPanelElement extends LitElement {
       const at = stack.wrapper.children.item(index);
       if (at !== block.block) stack.wrapper.insertBefore(block.block, at);
       try {
-        await block.tab.render(block.body, hass, entryId);
+        await block.tab.render(block.body, hass, entryId, topologies.get(entryId) ?? null);
       } catch (err) {
         console.warn("SPAN Panel: favorites monitoring render failed", entryId, err);
         const errEl = document.createElement("p");

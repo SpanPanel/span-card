@@ -1,19 +1,13 @@
 import { CHART_METRICS, DEFAULT_CHART_METRIC, INTEGRATION_DOMAIN } from "../constants.js";
+import { isPanelDevice } from "../core/registry-types.js";
 import { t } from "../i18n.js";
 import { subEntityGroups } from "./sub-entity-groups.js";
+import type { DeviceRegistryEntry } from "../core/registry-types.js";
 import type { HomeAssistant, CardConfig, PanelTopology, SubDevice, ChartMetricDef } from "../types.js";
 
 interface PanelOption {
   device_id: string;
   label: string;
-}
-
-interface DeviceRegistryEntry {
-  id: string;
-  name?: string;
-  name_by_user?: string;
-  identifiers?: [string, string][];
-  via_device_id?: string | null;
 }
 
 export class SpanPanelCardEditor extends HTMLElement {
@@ -49,13 +43,11 @@ export class SpanPanelCardEditor extends HTMLElement {
   private async _discoverPanels(): Promise<void> {
     if (!this._hass) return;
     const devices = await this._hass.callWS<DeviceRegistryEntry[]>({ type: "config/device_registry/list" });
-    this._panels = devices
-      .filter(d => (d.identifiers ?? []).some(pair => pair[0] === INTEGRATION_DOMAIN) && !d.via_device_id)
-      .map(d => {
-        const serial = (d.identifiers ?? []).find(p => p[0] === INTEGRATION_DOMAIN)?.[1] ?? "";
-        const name = d.name_by_user ?? d.name ?? t("editor.panel_label");
-        return { device_id: d.id, label: `${name} (${serial})` };
-      });
+    this._panels = devices.filter(isPanelDevice).map(d => {
+      const serial = (d.identifiers ?? []).find(p => p[0] === INTEGRATION_DOMAIN)?.[1] ?? "";
+      const name = d.name_by_user ?? d.name ?? t("editor.panel_label");
+      return { device_id: d.id, label: `${name} (${serial})` };
+    });
     this._buildEditor();
   }
 

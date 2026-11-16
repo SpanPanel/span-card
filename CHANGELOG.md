@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.11.0
 
 ### Added
 
@@ -14,11 +14,14 @@
 - **On MAIN 32, a tandem's other breaker rating, copied from the SPAN app, can be entered in the Monitoring tab's Rating column or in a circuit's Monitoring
   section**, beside the panel's own rating, so current monitoring judges that space against both breakers together; instructions above the table say what to
   copy.
-- **On MAIN 32, a circuit across two spaces takes the copy too**, kept without being applied because the panel reports only the average of its two legs, with a
+- **On MAIN 32, the second breaker rating the SPAN app shows for a circuit across two spaces, such as the 30 in 20-30A, can be entered in the Monitoring tab's
+  Rating column or the circuit's Monitoring section**, and is kept without being applied because the panel reports only the average of its two legs, with a
   recommendation and a button to turn monitoring off for that circuit.
 - **What current monitoring judges a circuit against is shown in its Monitoring section and in a Rating column on the Monitoring tab**, marked where it comes
   from ratings you copied.
 - **Every open view redraws when copied ratings change**, whether the change came from the dashboard, another browser or a service call.
+- **Circuits are found on their own devices under the panel**, as SPAN Panel 2.3.0 creates them, and are labelled by the device's name, with your rename in Home
+  Assistant taking precedence.
 
 ### Fixed
 
@@ -31,6 +34,11 @@
 - **Threshold and duration fields in the side panel and the Monitoring tab save when you press Enter or leave them**, and only a whole number in their range, so
   stepping or scrolling a field no longer saves every value it passes through and an emptied field no longer saves 0.
 - **A circuit's name shows as written in its side panel's title**, so a name containing &, < or > no longer appears as `&amp;` and the like.
+- **The battery tile shows its power, charge and energy for users who are not administrators**, which it could not find before.
+
+### Changed
+
+- **Notification targets in the alert settings are labelled as Home Assistant labels them**, so a notify entity you renamed shows its device's name in front.
 
 ## 0.9.6
 
