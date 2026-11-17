@@ -33,7 +33,7 @@ registerCustomStrategy({
   type: SECTION_STRATEGY_NAME,
   strategyType: "section",
   name: "SPAN Panel",
-  description: "A SPAN panel's breaker layout and live power charts, under a heading with the panel's name",
+  description: "A SPAN panel's breaker layout and live power charts, at the section's full width",
 });
 
 console.warn(

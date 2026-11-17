@@ -53,7 +53,14 @@ describe("card bundle registration", () => {
     expect(customElements.get("ll-strategy-section-span-panel")).toBe(SpanPanelSectionStrategy);
   });
 
-  it("adds each entry once, however often the registration runs", async () => {
+  it("registers nothing from a second copy of the bundle, which throws at the card's own definition first", async () => {
+    vi.resetModules();
+    await expect(import("../src/index.js")).rejects.toThrow(/span-panel-card/);
+    expect(frontendCards.filter(card => card.type === "span-panel-card")).toHaveLength(1);
+    expect(frontendStrategies.filter(strategy => strategy.type === "span-panel")).toHaveLength(1);
+  });
+
+  it("adds an entry of a type once, called again regardless", async () => {
     const { registerCustomCard, registerCustomStrategy } = await import("../src/core/lovelace-registration.js");
     registerCustomCard({ type: "span-panel-card", name: "SPAN Panel" });
     registerCustomStrategy({ type: "span-panel", strategyType: "section", name: "SPAN Panel" });

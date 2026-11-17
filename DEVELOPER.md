@@ -40,7 +40,7 @@ src/
     card-styles.ts          # Card CSS
 
   strategy/
-    span-panel-section-strategy.ts  # Dashboard section of one panel: a heading above its card
+    span-panel-section-strategy.ts  # Dashboard section of one panel: its card, at the section's full width
 
   core/
     dashboard-controller.ts # Shared controller (used by card + panel dashboard)
@@ -104,16 +104,20 @@ duplicating logic.
 `src/index.ts` adds the card bundle's parts to the lists Home Assistant's dashboard editor reads:
 
 - **The card**, in `window.customCards`. Its `getEntitySuggestion` answers for an entity of the integration's with the card of the panel the entity's device
-  belongs to, which the card picker lists under Community cards (Home Assistant 2026.6+).
+  belongs to, which the card picker lists under Community (Home Assistant 2026.6+).
 - **The section strategy**, in `window.customStrategies` as `span-panel`, and its element `ll-strategy-section-span-panel`, which the editor offers under
-  Community sections (Home Assistant 2026.11+). Its sections are written as `strategy: {type: custom:span-panel, device_id: …}`.
+  Community sections (Home Assistant 2026.11+). A section is written as `strategy: {type: custom:span-panel, device_id: …}`, with any of the card's other
+  options beside `device_id`, and holds the card alone, given those options.
 
 `registerCustomCard()` and `registerCustomStrategy()` add to a list that is already there rather than replacing it, because the frontend keeps the list it found
-when it loaded, and add an entry once however often the bundle runs.
+when it loaded. A second copy of the bundle on a page, such as one a leftover HACS resource loads, registers nothing: its card module's `@customElement`
+definition is unguarded and throws while the bundle's modules load, before `src/index.ts` reaches either call. Called again regardless, each adds an entry of a
+type once.
 
 A section's width in its view is the `column_span` saved on the section itself, which the user sets in the section's settings; the sections view reads it from
 the saved config, not from what the strategy generates (frontend 20261028). The strategy gives the card `grid_options: {columns: full}`, so the card fills the
-section at whatever width the user picks.
+section at whatever width the user picks. The section reads no registry, so it declares no `registryDependencies` and is not regenerated when one changes; the
+card follows the registries itself.
 
 ### Data Flow
 

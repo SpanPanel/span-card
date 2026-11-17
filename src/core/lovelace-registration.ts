@@ -29,7 +29,7 @@ export interface CustomCardEntry {
   preview?: boolean;
   /**
    * The card configs the card picker suggests for an entity, under Community
-   * cards (Home Assistant 2026.6+); null for an entity the card has no use for.
+   * (Home Assistant 2026.6+); null for an entity the card has no use for.
    */
   getEntitySuggestion?: (hass: HomeAssistant, entityId: string) => CardSuggestion | CardSuggestion[] | null;
 }
