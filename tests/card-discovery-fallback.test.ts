@@ -129,6 +129,8 @@ describe("the panel size the fallback reads", () => {
 const BATTERY_ID = "battery-device";
 const CHARGER_ID = "charger-device";
 const DECOY = "Not the label";
+/** The panel's config entry, which owns the panel and each of its devices. */
+const SPAN_ENTRY = "span-entry-1";
 
 type Attributes = Record<string, unknown>;
 
@@ -173,7 +175,16 @@ function row(entity_id: string, unique_id: string, device_id: string, names: Pic
 function panel(device: Partial<DeviceRegistryEntry> = {}, serial: string = SERIAL): Part {
   return {
     devices: [
-      { id: PANEL_ID, name: "SPAN Panel", name_by_user: null, identifiers: [["span_panel", serial]], via_device_id: null, parent_device_id: null, ...device },
+      {
+        id: PANEL_ID,
+        name: "SPAN Panel",
+        name_by_user: null,
+        config_entry_id: SPAN_ENTRY,
+        identifiers: [["span_panel", serial]],
+        via_device_id: null,
+        parent_device_id: null,
+        ...device,
+      },
     ],
     entities: [row("sensor.span_panel_site_power", `span_${serial.toLowerCase()}_site_power`, PANEL_ID, { original_name: "Site Power" })],
     attributes: { "sensor.span_panel_site_power": { panel_size: 32 } },
@@ -186,6 +197,7 @@ function circuitDevice(circuitId: string, name: string, device: Partial<DeviceRe
     id: `device-${circuitId}`,
     name,
     name_by_user: null,
+    config_entry_id: SPAN_ENTRY,
     identifiers: [["span_panel", `${serial}_circuit_${circuitId}`]],
     parent_device_id: PANEL_ID,
     area_id: null,
@@ -395,6 +407,7 @@ describe("the fallback on a charger's feed circuit", () => {
       id: CHARGER_ID,
       name: "SPAN Panel EV Charger (FLEX⁺)",
       name_by_user: null,
+      config_entry_id: SPAN_ENTRY,
       identifiers: [["span_panel", `${serial}_evse_e1`]],
       via_device_id: PANEL_ID,
       parent_device_id: null,
@@ -479,6 +492,7 @@ describe("the fallback's battery", () => {
     id: BATTERY_ID,
     name: "SPAN Panel Battery",
     name_by_user: null,
+    config_entry_id: SPAN_ENTRY,
     identifiers: [["span_panel", `${SERIAL}_bess`]],
     via_device_id: PANEL_ID,
     parent_device_id: null,
@@ -540,5 +554,29 @@ describe("the fallback's battery", () => {
     const entities = topology!.sub_devices![BATTERY_ID]!.entities!;
     expect(entities[LEVEL]).toEqual({ domain: "sensor", unique_id: `span_${SERIAL}_battery_level` });
     expect(entities[POWER]).toEqual({ domain: "sensor", unique_id: `span_${SERIAL}_battery_power` });
+  });
+
+  // Home Assistant 2026.8 split a device a helper had linked itself to into one
+  // per config entry, each with the device's identifiers, name and
+  // via_device_id, and moved the helper's entities onto the helper's copy.
+  it("draws no tile for the copy of the battery a helper owns, though it points at the panel", async () => {
+    const copyId = "battery-device-helper-copy";
+    const helperCopy: Part = {
+      devices: [{ ...battery, id: copyId, config_entry_id: "helper-entry-1" }],
+      entities: [
+        { ...row("sensor.battery_energy_daily", "helper_daily_energy", copyId, { original_name: "Battery Energy Daily" }), platform: "utility_meter" },
+      ],
+      attributes: { "sensor.battery_energy_daily": {} },
+    };
+    const hass = hassHolding(
+      panel(),
+      helperCopy,
+      batteryWith({ [LEVEL]: { original_name: "Battery Level" }, [POWER]: { original_name: "Battery Power" }, [SOE]: { original_name: "State of Energy" } })
+    );
+
+    const { topology } = await discoverEntitiesFallback(hass, PANEL_ID);
+
+    expect(Object.keys(topology!.sub_devices!)).toEqual([BATTERY_ID]);
+    expect(Object.keys(topology!.sub_devices![BATTERY_ID]!.entities!).sort()).toEqual([LEVEL, POWER, SOE].sort());
   });
 });

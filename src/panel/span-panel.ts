@@ -18,7 +18,7 @@ import { buildTabBarHTML } from "../core/tab-bar-renderer.js";
 import { subscribeAreaUpdates } from "../core/area-resolver.js";
 import { DEVICE_REGISTRY_UPDATED, renamedDeviceId, topologyNamesDevice } from "../core/device-rename.js";
 import { subscribeEntryReloads } from "../core/entry-reload.js";
-import { isPanelDevice, type DeviceRegistryEntry } from "../core/registry-types.js";
+import { discoverPanelDevices } from "../core/panel-devices.js";
 import { mergeCircuitIds, subscribePackageRatingChanges } from "../core/rating-events.js";
 import { sameTopologyStructure } from "../core/topology-structure.js";
 import { discoverTopology } from "../card/card-discovery.js";
@@ -917,10 +917,7 @@ export class SpanPanelElement extends LitElement {
   private async _refreshPanels(): Promise<void> {
     if (!this.hass || !this._discovered) return;
 
-    const devices = await this.hass.callWS<DeviceRegistryEntry[]>({
-      type: "config/device_registry/list",
-    });
-    const realPanels: PanelDevice[] = devices.filter(isPanelDevice);
+    const realPanels: PanelDevice[] = await discoverPanelDevices(this.hass);
 
     const prevPanels = this._panels.filter(p => p.id !== FAVORITES_PANEL_ID);
     const prevById = new Map(prevPanels.map(p => [p.id, p]));
@@ -981,15 +978,7 @@ export class SpanPanelElement extends LitElement {
     try {
       let realPanels: PanelDevice[];
       try {
-        const retry = new RetryManager(this._errorStore);
-        const devices = await retry.callWS<DeviceRegistryEntry[]>(
-          this.hass,
-          { type: "config/device_registry/list" },
-          {
-            errorId: "fetch:topology",
-          }
-        );
-        realPanels = devices.filter(isPanelDevice);
+        realPanels = await discoverPanelDevices(this.hass, new RetryManager(this._errorStore));
       } catch (err) {
         console.error("SPAN Panel: device discovery failed", err);
         this._errorStore.add({

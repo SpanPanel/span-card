@@ -1,6 +1,9 @@
-import { CARD_VERSION } from "./constants.js";
+import { CARD_ELEMENT, CARD_VERSION, SECTION_STRATEGY_ELEMENT, SECTION_STRATEGY_NAME } from "./constants.js";
 import "./card/span-panel-card.js";
+import { spanPanelCardSuggestion } from "./card/card-suggestion.js";
+import { registerCustomCard, registerCustomStrategy } from "./core/lovelace-registration.js";
 import { SpanPanelCardEditor } from "./editor/span-panel-card-editor.js";
+import { SpanPanelSectionStrategy } from "./strategy/span-panel-section-strategy.js";
 
 try {
   if (!customElements.get("span-panel-card-editor")) {
@@ -10,25 +13,27 @@ try {
   // Scoped custom element registry may throw on duplicate registration after upgrade
 }
 
-interface CustomCardDef {
-  type: string;
-  name: string;
-  description: string;
-  preview: boolean;
-}
-
-declare global {
-  interface Window {
-    customCards?: CustomCardDef[];
+try {
+  if (!customElements.get(SECTION_STRATEGY_ELEMENT)) {
+    customElements.define(SECTION_STRATEGY_ELEMENT, SpanPanelSectionStrategy);
   }
+} catch {
+  // Scoped custom element registry may throw on duplicate registration after upgrade
 }
 
-window.customCards = window.customCards ?? [];
-window.customCards.push({
-  type: "span-panel-card",
+registerCustomCard({
+  type: CARD_ELEMENT,
   name: "SPAN Panel",
   description: "Physical panel layout with live power charts matching the SPAN frontend",
   preview: true,
+  getEntitySuggestion: spanPanelCardSuggestion,
+});
+
+registerCustomStrategy({
+  type: SECTION_STRATEGY_NAME,
+  strategyType: "section",
+  name: "SPAN Panel",
+  description: "A SPAN panel's breaker layout and live power charts, at the section's full width",
 });
 
 console.warn(

@@ -1,3 +1,4 @@
+import type { CARD_CONFIG_TYPE } from "./constants.js";
 import type { DeviceRegistryEntry, EntityDisplayEntry } from "./core/registry-types.js";
 
 // -- Home Assistant types (subset used by this project) --
@@ -307,6 +308,20 @@ export interface CardConfig {
   show_solar?: boolean;
   visible_sub_entities?: Record<string, boolean>;
   tab_style?: "text" | "icon";
+}
+
+/**
+ * How much of a grid section's width a card takes: a number of the section's
+ * columns, or `"full"` for all of them however wide the section is.
+ */
+export interface GridOptions {
+  columns?: number | "full";
+}
+
+/** The card as a dashboard's config holds it: its type beside its own options, and its place in a grid section. */
+export interface DashboardCardConfig extends CardConfig {
+  type: typeof CARD_CONFIG_TYPE;
+  grid_options?: GridOptions;
 }
 
 // -- Chart & history types --

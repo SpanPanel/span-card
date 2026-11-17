@@ -3,7 +3,7 @@ import { resolveAndAssignAreas } from "../core/area-resolver.js";
 import { RetryManager } from "../core/retry-manager.js";
 import { isPositiveInteger, measuresOutsidePanel, positionRange } from "../helpers/layout.js";
 import { t } from "../i18n.js";
-import { deviceName, entityOwnName } from "../core/registry-types.js";
+import { deviceName, entityOwnName, sharesOwner } from "../core/registry-types.js";
 import type { DeviceRegistryEntry, EntityRegistryEntry } from "../core/registry-types.js";
 import type { HomeAssistant, PanelTopology, PanelDevice, DiscoveryResult, Circuit, CircuitEntities, SubDevice, SubDeviceEntityInfo } from "../types.js";
 
@@ -210,9 +210,10 @@ export async function discoverEntitiesFallback(hass: HomeAssistant, deviceId: st
   const panelNames = panelNamesOf(panelDevice);
 
   // The panel's devices: itself, each circuit's, a child of it, and each
-  // battery's and charger's, reached through it.
-  const circuitDevices = devices.filter(d => d.parent_device_id === panelDevice.id);
-  const subDevices = devices.filter(d => d.via_device_id === panelDevice.id);
+  // battery's and charger's, reached through it; each owned by the panel's own
+  // config entry, which leaves out a copy of one a helper owns.
+  const circuitDevices = devices.filter(d => d.parent_device_id === panelDevice.id && sharesOwner(d, panelDevice));
+  const subDevices = devices.filter(d => d.via_device_id === panelDevice.id && sharesOwner(d, panelDevice));
   const circuitDeviceIds = new Set(circuitDevices.map(d => d.id));
   const deviceById = new Map([panelDevice, ...circuitDevices, ...subDevices].map(d => [d.id, d]));
   const circuitDeviceByIdentifier = new Map<string, DeviceRegistryEntry>();

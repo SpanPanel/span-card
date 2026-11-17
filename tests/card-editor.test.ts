@@ -68,11 +68,24 @@ const SUB_DEVICES: Record<string, SubDevice> = {
   },
 };
 
-const PANEL_DEVICE = { id: PANEL_DEVICE_ID, name: "Span Panel", identifiers: [["span_panel", "sp3-test-001"]], via_device_id: null };
+const PANEL_DEVICE = {
+  id: PANEL_DEVICE_ID,
+  name: "Span Panel",
+  config_entry_id: "entry-1",
+  identifiers: [["span_panel", "sp3-test-001"]],
+  via_device_id: null,
+};
+
+/** The integration's config entries: one for each panel the tests list. */
+const SPAN_ENTRIES = [
+  { entry_id: "entry-1", domain: "span_panel" },
+  { entry_id: "entry-2", domain: "span_panel" },
+];
 
 function hassWith(topology: PanelTopology, devices: object[] = [PANEL_DEVICE]): HomeAssistant {
   const callWS = async (msg: Record<string, unknown>): Promise<unknown> => {
     if (msg.type === "config/device_registry/list") return devices;
+    if (msg.type === "config_entries/get" && msg.domain === "span_panel") return SPAN_ENTRIES;
     if (msg.type === "span_panel/panel_topology") return topology;
     throw new Error(`unexpected ${String(msg.type)}`);
   };
@@ -121,12 +134,14 @@ describe("the card editor's panel picker", () => {
       name: "Kitchen Outlets",
       name_by_user: null,
       area_id: "kitchen",
+      config_entry_id: "entry-1",
       identifiers: [["span_panel", "sp3-test-001_circuit_0123456789abcdef"]],
       parent_device_id: PANEL_DEVICE_ID,
     };
     const battery = {
       id: "bess-1",
       name: "Battery",
+      config_entry_id: "entry-1",
       identifiers: [["span_panel", "sp3-test-001_bess"]],
       via_device_id: PANEL_DEVICE_ID,
       parent_device_id: null,
@@ -134,11 +149,19 @@ describe("the card editor's panel picker", () => {
     const secondPanel = {
       id: "panel-device-2",
       name: "Garage Panel",
+      config_entry_id: "entry-2",
       identifiers: [["span_panel", "sp3-test-002"]],
       via_device_id: null,
       parent_device_id: null,
     };
-    const stranger = { id: "other-1", name: "Thermostat", identifiers: [["other_domain", "abc"]], via_device_id: null, parent_device_id: null };
+    const stranger = {
+      id: "other-1",
+      name: "Thermostat",
+      config_entry_id: "other-entry",
+      identifiers: [["other_domain", "abc"]],
+      via_device_id: null,
+      parent_device_id: null,
+    };
 
     const editor = await openEditor([circuitDevice, battery, PANEL_DEVICE, stranger, secondPanel]);
 
@@ -146,6 +169,78 @@ describe("the card editor's panel picker", () => {
       [PANEL_DEVICE_ID, "Span Panel (sp3-test-001)"],
       ["panel-device-2", "Garage Panel (sp3-test-002)"],
     ]);
+  });
+
+  it("lists a panel once where a helper linked to it before Home Assistant 2026.8 owns a copy of its device, listed first", async () => {
+    // Home Assistant 2026.8 split the device the panel shared with the helper
+    // into one per config entry, each with the panel's identifiers and name.
+    const helperCopy = { ...PANEL_DEVICE, id: "panel-twin-1", config_entry_id: "helper-entry" };
+
+    const editor = await openEditor([helperCopy, PANEL_DEVICE]);
+
+    expect(panelChoices(editor)).toEqual([[PANEL_DEVICE_ID, "Span Panel (sp3-test-001)"]]);
+  });
+});
+
+describe("the card editor's panel discovery", () => {
+  /** A Home Assistant whose device list waits for `gate`, or fails while `failing` holds; `calls` records each request's type. */
+  function gatedHass(gate: Promise<void>, calls: string[], failing: { value: boolean } = { value: false }): HomeAssistant {
+    const callWS = async (msg: Record<string, unknown>): Promise<unknown> => {
+      calls.push(String(msg.type));
+      if (msg.type === "config/device_registry/list") {
+        await gate;
+        if (failing.value) throw new Error("device list unavailable");
+        return [PANEL_DEVICE];
+      }
+      if (msg.type === "config_entries/get" && msg.domain === "span_panel") return SPAN_ENTRIES;
+      if (msg.type === "span_panel/panel_topology") return { circuits: {}, sub_devices: SUB_DEVICES };
+      throw new Error(`unexpected ${String(msg.type)}`);
+    };
+    return { states: {}, services: {}, language: "en", callWS } as unknown as HomeAssistant;
+  }
+  const count = (calls: string[], type: string): number => calls.filter(call => call === type).length;
+
+  it("lists the panels once while Home Assistant updates hass before the answer, and builds the editor once", async () => {
+    let release = (): void => undefined;
+    const gate = new Promise<void>(resolve => (release = resolve));
+    const calls: string[] = [];
+    const hass = gatedHass(gate, calls);
+    const editor = document.createElement(TAG) as SpanPanelCardEditor;
+    editor.setConfig({ device_id: PANEL_DEVICE_ID } as CardConfig);
+
+    editor.hass = hass;
+    editor.hass = { ...hass };
+    editor.hass = { ...hass };
+    expect(count(calls, "config/device_registry/list")).toBe(1);
+    expect(count(calls, "config_entries/get")).toBe(1);
+
+    release();
+    await vi.waitFor(() => expect(panelChoices(editor)).toEqual([[PANEL_DEVICE_ID, "Span Panel (sp3-test-001)"]]));
+    const picker = editor.querySelector("select");
+
+    editor.hass = { ...hass };
+    await Promise.resolve();
+    expect(count(calls, "config/device_registry/list")).toBe(1);
+    expect(editor.querySelector("select")).toBe(picker);
+  });
+
+  it("lists the panels again on the next hass after a listing failed", async () => {
+    const calls: string[] = [];
+    const failing = { value: true };
+    const hass = gatedHass(Promise.resolve(), calls, failing);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const editor = document.createElement(TAG) as SpanPanelCardEditor;
+    editor.setConfig({ device_id: PANEL_DEVICE_ID } as CardConfig);
+
+    editor.hass = hass;
+    await vi.waitFor(() => expect(warn).toHaveBeenCalled());
+    expect(editor.querySelector("select")).toBeNull();
+
+    failing.value = false;
+    editor.hass = { ...hass };
+    await vi.waitFor(() => expect(panelChoices(editor)).toEqual([[PANEL_DEVICE_ID, "Span Panel (sp3-test-001)"]]));
+    expect(count(calls, "config/device_registry/list")).toBe(2);
+    warn.mockRestore();
   });
 });
 
