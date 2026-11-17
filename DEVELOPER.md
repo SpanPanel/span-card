@@ -169,7 +169,7 @@ entries shared into one device per entry, each keeping the shared device's ident
 device, its SPAN identifier included. The integration's entries come from one of two places in `src/core/panel-devices.ts`:
 
 - `discoverPanelDevices()` lists the panels for the card editor and the sidebar dashboard from the device registry list, judging each device against the entries
-  `config_entries/get` returns, which any user may ask for.
+  `config_entries/get` returns, which any user may ask for. Each request reports under an error id of its own, `fetch:devices` and `fetch:config_entries`.
 - `spanEntryIdsOf()` names the entries from the frontend's registries without asking: the owner of each device an entity of the integration's in `hass.entities`
   sits on. The card picker's suggestion and the section strategy's starting config use it, since neither waits for an answer.
 

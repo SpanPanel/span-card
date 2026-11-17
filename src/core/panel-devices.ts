@@ -10,21 +10,26 @@ interface ConfigEntryListing {
 }
 
 /**
+ * The error ids the two requests report under, one each, so that one's
+ * success clears only its own error and not the other's.
+ */
+const DEVICES_ERROR_ID = "fetch:devices";
+const ENTRIES_ERROR_ID = "fetch:config_entries";
+
+/**
  * The SPAN panels Home Assistant holds, in the device registry's order: the
  * devices `isPanelDevice` takes for panels, judged against the integration's
  * own config entries. Any user may list config entries, so this answers for a
  * user who is not an administrator too.
  *
- * Through `retry` where given, both requests under the one error id the
- * panel's other discovery requests use.
+ * Through `retry` where given, each request under an error id of its own.
  */
 export async function discoverPanelDevices(hass: HomeAssistant, retry?: RetryManager | null): Promise<DeviceRegistryEntry[]> {
   const devicesMsg = { type: "config/device_registry/list" };
   const entriesMsg = { type: "config_entries/get", domain: INTEGRATION_DOMAIN };
-  const opts = { errorId: "fetch:topology" };
   const [devices, entries] = await Promise.all([
-    retry ? retry.callWS<DeviceRegistryEntry[]>(hass, devicesMsg, opts) : hass.callWS<DeviceRegistryEntry[]>(devicesMsg),
-    retry ? retry.callWS<ConfigEntryListing[]>(hass, entriesMsg, opts) : hass.callWS<ConfigEntryListing[]>(entriesMsg),
+    retry ? retry.callWS<DeviceRegistryEntry[]>(hass, devicesMsg, { errorId: DEVICES_ERROR_ID }) : hass.callWS<DeviceRegistryEntry[]>(devicesMsg),
+    retry ? retry.callWS<ConfigEntryListing[]>(hass, entriesMsg, { errorId: ENTRIES_ERROR_ID }) : hass.callWS<ConfigEntryListing[]>(entriesMsg),
   ]);
   const spanEntryIds = new Set(entries.map(entry => entry.entry_id));
   return devices.filter(device => isPanelDevice(device, spanEntryIds));
