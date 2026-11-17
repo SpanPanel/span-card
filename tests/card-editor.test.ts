@@ -68,11 +68,24 @@ const SUB_DEVICES: Record<string, SubDevice> = {
   },
 };
 
-const PANEL_DEVICE = { id: PANEL_DEVICE_ID, name: "Span Panel", identifiers: [["span_panel", "sp3-test-001"]], via_device_id: null };
+const PANEL_DEVICE = {
+  id: PANEL_DEVICE_ID,
+  name: "Span Panel",
+  config_entry_id: "entry-1",
+  identifiers: [["span_panel", "sp3-test-001"]],
+  via_device_id: null,
+};
+
+/** The integration's config entries: one for each panel the tests list. */
+const SPAN_ENTRIES = [
+  { entry_id: "entry-1", domain: "span_panel" },
+  { entry_id: "entry-2", domain: "span_panel" },
+];
 
 function hassWith(topology: PanelTopology, devices: object[] = [PANEL_DEVICE]): HomeAssistant {
   const callWS = async (msg: Record<string, unknown>): Promise<unknown> => {
     if (msg.type === "config/device_registry/list") return devices;
+    if (msg.type === "config_entries/get" && msg.domain === "span_panel") return SPAN_ENTRIES;
     if (msg.type === "span_panel/panel_topology") return topology;
     throw new Error(`unexpected ${String(msg.type)}`);
   };
@@ -121,12 +134,14 @@ describe("the card editor's panel picker", () => {
       name: "Kitchen Outlets",
       name_by_user: null,
       area_id: "kitchen",
+      config_entry_id: "entry-1",
       identifiers: [["span_panel", "sp3-test-001_circuit_0123456789abcdef"]],
       parent_device_id: PANEL_DEVICE_ID,
     };
     const battery = {
       id: "bess-1",
       name: "Battery",
+      config_entry_id: "entry-1",
       identifiers: [["span_panel", "sp3-test-001_bess"]],
       via_device_id: PANEL_DEVICE_ID,
       parent_device_id: null,
@@ -134,11 +149,19 @@ describe("the card editor's panel picker", () => {
     const secondPanel = {
       id: "panel-device-2",
       name: "Garage Panel",
+      config_entry_id: "entry-2",
       identifiers: [["span_panel", "sp3-test-002"]],
       via_device_id: null,
       parent_device_id: null,
     };
-    const stranger = { id: "other-1", name: "Thermostat", identifiers: [["other_domain", "abc"]], via_device_id: null, parent_device_id: null };
+    const stranger = {
+      id: "other-1",
+      name: "Thermostat",
+      config_entry_id: "other-entry",
+      identifiers: [["other_domain", "abc"]],
+      via_device_id: null,
+      parent_device_id: null,
+    };
 
     const editor = await openEditor([circuitDevice, battery, PANEL_DEVICE, stranger, secondPanel]);
 
@@ -146,6 +169,16 @@ describe("the card editor's panel picker", () => {
       [PANEL_DEVICE_ID, "Span Panel (sp3-test-001)"],
       ["panel-device-2", "Garage Panel (sp3-test-002)"],
     ]);
+  });
+
+  it("lists a panel once where a helper linked to it before Home Assistant 2026.8 owns a copy of its device, listed first", async () => {
+    // Home Assistant 2026.8 split the device the panel shared with the helper
+    // into one per config entry, each with the panel's identifiers and name.
+    const helperCopy = { ...PANEL_DEVICE, id: "panel-twin-1", config_entry_id: "helper-entry" };
+
+    const editor = await openEditor([helperCopy, PANEL_DEVICE]);
+
+    expect(panelChoices(editor)).toEqual([[PANEL_DEVICE_ID, "Span Panel (sp3-test-001)"]]);
   });
 });
 

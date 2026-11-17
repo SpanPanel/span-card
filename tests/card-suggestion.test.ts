@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { spanPanelCardSuggestion } from "../src/card/card-suggestion.js";
-import { BATTERY_DEVICE, CIRCUIT_DEVICE, OTHER_DEVICE, PANEL, SECOND_PANEL, hassWithRegistries } from "./hass-registries.js";
+import { BATTERY_DEVICE, CIRCUIT_DEVICE, OTHER_DEVICE, PANEL, PANEL_TWIN, SECOND_PANEL, hassWithRegistries } from "./hass-registries.js";
 
 /**
  * The card picker asks every custom card for suggestions when an entity is
@@ -60,9 +60,31 @@ describe("spanPanelCardSuggestion", () => {
     expect(suggestionFor(CIRCUIT_POWER.entity_id, [CIRCUIT_POWER], [CIRCUIT_DEVICE])).toBeNull();
   });
 
-  it("suggests nothing where the device an entity of the integration's is on is not a SPAN panel", () => {
-    const onThermostat = { entity_id: "sensor.thermostat_span_reading", device_id: OTHER_DEVICE.id, platform: "span_panel" };
-    expect(suggestionFor(onThermostat.entity_id, [onThermostat])).toBeNull();
+  it("suggests nothing where the device an entity of the integration's is on is reached through another integration's device", () => {
+    const viaThermostat = { ...BATTERY_DEVICE, via_device_id: OTHER_DEVICE.id };
+    expect(suggestionFor(BATTERY_LEVEL.entity_id, [BATTERY_LEVEL], [OTHER_DEVICE, viaThermostat])).toBeNull();
+  });
+
+  // Home Assistant 2026.8 gave a helper linked to the panel a copy of the
+  // panel's device, SPAN identifier included, and moved the helper's entities
+  // onto it.
+  it("suggests nothing for a helper's entity on the copy of the panel's device the helper owns", () => {
+    const helperSensor = { entity_id: "sensor.panel_energy_daily", device_id: PANEL_TWIN.id, platform: "utility_meter" };
+    expect(suggestionFor(helperSensor.entity_id, [helperSensor], [PANEL_TWIN, PANEL])).toBeNull();
+  });
+
+  it("suggests the panel's own device where a helper's copy of it is listed first", () => {
+    expect(suggestionFor(PANEL_STATUS.entity_id, [PANEL_STATUS, CIRCUIT_POWER], [PANEL_TWIN, PANEL, CIRCUIT_DEVICE])).toEqual({
+      config: { type: "custom:span-panel-card", device_id: PANEL.id },
+    });
+    expect(suggestionFor(CIRCUIT_POWER.entity_id, [PANEL_STATUS, CIRCUIT_POWER], [PANEL_TWIN, PANEL, CIRCUIT_DEVICE])).toEqual({
+      config: { type: "custom:span-panel-card", device_id: PANEL.id },
+    });
+  });
+
+  it("suggests nothing where a device the integration's entity is on is reached through a panel another entry owns", () => {
+    const onTwin = { ...BATTERY_DEVICE, via_device_id: PANEL_TWIN.id };
+    expect(suggestionFor(BATTERY_LEVEL.entity_id, [BATTERY_LEVEL], [PANEL_TWIN, onTwin])).toBeNull();
   });
 
   it("suggests nothing before the frontend has loaded the registries", () => {

@@ -1,5 +1,6 @@
 import { CARD_CONFIG_TYPE, SECTION_STRATEGY_TYPE } from "../constants.js";
-import { deviceName, isPanelDevice } from "../core/registry-types.js";
+import { discoverPanelDevices } from "../core/panel-devices.js";
+import { deviceName } from "../core/registry-types.js";
 import { setLanguage, t } from "../i18n.js";
 import type { DashboardCardConfig, HomeAssistant } from "../types.js";
 
@@ -37,8 +38,8 @@ export class SpanPanelSectionStrategy extends HTMLElement {
   static readonly registryDependencies = ["devices"] as const;
 
   /** The section a new one starts as, which the editor also previews: the first SPAN panel's, or none where there is no panel. */
-  static getStubConfig(hass: HomeAssistant): SpanPanelSectionStrategyConfig {
-    const panel = Object.values(hass.devices ?? {}).find(isPanelDevice);
+  static async getStubConfig(hass: HomeAssistant): Promise<SpanPanelSectionStrategyConfig> {
+    const [panel] = await discoverPanelDevices(hass);
     return panel ? { type: SECTION_STRATEGY_TYPE, device_id: panel.id } : { type: SECTION_STRATEGY_TYPE };
   }
 

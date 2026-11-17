@@ -666,6 +666,7 @@ describe("the sidebar dashboard", () => {
       callWS: (async (msg: Record<string, unknown>) => {
         sent.push(msg);
         if (msg.type === "config/device_registry/list") return [device(1), device(2)];
+        if (msg.type === "config_entries/get" && msg.domain === "span_panel") return [1, 2, 3].map(n => ({ entry_id: `entry-${n}`, domain: "span_panel" }));
         if (msg.service === "get_favorites") return { response: { favorites } };
         if (msg.service === "get_monitoring_status") {
           if (statusGate) await statusGate;

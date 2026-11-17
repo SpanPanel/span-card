@@ -47,6 +47,18 @@ function circuitDevice(n: number, circuitId: string): DeviceRegistryEntry {
   };
 }
 
+/**
+ * Panel `n`'s device as a helper's config entry owns it: Home Assistant 2026.8
+ * split a device the panel shared with a helper into one per entry, each with
+ * the panel's identifiers and name.
+ */
+function helperCopy(n: number): DeviceRegistryEntry {
+  return { ...device(n), id: `panel-twin-${n}`, config_entry_id: `helper-entry-${n}` };
+}
+
+/** The integration's config entries, which `config_entries/get` lists for its domain: one for each panel the tests use. */
+const SPAN_ENTRIES = [1, 2, 3, 4].map(n => ({ entry_id: `entry-${n}`, domain: "span_panel" }));
+
 function statusOf(deviceId: string): string {
   return `binary_sensor.${deviceId.replace("-", "_")}_status`;
 }
@@ -65,6 +77,7 @@ function hassFor(connection: FakeConnection): HomeAssistant {
         deviceListCalls += 1;
         return devices;
       }
+      if (msg.type === "config_entries/get" && msg.domain === "span_panel") return SPAN_ENTRIES;
       if (msg.type === "call_service" && msg.service === "get_favorites") return { response: { favorites } };
       if (msg.type === "call_service" && msg.service === "get_monitoring_status" && monitoring) return { response: monitoring };
       return {};
@@ -218,6 +231,29 @@ describe("span-panel subscriptions", () => {
 
     // The integration's conversion adds the circuit devices; a second panel shows the list was re-read.
     devices = [circuitDevice(1, "a"), device(1), circuitDevice(2, "a"), device(2)];
+    connection.emit("device_registry_updated", {});
+    await vi.waitFor(() => expect(deviceListCalls).toBe(before + 1));
+    await vi.waitFor(() => expect(listedPanels(panel)).toHaveLength(2));
+
+    expect(listedPanels(panel)).toEqual(["panel-1", "panel-2"]);
+  });
+
+  it("lists a panel once, and selects it, where a helper's copy of its device is listed first", async () => {
+    devices = [helperCopy(1), device(1)];
+
+    const panel = await mount(new FakeConnection(), () => expect(watch).toHaveBeenCalledWith(statusOf("panel-1")));
+
+    expect(mockDiscover.mock.calls.map(call => call[1])).toEqual(["panel-1"]);
+    expect(listedPanels(panel)).toEqual(["panel-1"]);
+  });
+
+  it("keeps a helper's copy of a panel's device out of the panel list when the device registry changes", async () => {
+    const connection = new FakeConnection();
+    const panel = await mount(connection, () => expect(watch).toHaveBeenCalledWith(statusOf("panel-1")));
+    const before = deviceListCalls;
+
+    // A second panel shows the list was re-read.
+    devices = [helperCopy(1), device(1), helperCopy(2), device(2)];
     connection.emit("device_registry_updated", {});
     await vi.waitFor(() => expect(deviceListCalls).toBe(before + 1));
     await vi.waitFor(() => expect(listedPanels(panel)).toHaveLength(2));

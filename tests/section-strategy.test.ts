@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { SpanPanelSectionStrategy } from "../src/strategy/span-panel-section-strategy.js";
-import { BATTERY_DEVICE, CIRCUIT_DEVICE, OTHER_DEVICE, PANEL, SECOND_PANEL, hassWithRegistries } from "./hass-registries.js";
+import { BATTERY_DEVICE, CIRCUIT_DEVICE, OTHER_DEVICE, PANEL, PANEL_TWIN, SECOND_PANEL, hassWithRegistries } from "./hass-registries.js";
 
 /**
  * Home Assistant 2026.11 offers the section among the Community sections: it
@@ -10,19 +10,24 @@ import { BATTERY_DEVICE, CIRCUIT_DEVICE, OTHER_DEVICE, PANEL, SECOND_PANEL, hass
  */
 
 describe("SpanPanelSectionStrategy.getStubConfig", () => {
-  it("starts from the first SPAN panel, passing over the integration's other devices and other integrations'", () => {
+  it("starts from the first SPAN panel, passing over the integration's other devices and other integrations'", async () => {
     const hass = hassWithRegistries([OTHER_DEVICE, CIRCUIT_DEVICE, BATTERY_DEVICE, SECOND_PANEL, PANEL]);
-    expect(SpanPanelSectionStrategy.getStubConfig(hass)).toEqual({ type: "custom:span-panel", device_id: SECOND_PANEL.id });
+    await expect(SpanPanelSectionStrategy.getStubConfig(hass)).resolves.toEqual({ type: "custom:span-panel", device_id: SECOND_PANEL.id });
   });
 
-  it("names no panel where there is none", () => {
-    expect(SpanPanelSectionStrategy.getStubConfig(hassWithRegistries([OTHER_DEVICE, CIRCUIT_DEVICE]))).toEqual({ type: "custom:span-panel" });
+  it("passes over the copy of a panel's device a helper owns, listed before the panel", async () => {
+    const hass = hassWithRegistries([PANEL_TWIN, PANEL, SECOND_PANEL]);
+    await expect(SpanPanelSectionStrategy.getStubConfig(hass)).resolves.toEqual({ type: "custom:span-panel", device_id: PANEL.id });
   });
 
-  it("names no panel before the frontend has loaded the device registry", () => {
-    const hass = hassWithRegistries([]);
-    delete hass.devices;
-    expect(SpanPanelSectionStrategy.getStubConfig(hass)).toEqual({ type: "custom:span-panel" });
+  it("names no panel where there is none", async () => {
+    await expect(SpanPanelSectionStrategy.getStubConfig(hassWithRegistries([OTHER_DEVICE, CIRCUIT_DEVICE, PANEL_TWIN]))).resolves.toEqual({
+      type: "custom:span-panel",
+    });
+  });
+
+  it("names no panel where the integration has no config entry", async () => {
+    await expect(SpanPanelSectionStrategy.getStubConfig(hassWithRegistries([PANEL, SECOND_PANEL], [], []))).resolves.toEqual({ type: "custom:span-panel" });
   });
 });
 
@@ -62,7 +67,7 @@ describe("SpanPanelSectionStrategy.generate", () => {
   });
 
   it("previews the section it starts from", async () => {
-    const stub = SpanPanelSectionStrategy.getStubConfig(hass);
+    const stub = await SpanPanelSectionStrategy.getStubConfig(hass);
     const section = await SpanPanelSectionStrategy.generate(stub, hass);
     expect(section.cards[1]).toEqual({ type: "custom:span-panel-card", device_id: PANEL.id, grid_options: { columns: "full" } });
   });

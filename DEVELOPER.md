@@ -53,6 +53,7 @@ src/
     graph-settings.ts       # Graph horizon settings cache + effective horizon lookup
     side-panel.ts           # Sliding configuration panel (custom element)
     registry-types.ts       # Device and entity registry entries, and the panel filter
+    panel-devices.ts        # The SPAN panels in the device registry, by the config entry that owns each
     device-rename.ts        # Device renames, which a showing topology's labels follow
     lovelace-registration.ts  # Entries in the frontend's lists of custom cards and strategies
 
@@ -152,10 +153,17 @@ Shared types live in `src/types.ts`:
 The Home Assistant registry entries live in `src/core/registry-types.ts`:
 
 - `DeviceRegistryEntry`, `EntityRegistryEntry` — the fields the card reads of the device and entity registry lists
-- `isPanelDevice()` — tells a panel from the integration's other devices: its batteries and chargers, and the child device of each circuit
+- `isPanelDevice()` — whether a device is a panel: one of the integration's config entries owns it, and it is neither a battery or charger reached through
+  another device nor a circuit's child device
 - `owningPanelDevice()` — the panel one of those devices belongs to, or the device itself where it is a panel
 - `deviceName()` — a device's name as Home Assistant shows it
 - `entityOwnName()` — an entity's own name, the user's before the integration's, without its device's
+
+A panel is told by the config entry that owns it, not by an identifier in the integration's domain. Home Assistant 2026.8 split each device that several config
+entries shared into one device per entry, each keeping the shared device's identifiers, so a helper that had linked itself to a panel owns a copy of the panel's
+device, its SPAN identifier included. `discoverPanelDevices()` in `src/core/panel-devices.ts` lists the panels for the card editor, the sidebar dashboard and
+the section strategy, judging each device against the integration's entries from `config_entries/get`, which any user may ask for. The card picker's suggestion
+cannot wait for that list, so it judges the panel against the entry that owns the picked entity's device.
 
 ## TypeScript
 
