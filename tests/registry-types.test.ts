@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { deviceName, entityOwnName, isPanelDevice } from "../src/core/registry-types.js";
+import { deviceName, entityOwnName, isPanelDevice, owningPanelDevice } from "../src/core/registry-types.js";
 import type { DeviceRegistryEntry } from "../src/core/registry-types.js";
+import { BATTERY_DEVICE, CIRCUIT_DEVICE, OTHER_DEVICE, PANEL as HASS_PANEL, SECOND_PANEL } from "./hass-registries.js";
 
 // The device list the card reads is the raw `config/device_registry/list`
 // answer, not the frontend's `hass.devices`. A circuit is a child device of its
@@ -65,6 +66,44 @@ describe("isPanelDevice", () => {
 
   it("rejects a device with no identifiers", () => {
     expect(isPanelDevice({ id: "bare-1" })).toBe(false);
+  });
+});
+
+describe("owningPanelDevice", () => {
+  // The frontend's `hass.devices`, where a circuit's child device is completed
+  // from its panel's entry and carries `via_device_id: null`.
+  const byId = (devices: DeviceRegistryEntry[]): Record<string, DeviceRegistryEntry> => Object.fromEntries(devices.map(d => [d.id, d]));
+  const ALL = byId([HASS_PANEL, SECOND_PANEL, CIRCUIT_DEVICE, BATTERY_DEVICE, OTHER_DEVICE]);
+
+  it("is a panel itself", () => {
+    expect(owningPanelDevice(HASS_PANEL, ALL)).toBe(HASS_PANEL);
+    expect(owningPanelDevice(SECOND_PANEL, ALL)).toBe(SECOND_PANEL);
+  });
+
+  it("is the panel a circuit's child device belongs to", () => {
+    expect(owningPanelDevice(CIRCUIT_DEVICE, ALL)).toBe(HASS_PANEL);
+  });
+
+  it("is the panel a circuit's device belongs to as the device registry list sends it, with no via_device_id key", () => {
+    expect(owningPanelDevice(RAW_CIRCUIT_DEVICE, byId([PANEL]))).toBe(PANEL);
+  });
+
+  it("is the panel a battery or charger is reached through", () => {
+    expect(owningPanelDevice(BATTERY_DEVICE, ALL)).toBe(HASS_PANEL);
+  });
+
+  it("is null for another integration's device", () => {
+    expect(owningPanelDevice(OTHER_DEVICE, ALL)).toBeNull();
+  });
+
+  it("is null where the device it belongs to is missing", () => {
+    expect(owningPanelDevice(CIRCUIT_DEVICE, byId([CIRCUIT_DEVICE]))).toBeNull();
+    expect(owningPanelDevice(BATTERY_DEVICE, byId([BATTERY_DEVICE]))).toBeNull();
+  });
+
+  it("is null where the device it belongs to is not a SPAN panel", () => {
+    const onThermostat = { ...BATTERY_DEVICE, via_device_id: OTHER_DEVICE.id };
+    expect(owningPanelDevice(onThermostat, ALL)).toBeNull();
   });
 });
 

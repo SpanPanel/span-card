@@ -1,5 +1,7 @@
-import { CARD_VERSION } from "./constants.js";
+import { CARD_ELEMENT, CARD_VERSION } from "./constants.js";
 import "./card/span-panel-card.js";
+import { spanPanelCardSuggestion } from "./card/card-suggestion.js";
+import { registerCustomCard } from "./core/lovelace-registration.js";
 import { SpanPanelCardEditor } from "./editor/span-panel-card-editor.js";
 
 try {
@@ -10,25 +12,12 @@ try {
   // Scoped custom element registry may throw on duplicate registration after upgrade
 }
 
-interface CustomCardDef {
-  type: string;
-  name: string;
-  description: string;
-  preview: boolean;
-}
-
-declare global {
-  interface Window {
-    customCards?: CustomCardDef[];
-  }
-}
-
-window.customCards = window.customCards ?? [];
-window.customCards.push({
-  type: "span-panel-card",
+registerCustomCard({
+  type: CARD_ELEMENT,
   name: "SPAN Panel",
   description: "Physical panel layout with live power charts matching the SPAN frontend",
   preview: true,
+  getEntitySuggestion: spanPanelCardSuggestion,
 });
 
 console.warn(

@@ -1,6 +1,6 @@
 import { LitElement, html, unsafeCSS, nothing } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
-import { DEFAULT_CHART_METRIC } from "../constants.js";
+import { CARD_ELEMENT, DEFAULT_CHART_METRIC } from "../constants.js";
 import { setLanguage, t } from "../i18n.js";
 import { escapeHtml } from "../helpers/sanitize.js";
 import { loadListColumns } from "../helpers/list-columns.js";
@@ -65,7 +65,7 @@ const PREVIEW_CIRCUITS = [
   },
 ];
 
-@customElement("span-panel-card")
+@customElement(CARD_ELEMENT)
 export class SpanPanelCard extends LitElement {
   @property({ attribute: false })
   hass!: HomeAssistant;

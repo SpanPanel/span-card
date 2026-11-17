@@ -48,13 +48,14 @@ export interface EntityRegistryEntry {
  * An entity as the frontend keeps it in `hass.entities`: the registry's display
  * list, which leaves out disabled entities and every entity's unique id. `name`
  * is the entity's own name, the user's before the integration's, and is absent
- * where it has none.
+ * where it has none. `platform` is the integration that provides the entity.
  */
 export interface EntityDisplayEntry {
   entity_id: string;
   device_id?: string;
   area_id?: string;
   name?: string;
+  platform?: string;
 }
 
 /**
@@ -64,6 +65,18 @@ export interface EntityDisplayEntry {
  */
 export function isPanelDevice(d: DeviceRegistryEntry): boolean {
   return (d.identifiers ?? []).some(pair => pair[0] === INTEGRATION_DOMAIN) && !d.via_device_id && !d.parent_device_id;
+}
+
+/**
+ * The panel a device belongs to: the panel it is a child of, as a circuit's
+ * device is; else the panel it is reached through, as a battery's or a
+ * charger's is; else the device itself. Null where that device is not in
+ * `devices` or is not a SPAN panel.
+ */
+export function owningPanelDevice(device: DeviceRegistryEntry, devices: Readonly<Record<string, DeviceRegistryEntry>>): DeviceRegistryEntry | null {
+  const panelId = device.parent_device_id || device.via_device_id;
+  const panel = panelId ? devices[panelId] : device;
+  return panel && isPanelDevice(panel) ? panel : null;
 }
 
 /** A device's name as Home Assistant shows it: the user's where they gave one, else the integration's; "" for neither. */

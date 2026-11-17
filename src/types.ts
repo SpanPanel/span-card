@@ -1,3 +1,4 @@
+import type { CARD_CONFIG_TYPE } from "./constants.js";
 import type { DeviceRegistryEntry, EntityDisplayEntry } from "./core/registry-types.js";
 
 // -- Home Assistant types (subset used by this project) --
@@ -307,6 +308,11 @@ export interface CardConfig {
   show_solar?: boolean;
   visible_sub_entities?: Record<string, boolean>;
   tab_style?: "text" | "icon";
+}
+
+/** The card as a dashboard's config holds it: its type beside its own options. */
+export interface DashboardCardConfig extends CardConfig {
+  type: typeof CARD_CONFIG_TYPE;
 }
 
 // -- Chart & history types --

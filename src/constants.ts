@@ -26,6 +26,12 @@ export const GRAPH_HORIZONS: Record<string, GraphHorizonPreset> = {
 // -- Domain / type identifiers --
 
 export const INTEGRATION_DOMAIN = "span_panel";
+
+/** The card's custom element. */
+export const CARD_ELEMENT = "span-panel-card";
+/** The type a dashboard's config names the card by: its element, with Home Assistant's prefix for a custom card. */
+export const CARD_CONFIG_TYPE = `custom:${CARD_ELEMENT}` as const;
+
 export const RELAY_STATE_CLOSED = "CLOSED";
 export const DEVICE_TYPE_PV = "pv";
 export const SUB_DEVICE_TYPE_BESS = "bess";

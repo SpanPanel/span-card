@@ -31,11 +31,12 @@ src/
   types.ts                  # Shared TypeScript interfaces
   constants.ts              # Global constants, metric definitions, named magic numbers
   i18n.ts                   # Internationalization (en, es, fr, ja, pt)
-  index.ts                  # Card entry point — registers custom elements
+  index.ts                  # Card entry point — registers custom elements and the card
 
   card/
     span-panel-card.ts      # Main Lovelace card (extends HTMLElement)
     card-discovery.ts       # WebSocket topology discovery + entity fallback
+    card-suggestion.ts      # The card the card picker suggests for an entity of the integration's
     card-styles.ts          # Card CSS
 
   core/
@@ -50,6 +51,7 @@ src/
     side-panel.ts           # Sliding configuration panel (custom element)
     registry-types.ts       # Device and entity registry entries, and the panel filter
     device-rename.ts        # Device renames, which a showing topology's labels follow
+    lovelace-registration.ts  # The card's entry in the frontend's list of custom cards
 
   panel/
     index.ts                # Integration panel entry point
@@ -93,6 +95,16 @@ Both share the same core modules. The `DashboardController` in `src/core/dashboa
 history loading, horizon maps, slide-to-confirm, toggle/gear clicks, resize observation) so the card and panel dashboard tab delegate to it rather than
 duplicating logic.
 
+### Dashboard Editor Registration
+
+`src/index.ts` adds the card bundle's parts to the lists Home Assistant's dashboard editor reads:
+
+- **The card**, in `window.customCards`. Its `getEntitySuggestion` answers for an entity of the integration's with the card of the panel the entity's device
+  belongs to, which the card picker lists under Community cards (Home Assistant 2026.6+).
+
+`registerCustomCard()` adds to a list that is already there rather than replacing it, because the frontend keeps the list it found when it loaded, and adds an
+entry once however often the bundle runs.
+
 ### Data Flow
 
 ```text
@@ -132,6 +144,7 @@ The Home Assistant registry entries live in `src/core/registry-types.ts`:
 
 - `DeviceRegistryEntry`, `EntityRegistryEntry` — the fields the card reads of the device and entity registry lists
 - `isPanelDevice()` — tells a panel from the integration's other devices: its batteries and chargers, and the child device of each circuit
+- `owningPanelDevice()` — the panel one of those devices belongs to, or the device itself where it is a panel
 - `deviceName()` — a device's name as Home Assistant shows it
 - `entityOwnName()` — an entity's own name, the user's before the integration's, without its device's
 

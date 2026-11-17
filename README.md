@@ -24,7 +24,8 @@ positions.
 ## Installation
 
 The SPAN Panel integration ships this card and loads it on every dashboard itself, so there is nothing to install and no entry to add under **Settings >
-Dashboards > Resources**. Add it to a dashboard from the card picker as **SPAN Panel**.
+Dashboards > Resources**. Add it to a dashboard from the card picker as **SPAN Panel**. The card picker also suggests it, set up for the right panel, when you
+pick one of a panel's entities.
 
 > **Migrating from HACS or a manual install?** If you installed this card through HACS or copied `span-panel-card.js` into your `www/` directory:
 >
