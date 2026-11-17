@@ -118,9 +118,15 @@ describe("<span-switch> styles, after <ha-switch> at Home Assistant frontend 202
   // <ha-switch> rings focus with --wa-focus-ring and --wa-focus-ring-offset, which Home Assistant declares on the
   // document as `solid 2px var(--wa-focus-ring-color)`, that color being --ha-color-focus.
   it("rings keyboard focus as <ha-switch> does, with Home Assistant's focus ring and offset", () => {
-    const focus = declarations(":host(:focus-visible) .track");
+    const focus = declarations(":host(:focus-visible:not([disabled])) .track");
     expect(focus.get("outline")).toBe("var(--wa-focus-ring, 2px solid var(--ha-color-focus, var(--primary-color, #4dd9af)))");
     expect(focus.get("outline-offset")).toBe("var(--wa-focus-ring-offset, 2px)");
+  });
+
+  // <ha-switch> rings `label:not(.disabled)` only.
+  it("rings no disabled switch", () => {
+    const ringed = [...RULES].filter(([, body]) => body.has("outline")).map(([selector]) => selector);
+    expect(ringed).toEqual([":host(:focus-visible:not([disabled])) .track"]);
   });
 
   it("reads none of the switch tokens Home Assistant 2026.5 retired", () => {
@@ -141,6 +147,45 @@ describe("<span-switch>", () => {
     expect(el.getAttribute("role")).toBe("switch");
     expect(el.getAttribute("tabindex")).toBe("0");
     expect(el.getAttribute("aria-checked")).toBe("false");
+
+    el.remove();
+  });
+
+  it("takes no focus while disabled, and its tabindex back when enabled again", async () => {
+    const el = document.createElement("span-switch");
+    el.disabled = true;
+    document.body.appendChild(el);
+    await el.updateComplete;
+    expect(el.hasAttribute("tabindex")).toBe(false);
+    expect(el.getAttribute("aria-disabled")).toBe("true");
+
+    el.disabled = false;
+    await el.updateComplete;
+    expect(el.getAttribute("tabindex")).toBe("0");
+    expect(el.getAttribute("aria-disabled")).toBe("false");
+
+    el.disabled = true;
+    await el.updateComplete;
+    expect(el.hasAttribute("tabindex")).toBe(false);
+    expect(el.getAttribute("aria-disabled")).toBe("true");
+
+    el.remove();
+  });
+
+  it("keeps a tabindex it was given across being disabled and enabled", async () => {
+    const el = document.createElement("span-switch");
+    el.setAttribute("tabindex", "-1");
+    document.body.appendChild(el);
+    await el.updateComplete;
+    expect(el.getAttribute("tabindex")).toBe("-1");
+
+    el.disabled = true;
+    await el.updateComplete;
+    expect(el.hasAttribute("tabindex")).toBe(false);
+
+    el.disabled = false;
+    await el.updateComplete;
+    expect(el.getAttribute("tabindex")).toBe("-1");
 
     el.remove();
   });

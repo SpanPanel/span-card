@@ -20,7 +20,8 @@ import { property } from "lit/decorators.js";
  *
  * Properties:
  *   checked  – on/off state (reflects to attribute for [checked] CSS)
- *   disabled – dims the control, and a click or key press leaves it as it is
+ *   disabled – dims the control, leaves it out of focus, and a click or key
+ *              press leaves it as it is
  *
  * Fires a native `change` event with `bubbles: true, composed: true` so
  * shadow-root listeners and the existing addEventListener("change", ...)
@@ -127,16 +128,19 @@ export class SpanSwitch extends LitElement {
     :host([checked]) .thumb {
       left: calc(var(--span-switch-track-w) - 2 * var(--span-switch-border) - var(--span-switch-inset) - var(--span-switch-thumb));
     }
-    /* <ha-switch>'s focus ring: Home Assistant declares it on the document, so it reaches this shadow root, and re-declares it on a themed element. */
-    :host(:focus-visible) .track {
+    /* <ha-switch>'s focus ring, which it draws on an enabled switch only: Home Assistant declares it on the document, so it reaches this shadow root, and re-declares it on a themed element. */
+    :host(:focus-visible:not([disabled])) .track {
       outline: var(--wa-focus-ring, 2px solid var(--ha-color-focus, var(--primary-color, #4dd9af)));
       outline-offset: var(--wa-focus-ring-offset, 2px);
     }
   `;
 
+  /** The tabindex the switch takes while enabled: the one it was given, else 0. */
+  private _enabledTabIndex = "0";
+
   connectedCallback(): void {
     super.connectedCallback();
-    if (!this.hasAttribute("tabindex")) this.setAttribute("tabindex", "0");
+    this._syncFocusable();
     if (!this.hasAttribute("role")) this.setAttribute("role", "switch");
     this.setAttribute("aria-checked", String(this.checked));
     this.addEventListener("click", this._onActivate);
@@ -151,7 +155,26 @@ export class SpanSwitch extends LitElement {
 
   protected override updated(changed: Map<string, unknown>): void {
     if (changed.has("checked")) this.setAttribute("aria-checked", String(this.checked));
-    if (changed.has("disabled")) this.setAttribute("aria-disabled", String(this.disabled));
+    if (changed.has("disabled")) {
+      this.setAttribute("aria-disabled", String(this.disabled));
+      this._syncFocusable();
+    }
+  }
+
+  /**
+   * Focusable while enabled and not while disabled, as a disabled <ha-switch>
+   * is not: a disabled switch gives up its tabindex, and takes the same one back
+   * when it is enabled again.
+   */
+  private _syncFocusable(): void {
+    const tabIndex = this.getAttribute("tabindex");
+    if (this.disabled) {
+      if (tabIndex === null) return;
+      this._enabledTabIndex = tabIndex;
+      this.removeAttribute("tabindex");
+    } else if (tabIndex === null) {
+      this.setAttribute("tabindex", this._enabledTabIndex);
+    }
   }
 
   protected override render(): unknown {
