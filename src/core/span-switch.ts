@@ -2,18 +2,24 @@ import { LitElement, html, css } from "lit";
 import { property } from "lit/decorators.js";
 
 /**
- * Drop-in replacement for HA's <ha-switch>. Track + thumb toggle that
- * mirrors HA's visual conventions (rounded pill, animated thumb, primary
- * accent on the on-state, muted track on off) so existing call sites in
- * side-panel.ts get the same look.
+ * Drop-in replacement for HA's <ha-switch>: a track and thumb toggle for the
+ * call sites in side-panel.ts.
+ *
+ * The colors are <ha-switch>'s, as Home Assistant's frontend 20261028 draws
+ * it: each part reads the theme token <ha-switch> reads, then the design token
+ * <ha-switch> falls back to, so the default theme draws these as it draws its
+ * own switches and a theme that styles <ha-switch> styles these too. That
+ * covers the track and its 1px border, the thumb and its border and shadow,
+ * each checked and unchecked, at rest and under hover or keyboard focus, and
+ * the disabled opacity, which dims the control alone. The last value in each
+ * chain applies only outside Home Assistant, where neither token is defined.
+ *
+ * The size is this card's own, 36 by 20 with a 14px thumb, not <ha-switch>'s
+ * size tokens.
  *
  * Properties:
  *   checked  – on/off state (reflects to attribute for [checked] CSS)
- *   disabled – greys the control and blocks pointer events
- *
- * Colors and the disabled opacity come from the theme tokens <ha-switch>
- * reads (Home Assistant 2026.5+), so a theme that styles HA's switches
- * styles these too; the fallbacks apply where the theme sets none.
+ *   disabled – dims the control, and a click or key press leaves it as it is
  *
  * Fires a native `change` event with `bubbles: true, composed: true` so
  * shadow-root listeners and the existing addEventListener("change", ...)
@@ -25,13 +31,16 @@ export class SpanSwitch extends LitElement {
 
   static override styles = css`
     :host {
-      --span-switch-on: var(--ha-switch-checked-background-color, var(--primary-color, #4dd9af));
-      --span-switch-off: var(--ha-switch-background-color, rgba(120, 120, 120, 0.45));
-      --span-switch-thumb-on: var(--ha-switch-checked-thumb-background-color, #fff);
-      --span-switch-thumb-off: var(--ha-switch-thumb-background-color, #fafafa);
       --span-switch-track-w: 36px;
       --span-switch-track-h: 20px;
       --span-switch-thumb: 14px;
+      --span-switch-border: 1px;
+      /* The thumb's gap to the inside of the track's border, the same on every side. */
+      --span-switch-inset: calc((var(--span-switch-track-h) - 2 * var(--span-switch-border) - var(--span-switch-thumb)) / 2);
+      --span-switch-track-color: var(--ha-switch-background-color, var(--ha-color-fill-disabled-quiet-resting, rgba(120, 120, 120, 0.45)));
+      --span-switch-track-border-color: var(--ha-switch-border-color, var(--ha-color-border-neutral-normal, transparent));
+      --span-switch-thumb-color: var(--ha-switch-thumb-background-color, var(--ha-color-on-neutral-normal, #fafafa));
+      --span-switch-thumb-border-color: var(--ha-switch-thumb-border-color, var(--ha-color-on-neutral-normal, transparent));
       display: inline-flex;
       align-items: center;
       vertical-align: middle;
@@ -39,41 +48,86 @@ export class SpanSwitch extends LitElement {
       user-select: none;
       -webkit-tap-highlight-color: transparent;
     }
+    :host(:not([checked]):not([disabled]):hover),
+    :host(:not([checked]):not([disabled]):focus-visible) {
+      --span-switch-track-color: var(
+        --ha-switch-background-color-hover,
+        var(--ha-switch-background-color, var(--ha-color-fill-disabled-quiet-hover, rgba(120, 120, 120, 0.45)))
+      );
+      --span-switch-thumb-color: var(
+        --ha-switch-thumb-background-color-hover,
+        var(--ha-switch-thumb-background-color, var(--ha-color-on-neutral-normal, #fafafa))
+      );
+      --span-switch-thumb-border-color: var(
+        --ha-switch-thumb-border-color-hover,
+        var(--ha-switch-thumb-border-color, var(--ha-color-on-neutral-normal, transparent))
+      );
+    }
+    :host([checked]) {
+      --span-switch-track-color: var(--ha-switch-checked-background-color, var(--ha-color-fill-primary-normal-resting, var(--primary-color, #4dd9af)));
+      --span-switch-track-border-color: var(--ha-switch-checked-border-color, var(--ha-color-border-primary-loud, transparent));
+      --span-switch-thumb-color: var(--ha-switch-checked-thumb-background-color, var(--ha-color-on-primary-normal, #fff));
+      --span-switch-thumb-border-color: var(--ha-switch-checked-thumb-border-color, var(--ha-color-on-primary-normal, transparent));
+    }
+    :host([checked]:not([disabled]):hover),
+    :host([checked]:not([disabled]):focus-visible) {
+      --span-switch-track-color: var(
+        --ha-switch-checked-background-color-hover,
+        var(--ha-switch-checked-background-color, var(--ha-color-fill-primary-normal-hover, var(--primary-color, #4dd9af)))
+      );
+      --span-switch-track-border-color: var(
+        --ha-switch-checked-border-color-hover,
+        var(--ha-switch-checked-border-color, var(--ha-color-border-primary-loud, transparent))
+      );
+      --span-switch-thumb-color: var(
+        --ha-switch-checked-thumb-background-color-hover,
+        var(--ha-switch-checked-thumb-background-color, var(--ha-color-on-primary-normal, #fff))
+      );
+      --span-switch-thumb-border-color: var(
+        --ha-switch-checked-thumb-border-color-hover,
+        var(--ha-switch-checked-thumb-border-color, var(--ha-color-on-primary-normal, transparent))
+      );
+    }
     :host([disabled]) {
       cursor: not-allowed;
-      opacity: var(--ha-switch-disabled-opacity, 0.5);
     }
     .track {
       position: relative;
+      box-sizing: border-box;
       width: var(--span-switch-track-w);
       height: var(--span-switch-track-h);
+      border: var(--span-switch-border) solid var(--span-switch-track-border-color);
       border-radius: calc(var(--span-switch-track-h) / 2);
-      background: var(--span-switch-off);
-      transition: background 0.2s ease;
+      background: var(--span-switch-track-color);
+      transition:
+        background 0.2s ease,
+        border-color 0.2s ease;
+    }
+    :host([disabled]) .track {
+      opacity: var(--ha-switch-disabled-opacity, 0.3);
     }
     .thumb {
       position: absolute;
       top: 50%;
-      left: 3px;
+      left: var(--span-switch-inset);
+      box-sizing: border-box;
       width: var(--span-switch-thumb);
       height: var(--span-switch-thumb);
+      border: var(--span-switch-border) solid var(--span-switch-thumb-border-color);
       border-radius: 50%;
-      background: var(--span-switch-thumb-off);
-      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+      background: var(--span-switch-thumb-color);
+      box-shadow: var(--ha-switch-thumb-box-shadow, var(--ha-box-shadow-s, 0 1px 3px rgba(0, 0, 0, 0.35)));
       transform: translateY(-50%);
       transition:
         left 0.2s ease,
-        background 0.2s ease;
-    }
-    :host([checked]) .track {
-      background: var(--span-switch-on);
+        background 0.2s ease,
+        border-color 0.2s ease;
     }
     :host([checked]) .thumb {
-      left: calc(var(--span-switch-track-w) - var(--span-switch-thumb) - 3px);
-      background: var(--span-switch-thumb-on);
+      left: calc(var(--span-switch-track-w) - 2 * var(--span-switch-border) - var(--span-switch-inset) - var(--span-switch-thumb));
     }
     :host(:focus-visible) .track {
-      outline: 2px solid var(--span-switch-on);
+      outline: 2px solid var(--primary-color, #4dd9af);
       outline-offset: 2px;
     }
   `;
