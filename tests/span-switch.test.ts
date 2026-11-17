@@ -1,9 +1,24 @@
 import { describe, it, expect } from "vitest";
-import "../src/core/span-switch.js";
+import { SpanSwitch } from "../src/core/span-switch.js";
 
 describe("<span-switch>", () => {
   it("registers as a custom element", () => {
     expect(customElements.get("span-switch")).toBeDefined();
+  });
+
+  // happy-dom drops a declaration whose var() has a fallback, so the tokens are
+  // read from the stylesheet's text rather than from computed styles.
+  it("takes its colors and disabled opacity from the theme tokens Home Assistant's own switch reads", () => {
+    const css = SpanSwitch.styles.cssText;
+    expect(css).toContain("--span-switch-on: var(--ha-switch-checked-background-color,");
+    expect(css).toContain("--span-switch-off: var(--ha-switch-background-color,");
+    expect(css).toContain("--span-switch-thumb-on: var(--ha-switch-checked-thumb-background-color,");
+    expect(css).toContain("--span-switch-thumb-off: var(--ha-switch-thumb-background-color,");
+    expect(css).toContain("opacity: var(--ha-switch-disabled-opacity,");
+  });
+
+  it("reads none of the switch tokens Home Assistant 2026.5 retired", () => {
+    expect(SpanSwitch.styles.cssText).not.toMatch(/var\(--switch-/);
   });
 
   it("sets ARIA role and tabindex on connect", async () => {

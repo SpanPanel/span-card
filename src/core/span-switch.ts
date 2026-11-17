@@ -11,6 +11,10 @@ import { property } from "lit/decorators.js";
  *   checked  – on/off state (reflects to attribute for [checked] CSS)
  *   disabled – greys the control and blocks pointer events
  *
+ * Colors and the disabled opacity come from the theme tokens <ha-switch>
+ * reads (Home Assistant 2026.5+), so a theme that styles HA's switches
+ * styles these too; the fallbacks apply where the theme sets none.
+ *
  * Fires a native `change` event with `bubbles: true, composed: true` so
  * shadow-root listeners and the existing addEventListener("change", ...)
  * handlers in side-panel.ts continue to work unchanged.
@@ -21,10 +25,10 @@ export class SpanSwitch extends LitElement {
 
   static override styles = css`
     :host {
-      --span-switch-on: var(--switch-checked-color, var(--primary-color, #4dd9af));
-      --span-switch-off: var(--switch-unchecked-track-color, rgba(120, 120, 120, 0.45));
-      --span-switch-thumb-on: var(--switch-checked-button-color, #fff);
-      --span-switch-thumb-off: var(--switch-unchecked-button-color, #fafafa);
+      --span-switch-on: var(--ha-switch-checked-background-color, var(--primary-color, #4dd9af));
+      --span-switch-off: var(--ha-switch-background-color, rgba(120, 120, 120, 0.45));
+      --span-switch-thumb-on: var(--ha-switch-checked-thumb-background-color, #fff);
+      --span-switch-thumb-off: var(--ha-switch-thumb-background-color, #fafafa);
       --span-switch-track-w: 36px;
       --span-switch-track-h: 20px;
       --span-switch-thumb: 14px;
@@ -37,7 +41,7 @@ export class SpanSwitch extends LitElement {
     }
     :host([disabled]) {
       cursor: not-allowed;
-      opacity: 0.5;
+      opacity: var(--ha-switch-disabled-opacity, 0.5);
     }
     .track {
       position: relative;
