@@ -2,6 +2,7 @@ import { CHART_METRICS, DEFAULT_CHART_METRIC, INTEGRATION_DOMAIN } from "../cons
 import { discoverPanelDevices } from "../core/panel-devices.js";
 import { t } from "../i18n.js";
 import { subEntityGroups } from "./sub-entity-groups.js";
+import type { DeviceRegistryEntry } from "../core/registry-types.js";
 import type { HomeAssistant, CardConfig, PanelTopology, SubDevice, ChartMetricDef } from "../types.js";
 
 interface PanelOption {
@@ -15,6 +16,8 @@ export class SpanPanelCardEditor extends HTMLElement {
   private _panels: PanelOption[] | null = null;
   private _availableRoles: Set<string> | null = null;
   private _built = false;
+  /** While the panels are being listed. */
+  private _discovering = false;
 
   private _panelSelect: HTMLSelectElement | null = null;
   private _daysInput: HTMLInputElement | null = null;
@@ -33,15 +36,30 @@ export class SpanPanelCardEditor extends HTMLElement {
   set hass(hass: HomeAssistant) {
     this._hass = hass;
     if (!this._panels) {
-      this._discoverPanels();
+      if (!this._discovering) void this._discoverPanels();
     } else if (!this._built) {
       this._buildEditor();
     }
   }
 
+  /**
+   * List the panels once and build the editor on the answer. Home Assistant
+   * sets `hass` on every state change, so one discovery runs at a time and a
+   * `hass` arriving meanwhile does not start another; one that arrives after a
+   * discovery failed starts it again.
+   */
   private async _discoverPanels(): Promise<void> {
     if (!this._hass) return;
-    const panels = await discoverPanelDevices(this._hass);
+    this._discovering = true;
+    let panels: DeviceRegistryEntry[];
+    try {
+      panels = await discoverPanelDevices(this._hass);
+    } catch (err) {
+      console.warn("SPAN Panel: the card editor could not list the panels", err);
+      return;
+    } finally {
+      this._discovering = false;
+    }
     this._panels = panels.map(d => {
       const serial = (d.identifiers ?? []).find(p => p[0] === INTEGRATION_DOMAIN)?.[1] ?? "";
       const name = d.name_by_user ?? d.name ?? t("editor.panel_label");

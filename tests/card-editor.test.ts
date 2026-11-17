@@ -182,6 +182,68 @@ describe("the card editor's panel picker", () => {
   });
 });
 
+describe("the card editor's panel discovery", () => {
+  /** A Home Assistant whose device list waits for `gate`, or fails while `failing` holds; `calls` records each request's type. */
+  function gatedHass(gate: Promise<void>, calls: string[], failing: { value: boolean } = { value: false }): HomeAssistant {
+    const callWS = async (msg: Record<string, unknown>): Promise<unknown> => {
+      calls.push(String(msg.type));
+      if (msg.type === "config/device_registry/list") {
+        await gate;
+        if (failing.value) throw new Error("device list unavailable");
+        return [PANEL_DEVICE];
+      }
+      if (msg.type === "config_entries/get" && msg.domain === "span_panel") return SPAN_ENTRIES;
+      if (msg.type === "span_panel/panel_topology") return { circuits: {}, sub_devices: SUB_DEVICES };
+      throw new Error(`unexpected ${String(msg.type)}`);
+    };
+    return { states: {}, services: {}, language: "en", callWS } as unknown as HomeAssistant;
+  }
+  const count = (calls: string[], type: string): number => calls.filter(call => call === type).length;
+
+  it("lists the panels once while Home Assistant updates hass before the answer, and builds the editor once", async () => {
+    let release = (): void => undefined;
+    const gate = new Promise<void>(resolve => (release = resolve));
+    const calls: string[] = [];
+    const hass = gatedHass(gate, calls);
+    const editor = document.createElement(TAG) as SpanPanelCardEditor;
+    editor.setConfig({ device_id: PANEL_DEVICE_ID } as CardConfig);
+
+    editor.hass = hass;
+    editor.hass = { ...hass };
+    editor.hass = { ...hass };
+    expect(count(calls, "config/device_registry/list")).toBe(1);
+    expect(count(calls, "config_entries/get")).toBe(1);
+
+    release();
+    await vi.waitFor(() => expect(panelChoices(editor)).toEqual([[PANEL_DEVICE_ID, "Span Panel (sp3-test-001)"]]));
+    const picker = editor.querySelector("select");
+
+    editor.hass = { ...hass };
+    await Promise.resolve();
+    expect(count(calls, "config/device_registry/list")).toBe(1);
+    expect(editor.querySelector("select")).toBe(picker);
+  });
+
+  it("lists the panels again on the next hass after a listing failed", async () => {
+    const calls: string[] = [];
+    const failing = { value: true };
+    const hass = gatedHass(Promise.resolve(), calls, failing);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const editor = document.createElement(TAG) as SpanPanelCardEditor;
+    editor.setConfig({ device_id: PANEL_DEVICE_ID } as CardConfig);
+
+    editor.hass = hass;
+    await vi.waitFor(() => expect(warn).toHaveBeenCalled());
+    expect(editor.querySelector("select")).toBeNull();
+
+    failing.value = false;
+    editor.hass = { ...hass };
+    await vi.waitFor(() => expect(panelChoices(editor)).toEqual([[PANEL_DEVICE_ID, "Span Panel (sp3-test-001)"]]));
+    expect(count(calls, "config/device_registry/list")).toBe(2);
+    warn.mockRestore();
+  });
+});
+
 describe("the card editor's entity checkboxes", () => {
   it("lists both chargers, each under its own heading with its own checkboxes", async () => {
     const editor = await openEditor();
