@@ -3,6 +3,22 @@
 **This card is no longer distributed through HACS:** SPAN Panel 2.0.5 and later ships it, 0.8.8 is the last release HACS can install, and
 [Installation](README.md#installation) says how to remove a HACS copy.
 
+## 0.12.0
+
+### Added
+
+- **The card picker suggests the SPAN Panel card, set up for the right panel, when you pick any of that panel's entities**, those of its circuits, battery,
+  chargers and solar devices included.
+- **The dashboard editor offers a SPAN Panel section under Community sections**, which holds the panel's card at the section's full width.
+
+### Fixed
+
+- **The card editor and the sidebar dashboard list each panel once**, where a panel that a helper was linked to before Home Assistant 2026.8 appeared a second
+  time and that second entry did not load.
+- **For a user who is not an administrator, the card shows each battery, charger and solar device once**, where one that a helper was linked to before Home
+  Assistant 2026.8 could appear a second time.
+- **The side panel's switches are drawn in the colors of Home Assistant's own switches**, and in a theme's switch colors where it sets them.
+
 ## 0.11.0
 
 ### Added
