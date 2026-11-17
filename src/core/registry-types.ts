@@ -72,10 +72,22 @@ export function isPanelDevice(d: DeviceRegistryEntry, spanEntryIds: ReadonlySet<
 }
 
 /**
+ * Whether the config entry that owns `panel` owns `device` too, as it owns each
+ * of the panel's own devices. Pointing at the panel does not settle it: the
+ * same 2026.8 split left a helper that had linked itself to a battery or a
+ * charger owning a copy of that device, its `via_device_id` included, which
+ * the split could point at the panel.
+ */
+export function sharesOwner(device: DeviceRegistryEntry, panel: DeviceRegistryEntry): boolean {
+  return device.config_entry_id !== undefined && device.config_entry_id === panel.config_entry_id;
+}
+
+/**
  * The panel a device belongs to: the panel it is a child of, as a circuit's
  * device is; else the panel it is reached through, as a battery's or a
  * charger's is; else the device itself. Null where that device is not in
- * `devices` or is not a SPAN panel by `isPanelDevice`.
+ * `devices`, is not a SPAN panel by `isPanelDevice`, or does not share the
+ * device's owner by `sharesOwner`.
  */
 export function owningPanelDevice(
   device: DeviceRegistryEntry,
@@ -84,7 +96,7 @@ export function owningPanelDevice(
 ): DeviceRegistryEntry | null {
   const panelId = device.parent_device_id || device.via_device_id;
   const panel = panelId ? devices[panelId] : device;
-  return panel && isPanelDevice(panel, spanEntryIds) ? panel : null;
+  return panel && isPanelDevice(panel, spanEntryIds) && sharesOwner(device, panel) ? panel : null;
 }
 
 /** A device's name as Home Assistant shows it: the user's where they gave one, else the integration's; "" for neither. */

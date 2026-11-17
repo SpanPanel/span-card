@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { deviceName, entityOwnName, isPanelDevice, owningPanelDevice } from "../src/core/registry-types.js";
+import { deviceName, entityOwnName, isPanelDevice, owningPanelDevice, sharesOwner } from "../src/core/registry-types.js";
 import type { DeviceRegistryEntry } from "../src/core/registry-types.js";
 import {
   BATTERY_DEVICE,
@@ -139,6 +139,26 @@ describe("owningPanelDevice", () => {
   it("is null where the device it belongs to is the panel's copy a helper owns", () => {
     const onTwin = { ...BATTERY_DEVICE, via_device_id: PANEL_TWIN.id };
     expect(owningPanelDevice(onTwin, ALL, HASS_SPAN_ENTRIES)).toBeNull();
+  });
+
+  it("is null for a helper's copy of a battery that points at the panel, which the panel's entry does not own", () => {
+    const batteryCopy = { ...BATTERY_DEVICE, id: "bess-copy-1", config_entry_id: "helper-entry-2" };
+    expect(owningPanelDevice(batteryCopy, ALL, HASS_SPAN_ENTRIES)).toBeNull();
+  });
+});
+
+describe("sharesOwner", () => {
+  it("holds for each of the panel's own devices, and the panel itself", () => {
+    for (const device of [HASS_PANEL, CIRCUIT_DEVICE, BATTERY_DEVICE]) expect(sharesOwner(device, HASS_PANEL)).toBe(true);
+  });
+
+  it("fails for a device another entry owns, whatever it points at", () => {
+    expect(sharesOwner({ ...BATTERY_DEVICE, config_entry_id: "helper-entry-2" }, HASS_PANEL)).toBe(false);
+    expect(sharesOwner(SECOND_PANEL, HASS_PANEL)).toBe(false);
+  });
+
+  it("fails for a device with no owner, beside a panel with none", () => {
+    expect(sharesOwner({ id: "bare-1" }, { id: "bare-panel" })).toBe(false);
   });
 });
 
