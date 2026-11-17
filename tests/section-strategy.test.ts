@@ -1,6 +1,22 @@
 import { describe, it, expect } from "vitest";
 import { SpanPanelSectionStrategy } from "../src/strategy/span-panel-section-strategy.js";
-import { BATTERY_DEVICE, CIRCUIT_DEVICE, OTHER_DEVICE, PANEL, PANEL_TWIN, SECOND_PANEL, hassWithRegistries } from "./hass-registries.js";
+import type { DeviceRegistryEntry, EntityDisplayEntry } from "../src/core/registry-types.js";
+import type { HomeAssistant } from "../src/types.js";
+import {
+  BATTERY_DEVICE,
+  BATTERY_LEVEL,
+  CIRCUIT_DEVICE,
+  CIRCUIT_POWER,
+  HELPER_SENSOR,
+  OTHER_DEVICE,
+  PANEL,
+  PANEL_STATUS,
+  PANEL_TWIN,
+  SECOND_PANEL,
+  SECOND_PANEL_POWER,
+  THERMOSTAT,
+  hassWithRegistries,
+} from "./hass-registries.js";
 
 /**
  * Home Assistant 2026.11 offers the section among the Community sections: it
@@ -11,26 +27,42 @@ import { BATTERY_DEVICE, CIRCUIT_DEVICE, OTHER_DEVICE, PANEL, PANEL_TWIN, SECOND
 
 /** A circuit's device and a battery beside the panels, which the stub passes over. */
 const NOT_PANELS = [OTHER_DEVICE, CIRCUIT_DEVICE, BATTERY_DEVICE];
+/** An entity of the integration's on each of its devices, and two of others'. */
+const ENTITIES = [PANEL_STATUS, SECOND_PANEL_POWER, CIRCUIT_POWER, BATTERY_LEVEL, THERMOSTAT, HELPER_SENSOR];
+
+// The stub reads the frontend's registries alone; this backend answers no request.
+function registriesOnly(devices: DeviceRegistryEntry[], entities: EntityDisplayEntry[]): HomeAssistant {
+  return { ...hassWithRegistries(devices, entities), callWS: () => Promise.reject(new Error("the stub asks nothing")) };
+}
 
 describe("SpanPanelSectionStrategy.getStubConfig", () => {
-  it("starts from the first SPAN panel, passing over the integration's other devices and other integrations'", async () => {
-    const hass = hassWithRegistries([...NOT_PANELS, SECOND_PANEL, PANEL]);
-    await expect(SpanPanelSectionStrategy.getStubConfig(hass)).resolves.toEqual({ type: "custom:span-panel", device_id: SECOND_PANEL.id });
-  });
-
-  it("passes over the copy of a panel's device a helper owns, listed before the panel", async () => {
-    const hass = hassWithRegistries([PANEL_TWIN, PANEL, SECOND_PANEL]);
-    await expect(SpanPanelSectionStrategy.getStubConfig(hass)).resolves.toEqual({ type: "custom:span-panel", device_id: PANEL.id });
-  });
-
-  it("names no panel where there is none", async () => {
-    await expect(SpanPanelSectionStrategy.getStubConfig(hassWithRegistries([...NOT_PANELS, PANEL_TWIN]))).resolves.toEqual({
+  it("starts from the first SPAN panel in the device registry's order, passing over the integration's other devices and other integrations'", () => {
+    expect(SpanPanelSectionStrategy.getStubConfig(registriesOnly([...NOT_PANELS, SECOND_PANEL, PANEL], ENTITIES))).toEqual({
       type: "custom:span-panel",
+      device_id: SECOND_PANEL.id,
     });
   });
 
-  it("names no panel where the integration has no config entry", async () => {
-    await expect(SpanPanelSectionStrategy.getStubConfig(hassWithRegistries([PANEL, SECOND_PANEL], [], []))).resolves.toEqual({ type: "custom:span-panel" });
+  it("passes over the copy of a panel's device a helper owns, listed before the panel", () => {
+    expect(SpanPanelSectionStrategy.getStubConfig(registriesOnly([PANEL_TWIN, PANEL, SECOND_PANEL], ENTITIES))).toEqual({
+      type: "custom:span-panel",
+      device_id: PANEL.id,
+    });
+  });
+
+  it("finds a panel whose own device has no entity, by the entity of one of its circuits", () => {
+    expect(SpanPanelSectionStrategy.getStubConfig(registriesOnly([PANEL_TWIN, CIRCUIT_DEVICE, PANEL], [CIRCUIT_POWER, HELPER_SENSOR]))).toEqual({
+      type: "custom:span-panel",
+      device_id: PANEL.id,
+    });
+  });
+
+  it("names no panel where there is none", () => {
+    expect(SpanPanelSectionStrategy.getStubConfig(registriesOnly([...NOT_PANELS, PANEL_TWIN], ENTITIES))).toEqual({ type: "custom:span-panel" });
+  });
+
+  it("names no panel where the integration has no entity, which names no entry of its", () => {
+    expect(SpanPanelSectionStrategy.getStubConfig(registriesOnly([PANEL, SECOND_PANEL], [THERMOSTAT, HELPER_SENSOR]))).toEqual({ type: "custom:span-panel" });
   });
 });
 
@@ -77,7 +109,7 @@ describe("SpanPanelSectionStrategy.generate", () => {
   });
 
   it("previews the section it starts from", async () => {
-    const stub = await SpanPanelSectionStrategy.getStubConfig(hassWithRegistries([PANEL_TWIN, PANEL, SECOND_PANEL]));
+    const stub = SpanPanelSectionStrategy.getStubConfig(registriesOnly([PANEL_TWIN, PANEL, SECOND_PANEL], ENTITIES));
     const section = await SpanPanelSectionStrategy.generate(stub);
     expect(section.cards).toEqual([{ type: "custom:span-panel-card", device_id: PANEL.id, grid_options: { columns: "full" } }]);
   });

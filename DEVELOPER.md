@@ -166,9 +166,12 @@ The Home Assistant registry entries live in `src/core/registry-types.ts`:
 
 A panel is told by the config entry that owns it, not by an identifier in the integration's domain. Home Assistant 2026.8 split each device that several config
 entries shared into one device per entry, each keeping the shared device's identifiers, so a helper that had linked itself to a panel owns a copy of the panel's
-device, its SPAN identifier included. `discoverPanelDevices()` in `src/core/panel-devices.ts` lists the panels for the card editor, the sidebar dashboard and
-the section strategy, judging each device against the integration's entries from `config_entries/get`, which any user may ask for. The card picker's suggestion
-cannot wait for that list, so it judges the panel against the entry that owns the picked entity's device.
+device, its SPAN identifier included. The integration's entries come from one of two places in `src/core/panel-devices.ts`:
+
+- `discoverPanelDevices()` lists the panels for the card editor and the sidebar dashboard from the device registry list, judging each device against the entries
+  `config_entries/get` returns, which any user may ask for.
+- `spanEntryIdsOf()` names the entries from the frontend's registries without asking: the owner of each device an entity of the integration's in `hass.entities`
+  sits on. The card picker's suggestion and the section strategy's starting config use it, since neither waits for an answer.
 
 A panel's own devices are told the same way. The split also left a helper that had linked itself to a battery or a charger owning a copy of that device, whose
 `via_device_id` can point at the panel. `owningPanelDevice()` and the entity fallback's circuits and sub-devices (`discoverEntitiesFallback()`) take only a

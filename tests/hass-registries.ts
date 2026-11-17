@@ -71,6 +71,15 @@ export const OTHER_DEVICE: DeviceRegistryEntry = {
   parent_device_id: null,
 };
 
+/** Entities as `hass.entities` holds them: the integration's, on each of its devices, and others'. */
+export const PANEL_STATUS: EntityDisplayEntry = { entity_id: "binary_sensor.span_panel_status", device_id: PANEL.id, platform: "span_panel" };
+export const SECOND_PANEL_POWER: EntityDisplayEntry = { entity_id: "sensor.garage_panel_current_power", device_id: SECOND_PANEL.id, platform: "span_panel" };
+export const CIRCUIT_POWER: EntityDisplayEntry = { entity_id: "sensor.kitchen_outlets_power", device_id: CIRCUIT_DEVICE.id, platform: "span_panel" };
+export const BATTERY_LEVEL: EntityDisplayEntry = { entity_id: "sensor.span_panel_battery_level", device_id: BATTERY_DEVICE.id, platform: "span_panel" };
+export const THERMOSTAT: EntityDisplayEntry = { entity_id: "climate.thermostat", device_id: OTHER_DEVICE.id, platform: "other_domain" };
+/** The helper's entity, which Home Assistant 2026.8 moved onto the helper's copy of the panel's device. */
+export const HELPER_SENSOR: EntityDisplayEntry = { entity_id: "sensor.panel_energy_daily", device_id: PANEL_TWIN.id, platform: "utility_meter" };
+
 /**
  * A Home Assistant whose registries hold these devices and entities, with no
  * states. Its backend answers the device registry list with the devices and

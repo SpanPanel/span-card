@@ -1,5 +1,6 @@
 import { CARD_CONFIG_TYPE, SECTION_STRATEGY_TYPE } from "../constants.js";
-import { discoverPanelDevices } from "../core/panel-devices.js";
+import { spanEntryIdsOf } from "../core/panel-devices.js";
+import { isPanelDevice } from "../core/registry-types.js";
 import type { CardConfig, DashboardCardConfig, HomeAssistant } from "../types.js";
 
 /** The section strategy's options, as a section's `strategy` key holds them: the card's own options, the panel among them. */
@@ -61,9 +62,15 @@ export class SpanPanelSectionStrategy extends HTMLElement {
    */
   static readonly registryDependencies: readonly LovelaceStrategyDependency[] = [];
 
-  /** The section a new one starts as, which the editor also previews: the first SPAN panel's, or none where there is no panel. */
-  static async getStubConfig(hass: HomeAssistant): Promise<SpanPanelSectionStrategyConfig> {
-    const [panel] = await discoverPanelDevices(hass);
+  /**
+   * The section a new one starts as, which the editor also previews: the first
+   * SPAN panel's in the device registry's order, or none where there is no
+   * panel. Read from the frontend's registries, as Home Assistant's own device
+   * section reads its stub, so there is nothing to wait for.
+   */
+  static getStubConfig(hass: HomeAssistant): SpanPanelSectionStrategyConfig {
+    const spanEntryIds = spanEntryIdsOf(hass);
+    const panel = Object.values(hass.devices ?? {}).find(device => isPanelDevice(device, spanEntryIds));
     return panel ? { type: SECTION_STRATEGY_TYPE, device_id: panel.id } : { type: SECTION_STRATEGY_TYPE };
   }
 

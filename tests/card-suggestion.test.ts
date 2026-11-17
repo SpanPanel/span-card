@@ -1,6 +1,20 @@
 import { describe, it, expect } from "vitest";
 import { spanPanelCardSuggestion } from "../src/card/card-suggestion.js";
-import { BATTERY_DEVICE, CIRCUIT_DEVICE, OTHER_DEVICE, PANEL, PANEL_TWIN, SECOND_PANEL, hassWithRegistries } from "./hass-registries.js";
+import {
+  BATTERY_DEVICE,
+  BATTERY_LEVEL,
+  CIRCUIT_DEVICE,
+  CIRCUIT_POWER,
+  HELPER_SENSOR,
+  OTHER_DEVICE,
+  PANEL,
+  PANEL_STATUS,
+  PANEL_TWIN,
+  SECOND_PANEL,
+  SECOND_PANEL_POWER,
+  THERMOSTAT,
+  hassWithRegistries,
+} from "./hass-registries.js";
 
 /**
  * The card picker asks every custom card for suggestions when an entity is
@@ -9,12 +23,6 @@ import { BATTERY_DEVICE, CIRCUIT_DEVICE, OTHER_DEVICE, PANEL, PANEL_TWIN, SECOND
  */
 
 const DEVICES = [PANEL, SECOND_PANEL, CIRCUIT_DEVICE, BATTERY_DEVICE, OTHER_DEVICE];
-
-const PANEL_STATUS = { entity_id: "binary_sensor.span_panel_status", device_id: PANEL.id, platform: "span_panel" };
-const SECOND_PANEL_POWER = { entity_id: "sensor.garage_panel_current_power", device_id: SECOND_PANEL.id, platform: "span_panel" };
-const CIRCUIT_POWER = { entity_id: "sensor.kitchen_outlets_power", device_id: CIRCUIT_DEVICE.id, platform: "span_panel" };
-const BATTERY_LEVEL = { entity_id: "sensor.span_panel_battery_level", device_id: BATTERY_DEVICE.id, platform: "span_panel" };
-const THERMOSTAT = { entity_id: "climate.thermostat", device_id: OTHER_DEVICE.id, platform: "other_domain" };
 
 function suggestionFor(entityId: string, entities = [PANEL_STATUS, SECOND_PANEL_POWER, CIRCUIT_POWER, BATTERY_LEVEL, THERMOSTAT], devices = DEVICES) {
   return spanPanelCardSuggestion(hassWithRegistries(devices, entities), entityId);
@@ -69,8 +77,7 @@ describe("spanPanelCardSuggestion", () => {
   // panel's device, SPAN identifier included, and moved the helper's entities
   // onto it.
   it("suggests nothing for a helper's entity on the copy of the panel's device the helper owns", () => {
-    const helperSensor = { entity_id: "sensor.panel_energy_daily", device_id: PANEL_TWIN.id, platform: "utility_meter" };
-    expect(suggestionFor(helperSensor.entity_id, [helperSensor], [PANEL_TWIN, PANEL])).toBeNull();
+    expect(suggestionFor(HELPER_SENSOR.entity_id, [HELPER_SENSOR, PANEL_STATUS], [PANEL_TWIN, PANEL])).toBeNull();
   });
 
   it("suggests the panel's own device where a helper's copy of it is listed first", () => {

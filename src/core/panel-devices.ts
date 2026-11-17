@@ -29,3 +29,21 @@ export async function discoverPanelDevices(hass: HomeAssistant, retry?: RetryMan
   const spanEntryIds = new Set(entries.map(entry => entry.entry_id));
   return devices.filter(device => isPanelDevice(device, spanEntryIds));
 }
+
+/**
+ * The integration's config entries as the frontend's registries name them,
+ * without asking Home Assistant: the entry that owns the device of each of the
+ * integration's entities in `hass.entities`, the integration's entities sitting
+ * on devices its own entry registered. `hass.entities` holds enabled entities
+ * only, so an entry none of whose entities is enabled is not among them; its
+ * panel would have no reading to show.
+ */
+export function spanEntryIdsOf(hass: HomeAssistant): Set<string> {
+  const entryIds = new Set<string>();
+  for (const entity of Object.values(hass.entities ?? {})) {
+    if (entity.platform !== INTEGRATION_DOMAIN || !entity.device_id) continue;
+    const owner = hass.devices?.[entity.device_id]?.config_entry_id;
+    if (owner) entryIds.add(owner);
+  }
+  return entryIds;
+}
