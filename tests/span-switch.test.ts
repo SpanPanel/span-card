@@ -115,8 +115,12 @@ describe("<span-switch> styles, after <ha-switch> at Home Assistant frontend 202
     expect(declarations(":host([disabled])").has("opacity")).toBe(false);
   });
 
-  it("rings keyboard focus in the primary color", () => {
-    expect(declarations(":host(:focus-visible) .track").get("outline")).toBe("2px solid var(--primary-color, #4dd9af)");
+  // <ha-switch> rings focus with --wa-focus-ring and --wa-focus-ring-offset, which Home Assistant declares on the
+  // document as `solid 2px var(--wa-focus-ring-color)`, that color being --ha-color-focus.
+  it("rings keyboard focus as <ha-switch> does, with Home Assistant's focus ring and offset", () => {
+    const focus = declarations(":host(:focus-visible) .track");
+    expect(focus.get("outline")).toBe("var(--wa-focus-ring, 2px solid var(--ha-color-focus, var(--primary-color, #4dd9af)))");
+    expect(focus.get("outline-offset")).toBe("var(--wa-focus-ring-offset, 2px)");
   });
 
   it("reads none of the switch tokens Home Assistant 2026.5 retired", () => {

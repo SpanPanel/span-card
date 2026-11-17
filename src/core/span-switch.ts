@@ -10,9 +10,10 @@ import { property } from "lit/decorators.js";
  * <ha-switch> falls back to, so the default theme draws these as it draws its
  * own switches and a theme that styles <ha-switch> styles these too. That
  * covers the track and its 1px border, the thumb and its border and shadow,
- * each checked and unchecked, at rest and under hover or keyboard focus, and
- * the disabled opacity, which dims the control alone. The last value in each
- * chain applies only outside Home Assistant, where neither token is defined.
+ * each checked and unchecked, at rest and under hover or keyboard focus, the
+ * disabled opacity, which dims the control alone, and the keyboard focus ring.
+ * The last value in each chain applies only outside Home Assistant, where none
+ * of the tokens before it is defined.
  *
  * The size is this card's own, 36 by 20 with a 14px thumb, not <ha-switch>'s
  * size tokens.
@@ -126,9 +127,10 @@ export class SpanSwitch extends LitElement {
     :host([checked]) .thumb {
       left: calc(var(--span-switch-track-w) - 2 * var(--span-switch-border) - var(--span-switch-inset) - var(--span-switch-thumb));
     }
+    /* <ha-switch>'s focus ring: Home Assistant declares it on the document, so it reaches this shadow root, and re-declares it on a themed element. */
     :host(:focus-visible) .track {
-      outline: 2px solid var(--primary-color, #4dd9af);
-      outline-offset: 2px;
+      outline: var(--wa-focus-ring, 2px solid var(--ha-color-focus, var(--primary-color, #4dd9af)));
+      outline-offset: var(--wa-focus-ring-offset, 2px);
     }
   `;
 
