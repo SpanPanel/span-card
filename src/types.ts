@@ -310,9 +310,18 @@ export interface CardConfig {
   tab_style?: "text" | "icon";
 }
 
-/** The card as a dashboard's config holds it: its type beside its own options. */
+/**
+ * How much of a grid section's width a card takes: a number of the section's
+ * columns, or `"full"` for all of them however wide the section is.
+ */
+export interface GridOptions {
+  columns?: number | "full";
+}
+
+/** The card as a dashboard's config holds it: its type beside its own options, and its place in a grid section. */
 export interface DashboardCardConfig extends CardConfig {
   type: typeof CARD_CONFIG_TYPE;
+  grid_options?: GridOptions;
 }
 
 // -- Chart & history types --

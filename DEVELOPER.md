@@ -31,13 +31,16 @@ src/
   types.ts                  # Shared TypeScript interfaces
   constants.ts              # Global constants, metric definitions, named magic numbers
   i18n.ts                   # Internationalization (en, es, fr, ja, pt)
-  index.ts                  # Card entry point — registers custom elements and the card
+  index.ts                  # Card entry point — registers custom elements, the card and the section strategy
 
   card/
     span-panel-card.ts      # Main Lovelace card (extends HTMLElement)
     card-discovery.ts       # WebSocket topology discovery + entity fallback
     card-suggestion.ts      # The card the card picker suggests for an entity of the integration's
     card-styles.ts          # Card CSS
+
+  strategy/
+    span-panel-section-strategy.ts  # Dashboard section of one panel: a heading above its card
 
   core/
     dashboard-controller.ts # Shared controller (used by card + panel dashboard)
@@ -51,7 +54,7 @@ src/
     side-panel.ts           # Sliding configuration panel (custom element)
     registry-types.ts       # Device and entity registry entries, and the panel filter
     device-rename.ts        # Device renames, which a showing topology's labels follow
-    lovelace-registration.ts  # The card's entry in the frontend's list of custom cards
+    lovelace-registration.ts  # Entries in the frontend's lists of custom cards and strategies
 
   panel/
     index.ts                # Integration panel entry point
@@ -101,9 +104,15 @@ duplicating logic.
 
 - **The card**, in `window.customCards`. Its `getEntitySuggestion` answers for an entity of the integration's with the card of the panel the entity's device
   belongs to, which the card picker lists under Community cards (Home Assistant 2026.6+).
+- **The section strategy**, in `window.customStrategies` as `span-panel`, and its element `ll-strategy-section-span-panel`, which the editor offers under
+  Community sections (Home Assistant 2026.11+). Its sections are written as `strategy: {type: custom:span-panel, device_id: …}`.
 
-`registerCustomCard()` adds to a list that is already there rather than replacing it, because the frontend keeps the list it found when it loaded, and adds an
-entry once however often the bundle runs.
+`registerCustomCard()` and `registerCustomStrategy()` add to a list that is already there rather than replacing it, because the frontend keeps the list it found
+when it loaded, and add an entry once however often the bundle runs.
+
+A section's width in its view is the `column_span` saved on the section itself, which the user sets in the section's settings; the sections view reads it from
+the saved config, not from what the strategy generates (frontend 20261028). The strategy gives the card `grid_options: {columns: full}`, so the card fills the
+section at whatever width the user picks.
 
 ### Data Flow
 

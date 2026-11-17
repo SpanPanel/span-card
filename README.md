@@ -27,6 +27,9 @@ The SPAN Panel integration ships this card and loads it on every dashboard itsel
 Dashboards > Resources**. Add it to a dashboard from the card picker as **SPAN Panel**. The card picker also suggests it, set up for the right panel, when you
 pick one of a panel's entities.
 
+On a sections dashboard you can instead add a **SPAN Panel** section: choose **Automatic section**, then **SPAN Panel** under **Community sections**. It shows
+the panel's name as a heading above the card.
+
 > **Migrating from HACS or a manual install?** If you installed this card through HACS or copied `span-panel-card.js` into your `www/` directory:
 >
 > 1. Remove SPAN Panel Card from HACS, if it is installed there.
@@ -77,6 +80,18 @@ show_solar: true
 | `show_evse`            | boolean | `true`         | Show EV charger (EVSE) sub-device section                                         |
 | `show_solar`           | boolean | `true`         | Show the Solar and solar inverter tiles                                           |
 | `visible_sub_entities` | object  | `{}`           | Map of entity IDs to booleans controlling which sub-device entities are displayed |
+
+### SPAN Panel Section
+
+A SPAN Panel section starts with the first panel. To show another, edit the section's YAML and set that panel's device ID:
+
+```yaml
+strategy:
+  type: custom:span-panel
+  device_id: <your_span_panel_device_id>
+```
+
+The card fills the section, and the section's width is set in its settings.
 
 ### Solar and Inverter Tiles
 

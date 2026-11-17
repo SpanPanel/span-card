@@ -31,6 +31,12 @@ export const INTEGRATION_DOMAIN = "span_panel";
 export const CARD_ELEMENT = "span-panel-card";
 /** The type a dashboard's config names the card by: its element, with Home Assistant's prefix for a custom card. */
 export const CARD_CONFIG_TYPE = `custom:${CARD_ELEMENT}` as const;
+/** The section strategy's name, which Home Assistant's strategy registry lists it by. */
+export const SECTION_STRATEGY_NAME = "span-panel";
+/** The type a section's `strategy` key names the section strategy by: its name, with Home Assistant's prefix for a custom strategy. */
+export const SECTION_STRATEGY_TYPE = `custom:${SECTION_STRATEGY_NAME}` as const;
+/** The custom element Home Assistant looks the section strategy up by. */
+export const SECTION_STRATEGY_ELEMENT = `ll-strategy-section-${SECTION_STRATEGY_NAME}`;
 
 export const RELAY_STATE_CLOSED = "CLOSED";
 export const DEVICE_TYPE_PV = "pv";
