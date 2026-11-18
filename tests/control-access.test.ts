@@ -11,6 +11,7 @@ import {
   controlAccessHint,
   controlNoteHTML,
   controlWrites,
+  favoritesPanelAccess,
   reportControlFailure,
   titleControl,
   viewControlAccess,
@@ -342,6 +343,17 @@ describe("circuitControlAccess", () => {
     expect(circuitControlAccess(merged, "panel-9|gone")).toEqual(CONTROLS_NOT_KNOWN);
     expect(circuitControlAccess(merged, "panel-2|bess")).toEqual(CONTROLS_NOT_KNOWN);
     expect(CONTROLS_NOT_KNOWN.mayOperate).toBe(false);
+  });
+});
+
+describe("favoritesPanelAccess", () => {
+  it("is each panel the view draws a circuit of, with its access, and leaves out a panel that gives it only sub-devices", () => {
+    const subDevice: FavoriteRef = { panelDeviceId: "panel-3", kind: "sub_device", targetId: "bess", configEntryId: "entry-3" };
+    const merged = favorites({ a: circuitRef("panel-1", ADMIN_ONLY), b: circuitRef("panel-2", CONTROLS_OPERABLE), c: subDevice });
+    expect([...favoritesPanelAccess(merged)]).toEqual([
+      ["panel-1", ADMIN_ONLY],
+      ["panel-2", CONTROLS_OPERABLE],
+    ]);
   });
 });
 

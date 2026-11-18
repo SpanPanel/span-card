@@ -16,14 +16,25 @@ export interface HeaderRenderOptions {
   showSwitches?: boolean;
 }
 
+/** How a view draws its "Enable Switches" slider. */
+export interface SlideConfirmOptions {
+  /**
+   * Put the note saying why beside a forbidden slider. False where the view
+   * says it elsewhere, as the Favorites view does under each panel's name in
+   * its stats grid (`favoritesPanelAccess`).
+   */
+  note?: boolean;
+}
+
 /**
  * The "Enable Switches" slider, which arms every switch a view draws for its
  * taps. Where the user may operate none of the view's controls (`access`,
  * `viewControlAccess`), it is drawn forbidden and cannot be armed
- * (`bindSlideConfirm`), titled with why, a note beside it saying it too.
- * Shared by the panel header and the Favorites view's summary strip.
+ * (`bindSlideConfirm`), titled with why, a note beside it saying it too
+ * unless the view says it elsewhere (`options.note`). Shared by the panel
+ * header and the Favorites view's summary strip.
  */
-export function buildSlideConfirmHTML(access: ControlAccess): string {
+export function buildSlideConfirmHTML(access: ControlAccess, options: SlideConfirmOptions = {}): string {
   const forbidden = !access.mayOperate;
   // A plain element with no role, so its title and the note beside it, not an ARIA state, say why it cannot be armed.
   const attributes = forbidden ? ` title="${escapeHtml(controlAccessHint(access))}"` : "";
@@ -32,7 +43,7 @@ export function buildSlideConfirmHTML(access: ControlAccess): string {
       <div class="slide-confirm-knob">
         <span-icon icon="mdi:lock"></span-icon>
       </div>
-    </div>${controlNoteHTML(access)}`;
+    </div>${options.note === false ? "" : controlNoteHTML(access)}`;
 }
 
 /**

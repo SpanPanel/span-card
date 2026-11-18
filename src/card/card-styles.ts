@@ -110,6 +110,9 @@ export const CARD_STYLES: string = `
     color: var(--primary-text-color);
     opacity: 0.85;
   }
+  .favorites-panel-card .controls-note {
+    margin: 2px 0 6px;
+  }
   .favorites-panel-card .panel-stats {
     gap: 10px 20px;
   }
@@ -223,7 +226,7 @@ export const CARD_STYLES: string = `
   .slide-confirm.slide-confirm-forbidden .slide-confirm-knob {
     cursor: not-allowed;
   }
-  /* Its note, saying why: beside it in the Favorites strip, on a line of its own under the panel's name. */
+  /* Its note, saying why: on a line of its own under the panel's name, or under each panel's name in the Favorites stats grid. */
   .controls-note {
     margin: 0;
     font-size: 0.8em;

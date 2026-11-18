@@ -220,10 +220,13 @@ the first of `control_disabled`, `admin_only` and `read_only` that applies. `src
   topology was fetched each read as the gate words them.
 - Where the user may not operate the controls, each is drawn disabled and titled with why (`controlAccessHint()`): the side panel's relay switch and priority
   select, under a note in the first of their sections (`controlNoteHTML()`); each toggle pill in the breaker grid and the list rows (`toggle-forbidden`); and
-  the slider (`slide-confirm-forbidden`, which `bindSlideConfirm()` never arms), with a note under the panel's name, or beside the slider in the Favorites
-  strip. The side panel's switch and select are named by their labels and described by the note (`aria-labelledby`, `aria-describedby`). The pill and the slider
-  are plain elements with no role, so their titles and the note, not an ARIA state, say why. The gear, the favorite, the graph horizon and the read-only
-  monitoring stay open.
+  the slider (`slide-confirm-forbidden`, which `bindSlideConfirm()` never arms), with a note under the panel's name.
+- The Favorites view mixes panels, so its slider can be armed where the user may operate any of them, and its strip carries no note. Instead each panel the user
+  may not operate says why under its own name in the stats grid (`favoritesPanelAccess()`), and a tap on one of its toggles, whose title a touch never shows,
+  puts the hint in the banner as a transient warning, in the store's one transient slot, so tapping again replaces it rather than stacking it.
+- The side panel's switch and select are named by their labels and described by the note (`aria-labelledby`, `aria-describedby`). The pill and the slider are
+  plain elements with no role, so their titles and the note, not an ARIA state, say why. The gear, the favorite, the graph horizon and the read-only monitoring
+  stay open.
 - A refused change never stays shown: the side panel's switch and select show again what Home Assistant reports, and a toggle pill only ever shows that.
 - The access arrives with each topology, and `sameTopologyStructure()` counts a change of it as a change of structure, so the views draw again. The sidebar
   waits for an open side panel to close before it draws a view again, so that panel takes the new access in place (`refreshControlAccess()`), keeping what else

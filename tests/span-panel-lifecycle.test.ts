@@ -772,7 +772,7 @@ describe("span-panel, for a user who may not operate every panel's controls", ()
     await vi.waitFor(() => expect(content.querySelector(".toggle-pill.toggle-forbidden")).not.toBeNull());
   });
 
-  it("draws a Favorites view of two panels with each circuit's toggle as its own panel allows, and the slider armable for the one it does", async () => {
+  it("draws a Favorites view of two panels with each circuit's toggle as its own panel allows, the slider armable, and why under the other panel's name", async () => {
     devices = [device(1), device(2)];
     favorites = { "panel-1": { circuits: ["c1"], sub_devices: [] }, "panel-2": { circuits: ["c2"], sub_devices: [] } };
     states = { "switch.c1_breaker": entity("switch.c1_breaker", "on"), "switch.c2_breaker": entity("switch.c2_breaker", "on") };
@@ -792,12 +792,24 @@ describe("span-panel, for a user who may not operate every panel's controls", ()
     expect(pill("panel-2|c2").classList.contains("toggle-forbidden")).toBe(false);
     const slide = content.querySelector<HTMLElement>(".favorites-summary .slide-confirm")!;
     expect(slide.classList.contains("slide-confirm-forbidden")).toBe(false);
+    expect(content.querySelector('.favorites-summary [data-role="controls-note"]')).toBeNull();
+
+    // Under its own name in the stats grid, the panel the user may not operate says why, and the other says nothing.
+    const card = (panelId: string): Element => content.querySelector(`.panel-stats[data-stats-panel-id="${panelId}"]`)!.closest(".favorites-panel-card")!;
+    expect(card("panel-1").querySelector('[data-role="controls-note"]')!.textContent).toBe(ADMIN_ONLY_HINT);
+    expect(card("panel-2").querySelector('[data-role="controls-note"]')).toBeNull();
 
     arm(slide);
+    pill("panel-1|c1").click();
     pill("panel-1|c1").click();
     pill("panel-2|c2").click();
     await flush();
 
     expect(controlSends.map(msg => [msg.service, (msg.target as { entity_id: string }).entity_id])).toEqual([["turn_off", "switch.c2_breaker"]]);
+    // The taps on the forbidden toggle put why in the banner once, as a transient warning.
+    const errors = (panel as unknown as { _errorStore: ErrorStore })._errorStore;
+    expect(errors.active.filter(entry => !entry.persistent).map(entry => [entry.key, entry.level, entry.message])).toEqual([
+      ["service:relay", "warning", ADMIN_ONLY_HINT],
+    ]);
   });
 });

@@ -54,13 +54,13 @@ describe("buildFavoritesSummaryHTML", () => {
     expect(strip.querySelector('[data-role="controls-note"]')).toBeNull();
   });
 
-  it("draws the slider forbidden, titled and noted with why, where the user may operate none of them", () => {
+  it("draws the slider forbidden, titled with why, where the user may operate none of them, leaving the note to each panel's card", () => {
     const strip = document.createElement("div");
     strip.innerHTML = buildFavoritesSummaryHTML(false, { mayOperate: false, reason: "admin_only" });
     const slide = strip.querySelector(".slide-confirm")!;
     expect(slide.classList.contains("slide-confirm-forbidden")).toBe(true);
     expect(slide.hasAttribute("aria-disabled")).toBe(false);
     expect(slide.getAttribute("title")).toBe("Only an administrator can operate this panel's controls.");
-    expect(strip.querySelector('[data-role="controls-note"]')!.textContent).toBe("Only an administrator can operate this panel's controls.");
+    expect(strip.querySelector('[data-role="controls-note"]')).toBeNull();
   });
 });

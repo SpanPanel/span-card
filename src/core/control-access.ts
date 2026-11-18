@@ -4,7 +4,7 @@ import { escapeHtml } from "../helpers/sanitize.js";
 import { t } from "../i18n.js";
 import { isFavoritesTopology } from "../types.js";
 import type { ErrorStore } from "./error-store.js";
-import type { ControlAccess, ControlBlock, FavoriteCircuitRef, FavoriteRef, HomeAssistant, PanelTopology } from "../types.js";
+import type { ControlAccess, ControlBlock, FavoriteCircuitRef, FavoriteRef, FavoritesTopology, HomeAssistant, PanelTopology } from "../types.js";
 
 /** Controls the user may operate: what the card takes where the integration says nothing of them. */
 export const CONTROLS_OPERABLE: ControlAccess = Object.freeze({ mayOperate: true, reason: null });
@@ -69,6 +69,20 @@ export function viewControlAccess(topology: PanelTopology | null | undefined): C
   const [first] = circuits;
   if (!first || circuits.some(access => access.mayOperate)) return CONTROLS_OPERABLE;
   return first;
+}
+
+/**
+ * Each panel the Favorites view draws a circuit of, by its device id, with the
+ * access the user has to that panel's controls, as its circuits' refs hold it.
+ * A panel that gives the view only sub-devices has no relay there to forbid,
+ * and is left out.
+ */
+export function favoritesPanelAccess(topology: FavoritesTopology): ReadonlyMap<string, ControlAccess> {
+  const panels = new Map<string, ControlAccess>();
+  for (const ref of Object.values(topology._favoriteRefs)) {
+    if (isCircuitRef(ref)) panels.set(ref.panelDeviceId, ref.controlAccess);
+  }
+  return panels;
 }
 
 /** The hint for each reason the integration gives, each said as it is asked for, in the user's language then. */
@@ -173,8 +187,9 @@ export function titleControl(control: HTMLElement, access: ControlAccess): void 
 /**
  * The note a view of controls with `access` shows beside them, saying why they
  * cannot be operated; "" where they can. Each stylesheet that draws it places
- * it (`.controls-note`): the card's under the panel's name or beside the
- * Favorites slider, the side panel's under the section's control.
+ * it (`.controls-note`): the card's under the panel's name, or under each
+ * panel's name in the Favorites view's stats grid, the side panel's under the
+ * section's control.
  */
 export function controlNoteHTML(access: ControlAccess): string {
   const hint = controlAccessHint(access);

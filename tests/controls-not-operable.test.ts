@@ -361,6 +361,15 @@ describe("the live updates of a view's toggles", () => {
 });
 
 describe("Enable Switches", () => {
+  it("drawn forbidden, carries its note beside it, unless the view says why elsewhere", () => {
+    const host = document.createElement("div");
+    host.innerHTML = buildSlideConfirmHTML(ADMIN_ONLY);
+    expect(host.querySelector('[data-role="controls-note"]')!.textContent).toBe(ADMIN_ONLY_HINT);
+    host.innerHTML = buildSlideConfirmHTML(ADMIN_ONLY, { note: false });
+    expect(host.querySelector(".slide-confirm-forbidden")!.getAttribute("title")).toBe(ADMIN_ONLY_HINT);
+    expect(host.querySelector('[data-role="controls-note"]')).toBeNull();
+  });
+
   it("is not drawn where the view has no switches to arm", () => {
     const html = buildHeaderHTML(topology(BLOCKED), {} as CardConfig, { showSwitches: false });
     expect(html).not.toContain("slide-confirm");

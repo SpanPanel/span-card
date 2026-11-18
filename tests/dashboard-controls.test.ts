@@ -1,5 +1,6 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import { DashboardController } from "../src/core/dashboard-controller.js";
+import { ErrorStore } from "../src/core/error-store.js";
 import "../src/core/side-panel.js";
 import { slotRatingText, type SlotMember } from "../src/helpers/shared-meters.js";
 import type { CardConfig, HomeAssistant, PanelTopology } from "../src/types.js";
@@ -39,6 +40,55 @@ function clickToggle(states: Record<string, string>, topology: PanelTopology = T
   ctrl.onToggleClick({ target: pill, stopPropagation() {}, preventDefault() {} } as unknown as Event, root);
   return callWS;
 }
+
+describe("a tap on a toggle the user may not operate", () => {
+  const BLOCKED_KITCHEN = { ...TOPOLOGY, control_access: { may_operate: false, reason: "admin_only" } } as PanelTopology;
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  /** A controller over `topology` with `errors`, and a tap on the kitchen's toggle with the switches armed. */
+  function tapper(topology: PanelTopology, errors: ErrorStore, callWS: CallWS): () => void {
+    const ctrl = new DashboardController();
+    ctrl.init(topology, {} as CardConfig, hass({ [SWITCH]: "on" }, callWS), "entry-1");
+    ctrl.errorStore = errors;
+    const root = document.createElement("div");
+    root.innerHTML = `<div class="slide-confirm confirmed"></div><div data-uuid="kitchen"><div class="toggle-pill toggle-forbidden"></div></div>`;
+    const pill = root.querySelector(".toggle-pill")!;
+    return () => ctrl.onToggleClick({ target: pill, stopPropagation() {}, preventDefault() {} } as unknown as Event, root);
+  }
+
+  it("puts why in the banner as a transient warning, once however often it is tapped, which clears as other transient messages do", () => {
+    vi.useFakeTimers();
+    const errors = new ErrorStore();
+    const callWS = vi.fn<CallWS>(async () => ({}));
+    const tap = tapper(BLOCKED_KITCHEN, errors, callWS);
+
+    tap();
+    tap();
+    tap();
+
+    expect(errors.active.map(entry => [entry.key, entry.level, entry.message, entry.persistent])).toEqual([
+      ["service:relay", "warning", "Only an administrator can operate this panel's controls.", false],
+    ]);
+    expect(callWS).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(5_000);
+    expect(errors.active).toEqual([]);
+    errors.dispose();
+  });
+
+  it("puts nothing in the banner for a toggle the user may operate", () => {
+    const errors = new ErrorStore();
+    tapper(
+      TOPOLOGY,
+      errors,
+      vi.fn<CallWS>(async () => ({}))
+    )();
+    expect(errors.active).toEqual([]);
+    errors.dispose();
+  });
+});
 
 describe("the breaker toggle", () => {
   it("operates an operable switch", () => {

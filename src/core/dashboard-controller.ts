@@ -18,7 +18,7 @@ import {
 import { GraphSettingsCache } from "./graph-settings.js";
 import { groupFavoritesByPanel } from "./favorites-sections.js";
 import { switchPresence } from "./circuit-state.js";
-import { circuitControlAccess, controlAccess, controlWrites, reportControlFailure } from "./control-access.js";
+import { circuitControlAccess, controlAccess, controlAccessHint, controlWrites, reportControlFailure } from "./control-access.js";
 import type { FavoritesPanelInfo, FavoritesPanelGroup } from "./favorites-sections.js";
 import type { CircuitModeConfig, CircuitRatingView, FavoritesPanelSection, SidePanelConfig } from "./side-panel.js";
 import type {
@@ -465,9 +465,14 @@ export class DashboardController {
     const switchEntity = circuit.entities?.switch;
     if (!switchEntity) return;
     if (switchPresence(circuit, this._hass) !== "operable") return;
-    // A pill drawn forbidden is inert, as one drawn unavailable is: its title says why.
     const access = circuitControlAccess(this._topology, uuid);
-    if (!access.mayOperate) return;
+    if (!access.mayOperate) {
+      // A pill drawn forbidden sends nothing. It is tapped only with the switches armed, which a view of panels the user may
+      // operate none of never is, so in a Favorites view of several. Its title, which a touch never shows, says why; so does
+      // the banner, in its one transient slot, so tapping again replaces the warning rather than stacking it.
+      this._errorStore?.add({ key: "service:relay", level: "warning", message: controlAccessHint(access), persistent: false });
+      return;
+    }
     // The pill shows the relay as Home Assistant reports it, so a refused change leaves it showing the relay as it is.
     const hass = this._hass;
     controlWrites(hass, access)

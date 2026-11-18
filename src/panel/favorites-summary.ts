@@ -13,7 +13,9 @@ import type { ControlAccess } from "../types.js";
  * invokes it from `_buildFavoritesSummaryHTML`, passing the current
  * amps-mode flag and the access its slider answers for
  * (`viewControlAccess`), which is forbidden only where the user may
- * operate the controls of none of the favorited circuits' panels.
+ * operate the controls of none of the favorited circuits' panels. The
+ * note saying why is not drawn here: each panel the user may not operate
+ * says it under its own name in the stats grid (`favoritesPanelAccess`).
  */
 export function buildFavoritesSummaryHTML(isAmpsMode: boolean, controls: ControlAccess): string {
   return `
@@ -21,7 +23,7 @@ export function buildFavoritesSummaryHTML(isAmpsMode: boolean, controls: Control
       <button class="gear-icon panel-gear favorites-gear" title="${escapeHtml(t("header.graph_settings"))}">
         <span-icon icon="mdi:cog"></span-icon>
       </button>
-      ${buildSlideConfirmHTML(controls)}
+      ${buildSlideConfirmHTML(controls, { note: false })}
       <div class="favorites-summary-right">
         ${buildSheddingLegendHTML()}
         <div class="unit-toggle favorites-summary-unit-toggle" title="${escapeHtml(t("header.toggle_units"))}">

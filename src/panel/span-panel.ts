@@ -20,7 +20,7 @@ import { DEVICE_REGISTRY_UPDATED, renamedDeviceId, topologyNamesDevice } from ".
 import { subscribeEntryReloads } from "../core/entry-reload.js";
 import { discoverPanelDevices } from "../core/panel-devices.js";
 import { canHearRatingChanges, mergeCircuitIds, subscribePackageRatingChanges } from "../core/rating-events.js";
-import { viewControlAccess } from "../core/control-access.js";
+import { controlNoteHTML, favoritesPanelAccess, viewControlAccess } from "../core/control-access.js";
 import { canEditMonitoring } from "../core/monitoring-access.js";
 import { sameTopologyStructure } from "../core/topology-structure.js";
 import { discoverTopology } from "../card/card-discovery.js";
@@ -1181,13 +1181,20 @@ export class SpanPanelElement extends LitElement {
    * columns based on viewport width. Live values are filled in by
    * ``_updateFavoritesPanelStats`` on each interval tick.
    */
-  private _buildFavoritesPanelStatsGridHTML(perPanelStats: FavoritesPanelStatsInfo[], config: CardConfig): string {
+  private _buildFavoritesPanelStatsGridHTML(perPanelStats: FavoritesPanelStatsInfo[], merged: FavoritesTopology, config: CardConfig): string {
     if (perPanelStats.length === 0) return "";
+    // Under its name, each panel the user may not operate says why: the view mixes panels, so its slider cannot say it for all.
+    const panelAccess = favoritesPanelAccess(merged);
+    const noteFor = (panelDeviceId: string): string => {
+      const access = panelAccess.get(panelDeviceId);
+      return access ? controlNoteHTML(access) : "";
+    };
     const cards = perPanelStats
       .map(
         info => `
       <div class="favorites-panel-card">
         <div class="favorites-panel-card-title">${escapeHtml(info.panelName || info.topology.device_name || "")}</div>
+        ${noteFor(info.panelDeviceId)}
         ${buildPanelStatsHTML(info.topology, config, info.panelDeviceId)}
       </div>
     `
@@ -1510,7 +1517,7 @@ export class SpanPanelElement extends LitElement {
       await this._listDashCtrl.loadHistory();
       if (superseded()) return;
       const summaryHTML = this._buildFavoritesSummaryHTML(merged);
-      const panelStatsHTML = this._buildFavoritesPanelStatsGridHTML(build.perPanelStats, config);
+      const panelStatsHTML = this._buildFavoritesPanelStatsGridHTML(build.perPanelStats, merged, config);
       const subDevicesHTML = hasSubDevices
         ? `<div class="favorites-subdevices-section">
              <div class="sub-devices">${buildSubDevicesHTML(merged, this.hass, config, { showFavorites: this._listDashCtrl.showFavorites })}</div>
