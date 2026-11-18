@@ -738,12 +738,14 @@ export class MonitoringTab {
   private _drawn: DrawnTab | null = null;
   /**
    * A failure the global settings' status line is to say once the tab next
-   * draws them: a refusal of the Enabled switch, whose line the read after it
-   * draws over. Whichever drawing comes next says it, so a read that overtakes
-   * that one does not lose it. It goes as the user leaves the tab, or as the
-   * tab is drawn for another panel.
+   * draws them for the panel it concerns (`entryId`): a refusal of the Enabled
+   * switch, whose line the read after it draws over. Whichever drawing of that
+   * panel comes next says it, so a read that overtakes that one does not lose
+   * it, and another panel's never does, though the refusal answers after the
+   * tab was drawn for it. It goes as the user leaves the tab, or as the tab is
+   * drawn for another panel.
    */
-  private _statusFailure: string | null = null;
+  private _statusFailure: { readonly entryId: string | null; readonly message: string } | null = null;
 
   constructor() {
     this._configEntryId = null;
@@ -1207,13 +1209,17 @@ export class MonitoringTab {
     this._drawn = null;
   }
 
-  /** Say in the global settings' status line, as drawn now, the failure waiting to be said there, if any (`_statusFailure`). */
+  /**
+   * Say in the global settings' status line, as drawn now, the failure waiting
+   * to be said there (`_statusFailure`), where there is one and it concerns the
+   * panel the tab is drawn for.
+   */
   private _sayStatusFailure(container: HTMLElement): void {
-    const message = this._statusFailure;
+    const failure = this._statusFailure;
     const line = container.querySelector<HTMLElement>("#global-status");
-    if (message === null || !line) return;
+    if (!failure || failure.entryId !== this._configEntryId || !line) return;
     this._statusFailure = null;
-    sayStatusFailure(line, message);
+    sayStatusFailure(line, failure.message);
   }
 
   /** Whether `container` holds what the tab drew in it last, and nothing else. */
@@ -1373,6 +1379,8 @@ export class MonitoringTab {
       // the status line of whichever drawing comes next (`_statusFailure`).
       enabledCheckbox.addEventListener("change", async () => {
         const epoch = this._epoch;
+        // The panel the change is for, which its refusal is said for.
+        const entryId = this._configEntryId;
         const enabled = enabledCheckbox.checked;
         showFields(enabled);
         let stored = true;
@@ -1391,7 +1399,7 @@ export class MonitoringTab {
           }
         } catch (err: unknown) {
           stored = false;
-          if (epoch === this._epoch) this._statusFailure = errorText(err);
+          if (epoch === this._epoch) this._statusFailure = { entryId, message: errorText(err) };
         }
         await this._redraw(container, hass, epoch);
         settleSwitch(enabledCheckbox, stored, enabled);

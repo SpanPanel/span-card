@@ -35,6 +35,8 @@ interface Integration {
   failReads(on: boolean): void;
   /** Hold every later status read until the test answers it, with the status as it stands then. */
   holdReads(): Array<() => void>;
+  /** Hold every later change until the test answers it: with nothing, to take it as it otherwise would, or with a refusal. */
+  holdWrites(): Array<(refusal?: unknown) => void>;
   /** How many status reads were asked for. */
   reads(): number;
 }
@@ -58,6 +60,7 @@ function integration(): Integration {
   const refusedServices = new Set<string>();
   let failing = false;
   let held: Array<() => void> | null = null;
+  let heldWrites: Array<(refusal?: unknown) => void> | null = null;
   let reads = 0;
   const status = (): unknown => ({
     response: {
@@ -75,14 +78,30 @@ function integration(): Integration {
       if (queue) return new Promise(resolve => queue.push(() => resolve(status())));
       return status();
     }
-    if (refusing || (typeof msg.service === "string" && refusedServices.has(msg.service))) throw UNAUTHORIZED;
-    const data = (msg.service_data ?? {}) as Message;
-    const on = data.monitoring_enabled;
-    if (msg.service === "set_circuit_threshold" && data.circuit_id === OVEN && typeof on === "boolean") stored.oven = on;
-    if (msg.service === "set_mains_threshold" && data.leg === MAINS && typeof on === "boolean") stored.mains = on;
-    // Turning monitoring on sends the global thresholds; turning it off says so.
-    if (msg.service === "set_global_monitoring") stored.enabled = data.enabled !== false;
-    return {};
+    const take = (): unknown => {
+      if (refusing || (typeof msg.service === "string" && refusedServices.has(msg.service))) throw UNAUTHORIZED;
+      const data = (msg.service_data ?? {}) as Message;
+      const on = data.monitoring_enabled;
+      if (msg.service === "set_circuit_threshold" && data.circuit_id === OVEN && typeof on === "boolean") stored.oven = on;
+      if (msg.service === "set_mains_threshold" && data.leg === MAINS && typeof on === "boolean") stored.mains = on;
+      // Turning monitoring on sends the global thresholds; turning it off says so.
+      if (msg.service === "set_global_monitoring") stored.enabled = data.enabled !== false;
+      return {};
+    };
+    const writes = heldWrites;
+    if (!writes) return take();
+    return new Promise((resolve, reject) =>
+      writes.push(refusal => {
+        if (refusal !== undefined) reject(refusal);
+        else {
+          try {
+            resolve(take());
+          } catch (err: unknown) {
+            reject(err);
+          }
+        }
+      })
+    );
   });
   const hass = { states: {}, services: {}, language: "en", user: { is_admin: true }, callService: async () => undefined, callWS } as unknown as HomeAssistant;
   return {
@@ -92,6 +111,7 @@ function integration(): Integration {
     refuseService: service => void refusedServices.add(service),
     failReads: on => (failing = on),
     holdReads: () => (held = []),
+    holdWrites: () => (heldWrites = []),
     reads: () => reads,
   };
 }
@@ -235,6 +255,43 @@ describe("the Enabled switch, refused", () => {
 
     expect(container.querySelector("#global-status")!.textContent).toBe(`Error: ${ADMIN_ONLY}`);
     expect(container.querySelector<HTMLInputElement>("#monitoring-enabled")!.checked).toBe(true);
+  });
+
+  it("says nothing of one panel's refusal in the status line of another's, drawn while the read after it was on its way", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const panel = integration();
+    const { tab, container } = await shown(panel);
+    panel.refuse(true);
+    const answers = panel.holdReads();
+    const reads = panel.reads();
+
+    turnOff(container);
+    await vi.waitFor(() => expect(panel.reads()).toBe(reads + 1));
+    // The tab is drawn for another panel before the read after the refusal answers.
+    const other = tab.render(container, panel.hass, "entry-2");
+    await vi.waitFor(() => expect(panel.reads()).toBe(reads + 2));
+    answers[0]!();
+    answers[1]!();
+    await other;
+    await settle();
+
+    expect(container.querySelector("#monitoring-enabled")).not.toBeNull();
+    expect(container.querySelector("#global-status")!.textContent).toBe("");
+  });
+
+  it("says nothing of one panel's refusal in the status line of another's, the tab drawn for it before the refusal answered", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const panel = integration();
+    const { tab, container } = await shown(panel);
+    const answers = panel.holdWrites();
+
+    turnOff(container);
+    await tab.render(container, panel.hass, "entry-2");
+    answers[0]!(UNAUTHORIZED);
+    await settle();
+
+    expect(container.querySelector("#monitoring-enabled")).not.toBeNull();
+    expect(container.querySelector("#global-status")!.textContent).toBe("");
   });
 
   it("says nothing of a refusal once the user has left the tab before the read after it answered", async () => {
