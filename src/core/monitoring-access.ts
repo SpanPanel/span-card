@@ -35,14 +35,21 @@ export class MonitoringChangeRefused extends Error {
 }
 
 /**
- * Whether Home Assistant refused a service call as Unauthorized. Raised by the
- * service, it reaches the frontend as a `home_assistant_error` whose message is
- * the exception's name; raised by the websocket command, it has a code of its own.
+ * The messages of Home Assistant's Unauthorized and of its UnknownUser, the one
+ * raised for a user it does not know, each of which takes its class's name.
+ */
+const UNAUTHORIZED_MESSAGES: ReadonlySet<unknown> = new Set(["Unauthorized", "UnknownUser"]);
+
+/**
+ * Whether Home Assistant refused a service call as Unauthorized, or as one of
+ * its kinds (`UNAUTHORIZED_MESSAGES`). Raised by the service, it reaches the
+ * frontend as a `home_assistant_error` whose message is the exception's name;
+ * raised by the websocket command, it has a code of its own.
  */
 function isUnauthorized(err: unknown): boolean {
   if (typeof err !== "object" || err === null) return false;
   const code = "code" in err ? err.code : undefined;
-  return code === "unauthorized" || (code === "home_assistant_error" && "message" in err && err.message === "Unauthorized");
+  return code === "unauthorized" || (code === "home_assistant_error" && "message" in err && UNAUTHORIZED_MESSAGES.has(err.message));
 }
 
 /** A monitoring service's data: what the change sets, and the config entry of the panel it is for where one is named. */

@@ -102,6 +102,7 @@ describe("the monitoring write services", () => {
 
   it.each([
     ["a service's handler raises it", { code: "home_assistant_error", message: "Unauthorized" }],
+    ["a service's handler raises UnknownUser, for a user Home Assistant does not know", { code: "home_assistant_error", message: "UnknownUser" }],
     ["the websocket command raises it", { code: "unauthorized", message: "Unauthorized" }],
   ])("take the integration's Unauthorized, as when %s, as a refusal for want of administrator rights", async (_how, refusal) => {
     const { hass } = recording({ is_admin: true }, async () => Promise.reject(refusal));
@@ -110,8 +111,10 @@ describe("the monitoring write services", () => {
     await expect(sending).rejects.toThrow(ADMIN_ONLY);
   });
 
-  it("pass on any other refusal as the integration gave it", async () => {
-    const refusal = { code: "service_validation_error", message: "Validation error: out of range", translation_key: "threshold_out_of_range" };
+  it.each([
+    ["a validation error", { code: "service_validation_error", message: "Validation error: out of range", translation_key: "threshold_out_of_range" }],
+    ["another error of Home Assistant's", { code: "home_assistant_error", message: "Panel unreachable" }],
+  ])("pass on any other refusal, such as %s, as the integration gave it", async (_what, refusal) => {
     const { hass } = recording({ is_admin: true }, async () => Promise.reject(refusal));
     await expect(monitoringWrites(hass).setMainsThreshold({ leg: "upstream_l1" })).rejects.toBe(refusal);
   });
