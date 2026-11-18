@@ -535,6 +535,20 @@ function sayStatusFailure(line: HTMLElement, message: string): void {
   line.style.color = "var(--error-color, #f44336)";
 }
 
+/**
+ * Show switch `control` as what is known to be stored, once a change it made
+ * (to `on`, stored or not) has settled and the tab has been read again. A read
+ * that drew the tab afresh drew every switch from the status, `control` going
+ * with what it replaced; where none did, as where the read failed, a change
+ * stored is drawn as stored, and a refused one leaves the switch as last
+ * drawn, what the integration held then.
+ */
+function settleSwitch(control: HTMLInputElement, stored: boolean, on: boolean): void {
+  if (!control.isConnected) return;
+  if (stored) control.toggleAttribute("checked", on);
+  control.checked = control.hasAttribute("checked");
+}
+
 /** The longest a redraw waits on a press whose release never arrives. */
 const PRESS_WAIT_MS = 3000;
 
@@ -740,7 +754,8 @@ export class MonitoringTab {
     // read, so the read shows it; the user is still here, so the epoch stays. One
     // that fails has said so where it failed.
     await this._flushPendingSaves().catch(() => undefined);
-    let status: MonitoringStatusResponse | null;
+    let status: MonitoringStatusResponse | null = null;
+    let readFailed = false;
     try {
       const serviceData: Record<string, unknown> = {};
       if (this._configEntryId) serviceData.config_entry_id = this._configEntryId;
@@ -754,13 +769,17 @@ export class MonitoringTab {
       status = coerceMonitoringStatusResponse(resp?.response);
     } catch (err) {
       console.warn("SPAN Panel: monitoring status fetch failed", err);
-      status = null;
+      readFailed = true;
     }
     const labels = await labelsRead;
     if (epoch !== this._epoch || seq !== this._renderSeq) return;
     // A press under way lands on the control pressed before that control is drawn again.
     await PressWatch.of(container).settled();
     if (epoch !== this._epoch || seq !== this._renderSeq) return;
+    if (readFailed) {
+      this._showReadFailure(container, samePanel);
+      return;
+    }
 
     const globalSettings = status?.global_settings ?? {};
     const isEnabled = status?.enabled === true;
@@ -1124,6 +1143,31 @@ export class MonitoringTab {
     this._sayStatusFailure(container);
   }
 
+  /**
+   * A read of the status failed: the failure is said as a failed read of it is
+   * said elsewhere, and what the tab drew of the panel stays as the integration
+   * last gave it, rather than defaults that could show monitoring off where it
+   * is on. Where the tab holds nothing of the panel's, it says the status could
+   * not be loaded in place of the settings.
+   */
+  private _showReadFailure(container: HTMLElement, samePanel: boolean): void {
+    this.errorStore?.add({ key: "fetch:monitoring", level: "warning", message: t("error.monitoring_failed"), persistent: false });
+    if (samePanel && this._holdsDrawing(container)) {
+      this._sayStatusFailure(container);
+      return;
+    }
+    const { drawing } = this._drawingIn(container);
+    drawing.content.innerHTML = `
+      ${this._headerHTML}
+      <div class="monitoring-settings" style="padding:16px;">
+        <h2 style="margin-top:0;">${t("monitoring.heading")}</h2>
+        <p class="monitoring-read-failed" role="alert" style="color:var(--error-color);">${escapeHtml(t("error.monitoring_failed"))}</p>
+      </div>
+    `;
+    drawing.warnings = new Map();
+    drawing.announcer.textContent = "";
+  }
+
   /** Say in the global settings' status line, as drawn now, the failure waiting to be said there, if any (`_statusFailure`). */
   private _sayStatusFailure(container: HTMLElement): void {
     const message = this._statusFailure;
@@ -1133,6 +1177,14 @@ export class MonitoringTab {
     sayStatusFailure(line, message);
   }
 
+  /** Whether `container` holds what the tab drew in it last, and nothing else. */
+  private _holdsDrawing(container: HTMLElement): boolean {
+    const drawn = this._drawn;
+    return (
+      drawn?.container === container && container.childNodes.length === 2 && container.firstChild === drawn.content && container.lastChild === drawn.announcer
+    );
+  }
+
   /**
    * The parts to draw the tab in: those it drew in `container` last, where the
    * container holds them and nothing else, to draw over the table they show
@@ -1140,12 +1192,7 @@ export class MonitoringTab {
    */
   private _drawingIn(container: HTMLElement): { drawing: DrawnTab; overTable: boolean } {
     const drawn = this._drawn;
-    if (
-      drawn?.container === container &&
-      container.childNodes.length === 2 &&
-      container.firstChild === drawn.content &&
-      container.lastChild === drawn.announcer
-    ) {
+    if (drawn && this._holdsDrawing(container)) {
       return { drawing: drawn, overTable: true };
     }
     const content = document.createElement("div");
@@ -1283,12 +1330,13 @@ export class MonitoringTab {
       // refused where one is not a whole number in its range, sending nothing, and
       // the switch and the fields are put back as they were. Stored, or refused by
       // the integration, the tab is read again, so the switch shows what is stored
-      // whatever else was sent meanwhile; a refusal is said in the status line of
-      // whichever drawing comes next (`_statusFailure`).
+      // whatever else was sent meanwhile (`settleSwitch`); a refusal is said in
+      // the status line of whichever drawing comes next (`_statusFailure`).
       enabledCheckbox.addEventListener("change", async () => {
         const epoch = this._epoch;
         const enabled = enabledCheckbox.checked;
         showFields(enabled);
+        let stored = true;
         try {
           if (enabled) {
             const data = readGlobalFields();
@@ -1303,9 +1351,12 @@ export class MonitoringTab {
             await this._callSetGlobal(hass, { enabled: false });
           }
         } catch (err: unknown) {
+          stored = false;
           if (epoch === this._epoch) this._statusFailure = errorText(err);
         }
         await this._redraw(container, hass, epoch);
+        settleSwitch(enabledCheckbox, stored, enabled);
+        if (enabledCheckbox.isConnected) showFields(enabledCheckbox.checked);
       });
     }
   }
@@ -1472,7 +1523,7 @@ export class MonitoringTab {
   /**
    * The mains' switch turns monitoring on or off for its leg. Stored or refused,
    * the tab is read again, so the switch shows what is stored, whatever else was
-   * sent meanwhile; a refusal is said.
+   * sent meanwhile (`settleSwitch`); a refusal is said.
    */
   private _bindMainsToggles(container: HTMLElement, hass: HomeAssistant): void {
     for (const cb of container.querySelectorAll<HTMLInputElement>(".mains-toggle")) {
@@ -1480,22 +1531,31 @@ export class MonitoringTab {
         const epoch = this._epoch;
         const entityId = cb.dataset.entity;
         const enabled = cb.checked;
+        let stored = true;
         try {
           await monitoringWrites(hass).setMainsThreshold(this._serviceData({ leg: entityId, monitoring_enabled: enabled }));
         } catch (err) {
           reportMonitoringFailure(this.errorStore, err, "mains threshold toggle");
+          stored = false;
         }
         await this._redraw(container, hass, epoch);
+        settleSwitch(cb, stored, enabled);
       });
     }
   }
 
-  /** A circuit's switch turns monitoring on or off for it (`_setCircuitMonitoring`), which shows what is stored once that settles. */
+  /**
+   * A circuit's switch turns monitoring on or off for it (`_setCircuitMonitoring`),
+   * and shows what is stored once that settles (`settleSwitch`).
+   */
   private _bindCircuitToggles(container: HTMLElement, hass: HomeAssistant): void {
     for (const cb of container.querySelectorAll<HTMLInputElement>(".circuit-toggle")) {
       const entityId = cb.dataset.entity;
       if (entityId === undefined) continue;
-      cb.addEventListener("change", () => void this._setCircuitMonitoring(container, hass, entityId, cb.checked));
+      cb.addEventListener("change", async () => {
+        const enabled = cb.checked;
+        settleSwitch(cb, await this._setCircuitMonitoring(container, hass, entityId, enabled), enabled);
+      });
     }
   }
 

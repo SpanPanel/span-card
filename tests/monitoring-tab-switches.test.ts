@@ -29,11 +29,17 @@ interface Integration {
   stored: Stored;
   /** Refuse every later change, as Unauthorized, while `on`; store each otherwise. */
   refuse(on: boolean): void;
+  /** Fail every later status read, as a lost connection does, while `on`. */
+  failReads(on: boolean): void;
   /** Hold every later status read until the test answers it, with the status as it stands then. */
   holdReads(): Array<() => void>;
   /** How many status reads were asked for. */
   reads(): number;
 }
+
+/** How a status read fails where the connection is lost. */
+const READ_FAILURE = { code: "connection_lost", message: "Connection lost" };
+const READ_FAILED = "Unable to load monitoring status";
 
 function point(name: string, on: boolean): MonitoringPointInfo {
   return { name, monitoring_enabled: on, has_override: !on, breaker_rating_a: 20, monitoring_rating_a: 20, ...GLOBALS };
@@ -47,6 +53,7 @@ function point(name: string, on: boolean): MonitoringPointInfo {
 function integration(): Integration {
   const stored: Stored = { enabled: true, oven: true, mains: true };
   let refusing = false;
+  let failing = false;
   let held: Array<() => void> | null = null;
   let reads = 0;
   const status = (): unknown => ({
@@ -60,6 +67,7 @@ function integration(): Integration {
   const callWS = vi.fn(async (msg: Message): Promise<unknown> => {
     if (msg.service === "get_monitoring_status") {
       reads += 1;
+      if (failing) throw READ_FAILURE;
       const queue = held;
       if (queue) return new Promise(resolve => queue.push(() => resolve(status())));
       return status();
@@ -78,6 +86,7 @@ function integration(): Integration {
     hass,
     stored,
     refuse: on => (refusing = on),
+    failReads: on => (failing = on),
     holdReads: () => (held = []),
     reads: () => reads,
   };
@@ -244,5 +253,108 @@ describe("the Enabled switch, refused", () => {
     await back;
 
     expect(container.querySelector("#global-status")!.textContent).toBe("");
+  });
+
+  it("says why in the status line it keeps where the read after the refusal fails", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const panel = integration();
+    const { container } = await shown(panel);
+    panel.refuse(true);
+    panel.failReads(true);
+
+    turnOff(container);
+    await settle();
+
+    expect(container.querySelector("#global-status")!.textContent).toBe(`Error: ${ADMIN_ONLY}`);
+    expect(container.querySelector<HTMLInputElement>("#monitoring-enabled")!.checked).toBe(true);
+    expect(container.querySelector<HTMLElement>("#global-fields")!.style.opacity).toBe("");
+  });
+});
+
+describe.each(SWITCHES)("%s, where the read after its change fails", (_what, selector, key) => {
+  const switchIn = (container: HTMLElement): HTMLInputElement => {
+    const el = container.querySelector<HTMLInputElement>(selector);
+    if (!el) throw new Error(`nothing drawn at ${selector}`);
+    return el;
+  };
+  function turn(container: HTMLElement, on: boolean): void {
+    const el = switchIn(container);
+    el.checked = on;
+    el.dispatchEvent(new Event("change"));
+  }
+
+  it("shows what was drawn where the change is refused", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const panel = integration();
+    const { container, errors } = await shown(panel);
+    panel.refuse(true);
+    panel.failReads(true);
+
+    turn(container, false);
+    await settle();
+
+    expect(switchIn(container).checked).toBe(true);
+    expect(errors.active.map(e => e.message)).toContain(READ_FAILED);
+  });
+
+  it("shows the change where it is stored, and what it stored where the next is refused", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const panel = integration();
+    const { container } = await shown(panel);
+    panel.failReads(true);
+
+    turn(container, false);
+    await settle();
+    expect(panel.stored[key]).toBe(false);
+    expect(switchIn(container).checked).toBe(false);
+
+    panel.refuse(true);
+    turn(container, true);
+    await settle();
+    expect(switchIn(container).checked).toBe(false);
+  });
+});
+
+describe("a read of the status that fails", () => {
+  it("keeps what the tab drew, rather than defaults that show monitoring off, and says the read failed", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const panel = integration();
+    const { tab, container, errors } = await shown(panel);
+    panel.failReads(true);
+
+    await tab.render(container, panel.hass);
+
+    expect(container.querySelector<HTMLInputElement>("#monitoring-enabled")!.checked).toBe(true);
+    expect(container.querySelector<HTMLInputElement>(`.circuit-toggle[data-entity="${OVEN}"]`)!.checked).toBe(true);
+    expect(container.querySelector<HTMLInputElement>("#g-continuous")!.value).toBe("80");
+    expect(errors.active.map(e => [e.key, e.message])).toEqual([["fetch:monitoring", READ_FAILED]]);
+  });
+
+  it("says the status could not be loaded where the tab holds nothing of the panel's, and draws it once a read answers", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const panel = integration();
+    panel.failReads(true);
+    const { tab, container, errors } = await shown(panel);
+
+    expect(container.querySelector("#monitoring-enabled")).toBeNull();
+    expect(container.querySelector(".monitoring-read-failed")!.textContent).toBe(READ_FAILED);
+    expect(errors.active.map(e => e.message)).toEqual([READ_FAILED]);
+
+    panel.failReads(false);
+    await tab.render(container, panel.hass);
+    expect(container.querySelector(".monitoring-read-failed")).toBeNull();
+    expect(container.querySelector<HTMLInputElement>("#monitoring-enabled")!.checked).toBe(true);
+  });
+
+  it("says the status could not be loaded, rather than keep another panel's, where the tab is drawn for another panel", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const panel = integration();
+    const { tab, container } = await shown(panel);
+    panel.failReads(true);
+
+    await tab.render(container, panel.hass, "entry-2");
+
+    expect(container.querySelector("#monitoring-enabled")).toBeNull();
+    expect(container.querySelector(".monitoring-read-failed")!.textContent).toBe(READ_FAILED);
   });
 });
