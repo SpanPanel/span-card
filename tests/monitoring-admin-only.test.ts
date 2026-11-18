@@ -2,6 +2,7 @@ import { describe, it, expect, afterEach, vi } from "vitest";
 import { MonitoringTab } from "../src/panel/tab-monitoring.js";
 import { ErrorStore } from "../src/core/error-store.js";
 import "../src/core/side-panel.js";
+import "../src/core/span-switch.js";
 import type { Circuit, HassEntity, HomeAssistant, MonitoringPointInfo } from "../src/types.js";
 
 // The integration lets only a Home Assistant administrator change a panel's
@@ -73,7 +74,7 @@ function status(offered: boolean, monitoringOn: boolean): Message {
 
 interface Integration {
   hass: HomeAssistant;
-  /** Every service called, the status reads among them, in the order sent. */
+  /** Every service called, the status reads among them, in the order sent; one called by its domain, as `switch.turn_off`. */
   sent: string[];
   /** The monitoring changes among them. */
   writes: () => string[];
@@ -109,8 +110,11 @@ function integration(user: HomeAssistant["user"], { offered = true, monitoringOn
     if (refusal !== null) throw refusal;
     return {};
   });
+  const callService = async (domain: string, service: string): Promise<void> => {
+    sent.push(`${domain}.${service}`);
+  };
   const entities = Object.fromEntries([[PHONE, entityState(PHONE, "unknown")], ...Object.entries(states).map(([id, state]) => [id, entityState(id, state)])]);
-  const hass = { states: entities, services: {}, language: "en", user, callService: async () => undefined, callWS } as unknown as HomeAssistant;
+  const hass = { states: entities, services: {}, language: "en", user, callService, callWS } as unknown as HomeAssistant;
   return { hass, sent, writes: () => sent.filter(service => WRITE_SERVICES.has(service)), holdWrites: () => (held = []) };
 }
 
@@ -691,6 +695,33 @@ describe("a circuit's Monitoring section, for a user who is not an administrator
       expect(segment.disabled).toBe(false);
       expect(segment.title).not.toBe(ADMIN_ONLY);
     }
+  });
+
+  it("leaves the relay switch and the shedding priority to what governs them, operable here, and each still acts", async () => {
+    const BREAKER = "switch.oven_breaker";
+    const PRIORITY = "select.oven_circuit_priority";
+    const panel = integration({ is_admin: false }, { states: { [BREAKER]: "on", [PRIORITY]: "never" } });
+    const side = openPanel(
+      panel,
+      oven(null),
+      { monitoring_enabled: true },
+      {
+        config: { entities: { switch: BREAKER, select: PRIORITY }, is_user_controllable: true, relay_state: "CLOSED" },
+      }
+    );
+    const relay = at<HTMLElement & { disabled: boolean; updateComplete: Promise<boolean> }>(side.shadowRoot!, '[data-role="relay-toggle"]');
+    const priority = at<HTMLSelectElement>(side.shadowRoot!, '[data-role="shedding-select"]');
+    await relay.updateComplete;
+
+    expect(relay.disabled).toBe(false);
+    expect(relay.hasAttribute("disabled")).toBe(false);
+    expect(priority.disabled).toBe(false);
+    for (const control of [relay, priority]) expect(control.title).not.toBe(ADMIN_ONLY);
+
+    relay.click();
+    priority.value = "off_grid";
+    priority.dispatchEvent(new Event("change"));
+    expect(panel.sent).toEqual(expect.arrayContaining(["switch.turn_off", "select.select_option"]));
   });
 });
 
