@@ -46,6 +46,7 @@ const translations: Record<string, Record<string, string>> = {
     "monitoring.enable_invalid": "Monitoring was not turned on: correct the fields marked.",
     "monitoring.point_field": "{field} for {name}",
     "monitoring.reset_point": "Reset {name}",
+    "monitoring.admin_only": "Only an administrator can change monitoring.",
 
     // Notification settings
     "notification.heading": "Notification Settings",
@@ -370,6 +371,7 @@ const translations: Record<string, Record<string, string>> = {
     "monitoring.enable_invalid": "No se activ\u00f3 el monitoreo: corrija los campos marcados.",
     "monitoring.point_field": "{field} de {name}",
     "monitoring.reset_point": "Restablecer {name}",
+    "monitoring.admin_only": "Solo un administrador puede cambiar el monitoreo.",
     "notification.heading": "Configuraci\u00f3n de Notificaciones",
     "notification.targets": "Destinos de Notificaci\u00f3n",
     "notification.none_selected": "Ninguno seleccionado",
@@ -666,6 +668,7 @@ const translations: Record<string, Record<string, string>> = {
     "monitoring.enable_invalid": "La surveillance n'a pas \u00e9t\u00e9 activ\u00e9e : corrigez les champs signal\u00e9s.",
     "monitoring.point_field": "{field} de {name}",
     "monitoring.reset_point": "R\u00e9initialiser {name}",
+    "monitoring.admin_only": "Seul un administrateur peut modifier la surveillance.",
     "notification.heading": "Param\u00e8tres de Notification",
     "notification.targets": "Cibles de Notification",
     "notification.none_selected": "Aucune s\u00e9lection",
@@ -966,6 +969,8 @@ const translations: Record<string, Record<string, string>> = {
       "\u30e2\u30cb\u30bf\u30ea\u30f3\u30b0\u306f\u6709\u52b9\u306b\u306a\u3063\u3066\u3044\u307e\u305b\u3093\u3002\u30de\u30fc\u30af\u3055\u308c\u305f\u9805\u76ee\u3092\u4fee\u6b63\u3057\u3066\u304f\u3060\u3055\u3044\u3002",
     "monitoring.point_field": "{name}\u306e{field}",
     "monitoring.reset_point": "{name}\u3092\u30ea\u30bb\u30c3\u30c8",
+    "monitoring.admin_only":
+      "\u30e2\u30cb\u30bf\u30ea\u30f3\u30b0\u3092\u5909\u66f4\u3067\u304d\u308b\u306e\u306f\u7ba1\u7406\u8005\u306e\u307f\u3067\u3059\u3002",
     "notification.heading": "\u901a\u77e5\u8a2d\u5b9a",
     "notification.targets": "\u901a\u77e5\u5148",
     "notification.none_selected": "\u672a\u9078\u629e",
@@ -1283,6 +1288,7 @@ const translations: Record<string, Record<string, string>> = {
     "monitoring.enable_invalid": "O monitoramento n\u00e3o foi ativado: corrija os campos marcados.",
     "monitoring.point_field": "{field} de {name}",
     "monitoring.reset_point": "Redefinir {name}",
+    "monitoring.admin_only": "Somente um administrador pode alterar o monitoramento.",
     "notification.heading": "Configura\u00e7\u00f5es de Notifica\u00e7\u00e3o",
     "notification.targets": "Destinos de Notifica\u00e7\u00e3o",
     "notification.none_selected": "Nenhum selecionado",

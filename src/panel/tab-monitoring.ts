@@ -15,6 +15,7 @@ import { focusedIn, isFocusLost } from "../helpers/focus.js";
 import { bindLimitField, isLimitField, LIMIT_RANGES, type LimitField, type LimitFieldHandle } from "../helpers/number-field.js";
 import { bindOtherBreakerField, reportPackageRatingsFailure, type OtherBreakerFieldHandle } from "../helpers/other-breaker-field.js";
 import { circuitLabelsByMonitoringKey } from "../core/monitoring-status.js";
+import { monitoringWrites, reportMonitoringFailure, type MonitoringServiceData, type MonitoringWrites } from "../core/monitoring-access.js";
 import type { ErrorStore } from "../core/error-store.js";
 import type {
   EntityNameItem,
@@ -1136,23 +1137,15 @@ export class MonitoringTab {
     if (epoch === this._epoch) await this.render(container, hass);
   }
 
-  private _serviceData(data: Record<string, unknown>): Record<string, unknown> {
+  /** `data` for the panel this tab shows: its config entry added, where the tab names one. */
+  private _serviceData(data: MonitoringServiceData): MonitoringServiceData {
     if (this._configEntryId) data.config_entry_id = this._configEntryId;
     return data;
   }
 
-  /** Call the integration's `service` with `data` for the panel this tab shows (`_serviceData`). */
-  private _callService(hass: HomeAssistant, service: string, data: Record<string, unknown>): Promise<unknown> {
-    return hass.callWS({
-      type: "call_service",
-      domain: INTEGRATION_DOMAIN,
-      service,
-      service_data: this._serviceData({ ...data }),
-    });
-  }
-
-  private _callSetGlobal(hass: HomeAssistant, data: Record<string, unknown>): Promise<unknown> {
-    return this._callService(hass, "set_global_monitoring", data);
+  /** Store the global settings in `data` for the panel this tab shows (`_serviceData`). */
+  private _callSetGlobal(hass: HomeAssistant, data: MonitoringServiceData): Promise<void> {
+    return monitoringWrites(hass).setGlobalMonitoring(this._serviceData({ ...data }));
   }
 
   /**
@@ -1164,10 +1157,9 @@ export class MonitoringTab {
     const serviceData = this._serviceData({ [setting]: value });
     const send = async (): Promise<void> => {
       try {
-        await hass.callWS({ type: "call_service", domain: INTEGRATION_DOMAIN, service: "set_global_monitoring", service_data: serviceData });
+        await monitoringWrites(hass).setGlobalMonitoring(serviceData);
       } catch (err: unknown) {
-        console.warn(`SPAN Panel: ${setting} save failed`, err);
-        this.errorStore?.add({ key: "service:monitoring", level: "error", message: t("error.threshold_failed"), persistent: false });
+        reportMonitoringFailure(this.errorStore, err, `${setting} save`);
         throw err;
       }
     };
@@ -1350,13 +1342,7 @@ export class MonitoringTab {
           await this._callSetGlobal(hass, { notification_priority: prioritySelect.value });
           await this._redraw(container, hass, epoch);
         } catch (err) {
-          console.warn("SPAN Panel: notification priority change failed", err);
-          this.errorStore?.add({
-            key: "service:monitoring",
-            level: "error",
-            message: t("error.threshold_failed"),
-            persistent: false,
-          });
+          reportMonitoringFailure(this.errorStore, err, "notification priority change");
         }
       });
     }
@@ -1387,14 +1373,7 @@ export class MonitoringTab {
           this._saveOnPause(hass, "notify_targets", checked.map(c => c.value).join(", "));
           await this._flushPendingSaves();
 
-          const serviceData: Record<string, unknown> = {};
-          if (this._configEntryId) serviceData.config_entry_id = this._configEntryId;
-          await hass.callWS({
-            type: "call_service",
-            domain: INTEGRATION_DOMAIN,
-            service: "test_notification",
-            service_data: serviceData,
-          });
+          await monitoringWrites(hass).testNotification(this._serviceData({}));
           if (testStatus) {
             testStatus.textContent = t("notification.test_sent");
             testStatus.style.color = "var(--success-color, #4caf50)";
@@ -1423,42 +1402,17 @@ export class MonitoringTab {
     toggleAll.addEventListener("change", async () => {
       const epoch = this._epoch;
       const enabled = toggleAll.checked;
-      const calls: Promise<unknown>[] = [
+      const writes = monitoringWrites(hass);
+      const calls: Promise<void>[] = [
         ...Object.keys(circuits).map(entityId =>
-          hass
-            .callWS({
-              type: "call_service",
-              domain: INTEGRATION_DOMAIN,
-              service: "set_circuit_threshold",
-              service_data: this._serviceData({ circuit_id: entityId, monitoring_enabled: enabled }),
-            })
-            .catch(err => {
-              console.warn("SPAN Panel: circuit monitoring toggle failed", err);
-              this.errorStore?.add({
-                key: "service:monitoring",
-                level: "error",
-                message: t("error.threshold_failed"),
-                persistent: false,
-              });
-            })
+          writes
+            .setCircuitThreshold(this._serviceData({ circuit_id: entityId, monitoring_enabled: enabled }))
+            .catch((err: unknown) => reportMonitoringFailure(this.errorStore, err, "circuit monitoring toggle"))
         ),
         ...Object.keys(mains).map(entityId =>
-          hass
-            .callWS({
-              type: "call_service",
-              domain: INTEGRATION_DOMAIN,
-              service: "set_mains_threshold",
-              service_data: this._serviceData({ leg: entityId, monitoring_enabled: enabled }),
-            })
-            .catch(err => {
-              console.warn("SPAN Panel: mains monitoring toggle failed", err);
-              this.errorStore?.add({
-                key: "service:monitoring",
-                level: "error",
-                message: t("error.threshold_failed"),
-                persistent: false,
-              });
-            })
+          writes
+            .setMainsThreshold(this._serviceData({ leg: entityId, monitoring_enabled: enabled }))
+            .catch((err: unknown) => reportMonitoringFailure(this.errorStore, err, "mains monitoring toggle"))
         ),
       ];
       await Promise.all(calls);
@@ -1473,20 +1427,9 @@ export class MonitoringTab {
         const entityId = cb.dataset.entity;
         const enabled = cb.checked;
         try {
-          await hass.callWS({
-            type: "call_service",
-            domain: INTEGRATION_DOMAIN,
-            service: "set_mains_threshold",
-            service_data: this._serviceData({ leg: entityId, monitoring_enabled: enabled }),
-          });
+          await monitoringWrites(hass).setMainsThreshold(this._serviceData({ leg: entityId, monitoring_enabled: enabled }));
         } catch (err) {
-          console.warn("SPAN Panel: mains threshold toggle failed", err);
-          this.errorStore?.add({
-            key: "service:monitoring",
-            level: "error",
-            message: t("error.threshold_failed"),
-            persistent: false,
-          });
+          reportMonitoringFailure(this.errorStore, err, "mains threshold toggle");
           cb.checked = !enabled;
           return;
         }
@@ -1524,15 +1467,9 @@ export class MonitoringTab {
   private async _setCircuitMonitoring(container: HTMLElement, hass: HomeAssistant, entityId: string, enabled: boolean): Promise<boolean> {
     const epoch = this._epoch;
     try {
-      await this._callService(hass, "set_circuit_threshold", { circuit_id: entityId, monitoring_enabled: enabled });
+      await monitoringWrites(hass).setCircuitThreshold(this._serviceData({ circuit_id: entityId, monitoring_enabled: enabled }));
     } catch (err) {
-      console.warn("SPAN Panel: circuit threshold toggle failed", err);
-      this.errorStore?.add({
-        key: "service:monitoring",
-        level: "error",
-        message: t("error.threshold_failed"),
-        persistent: false,
-      });
+      reportMonitoringFailure(this.errorStore, err, "circuit threshold toggle");
       return false;
     }
     await this._redraw(container, hass, epoch);
@@ -1555,37 +1492,28 @@ export class MonitoringTab {
       bindLimitField(input, field, {
         report: fieldFeedback(input),
         save: amount => {
-          const service = isMains ? "set_mains_threshold" : "set_circuit_threshold";
-          const data = isMains ? { leg: entityId, [field]: amount } : { circuit_id: entityId, [field]: amount };
-          void this._saveThreshold(container, hass, input, service, data);
+          void this._saveThreshold(container, hass, input, writes =>
+            isMains
+              ? writes.setMainsThreshold(this._serviceData({ leg: entityId, [field]: amount }))
+              : writes.setCircuitThreshold(this._serviceData({ circuit_id: entityId, [field]: amount }))
+          );
         },
       });
     }
   }
 
+  /** Send a field's threshold with `send`, then read the tab again; a failure is said, and the field marked. */
   private async _saveThreshold(
     container: HTMLElement,
     hass: HomeAssistant,
     input: HTMLInputElement,
-    service: string,
-    data: Record<string, unknown>
+    send: (writes: MonitoringWrites) => Promise<void>
   ): Promise<void> {
     const epoch = this._epoch;
     try {
-      await hass.callWS({
-        type: "call_service",
-        domain: INTEGRATION_DOMAIN,
-        service,
-        service_data: this._serviceData(data),
-      });
+      await send(monitoringWrites(hass));
     } catch (err) {
-      console.warn("SPAN Panel: threshold input save failed", err);
-      this.errorStore?.add({
-        key: "service:monitoring",
-        level: "error",
-        message: t("error.threshold_failed"),
-        persistent: false,
-      });
+      reportMonitoringFailure(this.errorStore, err, "threshold input save");
       input.style.borderColor = ERROR_BORDER;
       return;
     }
@@ -1635,7 +1563,7 @@ export class MonitoringTab {
   ): Promise<void> {
     const epoch = this._epoch;
     try {
-      await this._callService(hass, "set_circuit_package_ratings", { circuit_id: copy.circuitId, package_ratings_a: [copy.panelA, amps] });
+      await monitoringWrites(hass).setCircuitPackageRatings(this._serviceData({ circuit_id: copy.circuitId, package_ratings_a: [copy.panelA, amps] }));
     } catch (err: unknown) {
       reportPackageRatingsFailure(hass, this.errorStore, err);
       if (field.answerRefusal(amps) && input.isConnected && isFocusLost()) input.focus();
@@ -1648,7 +1576,7 @@ export class MonitoringTab {
   private async _clearPackageRatings(container: HTMLElement, hass: HomeAssistant, copy: RowCopy): Promise<boolean> {
     const epoch = this._epoch;
     try {
-      await this._callService(hass, "clear_circuit_package_ratings", { circuit_id: copy.circuitId });
+      await monitoringWrites(hass).clearCircuitPackageRatings(this._serviceData({ circuit_id: copy.circuitId }));
     } catch (err: unknown) {
       reportPackageRatingsFailure(hass, this.errorStore, err);
       return false;
@@ -1676,10 +1604,11 @@ export class MonitoringTab {
       const isMains = btn.dataset.type === "mains";
       bindBusyButton(btn, async () => {
         const epoch = this._epoch;
-        const service = isMains ? "clear_mains_threshold" : "clear_circuit_threshold";
-        const param = this._serviceData(isMains ? { leg: entityId } : { circuit_id: entityId });
+        const writes = monitoringWrites(hass);
         try {
-          await hass.callService(INTEGRATION_DOMAIN, service, param);
+          await (isMains
+            ? writes.clearMainsThreshold(this._serviceData({ leg: entityId }))
+            : writes.clearCircuitThreshold(this._serviceData({ circuit_id: entityId })));
         } catch (err: unknown) {
           console.warn("SPAN Panel: threshold reset failed", err);
           void serviceErrorMessage(hass, err, INTEGRATION_DOMAIN, t("error.threshold_failed")).then(message => {

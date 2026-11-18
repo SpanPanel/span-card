@@ -8,8 +8,9 @@ import type { CardConfig, Circuit, HomeAssistant, PackageRatingsForm, PackageRat
 type CallWS = (message: Record<string, unknown>) => Promise<unknown>;
 type SidePanel = HTMLElement & { hass: HomeAssistant; errorStore: ErrorStore | null; open(config: unknown): void };
 
+/** An administrator's Home Assistant, who may change monitoring. */
 function hass(callWS: CallWS): HomeAssistant {
-  return { states: {}, services: {}, language: "en", callService: async () => undefined, callWS } as unknown as HomeAssistant;
+  return { states: {}, services: {}, language: "en", user: { is_admin: true }, callService: async () => undefined, callWS } as unknown as HomeAssistant;
 }
 
 const mounted: HTMLElement[] = [];

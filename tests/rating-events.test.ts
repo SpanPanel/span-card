@@ -205,7 +205,8 @@ async function openOven(initial: Circuit): Promise<OpenPanel> {
     if (msg.service === "get_graph_settings") return { response: {} };
     return {};
   });
-  const hass = { states: {}, services: {}, language: "en", callService: async () => undefined, callWS } as unknown as HomeAssistant;
+  // An administrator, who may change monitoring.
+  const hass = { states: {}, services: {}, language: "en", user: { is_admin: true }, callService: async () => undefined, callWS } as unknown as HomeAssistant;
   const root = document.createElement("div");
   root.innerHTML = `<div class="gear-icon" data-uuid="c-1"></div><span-side-panel></span-side-panel>`;
   document.body.appendChild(root);
@@ -217,6 +218,10 @@ async function openOven(initial: Circuit): Promise<OpenPanel> {
   await ctrl.onGearClick({ target: root.querySelector(".gear-icon") } as unknown as Event, root);
   return { root, panel, ctrl, callWS, setStatus: c => (status = monitoringFor(c)) };
 }
+
+/** The data of every call of the integration's `service` the open panel has sent, in the order sent. */
+const sentTo = (open: OpenPanel, service: string): Record<string, unknown>[] =>
+  open.callWS.mock.calls.flatMap(([msg]) => (msg.service === service ? [msg.service_data as Record<string, unknown>] : []));
 
 const section = (p: SidePanel): HTMLElement | null => p.shadowRoot!.querySelector<HTMLElement>('[data-role="rating-section"]');
 const input = (p: SidePanel): HTMLInputElement => p.shadowRoot!.querySelector<HTMLInputElement>('[data-role="rating-input"]')!;
@@ -274,7 +279,7 @@ describe("refreshCircuitSidePanel", () => {
 
   it("keeps a value being typed in the focused field across a refresh, and sends it when committed", async () => {
     const open = await openOven(circuit(20, 20));
-    const sent = vi.spyOn(open.panel as unknown as { _callDomainService: (s: string, d: Record<string, unknown>) => Promise<unknown> }, "_callDomainService");
+    const sent = (): Record<string, unknown>[] => sentTo(open, "set_circuit_package_ratings");
     const field = input(open.panel);
     field.focus();
     field.value = "3";
@@ -287,9 +292,9 @@ describe("refreshCircuitSidePanel", () => {
 
     expect(input(open.panel)).toBe(field);
     expect(field.value).toBe("30");
-    expect(sent).not.toHaveBeenCalled();
+    expect(sent()).toEqual([]);
     field.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter" }));
-    expect(sent).toHaveBeenCalledWith("set_circuit_package_ratings", expect.objectContaining({ package_ratings_a: [20, 30] }));
+    expect(sent()).toEqual([expect.objectContaining({ package_ratings_a: [20, 30] })]);
   });
 
   it("keeps the editor where it was: after the judged-against line, above the Global/Custom choice", async () => {
@@ -306,7 +311,6 @@ describe("refreshCircuitSidePanel", () => {
 
   it("keeps a threshold value being typed, and still sends it, across a rebuild", async () => {
     const open = await openOven(circuit(20, 20));
-    const sent = vi.spyOn(open.panel as unknown as { _callDomainService: (s: string, d: Record<string, unknown>) => Promise<unknown> }, "_callDomainService");
     const threshold = (): HTMLInputElement => open.panel.shadowRoot!.querySelector<HTMLInputElement>('[data-role="threshold-continuous"]')!;
     const typing = threshold();
     typing.value = "65";
@@ -319,7 +323,7 @@ describe("refreshCircuitSidePanel", () => {
 
     expect(threshold()).toBe(typing);
     expect(threshold().value).toBe("65");
-    expect(sent).toHaveBeenCalledWith("set_circuit_threshold", expect.objectContaining({ continuous_threshold_pct: 65 }));
+    expect(sentTo(open, "set_circuit_threshold")).toEqual([expect.objectContaining({ continuous_threshold_pct: 65 })]);
   });
 
   it("adds the editor, in its place, when a circuit first has a panel rating to judge against", async () => {

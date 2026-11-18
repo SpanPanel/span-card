@@ -10,6 +10,7 @@ import { PackageRatingsEditor, type PackageRatingsHost, type PackageRatingsView 
 import { bindLimitField, LIMIT_RANGES, type LimitField, type LimitFieldHandle } from "../helpers/number-field.js";
 import { focusWithin } from "../helpers/focus.js";
 import { circuitMonitoringInfo, monitoringStatusFrom } from "./monitoring-status.js";
+import { monitoringWrites, reportMonitoringFailure, type MonitoringWrites } from "./monitoring-access.js";
 import { addFavorite, removeFavorite } from "./favorites-store.js";
 import { sortedCircuitsForSection } from "./favorites-sections.js";
 import { subDeviceCharts } from "../helpers/sub-device-power.js";
@@ -1429,11 +1430,11 @@ class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
   }
 
   setPackageRatings(uuid: string, ratings: readonly number[]): Promise<void> {
-    return this._callDomainService("set_circuit_package_ratings", this._ratingsPayload(uuid, { package_ratings_a: [...ratings] }));
+    return this._changeMonitoring(writes => writes.setCircuitPackageRatings(this._ratingsPayload(uuid, { package_ratings_a: [...ratings] })));
   }
 
   clearPackageRatings(uuid: string): Promise<void> {
-    return this._callDomainService("clear_circuit_package_ratings", this._ratingsPayload(uuid, {}));
+    return this._changeMonitoring(writes => writes.clearCircuitPackageRatings(this._ratingsPayload(uuid, {})));
   }
 
   /** A refusal shows the integration's message in the user's language, else the generic one (`reportPackageRatingsFailure`). */
@@ -1462,10 +1463,9 @@ class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
     const data: Record<string, unknown> = { circuit_id: cfg.entities?.power || cfg.uuid };
     if (cfg.configEntryId) data.config_entry_id = cfg.configEntryId;
     try {
-      await this._callDomainService("clear_circuit_threshold", data);
+      await this._changeMonitoring(writes => writes.clearCircuitThreshold(data));
     } catch (err: unknown) {
-      console.warn("SPAN Panel: monitoring update failed", err);
-      this.errorStore?.add({ key: "service:monitoring", level: "error", message: t("error.threshold_failed"), persistent: false });
+      reportMonitoringFailure(this.errorStore, err, "monitoring update");
       if (this._config === cfg) {
         if (custom) custom.checked = true;
         if (fields) fields.style.display = "block";
@@ -1778,11 +1778,10 @@ class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
     const data: Record<string, unknown> = { circuit_id: cfg.entities?.power || cfg.uuid, monitoring_enabled: enabled };
     if (cfg.configEntryId) data.config_entry_id = cfg.configEntryId;
     try {
-      await this._callDomainService("set_circuit_threshold", data);
+      await this._changeMonitoring(writes => writes.setCircuitThreshold(data));
       return true;
     } catch (err: unknown) {
-      console.warn("SPAN Panel: monitoring update failed", err);
-      this.errorStore?.add({ key: "service:monitoring", level: "error", message: t("error.threshold_failed"), persistent: false });
+      reportMonitoringFailure(this.errorStore, err, "monitoring update");
       return false;
     }
   }
@@ -1873,17 +1872,9 @@ class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
    * editor's warning, follows without waiting for a refresh.
    */
   private _saveThresholds(cfg: CircuitModeConfig, data: Record<string, unknown>): void {
-    this._callDomainService("set_circuit_threshold", data).then(
+    this._changeMonitoring(writes => writes.setCircuitThreshold(data)).then(
       () => this._readThresholds(cfg, data),
-      (err: unknown) => {
-        console.warn("SPAN Panel: monitoring update failed", err);
-        this.errorStore?.add({
-          key: "service:monitoring",
-          level: "error",
-          message: t("error.threshold_failed"),
-          persistent: false,
-        });
-      }
+      (err: unknown) => reportMonitoringFailure(this.errorStore, err, "monitoring update")
     );
   }
 
@@ -1982,6 +1973,12 @@ class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
       service,
       service_data: data,
     });
+  }
+
+  /** Send a monitoring change with `send`, through the changes the user can send (`monitoringWrites`); nothing is sent before the panel has Home Assistant. */
+  private _changeMonitoring(send: (writes: MonitoringWrites) => Promise<void>): Promise<void> {
+    if (!this._hass) return Promise.resolve();
+    return send(monitoringWrites(this._hass));
   }
 
   // ── Debounce ────────────────────────────────────────────────────────
