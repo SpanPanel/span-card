@@ -196,14 +196,16 @@ that changes something, while `get_monitoring_status` stays open to everyone. `s
 
 ### Control Changes
 
-The integration's control gate decides who may operate a panel's relays and shedding priorities: its options can let only an administrator operate them, or
-switch control off. `panel_topology` says what the gate would decide for the user who asked, as `control_access: {may_operate, reason}`, where `reason` is
-`admin_only` or `control_disabled` when `may_operate` is false. `src/core/control-access.ts` holds the card's side of that rule:
+The integration's control gate decides who may operate a panel's relays and shedding priorities: its options can switch control off or let only an administrator
+operate them, and a user whose Home Assistant permissions do not allow controlling the panel's entities, as one in the Read Only group, may not.
+`panel_topology` says what the gate would decide for the user who asked, as `control_access: {may_operate, reason}`. Where `may_operate` is false, `reason` is
+the first of `control_disabled`, `admin_only` and `read_only` that applies. `src/core/control-access.ts` holds the card's side of that rule:
 
-- `controlAccess(topology)` reads it. Where the topology says nothing, as from an integration that predates the field or from the entity fallback, the controls
-  are taken as operable, as they always were, and the gate still refuses what it refuses. `circuitControlAccess()` answers for one circuit: in the Favorites
-  view each favorite keeps its own panel's answer on its `FavoriteRef`. `viewControlAccess()` answers for a view's "Enable Switches" slider, which is operable
-  where any of the view's circuits is.
+- `controlAccess(topology)` reads it. `may_operate` decides, and `reason` only picks the hint; a reason the card does not know reads as none, which the generic
+  hint answers. Where the topology says nothing, as from an integration that predates the field or from the entity fallback, the controls are taken as operable,
+  as they always were, and the gate still refuses what it refuses. `circuitControlAccess()` answers for one circuit: in the Favorites view each favorite keeps
+  its own panel's answer on its `FavoriteRef`. `viewControlAccess()` answers for a view's "Enable Switches" slider, which is operable where any of the view's
+  circuits is.
 - `controlWrites(hass, access)` is the one way the card sends a change: `setRelay()` sends `switch.turn_on` or `switch.turn_off`, and `setPriority()` sends
   `select.select_option`, each over the websocket, so Home Assistant shows no toast of its own beside the card's banner. It sends nothing where the access does
   not allow it, rejecting with a `ControlChangeRefused` that says why. `tests/control-access.test.ts` fails where a relay, priority or lock service is named

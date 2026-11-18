@@ -52,6 +52,7 @@ describe("the toggle pill", () => {
   it.each([
     [ADMIN_ONLY, "Only an administrator can operate this panel's controls."],
     [SWITCHED_OFF, "Control of this panel is switched off in its options."],
+    [{ mayOperate: false, reason: "read_only" } satisfies ControlAccess, "Your Home Assistant account can't operate this panel's controls."],
     [{ mayOperate: false, reason: null } satisfies ControlAccess, "You can't operate this panel's controls."],
   ])("is drawn forbidden where the user may not operate the panel's controls, still showing the relay, titled with why", (access, why) => {
     const pill = host(buildTogglePillHTML(true, "operable", access)).querySelector(".toggle-pill")!;

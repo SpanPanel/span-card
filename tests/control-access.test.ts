@@ -36,7 +36,9 @@ const ACCESS_MODULE = "core/control-access.ts";
 
 const ADMIN_ONLY: ControlAccess = { mayOperate: false, reason: "admin_only" };
 const SWITCHED_OFF: ControlAccess = { mayOperate: false, reason: "control_disabled" };
+const READ_ONLY: ControlAccess = { mayOperate: false, reason: "read_only" };
 const ADMIN_ONLY_HINT = "Only an administrator can operate this panel's controls.";
+const READ_ONLY_HINT = "Your Home Assistant account can't operate this panel's controls.";
 
 /** The card's source files, by their path under `src/`. The path is taken apart by hand: happy-dom's `URL` reads no file URL. */
 const SRC = join(dirname(fileURLToPath(import.meta.url)), "..", "src");
@@ -137,6 +139,7 @@ describe("the services that change a panel's controls", () => {
   it.each([
     ["only an administrator may", ADMIN_ONLY, ADMIN_ONLY_HINT],
     ["control is switched off in the panel's options", SWITCHED_OFF, "Control of this panel is switched off in its options."],
+    ["the user's Home Assistant permissions do not let them control the panel's entities", READ_ONLY, READ_ONLY_HINT],
     ["the integration gives no reason", { mayOperate: false, reason: null } satisfies ControlAccess, "You can't operate this panel's controls."],
   ])("are refused, with nothing sent, where %s, saying why", async (_where, access, why) => {
     const { hass, sent } = recording();
@@ -180,9 +183,15 @@ describe("controlAccess", () => {
     expect(controlAccess(topology({ may_operate: true, reason: null }))).toEqual(CONTROLS_OPERABLE);
   });
 
+  it("takes may_operate as the authority, whatever reason comes beside it", () => {
+    expect(controlAccess(topology({ may_operate: true, reason: "admin_only" }))).toEqual(CONTROLS_OPERABLE);
+    expect(controlAccess(topology({ may_operate: true, reason: "a_later_reason" }))).toEqual(CONTROLS_OPERABLE);
+  });
+
   it.each([
     ["admin_only", "admin_only"],
     ["control_disabled", "control_disabled"],
+    ["read_only", "read_only"],
     [null, null],
     ["a reason it does not know", null],
   ])("is not operable where the integration says the user may not, with the reason %s", (reason, read) => {
@@ -245,6 +254,23 @@ describe("why controls cannot be operated", () => {
   ])("is said in the user's language (%s)", (language, text) => {
     setLanguage(language);
     expect(controlAccessHint(ADMIN_ONLY)).toBe(text);
+  });
+
+  it.each([
+    ["en", READ_ONLY_HINT],
+    ["es", "Su cuenta de Home Assistant no puede operar los controles de este panel."],
+    ["fr", "Votre compte Home Assistant ne peut pas utiliser les commandes de ce panneau."],
+    ["ja", "お使いのHome Assistantアカウントでは、このパネルのコントロールを操作できません。"],
+    ["pt", "Sua conta do Home Assistant não pode operar os controles deste painel."],
+  ])("is said for a read-only account in the user's language (%s)", (language, text) => {
+    setLanguage(language);
+    expect(controlAccessHint(READ_ONLY)).toBe(text);
+  });
+
+  it("is the generic hint for a reason the card does not know, which reads as no reason", () => {
+    const later = controlAccess(topology({ may_operate: false, reason: "a_later_reason" }));
+    expect(later).toEqual({ mayOperate: false, reason: null });
+    expect(controlAccessHint(later)).toBe("You can't operate this panel's controls.");
   });
 
   it("is a note, said once", () => {

@@ -39,7 +39,7 @@ const ADMIN_ONLY: ControlAccess = { mayOperate: false, reason: "admin_only" };
 const BLOCKED = { may_operate: false, reason: "admin_only" } as const;
 const ALLOWED = { may_operate: true, reason: null } as const;
 
-function topology(control_access?: typeof BLOCKED | typeof ALLOWED | { may_operate: false; reason: "control_disabled" }): PanelTopology {
+function topology(control_access?: { may_operate: boolean; reason: string | null }): PanelTopology {
   return {
     circuits: {
       kitchen: {
@@ -205,6 +205,19 @@ describe("the card's By Panel view, for a user who may not operate the panel's c
     const kitchen = root.querySelector('[data-uuid="kitchen"] .toggle-pill')!;
     expect(kitchen.classList.contains("toggle-off")).toBe(true);
     expect(kitchen.classList.contains("toggle-forbidden")).toBe(true);
+  });
+});
+
+describe("the card, for a user whose Home Assistant account is read-only", () => {
+  it("draws the toggles and the side panel's controls disabled, saying the account cannot operate them", async () => {
+    const hint = "Your Home Assistant account can't operate this panel's controls.";
+    const { root } = await mount(topology({ may_operate: false, reason: "read_only" }));
+    for (const pill of pills(root)) expect(pill.title).toBe(hint);
+    expect(root.querySelector('.panel-identity [data-role="controls-note"]')!.textContent).toBe(hint);
+
+    const sidePanel = await openSidePanel(root, "kitchen");
+    expect(sideRelay(sidePanel).disabled).toBe(true);
+    expect(sidePanel.shadowRoot!.querySelector('[data-role="controls-note"]')!.textContent).toBe(hint);
   });
 });
 

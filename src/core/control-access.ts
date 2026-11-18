@@ -8,7 +8,7 @@ import type { ControlAccess, ControlBlock, FavoritesTopology, HomeAssistant, Pan
 /** Controls the user may operate: what the card takes where the integration says nothing of them. */
 export const CONTROLS_OPERABLE: ControlAccess = Object.freeze({ mayOperate: true, reason: null });
 
-const BLOCKS: readonly ControlBlock[] = ["admin_only", "control_disabled"];
+const BLOCKS: readonly ControlBlock[] = ["control_disabled", "admin_only", "read_only"];
 
 function isBlock(value: unknown): value is ControlBlock {
   return BLOCKS.some(block => block === value);
@@ -18,10 +18,12 @@ function isBlock(value: unknown): value is ControlBlock {
  * Whether the user may operate `topology`'s controls, its relays and shedding
  * priorities, as the integration said when it gave the topology
  * (`control_access`), for the user who asked, by the rule its control gate
- * enforces. Where it says nothing, as an integration that predates it does,
- * and a topology built from the registries, the controls are taken as
- * operable, as they always were; the gate still refuses what it refuses, and
- * the card says why (`reportControlFailure`).
+ * enforces. `may_operate` decides; `reason` only says why not, and one the
+ * card does not know, as a later integration may send, reads as null, which
+ * the generic hint answers. Where the integration says nothing, as one that
+ * predates it does, and a topology built from the registries, the controls
+ * are taken as operable, as they always were; the gate still refuses what it
+ * refuses, and the card says why (`reportControlFailure`).
  */
 export function controlAccess(topology: PanelTopology | null | undefined): ControlAccess {
   const wire: unknown = topology?.control_access;
@@ -61,12 +63,17 @@ export function viewControlAccess(topology: PanelTopology | null | undefined): C
   return circuits[0] ?? CONTROLS_OPERABLE;
 }
 
-/** Why controls with `access` cannot be operated, in the user's language; "" where they can. */
+/** The hint for each reason the integration gives. */
+const HINT_KEYS: Readonly<Record<ControlBlock, string>> = {
+  control_disabled: "controls.disabled",
+  admin_only: "controls.admin_only",
+  read_only: "controls.read_only",
+};
+
+/** Why controls with `access` cannot be operated, in the user's language: its reason's hint, or the generic one; "" where they can. */
 export function controlAccessHint(access: ControlAccess): string {
   if (access.mayOperate) return "";
-  if (access.reason === "admin_only") return t("controls.admin_only");
-  if (access.reason === "control_disabled") return t("controls.disabled");
-  return t("controls.not_operable");
+  return t(access.reason ? HINT_KEYS[access.reason] : "controls.not_operable");
 }
 
 /**
