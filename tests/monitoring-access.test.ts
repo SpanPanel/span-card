@@ -208,6 +208,24 @@ describe("lockMonitoringControls", () => {
     root.remove();
   });
 
+  it("dims a control once: not again where it, or what holds it, is drawn dimmed already", () => {
+    const root = document.createElement("div");
+    root.innerHTML = `
+      <div class="off" style="opacity:0.4;"><span><input type="number" class="held" value="80"></span></div>
+      <button type="button" class="own" style="opacity:0.4;">Targets</button>
+      <div class="whole" style="opacity:1;"><button type="button" class="plain">Reset</button></div>
+    `;
+    document.body.appendChild(root);
+    lockMonitoringControls(root);
+
+    expect(at(root, ".held").style.opacity).toBe("");
+    expect(at<HTMLInputElement>(root, ".held").readOnly).toBe(true);
+    expect(at(root, ".held").style.cursor).toBe("not-allowed");
+    expect(at(root, ".own").style.opacity).toBe("0.4");
+    expect(at(root, ".plain").style.opacity).toBe("0.5");
+    root.remove();
+  });
+
   it("leaves a control the caller names as changing nothing as it is", () => {
     const root = drawn();
     lockMonitoringControls(root, ".mark");

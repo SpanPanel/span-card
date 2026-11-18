@@ -39,9 +39,9 @@ function point(name: string, extra: Partial<MonitoringPointInfo> = {}): Monitori
 }
 
 /** One panel's monitoring as the integration reports it, every kind of control the tab draws called for. */
-function status(offered: boolean): Message {
+function status(offered: boolean, monitoringOn: boolean): Message {
   return {
-    enabled: true,
+    enabled: monitoringOn,
     monitoring_rating_offered: offered,
     global_settings: {
       ...GLOBALS,
@@ -84,6 +84,8 @@ interface Integration {
 interface IntegrationOptions {
   /** Whether the panel offers copies of package ratings. */
   offered?: boolean;
+  /** Whether monitoring is on for the panel, which the tab's Enabled switch shows. */
+  monitoringOn?: boolean;
   /** What every change is refused with; null stores it. */
   refusal?: unknown;
   /** Entity states beside the notify target's, by entity id. */
@@ -96,12 +98,12 @@ function entityState(entity_id: string, state: string): HassEntity {
 }
 
 /** Home Assistant for a user who is `user`, with one panel's monitoring: every change is stored, refused, or held (`IntegrationOptions`). */
-function integration(user: HomeAssistant["user"], { offered = true, refusal = null, states = {} }: IntegrationOptions = {}): Integration {
+function integration(user: HomeAssistant["user"], { offered = true, monitoringOn = true, refusal = null, states = {} }: IntegrationOptions = {}): Integration {
   const sent: string[] = [];
   let held: Array<(refusal?: unknown) => void> | null = null;
   const callWS = vi.fn(async (msg: Message): Promise<unknown> => {
     if (typeof msg.service === "string") sent.push(msg.service);
-    if (msg.service === "get_monitoring_status") return { response: status(offered) };
+    if (msg.service === "get_monitoring_status") return { response: status(offered, monitoringOn) };
     const queue = held;
     if (queue) return new Promise((resolve, reject) => queue.push(answer => (answer === undefined ? resolve({}) : reject(answer))));
     if (refusal !== null) throw refusal;
@@ -443,6 +445,13 @@ const TAB_CONTROLS = [
   ".rating-turn-off",
   ".reset-btn",
 ];
+/** How many times `control` is drawn dimmed: by itself, and by each element that holds it. */
+function dimmings(control: HTMLElement): number {
+  let count = 0;
+  for (let el: HTMLElement | null = control; el; el = el.parentElement) if (el.style.opacity !== "" && Number(el.style.opacity) < 1) count += 1;
+  return count;
+}
+
 /** The tab's controls whose value is read as text, made read-only rather than disabled. */
 const TAB_FIELDS = "#g-continuous, #g-spike, #g-window, #g-cooldown, #g-title-template, #g-message-template, .threshold-input, .rating-input";
 
@@ -501,13 +510,25 @@ describe("the Monitoring tab, for a user who is not an administrator", () => {
         expect(control instanceof HTMLInputElement && control.readOnly, selector).toBe(field);
         expect(control.disabled, selector).toBe(!field);
         expect(control.title, selector).toBe(ADMIN_ONLY);
-        expect(control.style.opacity, selector).toBe("0.5");
+        expect(dimmings(control), selector).toBe(1);
       }
     }
     // Nothing the settings draw is left usable.
     const settings = at(container, ".monitoring-settings");
     const usable = [...settings.querySelectorAll<HTMLInputElement>("input, select, button")].filter(control => !control.disabled && !control.readOnly);
     expect(usable).toEqual([]);
+  });
+
+  it("dims each control once: the dimmed row of a point with monitoring off, and the global fields with monitoring off, are not dimmed again", async () => {
+    const { container } = await shown(integration({ is_admin: false }, { monitoringOn: false }));
+
+    // The Garage's row is dimmed, its monitoring off; the global fields are dimmed, monitoring being off.
+    for (const control of [cell(container, GARAGE, "continuous_threshold_pct"), at(container, "#g-continuous"), at(container, "#test-notification-btn")]) {
+      expect(control.style.opacity).toBe("");
+      expect(dimmings(control)).toBe(1);
+    }
+    expect(at(container, `.circuit-toggle[data-entity="${OVEN}"]`).style.opacity).toBe("0.5");
+    expect(at(container, "#monitoring-enabled").style.opacity).toBe("0.5");
   });
 
   it("sends no change whatever is done to its controls, nor as the tab is left", async () => {

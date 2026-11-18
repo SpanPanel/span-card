@@ -135,15 +135,28 @@ const READABLE_INPUTS: ReadonlySet<string> = new Set(["number", "text"]);
 const LOCKED_OPACITY = "0.5";
 
 /**
+ * Whether `control`, or what holds it, is drawn dimmed already, as a point's
+ * controls are while its monitoring is off, or the global fields while
+ * monitoring is: dimmed again, it would fade to near nothing.
+ */
+function drawnDimmed(control: HTMLElement): boolean {
+  for (let el: HTMLElement | null = control; el; el = el.parentElement) {
+    if (el.style.opacity !== "" && Number(el.style.opacity) < 1) return true;
+  }
+  return false;
+}
+
+/**
  * Lock every control in `root` that changes monitoring, for a user who may not
  * change it (`canEditMonitoring`), so the view shows what monitoring is set to
  * and changes nothing. A field holding text or a number is made read-only, so
  * what it holds can still be read, selected and scrolled through; any other
- * control is disabled. Each is titled with why. A native control is dimmed,
- * with the cursor saying it is not to be used; a switch dims itself. A control
- * `except` matches, one that changes nothing, such as a rating mark showing its
- * note, is left as it is. Locking a control again changes nothing, so a view
- * can lock again what it has redrawn.
+ * control is disabled. Each is titled with why. A native control is dimmed
+ * once, where nothing already dims it (`drawnDimmed`), with the cursor saying
+ * it is not to be used; a switch dims itself. A control `except` matches, one
+ * that changes nothing, such as a rating mark showing its note, is left as it
+ * is. Locking a control again changes nothing, so a view can lock again what it
+ * has redrawn.
  */
 export function lockMonitoringControls(root: ParentNode, except?: string): void {
   const title = adminOnlyText();
@@ -153,7 +166,7 @@ export function lockMonitoringControls(root: ParentNode, except?: string): void 
     else control.setAttribute("disabled", "");
     control.title = title;
     if (control.localName === "span-switch") continue;
-    control.style.opacity = LOCKED_OPACITY;
+    if (!drawnDimmed(control)) control.style.opacity = LOCKED_OPACITY;
     control.style.cursor = "not-allowed";
   }
 }
