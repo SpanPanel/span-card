@@ -315,6 +315,53 @@ describe.each(SWITCHES)("%s, where the read after its change fails", (_what, sel
   });
 });
 
+/** The switches of a point's row, which a read draws dimmed while monitoring is off for the point. */
+const ROW_SWITCHES = [SWITCHES[0], SWITCHES[1]] as const;
+
+describe.each(ROW_SWITCHES)("the row of %s, where the read after its change fails", (_what, selector) => {
+  const switchIn = (container: HTMLElement): HTMLInputElement => {
+    const el = container.querySelector<HTMLInputElement>(selector);
+    if (!el) throw new Error(`nothing drawn at ${selector}`);
+    return el;
+  };
+  const rowOf = (container: HTMLElement): HTMLTableRowElement => switchIn(container).closest("tr")!;
+  function turn(container: HTMLElement, on: boolean): void {
+    const el = switchIn(container);
+    el.checked = on;
+    el.dispatchEvent(new Event("change"));
+  }
+
+  it("is dimmed as the change stored leaves monitoring off, and stays so where the next is refused", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const panel = integration();
+    const { container } = await shown(panel);
+    expect(rowOf(container).style.opacity).toBe("");
+    panel.failReads(true);
+
+    turn(container, false);
+    await settle();
+    expect(rowOf(container).style.opacity).toBe("0.4");
+
+    panel.refuse(true);
+    turn(container, true);
+    await settle();
+    expect(rowOf(container).style.opacity).toBe("0.4");
+  });
+
+  it("stays as drawn where the change is refused", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const panel = integration();
+    const { container } = await shown(panel);
+    panel.refuse(true);
+    panel.failReads(true);
+
+    turn(container, false);
+    await settle();
+
+    expect(rowOf(container).style.opacity).toBe("");
+  });
+});
+
 describe("a read of the status that fails", () => {
   it("keeps what the tab drew, rather than defaults that show monitoring off, and says the read failed", async () => {
     vi.spyOn(console, "warn").mockImplementation(() => undefined);

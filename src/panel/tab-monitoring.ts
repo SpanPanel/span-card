@@ -535,6 +535,9 @@ function sayStatusFailure(line: HTMLElement, message: string): void {
   line.style.color = "var(--error-color, #f44336)";
 }
 
+/** The opacity a point's row is drawn at while monitoring is off for it, and the global fields while it is off for the panel. */
+const OFF_OPACITY = "0.4";
+
 /**
  * Show switch `control` as what is known to be stored, once a change it made
  * (to `on`, stored or not) has settled and the tab has been read again. A read
@@ -547,6 +550,18 @@ function settleSwitch(control: HTMLInputElement, stored: boolean, on: boolean): 
   if (!control.isConnected) return;
   if (stored) control.toggleAttribute("checked", on);
   control.checked = control.hasAttribute("checked");
+}
+
+/**
+ * Settle the switch of a point's row (`settleSwitch`), and draw the row as the
+ * switch then shows it, dimmed while monitoring is off for the point, as a read
+ * draws it.
+ */
+function settleRowSwitch(control: HTMLInputElement, stored: boolean, on: boolean): void {
+  if (!control.isConnected) return;
+  settleSwitch(control, stored, on);
+  const row = control.closest("tr");
+  if (row) row.style.opacity = control.checked ? "" : OFF_OPACITY;
 }
 
 /** The longest a redraw waits on a press whose release never arrives. */
@@ -834,7 +849,7 @@ export class MonitoringTab {
         const name = escapeHtml(written);
         const enabled = isMonitored(info);
         const hasOverride = info.has_override === true;
-        const dimStyle = enabled ? "" : "opacity:0.4;";
+        const dimStyle = enabled ? "" : `opacity:${OFF_OPACITY};`;
         const eid = escapeHtml(entityId);
         const copy = copies.get(entityId) ?? null;
         const warning = copy ? copyWarning(info, info) : null;
@@ -884,7 +899,7 @@ export class MonitoringTab {
         const name = escapeHtml(written);
         const enabled = isMonitored(info);
         const hasOverride = info.has_override === true;
-        const dimStyle = enabled ? "" : "opacity:0.4;";
+        const dimStyle = enabled ? "" : `opacity:${OFF_OPACITY};`;
         const eid = escapeHtml(entityId);
         return `
           <tr style="${dimStyle}">
@@ -934,7 +949,7 @@ export class MonitoringTab {
             </label>
           </div>
 
-          <div id="global-fields" style="${isEnabled ? "" : "opacity:0.4;pointer-events:none;"}">
+          <div id="global-fields" style="${isEnabled ? "" : `opacity:${OFF_OPACITY};pointer-events:none;`}">
             <div style="${FIELD_STYLE}">
               <span style="${LABEL_STYLE}">${t("monitoring.continuous")}</span>
               <input type="number" id="g-continuous" aria-label="${escapeHtml(t("monitoring.continuous"))}" min="${LIMIT_RANGES.continuous_threshold_pct.min}" max="${LIMIT_RANGES.continuous_threshold_pct.max}" step="1"
@@ -1323,7 +1338,7 @@ export class MonitoringTab {
     /** Show the global fields as monitoring on or off: dimmed while off. */
     const showFields = (on: boolean): void => {
       if (!fieldsDiv) return;
-      fieldsDiv.style.opacity = on ? "" : "0.4";
+      fieldsDiv.style.opacity = on ? "" : OFF_OPACITY;
       fieldsDiv.style.pointerEvents = on ? "" : "none";
     };
 
@@ -1525,7 +1540,7 @@ export class MonitoringTab {
   /**
    * The mains' switch turns monitoring on or off for its leg. Stored or refused,
    * the tab is read again, so the switch shows what is stored, whatever else was
-   * sent meanwhile (`settleSwitch`); a refusal is said.
+   * sent meanwhile, its row with it (`settleRowSwitch`); a refusal is said.
    */
   private _bindMainsToggles(container: HTMLElement, hass: HomeAssistant): void {
     for (const cb of container.querySelectorAll<HTMLInputElement>(".mains-toggle")) {
@@ -1541,14 +1556,14 @@ export class MonitoringTab {
           stored = false;
         }
         await this._redraw(container, hass, epoch);
-        settleSwitch(cb, stored, enabled);
+        settleRowSwitch(cb, stored, enabled);
       });
     }
   }
 
   /**
    * A circuit's switch turns monitoring on or off for it (`_setCircuitMonitoring`),
-   * and shows what is stored once that settles (`settleSwitch`).
+   * and shows what is stored once that settles, its row with it (`settleRowSwitch`).
    */
   private _bindCircuitToggles(container: HTMLElement, hass: HomeAssistant): void {
     for (const cb of container.querySelectorAll<HTMLInputElement>(".circuit-toggle")) {
@@ -1556,7 +1571,7 @@ export class MonitoringTab {
       if (entityId === undefined) continue;
       cb.addEventListener("change", async () => {
         const enabled = cb.checked;
-        settleSwitch(cb, await this._setCircuitMonitoring(container, hass, entityId, enabled), enabled);
+        settleRowSwitch(cb, await this._setCircuitMonitoring(container, hass, entityId, enabled), enabled);
       });
     }
   }
