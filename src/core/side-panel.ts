@@ -1555,15 +1555,15 @@ class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
   /**
    * Turn monitoring off for the open circuit with the Monitoring switch's own call
    * (`_sendMonitoringEnabled`), as the averaged-legs warning recommends. Resolves
-   * whether it succeeded; only then is monitoring shown off, as the switch shows
-   * it (`_showMonitoringEnabled`), so the warning goes with the details holding it.
+   * whether it succeeded. Nothing is shown while it is on its way; once it and the
+   * switch's changes settle, monitoring is shown as the integration holds it, as
+   * the switch shows it, so the warning goes with the details holding it once
+   * monitoring is off.
    */
   async turnOffMonitoring(): Promise<boolean> {
     const cfg = this._config;
     if (!cfg || cfg.panelMode || cfg.subDeviceMode || cfg.favoritesMode) return false;
-    if (!(await this._sendMonitoringEnabled(cfg, false))) return false;
-    this._showMonitoringEnabled(cfg.uuid, false);
-    return true;
+    return this._sendMonitoringEnabled(cfg, false);
   }
 
   /** Focus the Global/Custom choice that follows the editor, the one now chosen. */
@@ -1847,13 +1847,11 @@ class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
     detailsWrap.appendChild(thresholdsWrap);
 
     // Event: monitoring enable toggle, shown at once as the user set it, then, once
-    // its changes settle, as the integration holds it, so a refused change goes.
-    enableToggle.addEventListener("change", async () => {
+    // its changes settle, as the integration holds it (`_sendMonitoringEnabled`).
+    enableToggle.addEventListener("change", () => {
       const checked = enableToggle.checked;
-      const stored = this._storedMonitoring;
       this._showMonitoringEnabled(cfg.uuid, checked);
-      await this._sendMonitoringEnabled(cfg, checked);
-      this._showStoredMonitoring(stored);
+      void this._sendMonitoringEnabled(cfg, checked);
     });
 
     // Event: radio change. Choosing Global is the threshold reset, which puts the choice back if it fails.
@@ -1886,6 +1884,8 @@ class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
    * which the averaged-legs warning's button sends too. Resolves whether it
    * succeeded, which the circuit's stored monitoring follows
    * (`StoredMonitoring`); a failure is shown as the switch has always shown one.
+   * Settled, the switch shows what is stored once none of these is on its way
+   * (`_showStoredMonitoring`), whichever control sent each.
    */
   private async _sendMonitoringEnabled(cfg: CircuitModeConfig, enabled: boolean): Promise<boolean> {
     const data: Record<string, unknown> = { circuit_id: cfg.entities?.power || cfg.uuid, monitoring_enabled: enabled };
@@ -1900,7 +1900,11 @@ class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
       }
     };
     const stored = this._storedMonitoring;
-    return stored?.uuid === cfg.uuid ? stored.send(enabled, send) : send();
+    if (stored?.uuid !== cfg.uuid) return send();
+    const sent = await stored.send(enabled, send);
+    // Settled, whichever control sent it, the switch shows what the integration holds.
+    this._showStoredMonitoring(stored);
+    return sent;
   }
 
   /**

@@ -380,6 +380,43 @@ describe("a circuit's Monitoring switch, after changes in a row", () => {
     expect(detailsOf(side).style.display).toBe("none");
   });
 
+  it("shows what is stored where Turn off monitoring and the switch, turned off while it was on its way, are both refused, the switch's first", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const panel = integration({ is_admin: true });
+    const answers = panel.holdWrites();
+    const side = openPanel(panel, DRYER_CIRCUIT, { monitoring_enabled: true });
+
+    at(side.shadowRoot!, '[data-role="rating-turn-off-monitoring"]').click();
+    turn(side, false);
+    expect(toggleOf(side).hasAttribute("checked")).toBe(false);
+    answers[1]!(UNAUTHORIZED);
+    await settle();
+    answers[0]!(UNAUTHORIZED);
+    await settle();
+
+    expect(toggleOf(side).hasAttribute("checked")).toBe(true);
+    expect(detailsOf(side).style.display).toBe("block");
+    expect(side.shadowRoot!.querySelector('[data-role="rating-averaged-legs-warning"]')).not.toBeNull();
+  });
+
+  it("shows monitoring off where Turn off monitoring is stored and the switch, turned on while it was on its way, is refused", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const panel = integration({ is_admin: true });
+    const answers = panel.holdWrites();
+    const side = openPanel(panel, DRYER_CIRCUIT, { monitoring_enabled: true });
+
+    at(side.shadowRoot!, '[data-role="rating-turn-off-monitoring"]').click();
+    turn(side, false);
+    turn(side, true);
+    answers[0]!();
+    answers[1]!(UNAUTHORIZED);
+    answers[2]!(UNAUTHORIZED);
+    await settle();
+
+    expect(toggleOf(side).hasAttribute("checked")).toBe(false);
+    expect(detailsOf(side).style.display).toBe("none");
+  });
+
   it("keeps the later of two changes stored, though the earlier answers last", async () => {
     const panel = integration({ is_admin: true });
     const answers = panel.holdWrites();
