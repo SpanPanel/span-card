@@ -738,12 +738,18 @@ export class SpanPanelElement extends LitElement {
    * panel list brought in and dropping those it lost, for a user who may hear the
    * event (`canHearRatingChanges`): Core refuses it to anyone else, whose views take
    * a changed copy as they next read the topology. Run again on every change of Home
-   * Assistant, it subscribes once the frontend says the user is an administrator.
+   * Assistant, it subscribes once the frontend says the user is an administrator, and
+   * drops every subscription once it says the user is not one.
    */
   private _syncRatingSubscriptions(): void {
     const hass = this.hass;
     // A panel-list refresh that lands after a detach must not subscribe: nothing would remove it.
-    if (!this.isConnected || !hass?.connection || !canHearRatingChanges(hass)) return;
+    if (!this.isConnected || !hass?.connection) return;
+    // A user no longer an administrator, as a reconnect can find, hears nothing: Core would refuse it again.
+    if (!canHearRatingChanges(hass)) {
+      this._unsubscribeRatingChanges();
+      return;
+    }
     const wanted = new Set<string>();
     for (const panel of this._panels) {
       if (panel.id !== FAVORITES_PANEL_ID && panel.config_entry_id) wanted.add(panel.config_entry_id);

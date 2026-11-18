@@ -419,17 +419,29 @@ export class SpanPanelCard extends LitElement {
    * rating, and the user may hear the event (`canHearRatingChanges`): Core refuses
    * it to anyone else, whose card takes a changed copy as it next reads the
    * topology. Run as the card attaches, and on every change of Home Assistant, so
-   * it subscribes once the frontend says the user is an administrator.
+   * it subscribes once the frontend says the user is an administrator, and drops
+   * the subscription once it says the user is not one, as a reconnect can find.
    */
   private _syncRatingSubscription(): void {
+    if (!canHearRatingChanges(this.hass)) {
+      this._dropRatingSubscription();
+      return;
+    }
     const entryId = this._configEntryId;
-    if (!this.isConnected || this._ratingSub || this._topologySource !== "panel_topology" || !entryId || !canHearRatingChanges(this.hass)) return;
+    if (!this.isConnected || this._ratingSub || this._topologySource !== "panel_topology" || !entryId) return;
     this._ratingSub = subscribePackageRatingChanges(this.hass, entryId, () => {
       void this._onRatingChanged();
     }).catch((err: unknown): (() => void) => {
       console.warn("SPAN Panel: monitoring rating subscription failed", err);
       return () => {};
     });
+  }
+
+  /** Unsubscribe from the panel's rating changes, through the promise held, whenever it resolves. */
+  private _dropRatingSubscription(): void {
+    const rating = this._ratingSub;
+    this._ratingSub = null;
+    void rating?.then(unsubscribe => unsubscribe());
   }
 
   /**
@@ -451,15 +463,13 @@ export class SpanPanelCard extends LitElement {
     const area = this._areaSub;
     const rename = this._renameSub;
     const reload = this._reloadSub;
-    const rating = this._ratingSub;
     this._areaSub = null;
     this._renameSub = null;
     this._reloadSub = null;
-    this._ratingSub = null;
     void area?.then(unsubscribe => unsubscribe());
     void rename?.then(unsubscribe => unsubscribe());
     void reload?.then(unsubscribe => unsubscribe());
-    void rating?.then(unsubscribe => unsubscribe());
+    this._dropRatingSubscription();
   }
 
   /** `watchPanelStatus` replaces the watch set wholesale and keeps `wasOffline`, so calling it again is safe. */

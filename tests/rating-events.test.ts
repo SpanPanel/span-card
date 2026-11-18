@@ -671,6 +671,25 @@ describe("the standalone card", () => {
     expect(connection.live(PACKAGE_RATINGS_CHANGED)).toBe(1);
   });
 
+  it("unsubscribes once Home Assistant says the user is no longer an administrator, and subscribes again, once, as it says they are", async () => {
+    const connection = new FakeConnection();
+    const card = await mount(connection);
+    expect(connection.live(PACKAGE_RATINGS_CHANGED)).toBe(1);
+
+    card.hass = hassFor(connection, {}, { is_admin: false });
+    await flush();
+    expect(connection.live(PACKAGE_RATINGS_CHANGED)).toBe(0);
+    card.hass = hassFor(connection, {}, { is_admin: false });
+    await flush();
+
+    card.hass = hassFor(connection);
+    await flush();
+    card.hass = hassFor(connection);
+    await flush();
+    expect(connection.live(PACKAGE_RATINGS_CHANGED)).toBe(1);
+    expect(connection.subscriptions.filter(s => s.key === PACKAGE_RATINGS_CHANGED)).toHaveLength(2);
+  });
+
   it("does not subscribe when its topology came from the entity fallback", async () => {
     const connection = new FakeConnection();
     mockDiscover.mockRejectedValue(new Error("not an administrator"));
@@ -814,6 +833,23 @@ describe("the sidebar dashboard", () => {
     await flush();
 
     expect(connection.live(PACKAGE_RATINGS_CHANGED)).toBe(2);
+  });
+
+  it("unsubscribes every panel entry once Home Assistant says the user is no longer an administrator, and subscribes each again, once, as it says they are", async () => {
+    const connection = new FakeConnection();
+    const panel = await mount(connection);
+    expect(connection.live(PACKAGE_RATINGS_CHANGED)).toBe(2);
+
+    panel.hass = panelHass(connection, false);
+    await flush();
+    expect(connection.live(PACKAGE_RATINGS_CHANGED)).toBe(0);
+
+    panel.hass = panelHass(connection);
+    await flush();
+    panel.hass = panelHass(connection);
+    await flush();
+    expect(connection.live(PACKAGE_RATINGS_CHANGED)).toBe(2);
+    expect(connection.subscriptions.filter(s => s.key === PACKAGE_RATINGS_CHANGED)).toHaveLength(4);
   });
 
   it("subscribes nothing for a non-administrator", async () => {
