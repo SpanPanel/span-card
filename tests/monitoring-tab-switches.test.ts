@@ -29,6 +29,10 @@ interface Integration {
   stored: Stored;
   /** Refuse every later change, as Unauthorized, while `on`; store each otherwise. */
   refuse(on: boolean): void;
+  /** Hold every later status read until the test answers it, with the status as it stands then. */
+  holdReads(): Array<() => void>;
+  /** How many status reads were asked for. */
+  reads(): number;
 }
 
 function point(name: string, on: boolean): MonitoringPointInfo {
@@ -43,16 +47,22 @@ function point(name: string, on: boolean): MonitoringPointInfo {
 function integration(): Integration {
   const stored: Stored = { enabled: true, oven: true, mains: true };
   let refusing = false;
+  let held: Array<() => void> | null = null;
+  let reads = 0;
+  const status = (): unknown => ({
+    response: {
+      enabled: stored.enabled,
+      global_settings: GLOBALS,
+      circuits: { [OVEN]: point("Oven", stored.oven) },
+      mains: { [MAINS]: point("Mains", stored.mains) },
+    },
+  });
   const callWS = vi.fn(async (msg: Message): Promise<unknown> => {
     if (msg.service === "get_monitoring_status") {
-      return {
-        response: {
-          enabled: stored.enabled,
-          global_settings: GLOBALS,
-          circuits: { [OVEN]: point("Oven", stored.oven) },
-          mains: { [MAINS]: point("Mains", stored.mains) },
-        },
-      };
+      reads += 1;
+      const queue = held;
+      if (queue) return new Promise(resolve => queue.push(() => resolve(status())));
+      return status();
     }
     if (refusing) throw UNAUTHORIZED;
     const data = (msg.service_data ?? {}) as Message;
@@ -64,7 +74,13 @@ function integration(): Integration {
     return {};
   });
   const hass = { states: {}, services: {}, language: "en", user: { is_admin: true }, callService: async () => undefined, callWS } as unknown as HomeAssistant;
-  return { hass, stored, refuse: on => (refusing = on) };
+  return {
+    hass,
+    stored,
+    refuse: on => (refusing = on),
+    holdReads: () => (held = []),
+    reads: () => reads,
+  };
 }
 
 const mounted: HTMLElement[] = [];
@@ -176,5 +192,57 @@ describe("the Enabled switch, refused", () => {
 
     expect(container.querySelector<HTMLElement>("#global-fields")!.style.opacity).toBe("");
     expect(container.querySelector("#global-status")!.textContent).toBe(`Error: ${ADMIN_ONLY}`);
+  });
+
+  /** Turn the Enabled switch, as drawn now, off, as a click does. */
+  function turnOff(container: HTMLElement): void {
+    const enabled = container.querySelector<HTMLInputElement>("#monitoring-enabled")!;
+    enabled.checked = false;
+    enabled.dispatchEvent(new Event("change"));
+  }
+
+  it("says why in the status line though another read overtakes the one after the refusal", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const panel = integration();
+    const { tab, container } = await shown(panel);
+    panel.refuse(true);
+    const answers = panel.holdReads();
+    const reads = panel.reads();
+
+    turnOff(container);
+    await vi.waitFor(() => expect(panel.reads()).toBe(reads + 1));
+    // The tab is read again, as an event for its panel makes it, before the read after the refusal answers.
+    void tab.render(container, panel.hass);
+    await vi.waitFor(() => expect(panel.reads()).toBe(reads + 2));
+    // The read after the refusal answers first, overtaken: it draws nothing.
+    answers[0]!();
+    await settle();
+    answers[1]!();
+    await settle();
+
+    expect(container.querySelector("#global-status")!.textContent).toBe(`Error: ${ADMIN_ONLY}`);
+    expect(container.querySelector<HTMLInputElement>("#monitoring-enabled")!.checked).toBe(true);
+  });
+
+  it("says nothing of a refusal once the user has left the tab before the read after it answered", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const panel = integration();
+    const { tab, container } = await shown(panel);
+    panel.refuse(true);
+    const answers = panel.holdReads();
+    const reads = panel.reads();
+
+    turnOff(container);
+    await vi.waitFor(() => expect(panel.reads()).toBe(reads + 1));
+    tab.stop();
+    answers[0]!();
+    await settle();
+    // The user comes back to the tab.
+    const back = tab.render(container, panel.hass);
+    await vi.waitFor(() => expect(answers).toHaveLength(2));
+    answers[1]!();
+    await back;
+
+    expect(container.querySelector("#global-status")!.textContent).toBe("");
   });
 });

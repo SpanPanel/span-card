@@ -529,6 +529,12 @@ function showReadOnly(settings: HTMLElement): void {
   lockMonitoringControls(settings, RATING_MARK);
 }
 
+/** Say `message`, a failure, in the global settings' status line `line`. */
+function sayStatusFailure(line: HTMLElement, message: string): void {
+  line.textContent = `${t("error.prefix")} ${message}`;
+  line.style.color = "var(--error-color, #f44336)";
+}
+
 /** The longest a redraw waits on a press whose release never arrives. */
 const PRESS_WAIT_MS = 3000;
 
@@ -679,6 +685,14 @@ export class MonitoringTab {
   private _renderSeq = 0;
   /** What the tab last drew, and where; null before its first draw. */
   private _drawn: DrawnTab | null = null;
+  /**
+   * A failure the global settings' status line is to say once the tab next
+   * draws them: a refusal of the Enabled switch, whose line the read after it
+   * draws over. Whichever drawing comes next says it, so a read that overtakes
+   * that one does not lose it. It goes as the user leaves the tab, or as the
+   * tab is drawn for another panel.
+   */
+  private _statusFailure: string | null = null;
 
   constructor() {
     this._configEntryId = null;
@@ -688,6 +702,7 @@ export class MonitoringTab {
 
   stop(): void {
     this._epoch += 1;
+    this._statusFailure = null;
     if (this._notifyCloseHandler) {
       document.removeEventListener("click", this._notifyCloseHandler as EventListener);
       this._notifyCloseHandler = null;
@@ -709,6 +724,7 @@ export class MonitoringTab {
   async render(container: HTMLElement, hass: HomeAssistant, configEntryId?: string, topology?: TopologySource, headerHTML: string = ""): Promise<void> {
     // Focus, and what was typed, is kept across a redraw of the same panel's settings, never carried to another's.
     const samePanel = configEntryId === undefined || configEntryId === this._configEntryId;
+    if (!samePanel) this._statusFailure = null;
     if (configEntryId !== undefined) this._configEntryId = configEntryId;
     if (topology !== undefined) this._circuitLabels = circuitLabelsOf(topology);
     else if (!samePanel) this._circuitLabels = NO_CIRCUIT_LABELS;
@@ -1105,6 +1121,16 @@ export class MonitoringTab {
     this._bindRatingMarks(container);
     restoreFocus(container, kept);
     this._sayNewWarnings(drawing, overTable && samePanel, warnings, names);
+    this._sayStatusFailure(container);
+  }
+
+  /** Say in the global settings' status line, as drawn now, the failure waiting to be said there, if any (`_statusFailure`). */
+  private _sayStatusFailure(container: HTMLElement): void {
+    const message = this._statusFailure;
+    const line = container.querySelector<HTMLElement>("#global-status");
+    if (message === null || !line) return;
+    this._statusFailure = null;
+    sayStatusFailure(line, message);
   }
 
   /**
@@ -1206,11 +1232,8 @@ export class MonitoringTab {
     const statusEl = container.querySelector<HTMLElement>("#global-status");
 
     const reportFailure = (target: HTMLElement | null, err: unknown, fallback: string): void => {
-      if (!target) return;
       // `null` is a form that failed validation: there is no rejection to report.
-      const message = err === null ? fallback : errorText(err);
-      target.textContent = `${t("error.prefix")} ${message}`;
-      target.style.color = "var(--error-color, #f44336)";
+      if (target) sayStatusFailure(target, err === null ? fallback : errorText(err));
     };
 
     // The tab is read again after a save, since every point on the global thresholds shows them.
@@ -1260,12 +1283,12 @@ export class MonitoringTab {
       // refused where one is not a whole number in its range, sending nothing, and
       // the switch and the fields are put back as they were. Stored, or refused by
       // the integration, the tab is read again, so the switch shows what is stored
-      // whatever else was sent meanwhile; a refusal is then said beside it.
+      // whatever else was sent meanwhile; a refusal is said in the status line of
+      // whichever drawing comes next (`_statusFailure`).
       enabledCheckbox.addEventListener("change", async () => {
         const epoch = this._epoch;
         const enabled = enabledCheckbox.checked;
         showFields(enabled);
-        let refused: { readonly reason: unknown } | null = null;
         try {
           if (enabled) {
             const data = readGlobalFields();
@@ -1280,11 +1303,9 @@ export class MonitoringTab {
             await this._callSetGlobal(hass, { enabled: false });
           }
         } catch (err: unknown) {
-          refused = { reason: err };
+          if (epoch === this._epoch) this._statusFailure = errorText(err);
         }
         await this._redraw(container, hass, epoch);
-        // Said in the status line the redraw drew, where the user is still on the tab.
-        if (refused && epoch === this._epoch) reportFailure(container.querySelector<HTMLElement>("#global-status"), refused.reason, t("error.failed"));
       });
     }
   }
