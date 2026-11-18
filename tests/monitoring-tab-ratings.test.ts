@@ -599,6 +599,40 @@ describe("a two-space circuit's Rating cell", () => {
     expect(container.querySelector<HTMLInputElement>(`.circuit-toggle[data-entity="${DRYER}"]`)!.checked).toBe(true);
   });
 
+  it("shows the circuit off where turning it off is stored and the read after it fails: its switch off, its row dimmed, the warning gone, focus on the switch", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const panel = integration({ copies: { [DRYER]: [20, 30] } });
+    const { container, root } = await shown(panel);
+    panel.failReads(true);
+    const toggle = container.querySelector<HTMLInputElement>(`.circuit-toggle[data-entity="${DRYER}"]`)!;
+    const button = warningOf(container, DRYER)!.querySelector<HTMLButtonElement>("button")!;
+    button.focus();
+
+    button.click();
+    await vi.waitFor(() => expect(warningOf(container, DRYER)).toBeNull());
+
+    expect(panel.saves).toEqual([{ service: "set_circuit_threshold", circuit_id: DRYER, monitoring_enabled: false, config_entry_id: "entry-1" }]);
+    expect(toggle.isConnected).toBe(true);
+    expect(toggle.checked).toBe(false);
+    expect(rowOf(container, DRYER).style.opacity).toBe("0.4");
+    expect(root.activeElement).toBe(toggle);
+  });
+
+  it("keeps the warning, a usable button and the row as drawn where turning it off is refused and the read after it fails", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const panel = integration({ copies: { [DRYER]: [20, 30] }, refuse: { set_circuit_threshold: { message: "Not loaded" } } });
+    const { container } = await shown(panel);
+    panel.failReads(true);
+    const button = warningOf(container, DRYER)!.querySelector<HTMLButtonElement>("button")!;
+
+    button.click();
+    await vi.waitFor(() => expect(button.hasAttribute("aria-disabled")).toBe(false));
+
+    expect(warningOf(container, DRYER)!.querySelector("button")).toBe(button);
+    expect(container.querySelector<HTMLInputElement>(`.circuit-toggle[data-entity="${DRYER}"]`)!.checked).toBe(true);
+    expect(rowOf(container, DRYER).style.opacity).toBe("");
+  });
+
   it("draws no warning while monitoring is off for the circuit, and keeps the field", async () => {
     const { container } = await shown(integration({ copies: { [DRYER]: [20, 30] }, off: [DRYER] }));
 
