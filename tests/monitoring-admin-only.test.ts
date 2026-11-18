@@ -177,6 +177,16 @@ describe("the Monitoring tab, where the integration refuses a change as Unauthor
     await vi.waitFor(() => expect(messages(errors)).toEqual([ADMIN_ONLY]));
   });
 
+  it("says so for the notification priority, put back as stored", async () => {
+    const { container, errors } = await refused();
+    const priority = at<HTMLSelectElement>(container, "#g-priority");
+    priority.value = "critical";
+    priority.dispatchEvent(new Event("change"));
+
+    await vi.waitFor(() => expect(messages(errors)).toEqual([ADMIN_ONLY]));
+    expect(priority.value).toBe("active");
+  });
+
   it("says so for the test notification, beside its button", async () => {
     const { container } = await refused();
     at(container, "#test-notification-btn").click();
@@ -254,6 +264,22 @@ describe("a circuit's Monitoring section, where the integration refuses a change
     errors.clear();
     at(side.shadowRoot!, '[data-role="rating-threshold-reset"]').click();
     await vi.waitFor(() => expect(messages(errors)).toEqual([ADMIN_ONLY]));
+  });
+
+  it("says so for the Monitoring switch, which shows monitoring as it was again, the details under it", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const errors = new ErrorStore();
+    const side = openPanel(integration({ is_admin: true }, { refusal: UNAUTHORIZED }), oven([20, 20]), OWN_THRESHOLDS, errors);
+    const toggle = at<HTMLElement & { checked: boolean }>(side.shadowRoot!, '[data-role="monitoring-toggle"]');
+    const details = at(side.shadowRoot!, '[data-role="monitoring-details"]');
+
+    toggle.checked = false;
+    toggle.dispatchEvent(new Event("change"));
+    expect(details.style.display).toBe("none");
+
+    await vi.waitFor(() => expect(messages(errors)).toEqual([ADMIN_ONLY]));
+    expect(toggle.hasAttribute("checked")).toBe(true);
+    expect(details.style.display).toBe("block");
   });
 });
 

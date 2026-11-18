@@ -1760,11 +1760,11 @@ class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
     thresholdsWrap.appendChild(this._createLimitRow(t("sidepanel.cooldown"), "cooldown-m", cooldownVal, "m", cfg));
     detailsWrap.appendChild(thresholdsWrap);
 
-    // Event: monitoring enable toggle, shown at once as the user set it.
-    enableToggle.addEventListener("change", () => {
+    // Event: monitoring enable toggle, shown at once as the user set it, and shown as it was again where that is refused.
+    enableToggle.addEventListener("change", async () => {
       const checked = enableToggle.checked;
       this._showMonitoringEnabled(cfg.uuid, checked);
-      void this._sendMonitoringEnabled(cfg, checked);
+      if (!(await this._sendMonitoringEnabled(cfg, checked))) this._showMonitoringEnabled(cfg.uuid, !checked);
     });
 
     // Event: radio change. Choosing Global is the threshold reset, which puts the choice back if it fails.

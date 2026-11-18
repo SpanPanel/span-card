@@ -1094,7 +1094,7 @@ export class MonitoringTab {
 
     this._bindGlobalControls(container, hass);
     this._bindNotifyTargetSelect(container, hass);
-    this._bindNotificationSettings(container, hass);
+    this._bindNotificationSettings(container, hass, currentPriority);
     this._bindToggleAll(container, hass, circuits, mains);
     this._bindCircuitToggles(container, hass);
     this._bindMainsToggles(container, hass);
@@ -1354,20 +1354,24 @@ export class MonitoringTab {
     }
   }
 
-  private _bindNotificationSettings(container: HTMLElement, hass: HomeAssistant): void {
+  /** The notification settings' controls, `storedPriority` being the priority the status read gave. */
+  private _bindNotificationSettings(container: HTMLElement, hass: HomeAssistant, storedPriority: string): void {
     const prioritySelect = container.querySelector<HTMLSelectElement>("#g-priority");
     const titleInput = container.querySelector<HTMLInputElement>("#g-title-template");
     const messageInput = container.querySelector<HTMLInputElement>("#g-message-template");
 
     if (prioritySelect) {
+      // A change the integration refuses shows the priority stored again.
       prioritySelect.addEventListener("change", async () => {
         const epoch = this._epoch;
         try {
           await this._callSetGlobal(hass, { notification_priority: prioritySelect.value });
-          await this._redraw(container, hass, epoch);
         } catch (err) {
           reportMonitoringFailure(this.errorStore, err, "notification priority change");
+          prioritySelect.value = storedPriority;
+          return;
         }
+        await this._redraw(container, hass, epoch);
       });
     }
     if (titleInput) {
