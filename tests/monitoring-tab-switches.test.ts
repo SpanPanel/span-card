@@ -29,10 +29,14 @@ interface Integration {
   stored: Stored;
   /** Refuse every later change, as Unauthorized, while `on`; store each otherwise. */
   refuse(on: boolean): void;
+  /** Refuse every later call of `service` alone, as Unauthorized. */
+  refuseService(service: string): void;
   /** Fail every later status read, as a lost connection does, while `on`. */
   failReads(on: boolean): void;
   /** Hold every later status read until the test answers it, with the status as it stands then. */
   holdReads(): Array<() => void>;
+  /** Hold every later change until the test answers it: with nothing, to take it as it otherwise would, or with a refusal. */
+  holdWrites(): Array<(refusal?: unknown) => void>;
   /** How many status reads were asked for. */
   reads(): number;
 }
@@ -53,8 +57,10 @@ function point(name: string, on: boolean): MonitoringPointInfo {
 function integration(): Integration {
   const stored: Stored = { enabled: true, oven: true, mains: true };
   let refusing = false;
+  const refusedServices = new Set<string>();
   let failing = false;
   let held: Array<() => void> | null = null;
+  let heldWrites: Array<(refusal?: unknown) => void> | null = null;
   let reads = 0;
   const status = (): unknown => ({
     response: {
@@ -72,22 +78,40 @@ function integration(): Integration {
       if (queue) return new Promise(resolve => queue.push(() => resolve(status())));
       return status();
     }
-    if (refusing) throw UNAUTHORIZED;
-    const data = (msg.service_data ?? {}) as Message;
-    const on = data.monitoring_enabled;
-    if (msg.service === "set_circuit_threshold" && data.circuit_id === OVEN && typeof on === "boolean") stored.oven = on;
-    if (msg.service === "set_mains_threshold" && data.leg === MAINS && typeof on === "boolean") stored.mains = on;
-    // Turning monitoring on sends the global thresholds; turning it off says so.
-    if (msg.service === "set_global_monitoring") stored.enabled = data.enabled !== false;
-    return {};
+    const take = (): unknown => {
+      if (refusing || (typeof msg.service === "string" && refusedServices.has(msg.service))) throw UNAUTHORIZED;
+      const data = (msg.service_data ?? {}) as Message;
+      const on = data.monitoring_enabled;
+      if (msg.service === "set_circuit_threshold" && data.circuit_id === OVEN && typeof on === "boolean") stored.oven = on;
+      if (msg.service === "set_mains_threshold" && data.leg === MAINS && typeof on === "boolean") stored.mains = on;
+      // Turning monitoring on sends the global thresholds; turning it off says so.
+      if (msg.service === "set_global_monitoring") stored.enabled = data.enabled !== false;
+      return {};
+    };
+    const writes = heldWrites;
+    if (!writes) return take();
+    return new Promise((resolve, reject) =>
+      writes.push(refusal => {
+        if (refusal !== undefined) reject(refusal);
+        else {
+          try {
+            resolve(take());
+          } catch (err: unknown) {
+            reject(err);
+          }
+        }
+      })
+    );
   });
   const hass = { states: {}, services: {}, language: "en", user: { is_admin: true }, callService: async () => undefined, callWS } as unknown as HomeAssistant;
   return {
     hass,
     stored,
     refuse: on => (refusing = on),
+    refuseService: service => void refusedServices.add(service),
     failReads: on => (failing = on),
     holdReads: () => (held = []),
+    holdWrites: () => (heldWrites = []),
     reads: () => reads,
   };
 }
@@ -233,6 +257,43 @@ describe("the Enabled switch, refused", () => {
     expect(container.querySelector<HTMLInputElement>("#monitoring-enabled")!.checked).toBe(true);
   });
 
+  it("says nothing of one panel's refusal in the status line of another's, drawn while the read after it was on its way", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const panel = integration();
+    const { tab, container } = await shown(panel);
+    panel.refuse(true);
+    const answers = panel.holdReads();
+    const reads = panel.reads();
+
+    turnOff(container);
+    await vi.waitFor(() => expect(panel.reads()).toBe(reads + 1));
+    // The tab is drawn for another panel before the read after the refusal answers.
+    const other = tab.render(container, panel.hass, "entry-2");
+    await vi.waitFor(() => expect(panel.reads()).toBe(reads + 2));
+    answers[0]!();
+    answers[1]!();
+    await other;
+    await settle();
+
+    expect(container.querySelector("#monitoring-enabled")).not.toBeNull();
+    expect(container.querySelector("#global-status")!.textContent).toBe("");
+  });
+
+  it("says nothing of one panel's refusal in the status line of another's, the tab drawn for it before the refusal answered", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const panel = integration();
+    const { tab, container } = await shown(panel);
+    const answers = panel.holdWrites();
+
+    turnOff(container);
+    await tab.render(container, panel.hass, "entry-2");
+    answers[0]!(UNAUTHORIZED);
+    await settle();
+
+    expect(container.querySelector("#monitoring-enabled")).not.toBeNull();
+    expect(container.querySelector("#global-status")!.textContent).toBe("");
+  });
+
   it("says nothing of a refusal once the user has left the tab before the read after it answered", async () => {
     vi.spyOn(console, "warn").mockImplementation(() => undefined);
     const panel = integration();
@@ -312,6 +373,157 @@ describe.each(SWITCHES)("%s, where the read after its change fails", (_what, sel
     turn(container, true);
     await settle();
     expect(switchIn(container).checked).toBe(false);
+  });
+});
+
+/** The switches of a point's row, which a read draws dimmed while monitoring is off for the point. */
+const ROW_SWITCHES = [SWITCHES[0], SWITCHES[1]] as const;
+
+describe.each(ROW_SWITCHES)("the row of %s, where the read after its change fails", (_what, selector) => {
+  const switchIn = (container: HTMLElement): HTMLInputElement => {
+    const el = container.querySelector<HTMLInputElement>(selector);
+    if (!el) throw new Error(`nothing drawn at ${selector}`);
+    return el;
+  };
+  const rowOf = (container: HTMLElement): HTMLTableRowElement => switchIn(container).closest("tr")!;
+  function turn(container: HTMLElement, on: boolean): void {
+    const el = switchIn(container);
+    el.checked = on;
+    el.dispatchEvent(new Event("change"));
+  }
+
+  it("is dimmed as the change stored leaves monitoring off, and stays so where the next is refused", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const panel = integration();
+    const { container } = await shown(panel);
+    expect(rowOf(container).style.opacity).toBe("");
+    panel.failReads(true);
+
+    turn(container, false);
+    await settle();
+    expect(rowOf(container).style.opacity).toBe("0.4");
+
+    panel.refuse(true);
+    turn(container, true);
+    await settle();
+    expect(rowOf(container).style.opacity).toBe("0.4");
+  });
+
+  it("stays as drawn where the change is refused", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const panel = integration();
+    const { container } = await shown(panel);
+    panel.refuse(true);
+    panel.failReads(true);
+
+    turn(container, false);
+    await settle();
+
+    expect(rowOf(container).style.opacity).toBe("");
+  });
+});
+
+describe("All / None, where the read after its changes fails", () => {
+  const toggleAllIn = (container: HTMLElement): HTMLInputElement => container.querySelector<HTMLInputElement>("#toggle-all-circuits")!;
+  const ovenIn = (container: HTMLElement): HTMLInputElement => container.querySelector<HTMLInputElement>(`.circuit-toggle[data-entity="${OVEN}"]`)!;
+  const mainsIn = (container: HTMLElement): HTMLInputElement => container.querySelector<HTMLInputElement>(`.mains-toggle[data-entity="${MAINS}"]`)!;
+  /** Turn All / None, as drawn now, to `on`, as a click does. */
+  function turnAll(container: HTMLElement, on: boolean): void {
+    const el = toggleAllIn(container);
+    el.checked = on;
+    el.dispatchEvent(new Event("change"));
+  }
+
+  it("shows each row as its change left stored, and itself as the rows show", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const panel = integration();
+    const { container } = await shown(panel);
+    expect(toggleAllIn(container).checked).toBe(true);
+    panel.failReads(true);
+
+    turnAll(container, false);
+    await settle();
+
+    expect([panel.stored.oven, panel.stored.mains]).toEqual([false, false]);
+    for (const row of [ovenIn(container), mainsIn(container)]) {
+      expect(row.checked).toBe(false);
+      expect(row.closest("tr")!.style.opacity).toBe("0.4");
+    }
+    expect(toggleAllIn(container).checked).toBe(false);
+    expect(toggleAllIn(container).indeterminate).toBe(false);
+  });
+
+  it("shows itself part on where one row's change is stored and the other's refused", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const panel = integration();
+    const { container, errors } = await shown(panel);
+    const said = vi.spyOn(errors, "add");
+    panel.refuseService("set_mains_threshold");
+    panel.failReads(true);
+
+    turnAll(container, false);
+    await settle();
+
+    expect(ovenIn(container).checked).toBe(false);
+    expect(mainsIn(container).checked).toBe(true);
+    expect(mainsIn(container).closest("tr")!.style.opacity).toBe("");
+    expect(toggleAllIn(container).checked).toBe(false);
+    expect(toggleAllIn(container).indeterminate).toBe(true);
+    // The refusal is said, then the failed read, in the error store's one passing slot.
+    expect(said.mock.calls.map(([entry]) => entry.message)).toEqual([ADMIN_ONLY, READ_FAILED]);
+  });
+
+  it("goes part on, then off, as one row's switch and then the other's change it, stored with no read to draw them", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const panel = integration();
+    const { container } = await shown(panel);
+    panel.failReads(true);
+    const turnRow = (row: HTMLInputElement): void => {
+      row.checked = false;
+      row.dispatchEvent(new Event("change"));
+    };
+
+    turnRow(ovenIn(container));
+    await settle();
+    expect(panel.stored.oven).toBe(false);
+    expect(toggleAllIn(container).checked).toBe(false);
+    expect(toggleAllIn(container).indeterminate).toBe(true);
+
+    turnRow(mainsIn(container));
+    await settle();
+    expect(panel.stored.mains).toBe(false);
+    expect(toggleAllIn(container).checked).toBe(false);
+    expect(toggleAllIn(container).indeterminate).toBe(false);
+  });
+
+  it("stays as drawn where a row's own change is refused with no read to draw it", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const panel = integration();
+    const { container } = await shown(panel);
+    panel.refuse(true);
+    panel.failReads(true);
+
+    ovenIn(container).checked = false;
+    ovenIn(container).dispatchEvent(new Event("change"));
+    await settle();
+
+    expect(toggleAllIn(container).checked).toBe(true);
+    expect(toggleAllIn(container).indeterminate).toBe(false);
+  });
+
+  it("shows the rows and itself as drawn where every change is refused", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const panel = integration();
+    const { container } = await shown(panel);
+    panel.refuse(true);
+    panel.failReads(true);
+
+    turnAll(container, false);
+    await settle();
+
+    expect([ovenIn(container).checked, mainsIn(container).checked]).toEqual([true, true]);
+    expect(toggleAllIn(container).checked).toBe(true);
+    expect(toggleAllIn(container).indeterminate).toBe(false);
   });
 });
 

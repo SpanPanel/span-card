@@ -118,6 +118,8 @@ interface Integration {
   reads: () => number;
   /** Hold every later save until the test answers it. */
   holdSaves: () => Array<() => void>;
+  /** Fail every later status read, as a lost connection does, while `on`. */
+  failReads: (on: boolean) => void;
 }
 
 /**
@@ -170,6 +172,7 @@ function integration({
   const saves: Message[] = [];
   let reads = 0;
   let heldSaves: Array<() => void> | null = null;
+  let failingReads = false;
   const root = (): Message => {
     const status: Message = { enabled: true, global_settings: { ...settings }, circuits: structuredClone(circuits), mains: structuredClone(mains) };
     if (offered !== "absent") status.monitoring_rating_offered = offered;
@@ -178,6 +181,7 @@ function integration({
   const callWS = vi.fn(async (msg: Message): Promise<unknown> => {
     if (msg.service === "get_monitoring_status") {
       reads += 1;
+      if (failingReads) throw { code: "connection_lost", message: "Connection lost" };
       return { response: root() };
     }
     const data = (msg.service_data ?? {}) as Message;
@@ -216,13 +220,14 @@ function integration({
   );
   // An administrator, who may change monitoring.
   const hass = { states: {}, services: {}, language: "en", user: { is_admin: true }, callService, callWS } as unknown as HomeAssistant;
-  return { hass, saves, reads: () => reads, holdSaves: () => (heldSaves = []) };
+  return { hass, saves, reads: () => reads, holdSaves: () => (heldSaves = []), failReads: on => (failingReads = on) };
 }
 
 const mounted: HTMLElement[] = [];
 afterEach(() => {
   for (const el of mounted.splice(0)) el.remove();
   setLanguage("en");
+  vi.restoreAllMocks();
 });
 
 /**
@@ -594,6 +599,44 @@ describe("a two-space circuit's Rating cell", () => {
     expect(container.querySelector<HTMLInputElement>(`.circuit-toggle[data-entity="${DRYER}"]`)!.checked).toBe(true);
   });
 
+  it("shows the circuit off where turning it off is stored and the read after it fails: its switch off, its row dimmed, the warning gone, focus on the switch", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const panel = integration({ copies: { [DRYER]: [20, 30] } });
+    const { container, root } = await shown(panel);
+    panel.failReads(true);
+    const toggle = container.querySelector<HTMLInputElement>(`.circuit-toggle[data-entity="${DRYER}"]`)!;
+    const button = warningOf(container, DRYER)!.querySelector<HTMLButtonElement>("button")!;
+    button.focus();
+
+    button.click();
+    await vi.waitFor(() => expect(warningOf(container, DRYER)).toBeNull());
+
+    expect(panel.saves).toEqual([{ service: "set_circuit_threshold", circuit_id: DRYER, monitoring_enabled: false, config_entry_id: "entry-1" }]);
+    expect(toggle.isConnected).toBe(true);
+    expect(toggle.checked).toBe(false);
+    expect(rowOf(container, DRYER).style.opacity).toBe("0.4");
+    expect(root.activeElement).toBe(toggle);
+    // All / None shows the rows as a read draws them: part on, the other points still monitored.
+    const toggleAll = container.querySelector<HTMLInputElement>("#toggle-all-circuits")!;
+    expect(toggleAll.checked).toBe(false);
+    expect(toggleAll.indeterminate).toBe(true);
+  });
+
+  it("keeps the warning, a usable button and the row as drawn where turning it off is refused and the read after it fails", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const panel = integration({ copies: { [DRYER]: [20, 30] }, refuse: { set_circuit_threshold: { message: "Not loaded" } } });
+    const { container } = await shown(panel);
+    panel.failReads(true);
+    const button = warningOf(container, DRYER)!.querySelector<HTMLButtonElement>("button")!;
+
+    button.click();
+    await vi.waitFor(() => expect(button.hasAttribute("aria-disabled")).toBe(false));
+
+    expect(warningOf(container, DRYER)!.querySelector("button")).toBe(button);
+    expect(container.querySelector<HTMLInputElement>(`.circuit-toggle[data-entity="${DRYER}"]`)!.checked).toBe(true);
+    expect(rowOf(container, DRYER).style.opacity).toBe("");
+  });
+
   it("draws no warning while monitoring is off for the circuit, and keeps the field", async () => {
     const { container } = await shown(integration({ copies: { [DRYER]: [20, 30] }, off: [DRYER] }));
 
@@ -803,6 +846,40 @@ describe("a warning a redraw brings", () => {
 
     expect(announcerOf(container)).toBe(region);
     expect(said).toEqual([`Oven: ${GLOBAL_WARNING}`]);
+  });
+
+  it("says nothing of the warnings the read after a failed one draws, where the tab showed that it could not load them", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const panel = integration({ copies: { [OVEN]: [20, 20] }, globals: GLOBALS_ABOVE });
+    const { tab, container } = await shown(panel);
+    expect(warningOf(container, OVEN)).not.toBeNull();
+    // Another tab was shown, which takes this one's content, and the read as the user comes back fails.
+    container.replaceChildren();
+    panel.failReads(true);
+    await tab.render(container, panel.hass);
+    expect(container.querySelector(".monitoring-read-failed")).not.toBeNull();
+    const said = sayings(announcerOf(container)!);
+
+    panel.failReads(false);
+    await tab.render(container, panel.hass);
+
+    expect(warningOf(container, OVEN)).not.toBeNull();
+    expect(announcerOf(container)!.textContent).toBe("");
+    expect(said).toEqual([]);
+  });
+
+  it("says nothing of the warnings a first read draws after the one before it failed", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const panel = integration({ copies: { [OVEN]: [20, 20] }, globals: GLOBALS_ABOVE });
+    panel.failReads(true);
+    const { tab, container } = await shown(panel);
+    expect(container.querySelector(".monitoring-read-failed")).not.toBeNull();
+
+    panel.failReads(false);
+    await tab.render(container, panel.hass);
+
+    expect(warningOf(container, OVEN)).not.toBeNull();
+    expect(announcerOf(container)!.textContent).toBe("");
   });
 
   it("says nothing as the tab is first drawn, its warnings already shown", async () => {

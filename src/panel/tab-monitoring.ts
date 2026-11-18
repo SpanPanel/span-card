@@ -1,5 +1,6 @@
 import { INTEGRATION_DOMAIN, INPUT_DEBOUNCE_MS, TANDEM_GUIDE_URL } from "../constants.js";
 import { escapeHtml } from "../helpers/sanitize.js";
+import { attrSelectorValue } from "../helpers/selector.js";
 import { errorText, serviceErrorMessage } from "../helpers/error-text.js";
 import { t, tf } from "../i18n.js";
 import {
@@ -11,7 +12,7 @@ import {
   toggleRatingNote,
   type CopyWarning,
 } from "../helpers/monitoring-rating.js";
-import { focusedIn, isFocusLost } from "../helpers/focus.js";
+import { focusedIn, focusWithin, isFocusLost } from "../helpers/focus.js";
 import { bindLimitField, isLimitField, LIMIT_RANGES, type LimitField, type LimitFieldHandle } from "../helpers/number-field.js";
 import { bindOtherBreakerField, reportPackageRatingsFailure, type OtherBreakerFieldHandle } from "../helpers/other-breaker-field.js";
 import { circuitLabelsByMonitoringKey } from "../core/monitoring-status.js";
@@ -535,6 +536,9 @@ function sayStatusFailure(line: HTMLElement, message: string): void {
   line.style.color = "var(--error-color, #f44336)";
 }
 
+/** The opacity a point's row is drawn at while monitoring is off for it, and the global fields while it is off for the panel. */
+const OFF_OPACITY = "0.4";
+
 /**
  * Show switch `control` as what is known to be stored, once a change it made
  * (to `on`, stored or not) has settled and the tab has been read again. A read
@@ -547,6 +551,51 @@ function settleSwitch(control: HTMLInputElement, stored: boolean, on: boolean): 
   if (!control.isConnected) return;
   if (stored) control.toggleAttribute("checked", on);
   control.checked = control.hasAttribute("checked");
+}
+
+/**
+ * Settle the switch of a point's row (`settleSwitch`), and draw the row as the
+ * switch then shows it, dimmed while monitoring is off for the point, as a read
+ * draws it.
+ */
+function settleRowSwitch(control: HTMLInputElement, stored: boolean, on: boolean): void {
+  if (!control.isConnected) return;
+  settleSwitch(control, stored, on);
+  const row = control.closest("tr");
+  if (row) row.style.opacity = control.checked ? "" : OFF_OPACITY;
+}
+
+/** The switches of the points' rows: each circuit's, and the mains'. */
+type RowSwitchKind = "circuit-toggle" | "mains-toggle";
+
+/** The switch of point `entityId`'s row, as drawn in `container`; null where none is. */
+function rowSwitchOf(container: HTMLElement, kind: RowSwitchKind, entityId: string): HTMLInputElement | null {
+  return container.querySelector<HTMLInputElement>(`.${kind}[data-entity="${attrSelectorValue(entityId)}"]`);
+}
+
+/**
+ * Show All / None (`toggleAll`) as the rows' switches in `container` show
+ * monitoring, as a read draws it: on where every point is monitored, part on
+ * where some are.
+ */
+function settleToggleAll(toggleAll: HTMLInputElement, container: HTMLElement): void {
+  const rows = [...container.querySelectorAll<HTMLInputElement>(".circuit-toggle, .mains-toggle")];
+  const all = rows.length > 0 && rows.every(row => row.checked);
+  toggleAll.toggleAttribute("checked", all);
+  toggleAll.checked = all;
+  toggleAll.indeterminate = !all && rows.some(row => row.checked);
+}
+
+/**
+ * Settle the switch of one point's row in `container` (`settleRowSwitch`), and
+ * All / None with it (`settleToggleAll`), which shows what the rows then show,
+ * where no read has drawn the tab afresh.
+ */
+function settlePointSwitch(container: HTMLElement, control: HTMLInputElement, stored: boolean, on: boolean): void {
+  if (!control.isConnected) return;
+  settleRowSwitch(control, stored, on);
+  const toggleAll = container.querySelector<HTMLInputElement>("#toggle-all-circuits");
+  if (toggleAll) settleToggleAll(toggleAll, container);
 }
 
 /** The longest a redraw waits on a press whose release never arrives. */
@@ -701,12 +750,14 @@ export class MonitoringTab {
   private _drawn: DrawnTab | null = null;
   /**
    * A failure the global settings' status line is to say once the tab next
-   * draws them: a refusal of the Enabled switch, whose line the read after it
-   * draws over. Whichever drawing comes next says it, so a read that overtakes
-   * that one does not lose it. It goes as the user leaves the tab, or as the
-   * tab is drawn for another panel.
+   * draws them for the panel it concerns (`entryId`): a refusal of the Enabled
+   * switch, whose line the read after it draws over. Whichever drawing of that
+   * panel comes next says it, so a read that overtakes that one does not lose
+   * it, and another panel's never does, though the refusal answers after the
+   * tab was drawn for it. It goes as the user leaves the tab, or as the tab is
+   * drawn for another panel.
    */
-  private _statusFailure: string | null = null;
+  private _statusFailure: { readonly entryId: string | null; readonly message: string } | null = null;
 
   constructor() {
     this._configEntryId = null;
@@ -834,7 +885,7 @@ export class MonitoringTab {
         const name = escapeHtml(written);
         const enabled = isMonitored(info);
         const hasOverride = info.has_override === true;
-        const dimStyle = enabled ? "" : "opacity:0.4;";
+        const dimStyle = enabled ? "" : `opacity:${OFF_OPACITY};`;
         const eid = escapeHtml(entityId);
         const copy = copies.get(entityId) ?? null;
         const warning = copy ? copyWarning(info, info) : null;
@@ -884,7 +935,7 @@ export class MonitoringTab {
         const name = escapeHtml(written);
         const enabled = isMonitored(info);
         const hasOverride = info.has_override === true;
-        const dimStyle = enabled ? "" : "opacity:0.4;";
+        const dimStyle = enabled ? "" : `opacity:${OFF_OPACITY};`;
         const eid = escapeHtml(entityId);
         return `
           <tr style="${dimStyle}">
@@ -934,7 +985,7 @@ export class MonitoringTab {
             </label>
           </div>
 
-          <div id="global-fields" style="${isEnabled ? "" : "opacity:0.4;pointer-events:none;"}">
+          <div id="global-fields" style="${isEnabled ? "" : `opacity:${OFF_OPACITY};pointer-events:none;`}">
             <div style="${FIELD_STYLE}">
               <span style="${LABEL_STYLE}">${t("monitoring.continuous")}</span>
               <input type="number" id="g-continuous" aria-label="${escapeHtml(t("monitoring.continuous"))}" min="${LIMIT_RANGES.continuous_threshold_pct.min}" max="${LIMIT_RANGES.continuous_threshold_pct.max}" step="1"
@@ -1148,7 +1199,9 @@ export class MonitoringTab {
    * said elsewhere, and what the tab drew of the panel stays as the integration
    * last gave it, rather than defaults that could show monitoring off where it
    * is on. Where the tab holds nothing of the panel's, it says the status could
-   * not be loaded in place of the settings.
+   * not be loaded in place of the settings. That is no table to draw over: it
+   * is left out of what the tab drew (`_drawn`), so the read that next answers
+   * draws its table afresh, saying none of its warnings as new.
    */
   private _showReadFailure(container: HTMLElement, samePanel: boolean): void {
     this.errorStore?.add({ key: "fetch:monitoring", level: "warning", message: t("error.monitoring_failed"), persistent: false });
@@ -1164,17 +1217,21 @@ export class MonitoringTab {
         <p class="monitoring-read-failed" role="alert" style="color:var(--error-color);">${escapeHtml(t("error.monitoring_failed"))}</p>
       </div>
     `;
-    drawing.warnings = new Map();
     drawing.announcer.textContent = "";
+    this._drawn = null;
   }
 
-  /** Say in the global settings' status line, as drawn now, the failure waiting to be said there, if any (`_statusFailure`). */
+  /**
+   * Say in the global settings' status line, as drawn now, the failure waiting
+   * to be said there (`_statusFailure`), where there is one and it concerns the
+   * panel the tab is drawn for.
+   */
   private _sayStatusFailure(container: HTMLElement): void {
-    const message = this._statusFailure;
+    const failure = this._statusFailure;
     const line = container.querySelector<HTMLElement>("#global-status");
-    if (message === null || !line) return;
+    if (!failure || failure.entryId !== this._configEntryId || !line) return;
     this._statusFailure = null;
-    sayStatusFailure(line, message);
+    sayStatusFailure(line, failure.message);
   }
 
   /** Whether `container` holds what the tab drew in it last, and nothing else. */
@@ -1321,7 +1378,7 @@ export class MonitoringTab {
     /** Show the global fields as monitoring on or off: dimmed while off. */
     const showFields = (on: boolean): void => {
       if (!fieldsDiv) return;
-      fieldsDiv.style.opacity = on ? "" : "0.4";
+      fieldsDiv.style.opacity = on ? "" : OFF_OPACITY;
       fieldsDiv.style.pointerEvents = on ? "" : "none";
     };
 
@@ -1334,6 +1391,8 @@ export class MonitoringTab {
       // the status line of whichever drawing comes next (`_statusFailure`).
       enabledCheckbox.addEventListener("change", async () => {
         const epoch = this._epoch;
+        // The panel the change is for, which its refusal is said for.
+        const entryId = this._configEntryId;
         const enabled = enabledCheckbox.checked;
         showFields(enabled);
         let stored = true;
@@ -1352,7 +1411,7 @@ export class MonitoringTab {
           }
         } catch (err: unknown) {
           stored = false;
-          if (epoch === this._epoch) this._statusFailure = errorText(err);
+          if (epoch === this._epoch) this._statusFailure = { entryId, message: errorText(err) };
         }
         await this._redraw(container, hass, epoch);
         settleSwitch(enabledCheckbox, stored, enabled);
@@ -1499,31 +1558,46 @@ export class MonitoringTab {
   ): void {
     const toggleAll = container.querySelector<HTMLInputElement>("#toggle-all-circuits");
     if (!toggleAll) return;
+    // All / None turns monitoring on or off for every point, then the tab is read
+    // again. Where no read draws it afresh, as where the read failed, each row
+    // shows what its change left stored (`settleRowSwitch`), and All / None what
+    // the rows then show.
     toggleAll.addEventListener("change", async () => {
       const epoch = this._epoch;
       const enabled = toggleAll.checked;
       const writes = monitoringWrites(hass);
-      const calls: Promise<void>[] = [
-        ...Object.keys(circuits).map(entityId =>
-          writes
-            .setCircuitThreshold(this._serviceData({ circuit_id: entityId, monitoring_enabled: enabled }))
-            .catch((err: unknown) => reportMonitoringFailure(this.errorStore, err, "circuit monitoring toggle"))
-        ),
-        ...Object.keys(mains).map(entityId =>
-          writes
-            .setMainsThreshold(this._serviceData({ leg: entityId, monitoring_enabled: enabled }))
-            .catch((err: unknown) => reportMonitoringFailure(this.errorStore, err, "mains monitoring toggle"))
-        ),
+      /** Whether `change` was stored; a refusal is said. */
+      const storedBy = (change: Promise<void>, what: string): Promise<boolean> =>
+        change.then(
+          () => true,
+          (err: unknown) => {
+            reportMonitoringFailure(this.errorStore, err, what);
+            return false;
+          }
+        );
+      const changes = [
+        ...Object.keys(circuits).map(entityId => ({
+          control: rowSwitchOf(container, "circuit-toggle", entityId),
+          stored: storedBy(writes.setCircuitThreshold(this._serviceData({ circuit_id: entityId, monitoring_enabled: enabled })), "circuit monitoring toggle"),
+        })),
+        ...Object.keys(mains).map(entityId => ({
+          control: rowSwitchOf(container, "mains-toggle", entityId),
+          stored: storedBy(writes.setMainsThreshold(this._serviceData({ leg: entityId, monitoring_enabled: enabled })), "mains monitoring toggle"),
+        })),
       ];
-      await Promise.all(calls);
+      const settled = await Promise.all(changes.map(async ({ control, stored }) => ({ control, stored: await stored })));
       await this._redraw(container, hass, epoch);
+      if (!toggleAll.isConnected) return;
+      for (const { control, stored } of settled) if (control) settleRowSwitch(control, stored, enabled);
+      settleToggleAll(toggleAll, container);
     });
   }
 
   /**
    * The mains' switch turns monitoring on or off for its leg. Stored or refused,
    * the tab is read again, so the switch shows what is stored, whatever else was
-   * sent meanwhile (`settleSwitch`); a refusal is said.
+   * sent meanwhile, its row and All / None with it (`settlePointSwitch`); a
+   * refusal is said.
    */
   private _bindMainsToggles(container: HTMLElement, hass: HomeAssistant): void {
     for (const cb of container.querySelectorAll<HTMLInputElement>(".mains-toggle")) {
@@ -1539,14 +1613,15 @@ export class MonitoringTab {
           stored = false;
         }
         await this._redraw(container, hass, epoch);
-        settleSwitch(cb, stored, enabled);
+        settlePointSwitch(container, cb, stored, enabled);
       });
     }
   }
 
   /**
    * A circuit's switch turns monitoring on or off for it (`_setCircuitMonitoring`),
-   * and shows what is stored once that settles (`settleSwitch`).
+   * and shows what is stored once that settles, its row and All / None with it
+   * (`settlePointSwitch`).
    */
   private _bindCircuitToggles(container: HTMLElement, hass: HomeAssistant): void {
     for (const cb of container.querySelectorAll<HTMLInputElement>(".circuit-toggle")) {
@@ -1554,17 +1629,50 @@ export class MonitoringTab {
       if (entityId === undefined) continue;
       cb.addEventListener("change", async () => {
         const enabled = cb.checked;
-        settleSwitch(cb, await this._setCircuitMonitoring(container, hass, entityId, enabled), enabled);
+        settlePointSwitch(container, cb, await this._setCircuitMonitoring(container, hass, entityId, enabled), enabled);
       });
     }
   }
 
-  /** The averaged-legs warning's button turns monitoring off for its circuit, as the row's switch does. */
+  /**
+   * The averaged-legs warning's button turns monitoring off for its circuit, as
+   * the row's switch does, busy while that is on its way (`bindBusyButton`).
+   * Stored, where no read draws the tab afresh, as where the read failed, the
+   * circuit is shown as stored (`_settleTurnedOff`); refused, the button is
+   * ready again, the row as drawn.
+   */
   private _bindTurnOffButtons(container: HTMLElement, hass: HomeAssistant): void {
     for (const btn of container.querySelectorAll<HTMLElement>(".rating-turn-off")) {
       const entityId = btn.dataset.entity;
       if (entityId === undefined) continue;
-      bindBusyButton(btn, () => this._setCircuitMonitoring(container, hass, entityId, false));
+      bindBusyButton(btn, async () => {
+        const stored = await this._setCircuitMonitoring(container, hass, entityId, false);
+        if (stored && btn.isConnected) this._settleTurnedOff(container, btn, entityId);
+        return stored;
+      });
+    }
+  }
+
+  /**
+   * Show circuit `entityId` with monitoring off, as Turn off monitoring
+   * (`button`) stored it, in the drawing kept: the row's switch off, the row
+   * dimmed and All / None as the rows then show (`settlePointSwitch`), and the
+   * warning holding the button gone, as a read draws none for a circuit not
+   * monitored. Focus on the button goes to the switch, as it does after a redraw.
+   */
+  private _settleTurnedOff(container: HTMLElement, button: HTMLElement, entityId: string): void {
+    const toggle = rowSwitchOf(container, "circuit-toggle", entityId);
+    if (toggle) settlePointSwitch(container, toggle, true, false);
+    const warned = button.closest(".rating-warning-row");
+    const hadFocus = focusWithin(warned);
+    warned?.remove();
+    if (hadFocus) toggle?.focus();
+    // The warnings the tab shows, which the next read's announcements are judged against, no longer hold this one.
+    const drawn = this._drawn;
+    if (drawn?.container === container && drawn.warnings.has(entityId)) {
+      const warnings = new Map(drawn.warnings);
+      warnings.delete(entityId);
+      drawn.warnings = warnings;
     }
   }
 
