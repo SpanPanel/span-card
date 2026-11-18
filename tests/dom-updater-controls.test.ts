@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { renderCircuitSlot } from "../src/core/grid-renderer.js";
 import { updateCircuitDOM } from "../src/core/dom-updater.js";
 import type { CardConfig, Circuit, HomeAssistant, PanelTopology } from "../src/types.js";
+import { CONTROLS_OPERABLE } from "../src/core/control-access.js";
 
 const SWITCH = "switch.kitchen_breaker";
 const SELECT = "select.kitchen_circuit_priority";
@@ -25,7 +26,7 @@ function hassWith(states: Record<string, string>): HomeAssistant {
 /** The rendered slot, without its chart container: these tests are about the controls. */
 function rendered(hass: HomeAssistant, priority: string): HTMLElement {
   const root = document.createElement("div");
-  root.innerHTML = renderCircuitSlot("kitchen", KITCHEN, 1, "2", "single", hass, {} as CardConfig, null, priority);
+  root.innerHTML = renderCircuitSlot("kitchen", KITCHEN, 1, "2", "single", hass, {} as CardConfig, null, priority, CONTROLS_OPERABLE);
   root.querySelector(".chart-container")?.remove();
   return root;
 }

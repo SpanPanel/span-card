@@ -211,6 +211,28 @@ export interface PanelTopology {
    * record here, as from an integration that predates the map, falls back to its members' ratings added up.
    */
   shared_meter_groups?: Record<string, SharedMeterGroup>;
+  /**
+   * Whether the user who asked may operate the panel's controls, its relays and shedding priorities, by the rule the
+   * integration's control gate enforces. Absent from an integration that predates it, and from a topology built from
+   * the registries, where the card takes the controls as operable (`controlAccess`).
+   */
+  control_access?: ControlAccessWire;
+}
+
+/** Why the integration lets a user operate none of a panel's controls: only an administrator may, or control is off. */
+export type ControlBlock = "admin_only" | "control_disabled";
+
+/** `control_access` as the integration sends it in `panel_topology`. */
+export interface ControlAccessWire {
+  may_operate: boolean;
+  /** Why not, where the user may not; null otherwise. */
+  reason: ControlBlock | null;
+}
+
+/** Whether a user may operate a panel's controls, and why not where not, as the card reads it (`controlAccess`). */
+export interface ControlAccess {
+  readonly mayOperate: boolean;
+  readonly reason: ControlBlock | null;
 }
 
 /**
@@ -371,6 +393,8 @@ export interface FavoriteRef {
   /** Real circuit uuid (kind ``circuit``) or HA device id (kind ``sub_device``). */
   targetId: string;
   configEntryId: string | null;
+  /** Whether the user may operate the controls of the panel it came from; absent where not known, taken as operable. */
+  controlAccess?: ControlAccess;
 }
 
 /**

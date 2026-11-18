@@ -192,6 +192,11 @@ const translations: Record<string, Record<string, string>> = {
     "header.enable_switches": "Enable Switches",
     "header.switches_enabled": "Switches Enabled",
 
+    // Controls: why a user may operate none of a panel's relays and priorities
+    "controls.admin_only": "Only an administrator can operate this panel's controls.",
+    "controls.disabled": "Control of this panel is switched off in its options.",
+    "controls.not_operable": "You can't operate this panel's controls.",
+
     // Grid
     "grid.unknown": "Unknown",
     "grid.configure": "Configure circuit",
@@ -507,6 +512,9 @@ const translations: Record<string, Record<string, string>> = {
     "header.toggle_units": "Alternar Watts / Amperios",
     "header.enable_switches": "Habilitar Interruptores",
     "header.switches_enabled": "Interruptores Habilitados",
+    "controls.admin_only": "Solo un administrador puede operar los controles de este panel.",
+    "controls.disabled": "El control de este panel est\u00e1 desactivado en sus opciones.",
+    "controls.not_operable": "No puede operar los controles de este panel.",
     "grid.unknown": "Desconocido",
     "grid.configure": "Configurar circuito",
     "grid.configure_subdevice": "Configurar dispositivo",
@@ -805,6 +813,9 @@ const translations: Record<string, Record<string, string>> = {
     "header.toggle_units": "Basculer Watts / Amp\u00e8res",
     "header.enable_switches": "Activer les interrupteurs",
     "header.switches_enabled": "Interrupteurs activ\u00e9s",
+    "controls.admin_only": "Seul un administrateur peut utiliser les commandes de ce panneau.",
+    "controls.disabled": "La commande de ce panneau est d\u00e9sactiv\u00e9e dans ses options.",
+    "controls.not_operable": "Vous ne pouvez pas utiliser les commandes de ce panneau.",
     "grid.unknown": "Inconnu",
     "grid.configure": "Configurer le circuit",
     "grid.configure_subdevice": "Configurer l'appareil",
@@ -1115,6 +1126,11 @@ const translations: Record<string, Record<string, string>> = {
     "header.toggle_units": "\u30ef\u30c3\u30c8/\u30a2\u30f3\u30da\u30a2\u5207\u308a\u66ff\u3048",
     "header.enable_switches": "\u30b9\u30a4\u30c3\u30c1\u3092\u6709\u52b9\u5316",
     "header.switches_enabled": "\u30b9\u30a4\u30c3\u30c1\u6709\u52b9",
+    "controls.admin_only":
+      "\u3053\u306e\u30d1\u30cd\u30eb\u306e\u30b3\u30f3\u30c8\u30ed\u30fc\u30eb\u3092\u64cd\u4f5c\u3067\u304d\u308b\u306e\u306f\u7ba1\u7406\u8005\u306e\u307f\u3067\u3059\u3002",
+    "controls.disabled":
+      "\u3053\u306e\u30d1\u30cd\u30eb\u306e\u30b3\u30f3\u30c8\u30ed\u30fc\u30eb\u306f\u30aa\u30d7\u30b7\u30e7\u30f3\u3067\u7121\u52b9\u306b\u306a\u3063\u3066\u3044\u307e\u3059\u3002",
+    "controls.not_operable": "\u3053\u306e\u30d1\u30cd\u30eb\u306e\u30b3\u30f3\u30c8\u30ed\u30fc\u30eb\u306f\u64cd\u4f5c\u3067\u304d\u307e\u305b\u3093\u3002",
     "grid.unknown": "\u4e0d\u660e",
     "grid.configure": "\u56de\u8def\u3092\u8a2d\u5b9a",
     "grid.configure_subdevice": "\u30c7\u30d0\u30a4\u30b9\u3092\u8a2d\u5b9a",
@@ -1424,6 +1440,9 @@ const translations: Record<string, Record<string, string>> = {
     "header.toggle_units": "Alternar Watts / Amperes",
     "header.enable_switches": "Ativar Interruptores",
     "header.switches_enabled": "Interruptores Ativados",
+    "controls.admin_only": "Somente um administrador pode operar os controles deste painel.",
+    "controls.disabled": "O controle deste painel est\u00e1 desativado nas suas op\u00e7\u00f5es.",
+    "controls.not_operable": "Voc\u00ea n\u00e3o pode operar os controles deste painel.",
     "grid.unknown": "Desconhecido",
     "grid.configure": "Configurar circuito",
     "grid.configure_subdevice": "Configurar dispositivo",

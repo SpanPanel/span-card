@@ -6,11 +6,13 @@ import type { CardConfig, HomeAssistant, PanelTopology } from "../src/types.js";
 
 const SWITCH = "switch.kitchen_breaker";
 
-function hass(states: Record<string, string>, callService = vi.fn(async () => undefined)): HomeAssistant {
+type CallWS = (msg: Record<string, unknown>) => Promise<unknown>;
+
+function hass(states: Record<string, string>, callWS: CallWS = async () => ({})): HomeAssistant {
   const full = Object.fromEntries(
     Object.entries(states).map(([entity_id, state]) => [entity_id, { entity_id, state, attributes: {}, last_changed: "", last_updated: "" }])
   );
-  return { states: full, services: {}, language: "en", callService, callWS: async () => ({}) } as unknown as HomeAssistant;
+  return { states: full, services: {}, language: "en", callService: vi.fn(async () => undefined), callWS } as unknown as HomeAssistant;
 }
 
 const TOPOLOGY = {
@@ -27,20 +29,40 @@ const TOPOLOGY = {
   },
 } as unknown as PanelTopology;
 
-function clickToggle(states: Record<string, string>): ReturnType<typeof vi.fn> {
-  const callService = vi.fn(async () => undefined);
+function clickToggle(states: Record<string, string>, topology: PanelTopology = TOPOLOGY): ReturnType<typeof vi.fn<CallWS>> {
+  const callWS = vi.fn<CallWS>(async () => ({}));
   const ctrl = new DashboardController();
-  ctrl.init(TOPOLOGY, {} as CardConfig, hass(states, callService), "entry-1");
+  ctrl.init(topology, {} as CardConfig, hass(states, callWS), "entry-1");
   const root = document.createElement("div");
   root.innerHTML = `<div class="slide-confirm confirmed"></div><div data-uuid="kitchen"><div class="toggle-pill"></div></div>`;
   const pill = root.querySelector(".toggle-pill")!;
   ctrl.onToggleClick({ target: pill, stopPropagation() {}, preventDefault() {} } as unknown as Event, root);
-  return callService;
+  return callWS;
 }
 
 describe("the breaker toggle", () => {
   it("operates an operable switch", () => {
-    expect(clickToggle({ [SWITCH]: "on" })).toHaveBeenCalledWith("switch", "turn_off", {}, { entity_id: SWITCH });
+    expect(clickToggle({ [SWITCH]: "on" })).toHaveBeenCalledWith({
+      type: "call_service",
+      domain: "switch",
+      service: "turn_off",
+      service_data: {},
+      target: { entity_id: SWITCH },
+    });
+  });
+
+  it("turns an off breaker on", () => {
+    expect(clickToggle({ [SWITCH]: "off" })).toHaveBeenCalledWith(expect.objectContaining({ domain: "switch", service: "turn_on" }));
+  });
+
+  it("sends nothing where the user may not operate the panel's controls", () => {
+    const blocked = { ...TOPOLOGY, control_access: { may_operate: false, reason: "admin_only" } } as PanelTopology;
+    expect(clickToggle({ [SWITCH]: "on" }, blocked)).not.toHaveBeenCalled();
+  });
+
+  it("operates the switch where the integration says the user may", () => {
+    const allowed = { ...TOPOLOGY, control_access: { may_operate: true, reason: null } } as PanelTopology;
+    expect(clickToggle({ [SWITCH]: "on" }, allowed)).toHaveBeenCalledWith(expect.objectContaining({ service: "turn_off" }));
   });
 
   it("sends nothing to an unavailable switch", () => {
@@ -65,6 +87,28 @@ describe("the circuit gear", () => {
     await ctrl.onGearClick({ target: root.querySelector(".gear-icon") } as unknown as Event, root);
 
     expect(open).toHaveBeenCalledWith(expect.objectContaining({ uuid: "kitchen", relay_state: "OPEN", priority: "OFF_GRID", device_type: "circuit" }));
+    root.remove();
+  });
+
+  it.each([
+    ["says nothing of it", TOPOLOGY, { mayOperate: true, reason: null }],
+    [
+      "says the user may not",
+      { ...TOPOLOGY, control_access: { may_operate: false, reason: "control_disabled" } },
+      { mayOperate: false, reason: "control_disabled" },
+    ],
+  ])("hands the side panel the access the user has to the panel's controls, where the integration %s", async (_says, topology, access) => {
+    const ctrl = new DashboardController();
+    ctrl.init(topology as PanelTopology, {} as CardConfig, hass({ [SWITCH]: "on" }), "entry-1");
+    const root = document.createElement("div");
+    root.innerHTML = `<button class="gear-icon circuit-gear" data-uuid="kitchen"></button><span-side-panel></span-side-panel>`;
+    document.body.appendChild(root);
+    const panel = root.querySelector("span-side-panel") as unknown as { open: (config: unknown) => void };
+    const open = vi.spyOn(panel, "open").mockImplementation(() => {});
+
+    await ctrl.onGearClick({ target: root.querySelector(".gear-icon") } as unknown as Event, root);
+
+    expect(open).toHaveBeenCalledWith(expect.objectContaining({ controlAccess: access }));
     root.remove();
   });
 });

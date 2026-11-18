@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { buildGridHTML, renderCircuitSlot } from "../src/core/grid-renderer.js";
 import { updateCircuitDOM } from "../src/core/dom-updater.js";
 import type { Circuit, HomeAssistant, CardConfig, MonitoringPointInfo, MonitoringStatus, PanelTopology } from "../src/types.js";
+import { CONTROLS_OPERABLE } from "../src/core/control-access.js";
 
 const hass = { states: {}, services: {}, language: "en" } as unknown as HomeAssistant;
 
@@ -19,7 +20,7 @@ function makeCircuit(overrides: Partial<Circuit> = {}): Circuit {
 describe("renderCircuitSlot", () => {
   it("escapes user-controllable circuit name in markup", () => {
     const circuit = makeCircuit({ name: '<img src=x onerror="alert(1)">' });
-    const html = renderCircuitSlot("uuid1", circuit, 1, "1", "single", hass, config, null, "unknown");
+    const html = renderCircuitSlot("uuid1", circuit, 1, "1", "single", hass, config, null, "unknown", CONTROLS_OPERABLE);
     // The literal tag should never appear; the escaped form should.
     expect(html).not.toContain("<img src=x");
     expect(html).toContain("&lt;img src=x");
@@ -27,7 +28,7 @@ describe("renderCircuitSlot", () => {
 
   it("escapes user-controllable uuid in data attribute", () => {
     const circuit = makeCircuit();
-    const html = renderCircuitSlot('uuid"onclick=alert(1)"', circuit, 1, "1", "single", hass, config, null, "unknown");
+    const html = renderCircuitSlot('uuid"onclick=alert(1)"', circuit, 1, "1", "single", hass, config, null, "unknown", CONTROLS_OPERABLE);
     expect(html).not.toContain('uuid"onclick');
     expect(html).toContain("uuid&quot;onclick");
   });
@@ -37,7 +38,7 @@ describe("renderCircuitSlot", () => {
     // translation contained a quote, an unescaped title= would split the
     // attribute. Exercise the composite-icon branch which uses safeLabel.
     const circuit = makeCircuit();
-    const html = renderCircuitSlot("uuid1", circuit, 1, "1", "single", hass, config, null, "soc_threshold");
+    const html = renderCircuitSlot("uuid1", circuit, 1, "1", "single", hass, config, null, "soc_threshold", CONTROLS_OPERABLE);
     // The rendered HTML must remain well-formed: the <ha-icon ... title="..."
     // > attribute must close before any content. A regression would emit
     // `title=""quote here"` breaking subsequent attributes.
@@ -118,7 +119,7 @@ const MEASURED = makeCircuit({
 
 function slotOf(states: Parameters<typeof hassWith>[0], cfg: CardConfig = config, monitoring: MonitoringPointInfo | null = null): HTMLElement {
   const div = document.createElement("div");
-  div.innerHTML = renderCircuitSlot("kitchen", MEASURED, 1, "2", "single", hassWith(states), cfg, monitoring, "unknown");
+  div.innerHTML = renderCircuitSlot("kitchen", MEASURED, 1, "2", "single", hassWith(states), cfg, monitoring, "unknown", CONTROLS_OPERABLE);
   return div.querySelector(".circuit-slot")!;
 }
 

@@ -11,6 +11,7 @@ import { discoverTopology } from "../src/card/card-discovery.js";
 import "../src/card/span-panel-card.js";
 import { FakeConnection, hassWith as hassOn } from "./fake-connection.js";
 import type { CardConfig, Circuit, HomeAssistant, PanelTopology } from "../src/types.js";
+import { CONTROLS_OPERABLE } from "../src/core/control-access.js";
 
 const CONFIG = { chart_metric: "power" } as CardConfig;
 
@@ -228,7 +229,7 @@ describe("a meter outside the panel in the list views", () => {
     const cells = order
       .map(
         uuid =>
-          `<div class="list-cell" data-cell-uuid="${uuid}">${buildListRowHTML(uuid, CIRCUITS[uuid as keyof typeof CIRCUITS], hass, CONFIG, null, "unknown", false, CIRCUITS[uuid as keyof typeof CIRCUITS])}</div>`
+          `<div class="list-cell" data-cell-uuid="${uuid}">${buildListRowHTML(uuid, CIRCUITS[uuid as keyof typeof CIRCUITS], hass, CONFIG, null, "unknown", false, CIRCUITS[uuid as keyof typeof CIRCUITS], CONTROLS_OPERABLE)}</div>`
       )
       .join("");
     root.innerHTML = `<div class="list-view">${cells}</div>`;

@@ -3,6 +3,7 @@ import { buildPanelStatsHTML } from "../src/core/header-renderer.js";
 import { renderCircuitSlot } from "../src/core/grid-renderer.js";
 import { updateCircuitDOM, updatePanelStatsBlock } from "../src/core/dom-updater.js";
 import type { CardConfig, Circuit, HomeAssistant, PanelTopology } from "../src/types.js";
+import { CONTROLS_OPERABLE } from "../src/core/control-access.js";
 
 const CONFIG = { chart_metric: "power" } as CardConfig;
 const SITE = "sensor.site_power";
@@ -35,7 +36,7 @@ function hassWith(states: Record<string, string>): HomeAssistant {
 function rendered(hass: HomeAssistant): HTMLElement {
   const root = document.createElement("div");
   const slots = Object.entries(CIRCUITS)
-    .map(([uuid, c]) => renderCircuitSlot(uuid, c, c.tabs[0]!, "2", "single", hass, CONFIG, null, "unknown"))
+    .map(([uuid, c]) => renderCircuitSlot(uuid, c, c.tabs[0]!, "2", "single", hass, CONFIG, null, "unknown", CONTROLS_OPERABLE))
     .join("");
   root.innerHTML = buildPanelStatsHTML(topology(), CONFIG) + slots;
   for (const chart of root.querySelectorAll(".chart-container")) chart.remove();
@@ -142,7 +143,7 @@ describe("a slot's reading after an update", () => {
     const top = { circuits: { a: withCurrent } } as unknown as PanelTopology;
     const amps = { chart_metric: "current" } as CardConfig;
     const root = document.createElement("div");
-    root.innerHTML = renderCircuitSlot("a", withCurrent, 1, "2", "single", hassWith({ "sensor.a_current": "4" }), amps, null, "unknown");
+    root.innerHTML = renderCircuitSlot("a", withCurrent, 1, "2", "single", hassWith({ "sensor.a_current": "4" }), amps, null, "unknown", CONTROLS_OPERABLE);
     root.querySelector(".chart-container")?.remove();
 
     updateCircuitDOM(root, hassWith({ "sensor.a_current": "unavailable" }), top, amps, new Map(), undefined, null);

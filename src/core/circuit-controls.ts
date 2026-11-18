@@ -4,32 +4,48 @@
 import { SHEDDING_PRIORITIES } from "../constants.js";
 import { t } from "../i18n.js";
 import { escapeHtml } from "../helpers/sanitize.js";
+import { controlAccessHint } from "./control-access.js";
 import type { SwitchPresence } from "./circuit-state.js";
-import type { SheddingPriorityDef } from "../types.js";
+import type { ControlAccess, SheddingPriorityDef } from "../types.js";
+
+/** The pill's title: why it cannot be operated where the user may not (`access`), else that it switches a group where shared. */
+function pillTitle(access: ControlAccess, shared: boolean): string {
+  return controlAccessHint(access) || (shared ? t("grid.shared_switch") : "");
+}
 
 /**
  * The pill for a breaker's switch: none without one, dimmed and inert while it is
  * unavailable, and titled as switching the group when circuits share its relay.
+ * Where the user may not operate the panel's controls (`access`), it is drawn
+ * forbidden, titled with why; a click on it sends nothing (`controlWrites`).
  */
-export function buildTogglePillHTML(isOn: boolean, presence: SwitchPresence, shared = false): string {
+export function buildTogglePillHTML(isOn: boolean, presence: SwitchPresence, access: ControlAccess, shared = false): string {
   if (presence === "none") return "";
   const classes = ["toggle-pill", isOn ? "toggle-on" : "toggle-off"];
   if (presence === "inert") classes.push("toggle-unavailable");
   if (shared) classes.push("toggle-shared");
-  const title = shared ? ` title="${escapeHtml(t("grid.shared_switch"))}"` : "";
-  return `<div class="${classes.join(" ")}"${title}>
+  if (!access.mayOperate) classes.push("toggle-forbidden");
+  const title = pillTitle(access, shared);
+  const attributes = `${title ? ` title="${escapeHtml(title)}"` : ""}${access.mayOperate ? "" : ' aria-disabled="true"'}`;
+  return `<div class="${classes.join(" ")}"${attributes}>
     <span class="toggle-label">${isOn ? t("grid.on") : t("grid.off")}</span>
     <span class="toggle-knob"></span>
   </div>`;
 }
 
-/** Bring a rendered pill up to date; a scope without one is left alone. */
-export function applyTogglePill(scope: ParentNode, isOn: boolean, presence: SwitchPresence): void {
+/** Bring a rendered pill up to date, its access (`access`) among it; a scope without one is left alone. */
+export function applyTogglePill(scope: ParentNode, isOn: boolean, presence: SwitchPresence, access: ControlAccess): void {
   const pill = scope.querySelector<HTMLElement>(".toggle-pill");
   if (!pill) return;
   pill.classList.toggle("toggle-on", isOn);
   pill.classList.toggle("toggle-off", !isOn);
   pill.classList.toggle("toggle-unavailable", presence !== "operable");
+  pill.classList.toggle("toggle-forbidden", !access.mayOperate);
+  const title = pillTitle(access, pill.classList.contains("toggle-shared"));
+  if (title) pill.title = title;
+  else pill.removeAttribute("title");
+  if (access.mayOperate) pill.removeAttribute("aria-disabled");
+  else pill.setAttribute("aria-disabled", "true");
   const label = pill.querySelector(".toggle-label");
   if (label) label.textContent = isOn ? t("grid.on") : t("grid.off");
 }

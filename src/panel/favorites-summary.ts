@@ -1,6 +1,7 @@
 import { escapeHtml } from "../helpers/sanitize.js";
 import { t } from "../i18n.js";
-import { buildSheddingLegendHTML } from "../core/header-renderer.js";
+import { buildSheddingLegendHTML, buildSlideConfirmHTML } from "../core/header-renderer.js";
+import type { ControlAccess } from "../types.js";
 
 /**
  * Build the Favorites view summary strip: gear icon, slide-to-arm,
@@ -10,20 +11,17 @@ import { buildSheddingLegendHTML } from "../core/header-renderer.js";
  *
  * Pure string helper — no DOM, no element state. The panel component
  * invokes it from `_buildFavoritesSummaryHTML`, passing the current
- * amps-mode flag.
+ * amps-mode flag and the access its slider answers for
+ * (`viewControlAccess`), which is forbidden only where the user may
+ * operate the controls of none of the favorited circuits' panels.
  */
-export function buildFavoritesSummaryHTML(isAmpsMode: boolean): string {
+export function buildFavoritesSummaryHTML(isAmpsMode: boolean, controls: ControlAccess): string {
   return `
     <div class="favorites-summary">
       <button class="gear-icon panel-gear favorites-gear" title="${escapeHtml(t("header.graph_settings"))}">
         <span-icon icon="mdi:cog"></span-icon>
       </button>
-      <div class="slide-confirm" data-text-off="${escapeHtml(t("header.enable_switches"))}" data-text-on="${escapeHtml(t("header.switches_enabled"))}">
-        <span class="slide-confirm-text">${escapeHtml(t("header.enable_switches"))}</span>
-        <div class="slide-confirm-knob">
-          <span-icon icon="mdi:lock"></span-icon>
-        </div>
-      </div>
+      ${buildSlideConfirmHTML(controls)}
       <div class="favorites-summary-right">
         ${buildSheddingLegendHTML()}
         <div class="unit-toggle favorites-summary-unit-toggle" title="${escapeHtml(t("header.toggle_units"))}">

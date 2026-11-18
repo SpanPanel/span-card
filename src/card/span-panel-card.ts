@@ -362,6 +362,9 @@ export class SpanPanelCard extends LitElement {
     const restructured = !sameTopologyStructure(result.topology, this._topology);
     this._adoptTopology(result);
     this._ctrl.init(this._topology, this._config, this.hass, this._configEntryId);
+    // The access the user has to the panel's controls arrives with each topology;
+    // an open circuit side panel takes it now, as the views do as they draw again.
+    this._ctrl.refreshCircuitControlAccess(this._root, this._configEntryId, result.topology);
     if (restructured) {
       this._watchPanelStatus();
       this._populateCardContent();

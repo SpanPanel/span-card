@@ -365,6 +365,55 @@ describe("span-panel subscriptions", () => {
     await vi.waitFor(() => expect(rendered).toHaveBeenCalledTimes(2));
   });
 
+  /** Panel 1's kitchen topology, saying whether the user may operate the panel's controls. */
+  function withControlAccess(control_access: { may_operate: boolean; reason: string | null }): Awaited<ReturnType<typeof discoverTopology>> {
+    const result = kitchenTopology("CLOSED");
+    return { ...result, topology: { ...result.topology!, control_access } as PanelTopology };
+  }
+
+  it("re-renders on a re-seed when the access the user has to the panel's controls changed", async () => {
+    const connection = new FakeConnection();
+    const rendered = await onActivityTab(connection);
+    mockDiscover.mockImplementation(async () => withControlAccess({ may_operate: false, reason: "admin_only" }));
+
+    connection.emit(ENTRY_RELOADS, loaded(1));
+
+    await vi.waitFor(() => expect(rendered).toHaveBeenCalledTimes(2));
+  });
+
+  it("gives a circuit side panel left open the access a re-seed brings, and re-renders the view once it closes", async () => {
+    const connection = new FakeConnection();
+    const rendered = await onActivityTab(connection);
+    const panel = mounted[0] as Panel;
+    const sidePanel = panel.shadowRoot!.getElementById("tab-content")!.querySelector("span-side-panel") as HTMLElement & {
+      open(config: unknown): void;
+      close(): void;
+      refreshControlAccess(access: unknown): void;
+    };
+    sidePanel.open({
+      uuid: "kitchen",
+      name: "Kitchen",
+      members: [{ uuid: "kitchen", circuit: kitchenTopology("CLOSED").topology!.circuits.kitchen }],
+      capacityA: null,
+      entities: { power: "sensor.kitchen_power" },
+      relay_state: "CLOSED",
+      monitoringInfo: null,
+      graphHorizonInfo: { horizon: "5m", has_override: false, globalHorizon: "5m" },
+      configEntryId: "entry-1",
+    });
+    const refreshed = vi.spyOn(sidePanel, "refreshControlAccess");
+    mockDiscover.mockImplementation(async () => withControlAccess({ may_operate: false, reason: "admin_only" }));
+
+    connection.emit(ENTRY_RELOADS, loaded(1));
+
+    await vi.waitFor(() => expect(refreshed).toHaveBeenCalledWith({ mayOperate: false, reason: "admin_only" }));
+    await flush();
+    expect(rendered).toHaveBeenCalledTimes(1);
+
+    sidePanel.close();
+    await vi.waitFor(() => expect(rendered).toHaveBeenCalledTimes(2));
+  });
+
   /** A `device_registry_updated` event for an update, with the old value of each field it changed. */
   function deviceUpdate(device_id: string, changes: Record<string, unknown>): unknown {
     return { event_type: DEVICE_REGISTRY, data: { action: "update", device_id, changes } };
