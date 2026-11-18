@@ -632,22 +632,14 @@ class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
   }
 
   close(): void {
-    // Cancel any still-pending debounced writes so they don't fire
-    // against a torn-down ``_config`` and leak a stale service call.
-    this._clearDebounceTimers();
+    // A pending debounced write is left to be sent: it is the user's change,
+    // and reads only what it captured and Home Assistant (`_debounce`).
     this.removeAttribute("open");
     this.removeAttribute("data-mode");
     this._config = null;
     this._storedMonitoring = null;
     this._controlAccess = CONTROLS_NOT_KNOWN;
     this.dispatchEvent(new CustomEvent("side-panel-closed", { bubbles: true, composed: true }));
-  }
-
-  private _clearDebounceTimers(): void {
-    for (const key of Object.keys(this._debounceTimers)) {
-      clearTimeout(this._debounceTimers[key]);
-    }
-    this._debounceTimers = {};
   }
 
   private _modeFor(cfg: SidePanelConfig): "favorites" | "panel" | "subDevice" | "circuit" {
@@ -840,7 +832,7 @@ class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
           select.appendChild(opt);
         }
         select.addEventListener("change", () => {
-          this._debounce(`subdev-${devId}`, INPUT_DEBOUNCE_MS, () => {
+          this._debounce(`subdev-${cfg.configEntryId ?? ""}-${devId}`, INPUT_DEBOUNCE_MS, () => {
             const data: Record<string, unknown> = {
               subdevice_id: devId,
               horizon: select.value,
@@ -948,7 +940,7 @@ class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
       select.appendChild(opt);
     }
     select.addEventListener("change", () => {
-      this._debounce(`circuit-${uuid}`, INPUT_DEBOUNCE_MS, () => {
+      this._debounce(`circuit-${configEntryId ?? ""}-${uuid}`, INPUT_DEBOUNCE_MS, () => {
         const data: Record<string, unknown> = {
           circuit_id: uuid,
           horizon: select.value,
@@ -2168,13 +2160,15 @@ class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
   // ── Debounce ────────────────────────────────────────────────────────
 
   /**
-   * Run `fn` once `ms` pass with no other call under `key`. A write so delayed is
-   * the user's change, already shown by the control they changed, so it is sent
-   * even where the panel leaves the page meanwhile: a dashboard moves an open
-   * panel with its card, as a masonry view does re-columning on rotation, and
-   * the panel goes on as it was, its circuit, access, stored monitoring, controls
-   * and pending writes intact. Each write reads only what it captured and Home
-   * Assistant, never the panel's config. Only `close` cancels a pending write;
+   * Run `fn` once `ms` pass with no other call under `key`, which names what the
+   * write changes and on which config entry, so only a later change of the same
+   * thing replaces it. A write so delayed is the user's change, already shown by
+   * the control they changed, so nothing cancels it: it is sent once its time
+   * comes, whether the panel was closed, opened again on another circuit, moved
+   * by a dashboard with its card, as a masonry view does re-columning on
+   * rotation, or taken off the page. Each write reads only what it captured and
+   * Home Assistant, never the panel's config. A moved panel goes on as it was,
+   * its circuit, access, stored monitoring, controls and pending writes intact;
    * the panel's state is reset only as it opens or closes (`open`, `close`).
    */
   private _debounce(key: string, ms: number, fn: () => void): void {

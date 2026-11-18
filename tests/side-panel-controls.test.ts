@@ -411,13 +411,28 @@ describe("a graph horizon change still on its way as the panel leaves the page",
     mounted.push(panel);
     panel.hass = hass({ [SWITCH]: "on" }, callWS);
     panel.errorStore = new ErrorStore();
+    openSettings(panel, "entry-1");
+    return panel;
+  }
+
+  /** Open `panel` on the graph settings of the panel of config entry `entryId`, whose one circuit is the kitchen. */
+  function openSettings(panel: SidePanel, entryId: string): void {
     panel.open({
       panelMode: true,
       topology: { circuits: { kitchen: KITCHEN } },
       graphSettings: { global_horizon: "5m", circuits: {} },
-      configEntryId: "entry-1",
+      configEntryId: entryId,
     });
-    return panel;
+  }
+
+  /** The write that sets the kitchen's horizon to `horizon` on config entry `entryId`. */
+  function horizonWrite(horizon: string, entryId: string): Message {
+    return {
+      type: "call_service",
+      domain: "span_panel",
+      service: "set_circuit_graph_horizon",
+      service_data: { circuit_id: "kitchen", horizon, config_entry_id: entryId },
+    };
   }
 
   /** Choose `horizon` for the kitchen, as the user does. */
@@ -452,6 +467,64 @@ describe("a graph horizon change still on its way as the panel leaves the page",
         service_data: { circuit_id: "kitchen", horizon: "1h", config_entry_id: "entry-1" },
       },
     ]);
+  });
+
+  it("is sent once, the horizon chosen, where the panel is closed within the wait", async () => {
+    vi.useFakeTimers();
+    const callWS = vi.fn<CallWS>(async () => ({}));
+    const panel = panelSettings(callWS);
+    chooseHorizon(panel, "1h");
+    panel.close();
+    expect(horizonWrites(callWS)).toEqual([]);
+    await vi.advanceTimersByTimeAsync(500);
+    expect(horizonWrites(callWS)).toEqual([horizonWrite("1h", "entry-1")]);
+  });
+
+  it("is sent once, as it was, where the panel is closed and opened on another circuit within the wait", async () => {
+    vi.useFakeTimers();
+    const callWS = vi.fn<CallWS>(async () => ({}));
+    const panel = panelSettings(callWS);
+    chooseHorizon(panel, "1h");
+    panel.close();
+    panel.open({
+      uuid: "garage",
+      name: "Garage",
+      members: [{ uuid: "garage", circuit: { ...KITCHEN, name: "Garage" } }],
+      capacityA: null,
+      entities: { switch: SWITCH, select: SELECT, power: POWER },
+      is_user_controllable: true,
+      relay_state: "CLOSED",
+      monitoringInfo: null,
+      graphHorizonInfo: { horizon: "5m", has_override: false, globalHorizon: "5m" },
+      configEntryId: "entry-2",
+      controlAccess: OPERABLE,
+    });
+    await vi.advanceTimersByTimeAsync(500);
+    expect(horizonWrites(callWS)).toEqual([horizonWrite("1h", "entry-1")]);
+  });
+
+  it("is sent beside a change of the same circuit id on another panel made within the wait, each to its own panel", async () => {
+    vi.useFakeTimers();
+    const callWS = vi.fn<CallWS>(async () => ({}));
+    const panel = panelSettings(callWS);
+    chooseHorizon(panel, "1h");
+    panel.close();
+    openSettings(panel, "entry-2");
+    chooseHorizon(panel, "1d");
+    await vi.advanceTimersByTimeAsync(500);
+    expect(horizonWrites(callWS)).toEqual([horizonWrite("1h", "entry-1"), horizonWrite("1d", "entry-2")]);
+  });
+
+  it("is replaced by a later change of the same circuit on the same panel, so only the last is sent", async () => {
+    vi.useFakeTimers();
+    const callWS = vi.fn<CallWS>(async () => ({}));
+    const panel = panelSettings(callWS);
+    chooseHorizon(panel, "1h");
+    panel.close();
+    openSettings(panel, "entry-1");
+    chooseHorizon(panel, "1d");
+    await vi.advanceTimersByTimeAsync(500);
+    expect(horizonWrites(callWS)).toEqual([horizonWrite("1d", "entry-1")]);
   });
 
   it("is sent once even where the panel is taken off the page for good", async () => {
