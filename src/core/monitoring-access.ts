@@ -75,10 +75,11 @@ export interface MonitoringWrites {
 
 /**
  * The monitoring changes `hass`'s user can send. Each is refused, with nothing
- * sent, where the user may not change monitoring (`canEditMonitoring`), and is
- * otherwise sent within the call, as calling the service directly sends it.
+ * sent, where the user may not change monitoring (`canEditMonitoring`), as
+ * where there is no Home Assistant yet to send it to, and is otherwise sent
+ * within the call, as calling the service directly sends it.
  */
-export function monitoringWrites(hass: HomeAssistant): MonitoringWrites {
+export function monitoringWrites(hass: HomeAssistant | null): MonitoringWrites {
   const change =
     (service: string) =>
     (data: MonitoringServiceData): Promise<void> =>
@@ -96,8 +97,8 @@ export function monitoringWrites(hass: HomeAssistant): MonitoringWrites {
 }
 
 /** Send the integration's `service` with `data` where the user may change monitoring; an Unauthorized answer is a `MonitoringChangeRefused`. */
-async function sendChange(hass: HomeAssistant, service: string, data: MonitoringServiceData): Promise<void> {
-  if (!canEditMonitoring(hass)) throw new MonitoringChangeRefused();
+async function sendChange(hass: HomeAssistant | null, service: string, data: MonitoringServiceData): Promise<void> {
+  if (!hass || !canEditMonitoring(hass)) throw new MonitoringChangeRefused();
   try {
     await hass.callWS({ type: "call_service", domain: INTEGRATION_DOMAIN, service, service_data: data });
   } catch (err: unknown) {

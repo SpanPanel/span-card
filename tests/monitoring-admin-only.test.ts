@@ -196,10 +196,11 @@ describe("the Monitoring tab, where the integration refuses a change as Unauthor
 });
 
 type SidePanel = HTMLElement & {
-  hass: HomeAssistant;
+  hass: HomeAssistant | null;
   errorStore: ErrorStore | null;
   open(config: unknown): void;
   refreshRating(view: unknown): void;
+  useGlobalThresholds(): Promise<boolean>;
 };
 
 /** A MAIN 32 circuit in one space, holding `copied` as its copy where one is given. */
@@ -217,12 +218,21 @@ function oven(copied: number[] | null): Circuit {
   };
 }
 
-/** The circuit's side panel as the sidebar dashboard opens it on a MAIN 32: its Monitoring section shown, package ratings offered. */
-function openPanel(panel: Integration, circuit: Circuit, monitoringInfo: Partial<MonitoringPointInfo>, errors = new ErrorStore()): SidePanel {
+/**
+ * The circuit's side panel as the sidebar dashboard opens it on a MAIN 32: its
+ * Monitoring section shown, package ratings offered, with `config` over what the
+ * dashboard gives it. `panel` is null for a side panel given no Home Assistant.
+ */
+function openPanel(
+  panel: Integration | null,
+  circuit: Circuit,
+  monitoringInfo: Partial<MonitoringPointInfo>,
+  { errors = new ErrorStore(), config = {} }: { errors?: ErrorStore; config?: Record<string, unknown> } = {}
+): SidePanel {
   const side = document.createElement("span-side-panel") as SidePanel;
   document.body.appendChild(side);
   mounted.push(side);
-  side.hass = panel.hass;
+  side.hass = panel?.hass ?? null;
   side.errorStore = errors;
   side.open({
     uuid: "c-1",
@@ -235,6 +245,7 @@ function openPanel(panel: Integration, circuit: Circuit, monitoringInfo: Partial
     members: [{ uuid: "c-1", circuit }],
     capacityA: null,
     configEntryId: "entry-1",
+    ...config,
   });
   return side;
 }
@@ -256,7 +267,7 @@ describe("a circuit's Monitoring section, where the integration refuses a change
   it("says only an administrator can change monitoring, for the copy's reset and the reset to the global thresholds", async () => {
     vi.spyOn(console, "warn").mockImplementation(() => undefined);
     const errors = new ErrorStore();
-    const side = openPanel(integration({ is_admin: true }, { refusal: UNAUTHORIZED }), oven([20, 20]), OWN_THRESHOLDS, errors);
+    const side = openPanel(integration({ is_admin: true }, { refusal: UNAUTHORIZED }), oven([20, 20]), OWN_THRESHOLDS, { errors });
 
     at(side.shadowRoot!, '[data-role="rating-reset"]').click();
     await vi.waitFor(() => expect(messages(errors)).toEqual([ADMIN_ONLY]));
@@ -269,7 +280,7 @@ describe("a circuit's Monitoring section, where the integration refuses a change
   it("says so for the Monitoring switch, which shows monitoring as it was again, the details under it", async () => {
     vi.spyOn(console, "warn").mockImplementation(() => undefined);
     const errors = new ErrorStore();
-    const side = openPanel(integration({ is_admin: true }, { refusal: UNAUTHORIZED }), oven([20, 20]), OWN_THRESHOLDS, errors);
+    const side = openPanel(integration({ is_admin: true }, { refusal: UNAUTHORIZED }), oven([20, 20]), OWN_THRESHOLDS, { errors });
     const toggle = at<HTMLElement & { checked: boolean }>(side.shadowRoot!, '[data-role="monitoring-toggle"]');
     const details = at(side.shadowRoot!, '[data-role="monitoring-details"]');
 
@@ -280,6 +291,18 @@ describe("a circuit's Monitoring section, where the integration refuses a change
     await vi.waitFor(() => expect(messages(errors)).toEqual([ADMIN_ONLY]));
     expect(toggle.hasAttribute("checked")).toBe(true);
     expect(details.style.display).toBe("block");
+  });
+});
+
+describe("a circuit's Monitoring section, before it is given Home Assistant", () => {
+  it("refuses a change, saying why, rather than taking it as stored", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const errors = new ErrorStore();
+    const side = openPanel(null, oven([20, 20]), OWN_THRESHOLDS, { errors });
+
+    expect(await side.useGlobalThresholds()).toBe(false);
+    expect(messages(errors)).toEqual([ADMIN_ONLY]);
+    expect(at<HTMLInputElement>(side.shadowRoot!, 'input[name="monitoring-mode"][value="custom"]').checked).toBe(true);
   });
 });
 

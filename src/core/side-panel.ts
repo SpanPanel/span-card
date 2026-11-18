@@ -10,14 +10,7 @@ import { PackageRatingsEditor, type PackageRatingsHost, type PackageRatingsView 
 import { bindLimitField, LIMIT_RANGES, type LimitField, type LimitFieldHandle } from "../helpers/number-field.js";
 import { focusWithin } from "../helpers/focus.js";
 import { circuitMonitoringInfo, monitoringStatusFrom } from "./monitoring-status.js";
-import {
-  canEditMonitoring,
-  lockMonitoringControls,
-  monitoringWrites,
-  readOnlyNote,
-  reportMonitoringFailure,
-  type MonitoringWrites,
-} from "./monitoring-access.js";
+import { canEditMonitoring, lockMonitoringControls, monitoringWrites, readOnlyNote, reportMonitoringFailure } from "./monitoring-access.js";
 import { addFavorite, removeFavorite } from "./favorites-store.js";
 import { sortedCircuitsForSection } from "./favorites-sections.js";
 import { subDeviceCharts } from "../helpers/sub-device-power.js";
@@ -1437,11 +1430,11 @@ class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
   }
 
   setPackageRatings(uuid: string, ratings: readonly number[]): Promise<void> {
-    return this._changeMonitoring(writes => writes.setCircuitPackageRatings(this._ratingsPayload(uuid, { package_ratings_a: [...ratings] })));
+    return monitoringWrites(this._hass).setCircuitPackageRatings(this._ratingsPayload(uuid, { package_ratings_a: [...ratings] }));
   }
 
   clearPackageRatings(uuid: string): Promise<void> {
-    return this._changeMonitoring(writes => writes.clearCircuitPackageRatings(this._ratingsPayload(uuid, {})));
+    return monitoringWrites(this._hass).clearCircuitPackageRatings(this._ratingsPayload(uuid, {}));
   }
 
   /** A refusal shows the integration's message in the user's language, else the generic one (`reportPackageRatingsFailure`). */
@@ -1470,7 +1463,7 @@ class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
     const data: Record<string, unknown> = { circuit_id: cfg.entities?.power || cfg.uuid };
     if (cfg.configEntryId) data.config_entry_id = cfg.configEntryId;
     try {
-      await this._changeMonitoring(writes => writes.clearCircuitThreshold(data));
+      await monitoringWrites(this._hass).clearCircuitThreshold(data);
     } catch (err: unknown) {
       reportMonitoringFailure(this.errorStore, err, "monitoring update");
       if (this._config === cfg) {
@@ -1801,7 +1794,7 @@ class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
     const data: Record<string, unknown> = { circuit_id: cfg.entities?.power || cfg.uuid, monitoring_enabled: enabled };
     if (cfg.configEntryId) data.config_entry_id = cfg.configEntryId;
     try {
-      await this._changeMonitoring(writes => writes.setCircuitThreshold(data));
+      await monitoringWrites(this._hass).setCircuitThreshold(data);
       return true;
     } catch (err: unknown) {
       reportMonitoringFailure(this.errorStore, err, "monitoring update");
@@ -1895,10 +1888,12 @@ class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
    * editor's warning, follows without waiting for a refresh.
    */
   private _saveThresholds(cfg: CircuitModeConfig, data: Record<string, unknown>): void {
-    this._changeMonitoring(writes => writes.setCircuitThreshold(data)).then(
-      () => this._readThresholds(cfg, data),
-      (err: unknown) => reportMonitoringFailure(this.errorStore, err, "monitoring update")
-    );
+    monitoringWrites(this._hass)
+      .setCircuitThreshold(data)
+      .then(
+        () => this._readThresholds(cfg, data),
+        (err: unknown) => reportMonitoringFailure(this.errorStore, err, "monitoring update")
+      );
   }
 
   // ── Live state updates ──────────────────────────────────────────────
@@ -1996,12 +1991,6 @@ class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
       service,
       service_data: data,
     });
-  }
-
-  /** Send a monitoring change with `send`, through the changes the user can send (`monitoringWrites`); nothing is sent before the panel has Home Assistant. */
-  private _changeMonitoring(send: (writes: MonitoringWrites) => Promise<void>): Promise<void> {
-    if (!this._hass) return Promise.resolve();
-    return send(monitoringWrites(this._hass));
   }
 
   // ── Debounce ────────────────────────────────────────────────────────

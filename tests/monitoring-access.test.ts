@@ -100,6 +100,13 @@ describe("the monitoring write services", () => {
     expect(sent).toEqual([]);
   });
 
+  it("are refused where there is no Home Assistant yet to send them to", async () => {
+    const writes = monitoringWrites(null);
+    for (const change of changesOf(writes)) {
+      await expect(writes[change]({})).rejects.toBeInstanceOf(MonitoringChangeRefused);
+    }
+  });
+
   it.each([
     ["a service's handler raises it", { code: "home_assistant_error", message: "Unauthorized" }],
     ["a service's handler raises UnknownUser, for a user Home Assistant does not know", { code: "home_assistant_error", message: "UnknownUser" }],
