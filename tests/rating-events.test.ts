@@ -12,7 +12,7 @@ import { discoverEntitiesFallback, discoverTopology } from "../src/card/card-dis
 import { DashboardController } from "../src/core/dashboard-controller.js";
 import { FavoritesController } from "../src/core/favorites-controller.js";
 import { FAVORITES_CHANGED_EVENT } from "../src/core/favorites-store.js";
-import { mergeCircuitIds, PACKAGE_RATINGS_CHANGED, subscribePackageRatingChanges } from "../src/core/rating-events.js";
+import { canHearRatingChanges, mergeCircuitIds, PACKAGE_RATINGS_CHANGED, subscribePackageRatingChanges } from "../src/core/rating-events.js";
 import { ErrorStore } from "../src/core/error-store.js";
 import { DashboardTab } from "../src/panel/tab-dashboard.js";
 import { MonitoringTab } from "../src/panel/tab-monitoring.js";
@@ -120,6 +120,21 @@ describe("subscribePackageRatingChanges", () => {
     const hass = { states: {}, services: {}, language: "en" } as unknown as HomeAssistant;
     const unsubscribe = await subscribePackageRatingChanges(hass, "entry-1", vi.fn());
     expect(() => unsubscribe()).not.toThrow();
+  });
+});
+
+describe("canHearRatingChanges", () => {
+  const connection = new FakeConnection();
+
+  it("is true for an administrator only, as Core lets no one else subscribe to the event", () => {
+    expect(canHearRatingChanges(hassWith(connection, { user: { is_admin: true } }))).toBe(true);
+    expect(canHearRatingChanges(hassWith(connection, { user: { is_admin: false } }))).toBe(false);
+  });
+
+  it("is false where the frontend says nothing of the user yet, or there is no Home Assistant", () => {
+    expect(canHearRatingChanges(hassWith(connection))).toBe(false);
+    expect(canHearRatingChanges(null)).toBe(false);
+    expect(canHearRatingChanges(undefined)).toBe(false);
   });
 });
 
@@ -534,9 +549,11 @@ describe("the standalone card", () => {
   /** What `get_monitoring_status` answers for the Oven; null answers nothing. */
   let cardStatus: Circuit | null = null;
 
-  function hassFor(connection: FakeConnection, states: HomeAssistant["states"] = {}): HomeAssistant {
+  /** Home Assistant for `user`, an administrator unless given another; null for a user the frontend says nothing of. */
+  function hassFor(connection: FakeConnection, states: HomeAssistant["states"] = {}, user: HomeAssistant["user"] | null = { is_admin: true }): HomeAssistant {
     return hassWith(connection, {
       states,
+      user: user ?? undefined,
       callWS: (async (msg: Record<string, unknown>) => {
         if (msg.service === "get_monitoring_status") {
           monitoringCalls += 1;
@@ -548,12 +565,16 @@ describe("the standalone card", () => {
     });
   }
 
-  async function mount(connection: FakeConnection, states: HomeAssistant["states"] = {}): Promise<Card> {
+  async function mount(
+    connection: FakeConnection,
+    states: HomeAssistant["states"] = {},
+    user: HomeAssistant["user"] | null = { is_admin: true }
+  ): Promise<Card> {
     const card = document.createElement("span-panel-card") as Card;
     card.setConfig({ device_id: "panel-1" } as CardConfig);
     document.body.appendChild(card);
     mounted.push(card);
-    card.hass = hassFor(connection, states);
+    card.hass = hassFor(connection, states, user);
     await vi.waitFor(() => expect(connection.subscriptions.length).toBeGreaterThan(0));
     await flush();
     return card;
@@ -624,6 +645,49 @@ describe("the standalone card", () => {
     document.body.appendChild(card);
     await flush();
     expect(connection.live(PACKAGE_RATINGS_CHANGED)).toBe(1);
+  });
+
+  it("does not subscribe for a user who is not an administrator, though its topology came from panel_topology", async () => {
+    const connection = new FakeConnection();
+
+    const card = await mount(connection, {}, { is_admin: false });
+
+    expect(mockDiscover).toHaveBeenCalled();
+    expect(card.shadowRoot!.textContent).toContain("20A");
+    expect(connection.subscriptions.filter(s => s.key === PACKAGE_RATINGS_CHANGED)).toHaveLength(0);
+  });
+
+  it("subscribes once Home Assistant says the user, unknown as the card attached, is an administrator, and once only", async () => {
+    const connection = new FakeConnection();
+    const card = await mount(connection, {}, null);
+    expect(connection.subscriptions.filter(s => s.key === PACKAGE_RATINGS_CHANGED)).toHaveLength(0);
+
+    card.hass = hassFor(connection);
+    await flush();
+    card.hass = hassFor(connection);
+    await flush();
+
+    expect(connection.subscriptions.filter(s => s.key === PACKAGE_RATINGS_CHANGED)).toHaveLength(1);
+    expect(connection.live(PACKAGE_RATINGS_CHANGED)).toBe(1);
+  });
+
+  it("unsubscribes once Home Assistant says the user is no longer an administrator, and subscribes again, once, as it says they are", async () => {
+    const connection = new FakeConnection();
+    const card = await mount(connection);
+    expect(connection.live(PACKAGE_RATINGS_CHANGED)).toBe(1);
+
+    card.hass = hassFor(connection, {}, { is_admin: false });
+    await flush();
+    expect(connection.live(PACKAGE_RATINGS_CHANGED)).toBe(0);
+    card.hass = hassFor(connection, {}, { is_admin: false });
+    await flush();
+
+    card.hass = hassFor(connection);
+    await flush();
+    card.hass = hassFor(connection);
+    await flush();
+    expect(connection.live(PACKAGE_RATINGS_CHANGED)).toBe(1);
+    expect(connection.subscriptions.filter(s => s.key === PACKAGE_RATINGS_CHANGED)).toHaveLength(2);
   });
 
   it("does not subscribe when its topology came from the entity fallback", async () => {
@@ -758,6 +822,34 @@ describe("the sidebar dashboard", () => {
 
     await vi.waitFor(() => expect(side.hass).toBe(admin));
     expect(toggle().hasAttribute("disabled")).toBe(false);
+  });
+
+  it("subscribes once per panel entry once Home Assistant says the user, unknown as the dashboard was drawn, is an administrator", async () => {
+    const connection = new FakeConnection();
+    const panel = await mount(connection, true, { ...panelHass(connection), user: undefined });
+    expect(connection.subscriptions.filter(s => s.key === PACKAGE_RATINGS_CHANGED)).toHaveLength(0);
+
+    panel.hass = panelHass(connection);
+    await flush();
+
+    expect(connection.live(PACKAGE_RATINGS_CHANGED)).toBe(2);
+  });
+
+  it("unsubscribes every panel entry once Home Assistant says the user is no longer an administrator, and subscribes each again, once, as it says they are", async () => {
+    const connection = new FakeConnection();
+    const panel = await mount(connection);
+    expect(connection.live(PACKAGE_RATINGS_CHANGED)).toBe(2);
+
+    panel.hass = panelHass(connection, false);
+    await flush();
+    expect(connection.live(PACKAGE_RATINGS_CHANGED)).toBe(0);
+
+    panel.hass = panelHass(connection);
+    await flush();
+    panel.hass = panelHass(connection);
+    await flush();
+    expect(connection.live(PACKAGE_RATINGS_CHANGED)).toBe(2);
+    expect(connection.subscriptions.filter(s => s.key === PACKAGE_RATINGS_CHANGED)).toHaveLength(4);
   });
 
   it("subscribes nothing for a non-administrator", async () => {

@@ -15,7 +15,7 @@ import { buildTabBarHTML, bindTabBarEvents } from "../core/tab-bar-renderer.js";
 import { subscribeAreaUpdates } from "../core/area-resolver.js";
 import { subscribeDeviceRenames } from "../core/device-rename.js";
 import { subscribeEntryReloads } from "../core/entry-reload.js";
-import { subscribePackageRatingChanges } from "../core/rating-events.js";
+import { canHearRatingChanges, subscribePackageRatingChanges } from "../core/rating-events.js";
 import { coalesceRuns, makeRenderToken } from "../panel/coalesce.js";
 import { ErrorStore } from "../core/error-store.js";
 import { discoverTopology, discoverEntitiesFallback, panelConfigEntryId } from "./card-discovery.js";
@@ -38,7 +38,8 @@ interface SpanSidePanelElement extends HTMLElement {
 
 /**
  * Where first discovery found the topology: the integration's `panel_topology`,
- * which requires an admin, or entity discovery, which is how a non-admin's card works.
+ * or, where that answers nothing, entity discovery, as against an integration
+ * that lets only an administrator read `panel_topology`.
  */
 type TopologySource = "panel_topology" | "entity_fallback";
 
@@ -237,6 +238,7 @@ export class SpanPanelCard extends LitElement {
     if (this._discovered) {
       this._ctrl.recordSamples();
       this._ctrl.updateDOM(this._root);
+      this._syncRatingSubscription();
 
       const sidePanel = this._root.querySelector("span-side-panel") as SpanSidePanelElement | null;
       if (sidePanel) {
@@ -324,8 +326,10 @@ export class SpanPanelCard extends LitElement {
    * or removes a circuit's controls, and after a device the card shows by name
    * is renamed, which no reload follows. It asks the source first discovery
    * used, in one attempt: the entry has already reached `loaded`, so retries buy
-   * nothing, and a non-admin's card must never ask `panel_topology`. A failure
-   * keeps the rendered topology and is only logged; it is a background refresh.
+   * nothing, and a card that fell back to entity discovery, as against an
+   * integration that lets only an administrator read `panel_topology`, keeps to
+   * it rather than ask again. A failure keeps the rendered topology and is only
+   * logged; it is a background refresh.
    * No subscription is re-created -- the area and rename ones read the topology
    * through their getter -- and history, keyed by entity id, is kept.
    */
@@ -405,17 +409,39 @@ export class SpanPanelCard extends LitElement {
       console.warn("SPAN Panel: config entry subscription failed", err);
       return async () => {};
     });
-    // Only `panel_topology` carries a rating, and only an administrator can read it or hear this event.
-    const entryId = this._configEntryId;
-    if (this._topologySource === "panel_topology" && entryId) {
-      this._ratingSub = subscribePackageRatingChanges(this.hass, entryId, () => {
-        void this._onRatingChanged();
-      }).catch((err: unknown): (() => void) => {
-        console.warn("SPAN Panel: monitoring rating subscription failed", err);
-        return () => {};
-      });
-    }
+    this._syncRatingSubscription();
     this._watchPanelStatus();
+  }
+
+  /**
+   * Subscribe to the panel's rating changes where the card is attached, holds
+   * none, its topology came from `panel_topology`, the one source that carries a
+   * rating, and the user may hear the event (`canHearRatingChanges`): Core refuses
+   * it to anyone else, whose card takes a changed copy as it next reads the
+   * topology. Run as the card attaches, and on every change of Home Assistant, so
+   * it subscribes once the frontend says the user is an administrator, and drops
+   * the subscription once it says the user is not one, as a reconnect can find.
+   */
+  private _syncRatingSubscription(): void {
+    if (!canHearRatingChanges(this.hass)) {
+      this._dropRatingSubscription();
+      return;
+    }
+    const entryId = this._configEntryId;
+    if (!this.isConnected || this._ratingSub || this._topologySource !== "panel_topology" || !entryId) return;
+    this._ratingSub = subscribePackageRatingChanges(this.hass, entryId, () => {
+      void this._onRatingChanged();
+    }).catch((err: unknown): (() => void) => {
+      console.warn("SPAN Panel: monitoring rating subscription failed", err);
+      return () => {};
+    });
+  }
+
+  /** Unsubscribe from the panel's rating changes, through the promise held, whenever it resolves. */
+  private _dropRatingSubscription(): void {
+    const rating = this._ratingSub;
+    this._ratingSub = null;
+    void rating?.then(unsubscribe => unsubscribe());
   }
 
   /**
@@ -437,15 +463,13 @@ export class SpanPanelCard extends LitElement {
     const area = this._areaSub;
     const rename = this._renameSub;
     const reload = this._reloadSub;
-    const rating = this._ratingSub;
     this._areaSub = null;
     this._renameSub = null;
     this._reloadSub = null;
-    this._ratingSub = null;
     void area?.then(unsubscribe => unsubscribe());
     void rename?.then(unsubscribe => unsubscribe());
     void reload?.then(unsubscribe => unsubscribe());
-    void rating?.then(unsubscribe => unsubscribe());
+    this._dropRatingSubscription();
   }
 
   /** `watchPanelStatus` replaces the watch set wholesale and keeps `wasOffline`, so calling it again is safe. */
