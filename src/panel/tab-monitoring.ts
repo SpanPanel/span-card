@@ -1257,21 +1257,21 @@ export class MonitoringTab {
 
     if (enabledCheckbox) {
       // Turning monitoring on sends the four global fields as they stand, so it is
-      // refused where one is not a whole number in its range; refused, or refused
-      // by the integration, the switch and the fields are put back as they were.
+      // refused where one is not a whole number in its range, sending nothing, and
+      // the switch and the fields are put back as they were. Stored, or refused by
+      // the integration, the tab is read again, so the switch shows what is stored
+      // whatever else was sent meanwhile; a refusal is then said beside it.
       enabledCheckbox.addEventListener("change", async () => {
         const epoch = this._epoch;
         const enabled = enabledCheckbox.checked;
-        const putBack = (): void => {
-          enabledCheckbox.checked = !enabled;
-          showFields(!enabled);
-        };
         showFields(enabled);
+        let refused: { readonly reason: unknown } | null = null;
         try {
           if (enabled) {
             const data = readGlobalFields();
             if (!data) {
-              putBack();
+              enabledCheckbox.checked = !enabled;
+              showFields(!enabled);
               reportFailure(statusEl, null, t("monitoring.enable_invalid"));
               return;
             }
@@ -1280,11 +1280,11 @@ export class MonitoringTab {
             await this._callSetGlobal(hass, { enabled: false });
           }
         } catch (err: unknown) {
-          putBack();
-          reportFailure(statusEl, err, t("error.failed"));
-          return;
+          refused = { reason: err };
         }
         await this._redraw(container, hass, epoch);
+        // Said in the status line the redraw drew, where the user is still on the tab.
+        if (refused && epoch === this._epoch) reportFailure(container.querySelector<HTMLElement>("#global-status"), refused.reason, t("error.failed"));
       });
     }
   }
@@ -1448,6 +1448,11 @@ export class MonitoringTab {
     });
   }
 
+  /**
+   * The mains' switch turns monitoring on or off for its leg. Stored or refused,
+   * the tab is read again, so the switch shows what is stored, whatever else was
+   * sent meanwhile; a refusal is said.
+   */
   private _bindMainsToggles(container: HTMLElement, hass: HomeAssistant): void {
     for (const cb of container.querySelectorAll<HTMLInputElement>(".mains-toggle")) {
       cb.addEventListener("change", async () => {
@@ -1458,23 +1463,18 @@ export class MonitoringTab {
           await monitoringWrites(hass).setMainsThreshold(this._serviceData({ leg: entityId, monitoring_enabled: enabled }));
         } catch (err) {
           reportMonitoringFailure(this.errorStore, err, "mains threshold toggle");
-          cb.checked = !enabled;
-          return;
         }
         await this._redraw(container, hass, epoch);
       });
     }
   }
 
-  /** A circuit's switch turns monitoring on or off for it (`_setCircuitMonitoring`), and goes back where that fails. */
+  /** A circuit's switch turns monitoring on or off for it (`_setCircuitMonitoring`), which shows what is stored once that settles. */
   private _bindCircuitToggles(container: HTMLElement, hass: HomeAssistant): void {
     for (const cb of container.querySelectorAll<HTMLInputElement>(".circuit-toggle")) {
       const entityId = cb.dataset.entity;
       if (entityId === undefined) continue;
-      cb.addEventListener("change", async () => {
-        const enabled = cb.checked;
-        if (!(await this._setCircuitMonitoring(container, hass, entityId, enabled))) cb.checked = !enabled;
-      });
+      cb.addEventListener("change", () => void this._setCircuitMonitoring(container, hass, entityId, cb.checked));
     }
   }
 
@@ -1489,19 +1489,21 @@ export class MonitoringTab {
 
   /**
    * Turn monitoring on or off for circuit `entityId`, the one call the row's
-   * switch and the averaged-legs warning's button both send, then read the tab
-   * again. Resolves whether it was stored; a failure is said, and nothing redrawn.
+   * switch and the averaged-legs warning's button both send. Stored or refused,
+   * the tab is read again, so the row shows what is stored, whatever else was
+   * sent meanwhile; a refusal is said. Resolves whether it was stored.
    */
   private async _setCircuitMonitoring(container: HTMLElement, hass: HomeAssistant, entityId: string, enabled: boolean): Promise<boolean> {
     const epoch = this._epoch;
+    let stored = true;
     try {
       await monitoringWrites(hass).setCircuitThreshold(this._serviceData({ circuit_id: entityId, monitoring_enabled: enabled }));
     } catch (err) {
       reportMonitoringFailure(this.errorStore, err, "circuit threshold toggle");
-      return false;
+      stored = false;
     }
     await this._redraw(container, hass, epoch);
-    return true;
+    return stored;
   }
 
   /**

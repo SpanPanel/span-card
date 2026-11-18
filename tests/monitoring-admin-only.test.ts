@@ -158,24 +158,27 @@ describe("the Monitoring tab, where the integration refuses a change as Unauthor
     return { container, errors };
   }
 
-  it("says so beside the global settings, the Enabled switch put back", async () => {
+  it("says so beside the global settings, the Enabled switch drawn as stored", async () => {
     const { container } = await refused();
     const enabled = at<HTMLInputElement>(container, "#monitoring-enabled");
     enabled.checked = false;
     enabled.dispatchEvent(new Event("change"));
 
+    // Said in the status line the redraw draws, the switch drawn again from the status.
     await vi.waitFor(() => expect(at(container, "#global-status").textContent).toBe(`Error: ${ADMIN_ONLY}`));
-    expect(enabled.checked).toBe(true);
+    expect(at<HTMLInputElement>(container, "#monitoring-enabled").checked).toBe(true);
   });
 
-  it("says so for a circuit's switch, put back as it was", async () => {
+  it("says so for a circuit's switch, drawn as stored", async () => {
     const { container, errors } = await refused();
-    const toggle = at<HTMLInputElement>(container, `.circuit-toggle[data-entity="${OVEN}"]`);
-    toggle.checked = false;
-    toggle.dispatchEvent(new Event("change"));
+    const toggle = (): HTMLInputElement => at<HTMLInputElement>(container, `.circuit-toggle[data-entity="${OVEN}"]`);
+    const before = toggle();
+    before.checked = false;
+    before.dispatchEvent(new Event("change"));
 
-    await vi.waitFor(() => expect(messages(errors)).toEqual([ADMIN_ONLY]));
-    expect(toggle.checked).toBe(true);
+    await vi.waitFor(() => expect(toggle()).not.toBe(before));
+    expect(messages(errors)).toEqual([ADMIN_ONLY]);
+    expect(toggle().checked).toBe(true);
   });
 
   it("says so for a point's Reset, and for a copy's ✕", async () => {
