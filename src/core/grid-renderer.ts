@@ -16,7 +16,8 @@ import {
   switchPresence,
 } from "./circuit-state.js";
 import { buildSheddingIconHTML, buildTogglePillHTML } from "./circuit-controls.js";
-import type { PanelTopology, Circuit, HomeAssistant, CardConfig, MonitoringStatus, MonitoringPointInfo } from "../types.js";
+import { circuitControlAccess } from "./control-access.js";
+import type { PanelTopology, Circuit, HomeAssistant, CardConfig, ControlAccess, MonitoringStatus, MonitoringPointInfo } from "../types.js";
 
 type SlotLayout = "single" | "row-span" | "col-span";
 
@@ -70,10 +71,11 @@ export function buildGridHTML(
   function lookupMonitoring(entry: TabMapEntry): {
     monInfo: MonitoringPointInfo | null;
     sheddingPriority: string;
+    access: ControlAccess;
   } {
     const monInfo = circuitMonitoringInfo(monitoringStatus, entry.circuit);
     const sheddingPriority = shedPriorityKey(entry.circuit, hass);
-    return { monInfo, sheddingPriority };
+    return { monInfo, sheddingPriority, access: circuitControlAccess(topology, entry.uuid) };
   }
 
   // A row the range starts or ends inside draws only its in-range side.
@@ -94,7 +96,7 @@ export function buildGridHTML(
     gridHTML += leftLabel;
 
     if (leftEntry && leftEntry.layout === "row-span") {
-      const { monInfo, sheddingPriority } = lookupMonitoring(leftEntry);
+      const { monInfo, sheddingPriority, access } = lookupMonitoring(leftEntry);
       gridHTML += renderCircuitSlot(
         leftEntry.uuid,
         leftEntry.circuit,
@@ -105,6 +107,7 @@ export function buildGridHTML(
         config,
         monInfo,
         sheddingPriority,
+        access,
         leftEntry.members
       );
       gridHTML += rightLabel;
@@ -113,7 +116,7 @@ export function buildGridHTML(
 
     if (!rowsToSkipLeft.has(row)) {
       if (leftEntry && (leftEntry.layout === "col-span" || leftEntry.layout === "single")) {
-        const { monInfo, sheddingPriority } = lookupMonitoring(leftEntry);
+        const { monInfo, sheddingPriority, access } = lookupMonitoring(leftEntry);
         gridHTML += renderCircuitSlot(
           leftEntry.uuid,
           leftEntry.circuit,
@@ -124,6 +127,7 @@ export function buildGridHTML(
           config,
           monInfo,
           sheddingPriority,
+          access,
           leftEntry.members
         );
       } else if (!occupiedTabs.has(leftTab) && inRange(leftTab)) {
@@ -133,7 +137,7 @@ export function buildGridHTML(
 
     if (!rowsToSkipRight.has(row)) {
       if (rightEntry && (rightEntry.layout === "col-span" || rightEntry.layout === "single")) {
-        const { monInfo, sheddingPriority } = lookupMonitoring(rightEntry);
+        const { monInfo, sheddingPriority, access } = lookupMonitoring(rightEntry);
         gridHTML += renderCircuitSlot(
           rightEntry.uuid,
           rightEntry.circuit,
@@ -144,6 +148,7 @@ export function buildGridHTML(
           config,
           monInfo,
           sheddingPriority,
+          access,
           rightEntry.members
         );
       } else if (!occupiedTabs.has(rightTab) && inRange(rightTab)) {
@@ -159,7 +164,8 @@ export function buildGridHTML(
 /**
  * Render a single circuit breaker slot. With more than one member it is the slot
  * of circuits that share a meter: `circuit` is the one it reads and switches
- * through, and each member gives its name and rating.
+ * through, and each member gives its name and rating. `access` says whether the
+ * user may operate its switch (`circuitControlAccess`).
  */
 export function renderCircuitSlot(
   uuid: string,
@@ -171,6 +177,7 @@ export function renderCircuitSlot(
   config: CardConfig,
   monitoringInfo: MonitoringPointInfo | null,
   sheddingPriority: string,
+  access: ControlAccess,
   members: readonly Circuit[] = [circuit],
   inline = false
 ): string {
@@ -223,7 +230,7 @@ export function renderCircuitSlot(
           <span class="power-value">
             ${valueHTML}
           </span>
-          ${buildTogglePillHTML(isOn, presence, shared && sharesRelay(members))}
+          ${buildTogglePillHTML(isOn, presence, access, shared && sharesRelay(members))}
         </div>
       </div>
       <div class="circuit-status">

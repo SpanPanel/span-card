@@ -3,6 +3,7 @@ import { buildListRowHTML } from "../src/core/list-renderer.js";
 import { DashboardController } from "../src/core/dashboard-controller.js";
 import { ListViewController } from "../src/core/list-view-controller.js";
 import type { CardConfig, Circuit, HomeAssistant, PanelTopology } from "../src/types.js";
+import { CONTROLS_OPERABLE } from "../src/core/control-access.js";
 
 const SWITCH = "switch.kitchen_breaker";
 const SELECT = "select.kitchen_circuit_priority";
@@ -26,7 +27,7 @@ function hassWith(states: Record<string, string>): HomeAssistant {
 
 function rendered(hass: HomeAssistant, priority: string): HTMLElement {
   const root = document.createElement("div");
-  root.innerHTML = buildListRowHTML("kitchen", KITCHEN, hass, CONFIG, null, priority, false, KITCHEN);
+  root.innerHTML = buildListRowHTML("kitchen", KITCHEN, hass, CONFIG, null, priority, false, KITCHEN, CONTROLS_OPERABLE);
   return root;
 }
 
@@ -82,7 +83,7 @@ describe("updateCollapsedRows readings and order", () => {
     const cells = order
       .map(
         uuid =>
-          `<div class="list-cell" data-cell-uuid="${uuid}">${buildListRowHTML(uuid, CIRCUITS[uuid as keyof typeof CIRCUITS], hass, CONFIG, null, "unknown", false, CIRCUITS[uuid as keyof typeof CIRCUITS])}</div>`
+          `<div class="list-cell" data-cell-uuid="${uuid}">${buildListRowHTML(uuid, CIRCUITS[uuid as keyof typeof CIRCUITS], hass, CONFIG, null, "unknown", false, CIRCUITS[uuid as keyof typeof CIRCUITS], CONTROLS_OPERABLE)}</div>`
       )
       .join("");
     root.innerHTML = `<div class="list-view">${cells}</div>`;

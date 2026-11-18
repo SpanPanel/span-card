@@ -20,6 +20,7 @@ import { DEVICE_REGISTRY_UPDATED, renamedDeviceId, topologyNamesDevice } from ".
 import { subscribeEntryReloads } from "../core/entry-reload.js";
 import { discoverPanelDevices } from "../core/panel-devices.js";
 import { canHearRatingChanges, mergeCircuitIds, subscribePackageRatingChanges } from "../core/rating-events.js";
+import { controlNoteHTML, favoritesPanelAccess, viewControlAccess } from "../core/control-access.js";
 import { canEditMonitoring } from "../core/monitoring-access.js";
 import { sameTopologyStructure } from "../core/topology-structure.js";
 import { discoverTopology } from "../card/card-discovery.js";
@@ -817,6 +818,19 @@ export class SpanPanelElement extends LitElement {
     return named;
   }
 
+  /**
+   * Give a circuit side panel open on panel `panelId` the access the user now has
+   * to that panel's controls, as `topology`, fetched again, says it
+   * (`refreshCircuitControlAccess`).
+   */
+  private _refreshOpenSidePanelAccess(panelId: string, topology: PanelTopology): void {
+    const container = this._root.getElementById("tab-content");
+    const entryId = this._panels.find(p => p.id === panelId)?.config_entry_id;
+    if (!container || !entryId) return;
+    if (this._activeTab === "dashboard" && !this._isFavoritesView) this._dashboardTab.refreshSidePanelControlAccess(entryId, topology);
+    else this._listDashCtrl.refreshCircuitControlAccess(container, entryId, topology);
+  }
+
   private async _refreshOpenSidePanel(entryId: string, topology: PanelTopology, circuitIds: ReadonlySet<string> | null): Promise<void> {
     const container = this._root.getElementById("tab-content");
     if (!container) return;
@@ -880,6 +894,9 @@ export class SpanPanelElement extends LitElement {
     }
     // The view re-rendered meanwhile, from a topology at least as new.
     if (this._renderedTopologies.get(panelId) !== rendered) return;
+    // A change of access is a change of structure, but the view waits for an
+    // open side panel to close, so that panel takes the access now.
+    if (topology) this._refreshOpenSidePanelAccess(panelId, topology);
     if (topology && onTopology) {
       await onTopology(topology);
       if (this._renderedTopologies.get(panelId) !== rendered) return;
@@ -1150,12 +1167,12 @@ export class SpanPanelElement extends LitElement {
    * ``.favorites-summary-right``. The actual HTML is produced by the
    * pure ``buildFavoritesSummaryHTML`` helper in
    * ``src/panel/favorites-summary.ts`` so it can be unit-tested
-   * without a DOM; this wrapper just threads the current amps-mode
-   * flag through.
+   * without a DOM; this wrapper threads the current amps-mode flag through,
+   * and the access the merged view's slider answers for (`viewControlAccess`).
    */
-  private _buildFavoritesSummaryHTML(): string {
+  private _buildFavoritesSummaryHTML(merged: FavoritesTopology): string {
     const isAmpsMode = (this._chartMetric || "power") === "current";
-    return buildFavoritesSummaryHTML(isAmpsMode);
+    return buildFavoritesSummaryHTML(isAmpsMode, viewControlAccess(merged));
   }
 
   /**
@@ -1164,13 +1181,20 @@ export class SpanPanelElement extends LitElement {
    * columns based on viewport width. Live values are filled in by
    * ``_updateFavoritesPanelStats`` on each interval tick.
    */
-  private _buildFavoritesPanelStatsGridHTML(perPanelStats: FavoritesPanelStatsInfo[], config: CardConfig): string {
+  private _buildFavoritesPanelStatsGridHTML(perPanelStats: FavoritesPanelStatsInfo[], merged: FavoritesTopology, config: CardConfig): string {
     if (perPanelStats.length === 0) return "";
+    // Under its name, each panel the user may not operate says why: the view mixes panels, so its slider cannot say it for all.
+    const panelAccess = favoritesPanelAccess(merged);
+    const noteFor = (panelDeviceId: string): string => {
+      const access = panelAccess.get(panelDeviceId);
+      return access ? controlNoteHTML(access) : "";
+    };
     const cards = perPanelStats
       .map(
         info => `
       <div class="favorites-panel-card">
         <div class="favorites-panel-card-title">${escapeHtml(info.panelName || info.topology.device_name || "")}</div>
+        ${noteFor(info.panelDeviceId)}
         ${buildPanelStatsHTML(info.topology, config, info.panelDeviceId)}
       </div>
     `
@@ -1492,8 +1516,8 @@ export class SpanPanelElement extends LitElement {
     try {
       await this._listDashCtrl.loadHistory();
       if (superseded()) return;
-      const summaryHTML = this._buildFavoritesSummaryHTML();
-      const panelStatsHTML = this._buildFavoritesPanelStatsGridHTML(build.perPanelStats, config);
+      const summaryHTML = this._buildFavoritesSummaryHTML(merged);
+      const panelStatsHTML = this._buildFavoritesPanelStatsGridHTML(build.perPanelStats, merged, config);
       const subDevicesHTML = hasSubDevices
         ? `<div class="favorites-subdevices-section">
              <div class="sub-devices">${buildSubDevicesHTML(merged, this.hass, config, { showFavorites: this._listDashCtrl.showFavorites })}</div>

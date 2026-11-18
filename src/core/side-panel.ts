@@ -11,6 +11,7 @@ import { bindLimitField, LIMIT_RANGES, type LimitField, type LimitFieldHandle } 
 import { focusWithin } from "../helpers/focus.js";
 import { circuitMonitoringInfo, monitoringStatusFrom } from "./monitoring-status.js";
 import { canEditMonitoring, lockMonitoringControls, monitoringWrites, readOnlyNote, reportMonitoringFailure } from "./monitoring-access.js";
+import { CONTROLS_NOT_KNOWN, controlNoteHTML, controlWrites, reportControlFailure, titleControl } from "./control-access.js";
 import { addFavorite, removeFavorite } from "./favorites-store.js";
 import { sortedCircuitsForSection } from "./favorites-sections.js";
 import { subDeviceCharts } from "../helpers/sub-device-power.js";
@@ -18,6 +19,7 @@ import { subDeviceFavoriteEntityId } from "../helpers/sub-device-settings.js";
 import { relayClosed, selectOperable, shedPriorityKey, switchPresence, type CircuitControlFields } from "./circuit-state.js";
 import type { SpanSwitch } from "./span-switch.js";
 import type {
+  ControlAccess,
   HomeAssistant,
   PanelTopology,
   GraphSettings,
@@ -105,6 +107,11 @@ export type CircuitModeConfig = CircuitControlFields & {
   isFavorite?: boolean;
   /** Route domain service calls to this config entry (favorites view). */
   configEntryId?: string | null;
+  /**
+   * Whether the user may operate the circuit's relay and shedding priority, as its panel says (`circuitControlAccess`).
+   * Every caller says it: only the wire reader (`controlAccess`) takes the integration's silence as operable.
+   */
+  controlAccess: ControlAccess;
 };
 
 interface SubDeviceModeConfig {
@@ -157,6 +164,11 @@ const LIMIT_FIELDS: Readonly<Record<LimitKey, LimitField>> = {
   "window-m": "window_duration_m",
   "cooldown-m": "cooldown_duration_m",
 };
+
+/** The ids that name the circuit's relay switch and priority select, and the note that says why neither can be operated. One circuit is shown at a time. */
+const RELAY_LABEL_ID = "relay-label";
+const PRIORITY_LABEL_ID = "priority-label";
+const CONTROLS_NOTE_ID = "controls-note";
 
 // ── Styles ────────────────────────────────────────────────────────────────
 
@@ -253,6 +265,12 @@ const STYLES = `
     align-items: center;
     justify-content: space-between;
     padding: 8px 0;
+  }
+  /* Why the section's relay or priority cannot be operated, under it. */
+  .controls-note {
+    margin: 4px 0 0;
+    font-size: 0.85em;
+    color: var(--secondary-text-color, #727272);
   }
   .field-label {
     font-size: 14px;
@@ -528,6 +546,13 @@ class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
   private _limitFields: LimitFieldHandle[] = [];
   /** The open circuit's monitoring as the integration holds it, which its Monitoring switch shows again; null in any other mode. */
   private _storedMonitoring: StoredMonitoring | null = null;
+  /**
+   * Whether the user may operate the open circuit's relay and priority: as the
+   * panel opened with it (`controlAccess`), then as a topology fetched again
+   * says it (`refreshControlAccess`). Not operable while no circuit is open, in
+   * any other mode, which has neither.
+   */
+  private _controlAccess: ControlAccess = CONTROLS_NOT_KNOWN;
   constructor() {
     super();
     this.attachShadow({ mode: "open" });
@@ -557,16 +582,11 @@ class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
     return this._hass;
   }
 
-  disconnectedCallback(): void {
-    this._clearDebounceTimers();
-    this._config = null;
-    this._storedMonitoring = null;
-  }
-
   open(config: SidePanelConfig): void {
     this._config = config;
     this._storedMonitoring =
       config.panelMode || config.subDeviceMode || config.favoritesMode ? null : new StoredMonitoring(config.uuid, isMonitored(config.monitoringInfo));
+    this._controlAccess = config.panelMode || config.subDeviceMode || config.favoritesMode ? CONTROLS_NOT_KNOWN : config.controlAccess;
     this._render();
     // Force reflow before adding attribute so the transition animates
     void this.offsetHeight;
@@ -612,21 +632,14 @@ class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
   }
 
   close(): void {
-    // Cancel any still-pending debounced writes so they don't fire
-    // against a torn-down ``_config`` and leak a stale service call.
-    this._clearDebounceTimers();
+    // A pending debounced write is left to be sent: it is the user's change,
+    // and reads only what it captured and Home Assistant (`_debounce`).
     this.removeAttribute("open");
     this.removeAttribute("data-mode");
     this._config = null;
     this._storedMonitoring = null;
+    this._controlAccess = CONTROLS_NOT_KNOWN;
     this.dispatchEvent(new CustomEvent("side-panel-closed", { bubbles: true, composed: true }));
-  }
-
-  private _clearDebounceTimers(): void {
-    for (const key of Object.keys(this._debounceTimers)) {
-      clearTimeout(this._debounceTimers[key]);
-    }
-    this._debounceTimers = {};
   }
 
   private _modeFor(cfg: SidePanelConfig): "favorites" | "panel" | "subDevice" | "circuit" {
@@ -819,7 +832,7 @@ class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
           select.appendChild(opt);
         }
         select.addEventListener("change", () => {
-          this._debounce(`subdev-${devId}`, INPUT_DEBOUNCE_MS, () => {
+          this._debounce(`subdev-${cfg.configEntryId ?? ""}-${devId}`, INPUT_DEBOUNCE_MS, () => {
             const data: Record<string, unknown> = {
               subdevice_id: devId,
               horizon: select.value,
@@ -927,7 +940,7 @@ class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
       select.appendChild(opt);
     }
     select.addEventListener("change", () => {
-      this._debounce(`circuit-${uuid}`, INPUT_DEBOUNCE_MS, () => {
+      this._debounce(`circuit-${configEntryId ?? ""}-${uuid}`, INPUT_DEBOUNCE_MS, () => {
         const data: Record<string, unknown> = {
           circuit_id: uuid,
           horizon: select.value,
@@ -1059,10 +1072,46 @@ class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
       this._renderFavoriteSection(body, cfg);
     }
     this._renderSheddingSection(body, cfg);
+    this._placeControlNote(body);
     this._renderGraphHorizonSection(body, cfg);
     if (cfg.showMonitoring) {
       this._renderMonitoringSection(body, cfg);
     }
+  }
+
+  /**
+   * Where the user may not operate the circuit's controls (`_controlAccess`),
+   * the first section in `scope` holding one says why, in a note of its own;
+   * elsewhere none does.
+   */
+  private _placeControlNote(scope: ParentNode): void {
+    scope.querySelector('[data-role="controls-note"]')?.remove();
+    const controls = [...scope.querySelectorAll<HTMLElement>('[data-role="relay-toggle"], [data-role="shedding-select"]')];
+    controls[0]?.closest(".section")?.insertAdjacentHTML("beforeend", controlNoteHTML(this._controlAccess));
+    const note = scope.querySelector<HTMLElement>('[data-role="controls-note"]');
+    if (note) note.id = CONTROLS_NOTE_ID;
+    for (const control of controls) {
+      if (note) control.setAttribute("aria-describedby", CONTROLS_NOTE_ID);
+      else control.removeAttribute("aria-describedby");
+    }
+  }
+
+  /**
+   * Take the access the user now has to the open circuit's relay and priority,
+   * as a topology fetched again says it (`circuitControlAccess`). Where it
+   * changed, the relay switch, the priority select and the note saying why are
+   * brought up to date in place, so nothing else drawn, a monitoring edit in
+   * progress among it, is lost. Ignored while closed or in any other mode.
+   */
+  refreshControlAccess(access: ControlAccess): void {
+    const cfg = this._config;
+    const shadow = this.shadowRoot;
+    if (!cfg || !shadow || !this.hasAttribute("open") || cfg.panelMode || cfg.subDeviceMode || cfg.favoritesMode) return;
+    const current = this._controlAccess;
+    if (current.mayOperate === access.mayOperate && current.reason === access.reason) return;
+    this._controlAccess = access;
+    this._updateLiveState();
+    this._placeControlNote(shadow);
   }
 
   /**
@@ -1407,27 +1456,28 @@ class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
 
     const label = document.createElement("span");
     label.className = "field-label";
+    label.id = RELAY_LABEL_ID;
     label.textContent = t("sidepanel.breaker");
 
     const toggle = document.createElement("span-switch");
     toggle.dataset.role = "relay-toggle";
+    // Named by its label, as a native control would be; described by the note saying why it cannot be operated, where one shows.
+    toggle.setAttribute("aria-labelledby", RELAY_LABEL_ID);
     const entityId = cfg.entities.switch;
     this._applyRelayToggle(toggle, cfg);
 
     toggle.addEventListener("change", () => {
-      if (!this._hass || switchPresence(cfg, this._hass) !== "operable") return;
+      const hass = this._hass;
+      if (!hass || !entityId || switchPresence(cfg, hass) !== "operable") return;
       // The switch has already flipped `checked`; its attribute reflects only on
       // Lit's next update, so it still reads the old state here.
-      const isOn = toggle.checked;
-      this._callService("switch", isOn ? "turn_on" : "turn_off", { entity_id: entityId }).catch((err: Error) => {
-        console.warn("SPAN Panel: relay toggle failed", err);
-        this.errorStore?.add({
-          key: "service:relay",
-          level: "error",
-          message: t("error.relay_failed"),
-          persistent: false,
+      controlWrites(hass, this._controlAccess)
+        .setRelay(entityId, toggle.checked)
+        .catch((err: unknown) => {
+          reportControlFailure(hass, this.errorStore, err, "relay");
+          // Refused, the switch shows the relay as Home Assistant reports it now, never as it was clicked.
+          this._applyRelayToggle(toggle, cfg);
         });
-      });
     });
 
     row.appendChild(label);
@@ -1450,10 +1500,12 @@ class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
 
     const label = document.createElement("span");
     label.className = "field-label";
+    label.id = PRIORITY_LABEL_ID;
     label.textContent = t("sidepanel.priority_label");
 
     const selectEl = document.createElement("select");
     selectEl.dataset.role = "shedding-select";
+    selectEl.setAttribute("aria-labelledby", PRIORITY_LABEL_ID);
     const entityId = cfg.entities.select;
 
     for (const key of SELECTABLE_PRIORITY_KEYS) {
@@ -1466,15 +1518,15 @@ class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
     }
 
     selectEl.addEventListener("change", () => {
-      this._callService("select", "select_option", { entity_id: entityId, option: selectEl.value }).catch((err: Error) => {
-        console.warn("SPAN Panel: shedding update failed", err);
-        this.errorStore?.add({
-          key: "service:shedding",
-          level: "error",
-          message: t("error.shedding_failed"),
-          persistent: false,
+      const hass = this._hass;
+      if (!hass) return;
+      controlWrites(hass, this._controlAccess)
+        .setPriority(entityId, selectEl.value)
+        .catch((err: unknown) => {
+          reportControlFailure(hass, this.errorStore, err, "priority");
+          // Refused, the select shows the priority as Home Assistant reports it now, never as it was chosen.
+          this._applySheddingSelect(selectEl, cfg);
         });
-      });
     });
 
     row.appendChild(label);
@@ -2023,21 +2075,33 @@ class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
     }
   }
 
-  /** The relay switch shows the relay state; it is disabled while Home Assistant reports it unavailable. */
+  /**
+   * The relay switch shows the relay state. It is disabled while Home Assistant
+   * reports it unavailable, and where the user may not operate the panel's
+   * controls (`_controlAccess`), titled with why.
+   */
   private _applyRelayToggle(toggle: SpanSwitch, cfg: CircuitModeConfig): void {
     if (!this._hass) return;
-    toggle.disabled = switchPresence(cfg, this._hass) !== "operable";
+    const access = this._controlAccess;
+    toggle.disabled = !access.mayOperate || switchPresence(cfg, this._hass) !== "operable";
+    titleControl(toggle, access);
     if (relayClosed(cfg, this._hass)) toggle.setAttribute("checked", "");
     else toggle.removeAttribute("checked");
   }
 
-  /** The select shows the last known priority, or none chosen when it is unknown, and is disabled unless operable. */
+  /**
+   * The select shows the last known priority, or none chosen when it is
+   * unknown. It is disabled unless operable, and where the user may not operate
+   * the panel's controls (`_controlAccess`), titled with why.
+   */
   private _applySheddingSelect(selectEl: HTMLSelectElement, cfg: CircuitModeConfig): void {
     if (!this._hass) return;
+    const access = this._controlAccess;
     const key = shedPriorityKey(cfg, this._hass);
     if (SELECTABLE_PRIORITY_KEYS.includes(key)) selectEl.value = key;
     else selectEl.selectedIndex = -1;
-    selectEl.disabled = !selectOperable(cfg, this._hass);
+    selectEl.disabled = !access.mayOperate || !selectOperable(cfg, this._hass);
+    titleControl(selectEl, access);
   }
 
   /**
@@ -2083,11 +2147,6 @@ class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
     return monitoringStatusFrom(resp?.response);
   }
 
-  private _callService(domain: string, service: string, data: Record<string, unknown>): Promise<void> {
-    if (!this._hass) return Promise.resolve();
-    return Promise.resolve(this._hass.callService(domain, service, data));
-  }
-
   private _callDomainService(service: string, data: Record<string, unknown>): Promise<void> {
     if (!this._hass) return Promise.resolve();
     return this._hass.callWS({
@@ -2100,6 +2159,18 @@ class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
 
   // ── Debounce ────────────────────────────────────────────────────────
 
+  /**
+   * Run `fn` once `ms` pass with no other call under `key`, which names what the
+   * write changes and on which config entry, so only a later change of the same
+   * thing replaces it. A write so delayed is the user's change, already shown by
+   * the control they changed, so nothing cancels it: it is sent once its time
+   * comes, whether the panel was closed, opened again on another circuit, moved
+   * by a dashboard with its card, as a masonry view does re-columning on
+   * rotation, or taken off the page. Each write reads only what it captured and
+   * Home Assistant, never the panel's config. A moved panel goes on as it was,
+   * its circuit, access, stored monitoring, controls and pending writes intact;
+   * the panel's state is reset only as it opens or closes (`open`, `close`).
+   */
   private _debounce(key: string, ms: number, fn: () => void): void {
     if (this._debounceTimers[key]) {
       clearTimeout(this._debounceTimers[key]);

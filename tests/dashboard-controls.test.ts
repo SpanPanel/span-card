@@ -1,16 +1,19 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import { DashboardController } from "../src/core/dashboard-controller.js";
+import { ErrorStore } from "../src/core/error-store.js";
 import "../src/core/side-panel.js";
 import { slotRatingText, type SlotMember } from "../src/helpers/shared-meters.js";
 import type { CardConfig, HomeAssistant, PanelTopology } from "../src/types.js";
 
 const SWITCH = "switch.kitchen_breaker";
 
-function hass(states: Record<string, string>, callService = vi.fn(async () => undefined)): HomeAssistant {
+type CallWS = (msg: Record<string, unknown>) => Promise<unknown>;
+
+function hass(states: Record<string, string>, callWS: CallWS = async () => ({})): HomeAssistant {
   const full = Object.fromEntries(
     Object.entries(states).map(([entity_id, state]) => [entity_id, { entity_id, state, attributes: {}, last_changed: "", last_updated: "" }])
   );
-  return { states: full, services: {}, language: "en", callService, callWS: async () => ({}) } as unknown as HomeAssistant;
+  return { states: full, services: {}, language: "en", callService: vi.fn(async () => undefined), callWS } as unknown as HomeAssistant;
 }
 
 const TOPOLOGY = {
@@ -27,20 +30,89 @@ const TOPOLOGY = {
   },
 } as unknown as PanelTopology;
 
-function clickToggle(states: Record<string, string>): ReturnType<typeof vi.fn> {
-  const callService = vi.fn(async () => undefined);
+function clickToggle(states: Record<string, string>, topology: PanelTopology = TOPOLOGY): ReturnType<typeof vi.fn<CallWS>> {
+  const callWS = vi.fn<CallWS>(async () => ({}));
   const ctrl = new DashboardController();
-  ctrl.init(TOPOLOGY, {} as CardConfig, hass(states, callService), "entry-1");
+  ctrl.init(topology, {} as CardConfig, hass(states, callWS), "entry-1");
   const root = document.createElement("div");
   root.innerHTML = `<div class="slide-confirm confirmed"></div><div data-uuid="kitchen"><div class="toggle-pill"></div></div>`;
   const pill = root.querySelector(".toggle-pill")!;
   ctrl.onToggleClick({ target: pill, stopPropagation() {}, preventDefault() {} } as unknown as Event, root);
-  return callService;
+  return callWS;
 }
+
+describe("a tap on a toggle the user may not operate", () => {
+  const BLOCKED_KITCHEN = { ...TOPOLOGY, control_access: { may_operate: false, reason: "admin_only" } } as PanelTopology;
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  /** A controller over `topology` with `errors`, and a tap on the kitchen's toggle with the switches armed. */
+  function tapper(topology: PanelTopology, errors: ErrorStore, callWS: CallWS): () => void {
+    const ctrl = new DashboardController();
+    ctrl.init(topology, {} as CardConfig, hass({ [SWITCH]: "on" }, callWS), "entry-1");
+    ctrl.errorStore = errors;
+    const root = document.createElement("div");
+    root.innerHTML = `<div class="slide-confirm confirmed"></div><div data-uuid="kitchen"><div class="toggle-pill toggle-forbidden"></div></div>`;
+    const pill = root.querySelector(".toggle-pill")!;
+    return () => ctrl.onToggleClick({ target: pill, stopPropagation() {}, preventDefault() {} } as unknown as Event, root);
+  }
+
+  it("puts why in the banner as a transient warning, once however often it is tapped, which clears as other transient messages do", () => {
+    vi.useFakeTimers();
+    const errors = new ErrorStore();
+    const callWS = vi.fn<CallWS>(async () => ({}));
+    const tap = tapper(BLOCKED_KITCHEN, errors, callWS);
+
+    tap();
+    tap();
+    tap();
+
+    expect(errors.active.map(entry => [entry.key, entry.level, entry.message, entry.persistent])).toEqual([
+      ["service:relay", "warning", "Only an administrator can operate this panel's controls.", false],
+    ]);
+    expect(callWS).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(5_000);
+    expect(errors.active).toEqual([]);
+    errors.dispose();
+  });
+
+  it("puts nothing in the banner for a toggle the user may operate", () => {
+    const errors = new ErrorStore();
+    tapper(
+      TOPOLOGY,
+      errors,
+      vi.fn<CallWS>(async () => ({}))
+    )();
+    expect(errors.active).toEqual([]);
+    errors.dispose();
+  });
+});
 
 describe("the breaker toggle", () => {
   it("operates an operable switch", () => {
-    expect(clickToggle({ [SWITCH]: "on" })).toHaveBeenCalledWith("switch", "turn_off", {}, { entity_id: SWITCH });
+    expect(clickToggle({ [SWITCH]: "on" })).toHaveBeenCalledWith({
+      type: "call_service",
+      domain: "switch",
+      service: "turn_off",
+      service_data: {},
+      target: { entity_id: SWITCH },
+    });
+  });
+
+  it("turns an off breaker on", () => {
+    expect(clickToggle({ [SWITCH]: "off" })).toHaveBeenCalledWith(expect.objectContaining({ domain: "switch", service: "turn_on" }));
+  });
+
+  it("sends nothing where the user may not operate the panel's controls", () => {
+    const blocked = { ...TOPOLOGY, control_access: { may_operate: false, reason: "admin_only" } } as PanelTopology;
+    expect(clickToggle({ [SWITCH]: "on" }, blocked)).not.toHaveBeenCalled();
+  });
+
+  it("operates the switch where the integration says the user may", () => {
+    const allowed = { ...TOPOLOGY, control_access: { may_operate: true, reason: null } } as PanelTopology;
+    expect(clickToggle({ [SWITCH]: "on" }, allowed)).toHaveBeenCalledWith(expect.objectContaining({ service: "turn_off" }));
   });
 
   it("sends nothing to an unavailable switch", () => {
@@ -65,6 +137,28 @@ describe("the circuit gear", () => {
     await ctrl.onGearClick({ target: root.querySelector(".gear-icon") } as unknown as Event, root);
 
     expect(open).toHaveBeenCalledWith(expect.objectContaining({ uuid: "kitchen", relay_state: "OPEN", priority: "OFF_GRID", device_type: "circuit" }));
+    root.remove();
+  });
+
+  it.each([
+    ["says nothing of it", TOPOLOGY, { mayOperate: true, reason: null }],
+    [
+      "says the user may not",
+      { ...TOPOLOGY, control_access: { may_operate: false, reason: "control_disabled" } },
+      { mayOperate: false, reason: "control_disabled" },
+    ],
+  ])("hands the side panel the access the user has to the panel's controls, where the integration %s", async (_says, topology, access) => {
+    const ctrl = new DashboardController();
+    ctrl.init(topology as PanelTopology, {} as CardConfig, hass({ [SWITCH]: "on" }), "entry-1");
+    const root = document.createElement("div");
+    root.innerHTML = `<button class="gear-icon circuit-gear" data-uuid="kitchen"></button><span-side-panel></span-side-panel>`;
+    document.body.appendChild(root);
+    const panel = root.querySelector("span-side-panel") as unknown as { open: (config: unknown) => void };
+    const open = vi.spyOn(panel, "open").mockImplementation(() => {});
+
+    await ctrl.onGearClick({ target: root.querySelector(".gear-icon") } as unknown as Event, root);
+
+    expect(open).toHaveBeenCalledWith(expect.objectContaining({ controlAccess: access }));
     root.remove();
   });
 });
@@ -160,7 +254,15 @@ describe("the chart limit line on each update", () => {
     const hassObj = monitoredHass(true);
     const ctrl = new DashboardController();
     ctrl.init(topology, CFG, hassObj, "entry-1");
-    ctrl.setFavoriteRefs({ "panel-1|kitchen": { panelDeviceId: "panel-1", kind: "circuit", targetId: "kitchen", configEntryId: "entry-1" } });
+    ctrl.setFavoriteRefs({
+      "panel-1|kitchen": {
+        panelDeviceId: "panel-1",
+        kind: "circuit",
+        targetId: "kitchen",
+        configEntryId: "entry-1",
+        controlAccess: { mayOperate: true, reason: null },
+      },
+    });
     await ctrl.fetchMergedMonitoringStatus(["entry-1"]);
 
     expect(limitsAfterUpdate(ctrl, topology)).toContain(50);
@@ -168,7 +270,15 @@ describe("the chart limit line on each update", () => {
 
   it("forgets the Favorites view's status when it leaves the view, so a later visit starts from none", async () => {
     const topology = { circuits: { "panel-1|kitchen": CIRCUIT } } as unknown as PanelTopology;
-    const refs = { "panel-1|kitchen": { panelDeviceId: "panel-1", kind: "circuit" as const, targetId: "kitchen", configEntryId: "entry-1" } };
+    const refs = {
+      "panel-1|kitchen": {
+        panelDeviceId: "panel-1",
+        kind: "circuit" as const,
+        targetId: "kitchen",
+        configEntryId: "entry-1",
+        controlAccess: { mayOperate: true, reason: null },
+      },
+    };
     const ctrl = new DashboardController();
     ctrl.init(topology, CFG, monitoredHass(true), "entry-1");
     ctrl.setFavoriteRefs(refs);

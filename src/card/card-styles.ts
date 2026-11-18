@@ -110,6 +110,9 @@ export const CARD_STYLES: string = `
     color: var(--primary-text-color);
     opacity: 0.85;
   }
+  .favorites-panel-card .controls-note {
+    margin: 2px 0 6px;
+  }
   .favorites-panel-card .panel-stats {
     gap: 10px 20px;
   }
@@ -214,6 +217,23 @@ export const CARD_STYLES: string = `
   .switches-disabled .toggle-pill {
     opacity: 0.3;
     pointer-events: none;
+  }
+  /* The slider where the user may operate none of the view's controls: dimmed, and never armed. */
+  .slide-confirm.slide-confirm-forbidden {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  .slide-confirm.slide-confirm-forbidden .slide-confirm-knob {
+    cursor: not-allowed;
+  }
+  /* Its note, saying why: on a line of its own under the panel's name, or under each panel's name in the Favorites stats grid. */
+  .controls-note {
+    margin: 0;
+    font-size: 0.8em;
+    color: var(--secondary-text-color, #727272);
+  }
+  .panel-identity .controls-note {
+    flex-basis: 100%;
   }
   .unit-toggle {
     display: inline-flex;
@@ -497,6 +517,15 @@ export const CARD_STYLES: string = `
   }
   /* Locked switches dim every pill to 0.3; an inert one stays dimmer still. */
   .switches-disabled .toggle-pill.toggle-unavailable {
+    opacity: 0.2;
+  }
+  /* A switch the user may not operate: the relay state is still shown, and the
+     pill, titled with why, sends nothing. Dimmer still while the switches are locked. */
+  .toggle-pill.toggle-forbidden {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+  .switches-disabled .toggle-pill.toggle-forbidden {
     opacity: 0.2;
   }
 

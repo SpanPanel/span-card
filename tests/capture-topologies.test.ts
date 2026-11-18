@@ -110,6 +110,13 @@ describe.each(CAPTURES)("the card over capture $stem", capture => {
     expect(root.textContent).not.toContain(t("card.topology_error"));
   });
 
+  it("says the user may operate the panel's controls, and draws them operable", async () => {
+    expect(topology.control_access).toEqual({ may_operate: true, reason: null });
+    const root = await render(capture);
+    expect(root.querySelector(".toggle-pill")).not.toBeNull();
+    expect(root.querySelector(".toggle-forbidden, .slide-confirm-forbidden, [data-role='controls-note']")).toBeNull();
+  });
+
   it("draws exactly the breaker positions the panel reports", async () => {
     const root = await render(capture);
     expect(labels(root)).toEqual(range(topology.first_position!, topology.last_position!));

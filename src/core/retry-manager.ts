@@ -24,20 +24,6 @@ export class RetryManager {
     return this._withRetry(() => hass.callWS<T>(msg), maxRetries, errorId, opts?.errorMessage);
   }
 
-  async callService(
-    hass: HomeAssistant,
-    domain: string,
-    service: string,
-    data?: Record<string, unknown>,
-    target?: Record<string, unknown>,
-    opts?: { errorId?: string; errorMessage?: string; retries?: number }
-  ): Promise<void> {
-    const maxRetries = opts?.retries ?? DEFAULT_RETRIES;
-    const errorId = opts?.errorId ?? `svc:${domain}.${service}`;
-
-    return this._withRetry(() => hass.callService(domain, service, data, target), maxRetries, errorId, opts?.errorMessage);
-  }
-
   private async _withRetry<T>(fn: () => Promise<T>, maxRetries: number, errorId: string, errorMessage?: string): Promise<T> {
     // Short-circuit if any watched panel is offline — single attempt,
     // no retries. Uses ``hasAnyPanelOffline`` so it covers both the

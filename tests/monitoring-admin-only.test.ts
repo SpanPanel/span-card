@@ -103,7 +103,9 @@ function integration(user: HomeAssistant["user"], { offered = true, monitoringOn
   const sent: string[] = [];
   let held: Array<(refusal?: unknown) => void> | null = null;
   const callWS = vi.fn(async (msg: Message): Promise<unknown> => {
-    if (typeof msg.service === "string") sent.push(msg.service);
+    // The integration's own services by name; any other domain's, as a relay's or a priority's, by domain and name.
+    if (typeof msg.service === "string")
+      sent.push(typeof msg.domain === "string" && msg.domain !== "span_panel" ? `${msg.domain}.${msg.service}` : msg.service);
     if (msg.service === "get_monitoring_status") return { response: status(offered, monitoringOn) };
     const queue = held;
     if (queue) return new Promise((resolve, reject) => queue.push(answer => (answer === undefined ? resolve({}) : reject(answer))));
@@ -269,6 +271,8 @@ function openPanel(
     members: [{ uuid: "c-1", circuit }],
     capacityA: null,
     configEntryId: "entry-1",
+    // Monitoring is governed apart from the controls: the user here may operate them.
+    controlAccess: { mayOperate: true, reason: null },
     ...config,
   });
   return side;

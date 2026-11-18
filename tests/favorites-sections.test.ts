@@ -21,7 +21,7 @@ describe("groupFavoritesByPanel", () => {
 
   it("filters out 'sub_device' kind refs — only circuits are included", () => {
     const favRefs: Record<string, FavoriteRef> = {
-      "p1|u1": { panelDeviceId: "p1", kind: "circuit", targetId: "u1", configEntryId: "e1" },
+      "p1|u1": { panelDeviceId: "p1", kind: "circuit", targetId: "u1", configEntryId: "e1", controlAccess: { mayOperate: true, reason: null } },
       "p1|sd1": { panelDeviceId: "p1", kind: "sub_device", targetId: "sd1", configEntryId: "e1" },
     };
     const perPanelInfo = new Map([["p1", { panelName: "Panel 1", topology: topo({ u1: "Kitchen" }), configEntryId: "e1" }]]);
@@ -34,9 +34,9 @@ describe("groupFavoritesByPanel", () => {
 
   it("groups favorite circuits by their panelDeviceId", () => {
     const favRefs: Record<string, FavoriteRef> = {
-      "p1|u1": { panelDeviceId: "p1", kind: "circuit", targetId: "u1", configEntryId: "e1" },
-      "p1|u2": { panelDeviceId: "p1", kind: "circuit", targetId: "u2", configEntryId: "e1" },
-      "p2|u3": { panelDeviceId: "p2", kind: "circuit", targetId: "u3", configEntryId: "e2" },
+      "p1|u1": { panelDeviceId: "p1", kind: "circuit", targetId: "u1", configEntryId: "e1", controlAccess: { mayOperate: true, reason: null } },
+      "p1|u2": { panelDeviceId: "p1", kind: "circuit", targetId: "u2", configEntryId: "e1", controlAccess: { mayOperate: true, reason: null } },
+      "p2|u3": { panelDeviceId: "p2", kind: "circuit", targetId: "u3", configEntryId: "e2", controlAccess: { mayOperate: true, reason: null } },
     };
     const perPanelInfo = new Map([
       ["p1", { panelName: "Panel A", topology: topo({ u1: "Kitchen", u2: "Living" }), configEntryId: "e1" }],
@@ -51,8 +51,8 @@ describe("groupFavoritesByPanel", () => {
 
   it("sorts sections alphabetically by panelName", () => {
     const favRefs: Record<string, FavoriteRef> = {
-      "pZ|u1": { panelDeviceId: "pZ", kind: "circuit", targetId: "u1", configEntryId: "eZ" },
-      "pA|u2": { panelDeviceId: "pA", kind: "circuit", targetId: "u2", configEntryId: "eA" },
+      "pZ|u1": { panelDeviceId: "pZ", kind: "circuit", targetId: "u1", configEntryId: "eZ", controlAccess: { mayOperate: true, reason: null } },
+      "pA|u2": { panelDeviceId: "pA", kind: "circuit", targetId: "u2", configEntryId: "eA", controlAccess: { mayOperate: true, reason: null } },
     };
     const perPanelInfo = new Map([
       ["pZ", { panelName: "Zeta Panel", topology: topo({ u1: "A" }), configEntryId: "eZ" }],
@@ -64,8 +64,8 @@ describe("groupFavoritesByPanel", () => {
 
   it("drops refs whose panelDeviceId is missing from perPanelInfo", () => {
     const favRefs: Record<string, FavoriteRef> = {
-      "known|u1": { panelDeviceId: "known", kind: "circuit", targetId: "u1", configEntryId: "e1" },
-      "ghost|u2": { panelDeviceId: "ghost", kind: "circuit", targetId: "u2", configEntryId: "e2" },
+      "known|u1": { panelDeviceId: "known", kind: "circuit", targetId: "u1", configEntryId: "e1", controlAccess: { mayOperate: true, reason: null } },
+      "ghost|u2": { panelDeviceId: "ghost", kind: "circuit", targetId: "u2", configEntryId: "e2", controlAccess: { mayOperate: true, reason: null } },
     };
     const perPanelInfo = new Map([["known", { panelName: "Known", topology: topo({ u1: "K" }), configEntryId: "e1" }]]);
     const result = groupFavoritesByPanel(favRefs, perPanelInfo);

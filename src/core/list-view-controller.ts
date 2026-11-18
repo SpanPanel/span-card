@@ -7,6 +7,7 @@ import { t } from "../i18n.js";
 import { circuitMonitoringInfo } from "./monitoring-status.js";
 import { circuitCurrentA, circuitPowerW, drawsAsOn, shedPriorityKey, switchPresence } from "./circuit-state.js";
 import { applySheddingIcon, applyTogglePill } from "./circuit-controls.js";
+import { circuitControlAccess } from "./control-access.js";
 import { buildSearchBarHTML, buildListRowHTML, buildExpandedChartHTML, buildAreaHeaderHTML } from "./list-renderer.js";
 import { observeFold } from "./truncation-fold.js";
 import type { DashboardController } from "./dashboard-controller.js";
@@ -215,7 +216,17 @@ export class ListViewController {
       const sheddingPriority = shedPriorityKey(circuit, hass);
       const isExpanded = this._expandedUuids.has(uuid);
       html += `<div class="list-cell" data-cell-uuid="${escapeHtml(uuid)}">`;
-      html += buildListRowHTML(uuid, circuit, hass, config, monitoringInfo, sheddingPriority, isExpanded, judgedAs(circuit, slots.get(uuid)));
+      html += buildListRowHTML(
+        uuid,
+        circuit,
+        hass,
+        config,
+        monitoringInfo,
+        sheddingPriority,
+        isExpanded,
+        judgedAs(circuit, slots.get(uuid)),
+        circuitControlAccess(topology, uuid)
+      );
       if (isExpanded) {
         html += buildExpandedChartHTML(uuid, circuit, hass, config, monitoringInfo);
       }
@@ -288,7 +299,17 @@ export class ListViewController {
         const sheddingPriority = shedPriorityKey(circuit, hass);
         const isExpanded = this._expandedUuids.has(uuid);
         html += `<div class="list-cell" data-cell-uuid="${escapeHtml(uuid)}">`;
-        html += buildListRowHTML(uuid, circuit, hass, config, monitoringInfo, sheddingPriority, isExpanded, judgedAs(circuit, slots.get(uuid)));
+        html += buildListRowHTML(
+          uuid,
+          circuit,
+          hass,
+          config,
+          monitoringInfo,
+          sheddingPriority,
+          isExpanded,
+          judgedAs(circuit, slots.get(uuid)),
+          circuitControlAccess(topology, uuid)
+        );
         if (isExpanded) {
           html += buildExpandedChartHTML(uuid, circuit, hass, config, monitoringInfo);
         }
@@ -338,7 +359,7 @@ export class ListViewController {
       // Update the status control — real toggle-pill for controllable
       // circuits, static text badge for the rest. Only one will be
       // present in any given row.
-      applyTogglePill(row, isOn, switchPresence(circuit, hass));
+      applyTogglePill(row, isOn, switchPresence(circuit, hass), circuitControlAccess(topology, uuid));
       applySheddingIcon(row, shedPriorityKey(circuit, hass));
       const statusBadge = row.querySelector(".list-status-badge") as HTMLElement | null;
       if (statusBadge) {

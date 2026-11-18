@@ -166,7 +166,9 @@ describe("a shared meter's chart limit lines", () => {
     const live = hass({ enabled: true, ...STATUS });
     const ctrl = new DashboardController();
     ctrl.init(GROUPED, AMPS, live, null);
-    ctrl.setFavoriteRefs({ "t-b": { panelDeviceId: "panel-1", kind: "circuit", targetId: "t-b", configEntryId: "entry-1" } });
+    ctrl.setFavoriteRefs({
+      "t-b": { panelDeviceId: "panel-1", kind: "circuit", targetId: "t-b", configEntryId: "entry-1", controlAccess: { mayOperate: true, reason: null } },
+    });
     await ctrl.fetchMergedMonitoringStatus(["entry-1"]);
 
     ctrl.updateDOM(expandedMember());

@@ -211,6 +211,33 @@ export interface PanelTopology {
    * record here, as from an integration that predates the map, falls back to its members' ratings added up.
    */
   shared_meter_groups?: Record<string, SharedMeterGroup>;
+  /**
+   * Whether the user who asked may operate the panel's controls, its relays and shedding priorities, by the rule the
+   * integration's control gate enforces. Absent from an integration that predates it, and from a topology built from
+   * the registries, where the card takes the controls as operable (`controlAccess`).
+   */
+  control_access?: ControlAccessWire;
+}
+
+/**
+ * Why the integration lets a user operate none of a panel's controls, as its gate decides, first that applies: control is
+ * switched off in the panel's options (`control_disabled`), only an administrator may operate it (`admin_only`), or the
+ * user's Home Assistant permissions do not let them control the panel's entities (`read_only`).
+ */
+export type ControlBlock = "control_disabled" | "admin_only" | "read_only";
+
+/** `control_access` as the integration sends it in `panel_topology`. */
+export interface ControlAccessWire {
+  /** Whether the user may operate the panel's controls: the authority, whatever `reason` says. */
+  may_operate: boolean;
+  /** Why not, where the user may not; null otherwise. A value the card does not know reads as null (`controlAccess`). */
+  reason: string | null;
+}
+
+/** Whether a user may operate a panel's controls, and why not where not, as the card reads it (`controlAccess`). */
+export interface ControlAccess {
+  readonly mayOperate: boolean;
+  readonly reason: ControlBlock | null;
 }
 
 /**
@@ -365,13 +392,27 @@ export type FavoriteKind = "circuit" | "sub_device";
  * Favorites pseudo-panel to route per-target service calls back to the
  * correct SPAN panel/config entry after aggregating across panels.
  */
-export interface FavoriteRef {
+interface FavoriteRefBase {
   panelDeviceId: string;
   kind: FavoriteKind;
   /** Real circuit uuid (kind ``circuit``) or HA device id (kind ``sub_device``). */
   targetId: string;
   configEntryId: string | null;
 }
+
+/** A favorited circuit's origin, with whether the user may operate the controls of the panel it came from. */
+export interface FavoriteCircuitRef extends FavoriteRefBase {
+  kind: "circuit";
+  controlAccess: ControlAccess;
+}
+
+/** A favorited sub-device's origin; a sub-device has no relay or priority to operate. */
+export interface FavoriteSubDeviceRef extends FavoriteRefBase {
+  kind: "sub_device";
+}
+
+/** A favorite's origin, told apart by `kind`: a circuit's carries its panel's control access, which the compiler requires of every one built. */
+export type FavoriteRef = FavoriteCircuitRef | FavoriteSubDeviceRef;
 
 /**
  * Merged topology for the Favorites pseudo-panel. Circuits and
@@ -382,6 +423,11 @@ export interface FavoriteRef {
  */
 export interface FavoritesTopology extends PanelTopology {
   _favoriteRefs: Record<string, FavoriteRef>;
+}
+
+/** Whether `topology` is the Favorites view's, merged from several panels, each circuit and sub-device with its ref. */
+export function isFavoritesTopology(topology: PanelTopology): topology is FavoritesTopology {
+  return "_favoriteRefs" in topology;
 }
 
 // -- Graph settings --

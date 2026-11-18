@@ -87,7 +87,15 @@ describe("a shared meter's gear", () => {
     const ctrl = new DashboardController();
     const merged = { circuits: { "panel-1|q-36": QUAD["q-36"]! }, shared_meter_groups: { "panel-1|q-34": { ...RECORD } } } as PanelTopology;
     ctrl.init(merged, {} as CardConfig, hass, "entry-1");
-    ctrl.setFavoriteRefs({ "panel-1|q-36": { panelDeviceId: "panel-1", kind: "circuit", targetId: "q-36", configEntryId: "entry-1" } });
+    ctrl.setFavoriteRefs({
+      "panel-1|q-36": {
+        panelDeviceId: "panel-1",
+        kind: "circuit",
+        targetId: "q-36",
+        configEntryId: "entry-1",
+        controlAccess: { mayOperate: true, reason: null },
+      },
+    });
     ctrl.setFavoritesPerPanelInfo(new Map([["panel-1", { panelName: "Garage", topology: PANEL, configEntryId: "entry-1" }]]));
 
     const config = await gearConfig(ctrl, "panel-1|q-36");

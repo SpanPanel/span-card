@@ -18,11 +18,13 @@ import {
 import { GraphSettingsCache } from "./graph-settings.js";
 import { groupFavoritesByPanel } from "./favorites-sections.js";
 import { switchPresence } from "./circuit-state.js";
+import { circuitControlAccess, controlAccess, controlAccessHint, controlWrites, reportControlFailure } from "./control-access.js";
 import type { FavoritesPanelInfo, FavoritesPanelGroup } from "./favorites-sections.js";
 import type { CircuitModeConfig, CircuitRatingView, FavoritesPanelSection, SidePanelConfig } from "./side-panel.js";
 import type {
   CardConfig,
   Circuit,
+  ControlAccess,
   FavoriteRef,
   GraphSettings,
   HistoryMap,
@@ -48,6 +50,7 @@ interface SpanSidePanelElement extends HTMLElement {
   open(config: SidePanelConfig): void;
   readonly openCircuit: { uuid: string; configEntryId: string | null } | null;
   refreshRating(view: CircuitRatingView): void;
+  refreshControlAccess(access: ControlAccess): void;
 }
 
 /**
@@ -462,16 +465,19 @@ export class DashboardController {
     const switchEntity = circuit.entities?.switch;
     if (!switchEntity) return;
     if (switchPresence(circuit, this._hass) !== "operable") return;
-    const service = this._hass.states[switchEntity]?.state === "on" ? "turn_off" : "turn_on";
-    this._hass.callService("switch", service, {}, { entity_id: switchEntity }).catch(err => {
-      console.warn("SPAN Panel: switch service call failed", err);
-      this._errorStore?.add({
-        key: "service:relay",
-        level: "error",
-        message: t("error.relay_failed"),
-        persistent: false,
-      });
-    });
+    const access = circuitControlAccess(this._topology, uuid);
+    if (!access.mayOperate) {
+      // A pill drawn forbidden sends nothing. It is tapped only with the switches armed, which a view of panels the user may
+      // operate none of never is, so in a Favorites view of several. Its title, which a touch never shows, says why; so does
+      // the banner, in its one transient slot, so tapping again replaces the warning rather than stacking it.
+      this._errorStore?.add({ key: "service:relay", level: "warning", message: controlAccessHint(access), persistent: false });
+      return;
+    }
+    // The pill shows the relay as Home Assistant reports it, so a refused change leaves it showing the relay as it is.
+    const hass = this._hass;
+    controlWrites(hass, access)
+      .setRelay(switchEntity, hass.states[switchEntity]?.state !== "on")
+      .catch((err: unknown) => reportControlFailure(hass, this._errorStore, err, "relay"));
   }
 
   async onGearClick(event: Event, root: DOMRoot): Promise<void> {
@@ -563,6 +569,7 @@ export class DashboardController {
           favoritePanelDeviceId,
           isFavorite,
           configEntryId: entryId,
+          controlAccess: circuitControlAccess(this._topology, uuid),
         };
         sidePanel.open(circuitConfig);
         return;
@@ -641,6 +648,24 @@ export class DashboardController {
 
     const monitoringInfo = circuitMonitoringInfo(status, circuit);
     sidePanel.refreshRating({ ...slotView(slot, open.uuid, circuit), monitoringInfo, monitoringGlobals: status?.global_settings ?? null });
+  }
+
+  /**
+   * Give a side panel open in `root` on a circuit of config entry `entryId` the
+   * access the user now has to the panel's controls, as `topology`, that panel's
+   * fetched again, says it (`controlAccess`); where it changed, the side panel
+   * brings its relay, its priority and its note up to date in place
+   * (`refreshControlAccess`). The access arrives with each topology. The
+   * sidebar waits for an open side panel to close before it draws its view
+   * again, so this is how that panel learns it; the card draws its view again
+   * at once, and its By Panel side panel, which sits outside the view, learns
+   * it here.
+   */
+  refreshCircuitControlAccess(root: ParentNode, entryId: string | null, topology: PanelTopology): void {
+    const sidePanel = root.querySelector("span-side-panel") as SpanSidePanelElement | null;
+    const open = sidePanel?.openCircuit;
+    if (!sidePanel || !open || open.configEntryId !== entryId) return;
+    sidePanel.refreshControlAccess(controlAccess(topology));
   }
 
   /**
@@ -725,6 +750,8 @@ export class DashboardController {
   }
 
   bindSlideConfirm(slideEl: Element, parent: Element | null): void {
+    // Drawn forbidden, where the user may operate none of the view's controls, it is never armed (`buildSlideConfirmHTML`).
+    if (slideEl.classList.contains("slide-confirm-forbidden")) return;
     const knob = slideEl.querySelector(".slide-confirm-knob") as HTMLElement | null;
     const textEl = slideEl.querySelector(".slide-confirm-text");
     if (!knob || !textEl) return;

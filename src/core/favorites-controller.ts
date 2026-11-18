@@ -1,6 +1,7 @@
 // src/core/favorites-controller.ts
 import { discoverTopology } from "../card/card-discovery.js";
 import { RetryManager } from "./retry-manager.js";
+import { controlAccess } from "./control-access.js";
 import type { ErrorStore } from "./error-store.js";
 import type { FavoriteRef, FavoritesMap, FavoritesTopology, HomeAssistant, PanelDevice, PanelTopology } from "../types.js";
 
@@ -102,11 +103,13 @@ export class FavoritesController {
           mergedGroups[compositeGroup] = { ...group, members: group.members.map(member => buildCompositeId(panelDeviceId, member)) };
         }
         mergedCircuits[compositeId] = { ...circuit, name, shared_meter_group: compositeGroup };
+        // Each panel says whether the user may operate its controls, so a favorite keeps its own panel's word.
         refs[compositeId] = {
           panelDeviceId,
           kind: "circuit",
           targetId: uuid,
           configEntryId,
+          controlAccess: controlAccess(topology),
         };
       }
 

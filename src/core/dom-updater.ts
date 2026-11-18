@@ -10,6 +10,7 @@ import { measuresOutsidePanel } from "../helpers/layout.js";
 import { judgedAs, meterSlots, slotMembers } from "../helpers/shared-meters.js";
 import { circuitCurrentA, circuitPowerW, drawsAsOn, isGeneration, readsAsProducer, shedPriorityKey, switchPresence } from "./circuit-state.js";
 import { applySheddingIcon, applyTogglePill } from "./circuit-controls.js";
+import { circuitControlAccess } from "./control-access.js";
 import { circuitMonitoringInfo, pointThresholds } from "./monitoring-status.js";
 import { limitRatingA } from "../helpers/monitoring-rating.js";
 import type { HomeAssistant, PanelTopology, CardConfig, HistoryMap, ChartMetricDef, Circuit, MonitoringStatus } from "../types.js";
@@ -169,6 +170,7 @@ export function updateCircuitDOM(
 
   const context: SlotUpdateContext = {
     hass,
+    topology,
     powerHistory,
     horizonMap,
     defaultDurationMs,
@@ -190,6 +192,8 @@ export function updateCircuitDOM(
 /** What every circuit slot's update reads, the same for each slot of one pass. */
 interface SlotUpdateContext {
   readonly hass: HomeAssistant;
+  /** The topology the view draws, which says whether the user may operate each circuit's switch (`circuitControlAccess`). */
+  readonly topology: PanelTopology;
   readonly powerHistory: HistoryMap;
   readonly horizonMap: Map<string, string> | undefined;
   readonly defaultDurationMs: number;
@@ -215,7 +219,7 @@ function updateCircuitSlot(slot: Element, uuid: string, circuit: Circuit, contex
     powerVal.innerHTML = chartMetric.entityRole === "current" ? formatCircuitCurrentHTML(circuitCurrentA(circuit, hass)) : formatCircuitPowerHTML(powerW);
   }
 
-  applyTogglePill(slot, isOn, switchPresence(circuit, hass));
+  applyTogglePill(slot, isOn, switchPresence(circuit, hass), circuitControlAccess(context.topology, uuid));
 
   slot.classList.toggle("circuit-off", !isOn);
   slot.classList.toggle("circuit-producer", isProducer);

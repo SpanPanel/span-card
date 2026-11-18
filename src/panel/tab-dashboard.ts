@@ -166,6 +166,11 @@ export class DashboardTab {
     if (this._container) await this._ctrl.refreshCircuitSidePanel(this._container, entryId, topology, circuitIds);
   }
 
+  /** Give a circuit side panel left open on `entryId` the access `topology`, fetched again, gives (`refreshCircuitControlAccess`). */
+  refreshSidePanelControlAccess(entryId: string, topology: PanelTopology): void {
+    if (this._container) this._ctrl.refreshCircuitControlAccess(this._container, entryId, topology);
+  }
+
   stop(): void {
     this._ctrl.stopIntervals();
     if (this._foldUnobserve) {

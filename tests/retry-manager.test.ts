@@ -121,54 +121,6 @@ describe("RetryManager — callWS", () => {
 });
 
 // ---------------------------------------------------------------------------
-// callService
-// ---------------------------------------------------------------------------
-
-describe("RetryManager — callService", () => {
-  let store: ErrorStore;
-  let manager: RetryManager;
-
-  beforeEach(() => {
-    vi.useFakeTimers();
-    store = new ErrorStore();
-    manager = new RetryManager(store);
-  });
-
-  afterEach(() => {
-    store.dispose();
-    vi.useRealTimers();
-  });
-
-  it("returns on first success", async () => {
-    const hass = makeHass();
-    vi.mocked(hass.callService).mockResolvedValueOnce(undefined);
-
-    await manager.callService(hass, "switch", "turn_on", { entity_id: "switch.circuit_1" });
-
-    expect(hass.callService).toHaveBeenCalledTimes(1);
-  });
-
-  it("adds error to store after all retries exhausted", async () => {
-    const hass = makeHass();
-    vi.mocked(hass.callService).mockRejectedValue(new Error("service error"));
-
-    const promise = manager.callService(hass, "switch", "turn_on", { entity_id: "switch.circuit_1" }, undefined, { errorId: "test-svc-error", retries: 3 });
-    // Attach rejection handler immediately so it is never unhandled
-    const caught = promise.catch(() => null);
-
-    // Advance through all backoffs: 1000ms, 2000ms, 4000ms
-    await vi.advanceTimersByTimeAsync(1000);
-    await vi.advanceTimersByTimeAsync(2000);
-    await vi.advanceTimersByTimeAsync(4000);
-
-    await expect(promise).rejects.toThrow("service error");
-    await caught;
-
-    expect(store.active.some(e => e.key === "test-svc-error")).toBe(true);
-  });
-});
-
-// ---------------------------------------------------------------------------
 // panel offline short-circuit
 // ---------------------------------------------------------------------------
 
@@ -217,11 +169,11 @@ describe("RetryManager — panel offline short-circuit", () => {
   it("does not leave stale error in store when short-circuit call succeeds", async () => {
     store.add({ key: "panel-offline", level: "error", message: "offline", persistent: true });
     const hass = makeHass();
-    vi.mocked(hass.callService).mockResolvedValue(undefined);
+    vi.mocked(hass.callWS).mockResolvedValue({});
 
-    await manager.callService(hass, "switch", "turn_on", {}, undefined, { errorId: "svc:relay" });
+    await manager.callWS(hass, { type: "span/get_panel" }, { errorId: "ws:get_panel" });
 
-    expect(hass.callService).toHaveBeenCalledTimes(1);
+    expect(hass.callWS).toHaveBeenCalledTimes(1);
     // No transient error should be added since fn() succeeded
     expect(store.active.filter(e => !e.persistent)).toHaveLength(0);
   });

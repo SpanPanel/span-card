@@ -214,6 +214,8 @@ describe("FavoritesController.build", () => {
       kind: "circuit",
       targetId: "uuid-a",
       configEntryId: "entry-1",
+      // The panel says nothing of the controls, so the card takes them as operable.
+      controlAccess: { mayOperate: true, reason: null },
     });
   });
 

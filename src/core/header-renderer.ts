@@ -2,7 +2,8 @@ import { escapeHtml } from "../helpers/sanitize.js";
 import { UNKNOWN_READING } from "../helpers/format.js";
 import { t } from "../i18n.js";
 import { SHEDDING_PRIORITIES } from "../constants.js";
-import type { PanelTopology, CardConfig, SheddingPriorityDef } from "../types.js";
+import { controlAccessHint, controlNoteHTML, viewControlAccess } from "./control-access.js";
+import type { PanelTopology, CardConfig, ControlAccess, SheddingPriorityDef } from "../types.js";
 
 export interface HeaderRenderOptions {
   /**
@@ -13,6 +14,36 @@ export interface HeaderRenderOptions {
    * Set false only if the view has no toggleable circuit controls.
    */
   showSwitches?: boolean;
+}
+
+/** How a view draws its "Enable Switches" slider. */
+export interface SlideConfirmOptions {
+  /**
+   * Put the note saying why beside a forbidden slider. False where the view
+   * says it elsewhere, as the Favorites view does under each panel's name in
+   * its stats grid (`favoritesPanelAccess`).
+   */
+  note?: boolean;
+}
+
+/**
+ * The "Enable Switches" slider, which arms every switch a view draws for its
+ * taps. Where the user may operate none of the view's controls (`access`,
+ * `viewControlAccess`), it is drawn forbidden and cannot be armed
+ * (`bindSlideConfirm`), titled with why, a note beside it saying it too
+ * unless the view says it elsewhere (`options.note`). Shared by the panel
+ * header and the Favorites view's summary strip.
+ */
+export function buildSlideConfirmHTML(access: ControlAccess, options: SlideConfirmOptions = {}): string {
+  const forbidden = !access.mayOperate;
+  // A plain element with no role, so its title and the note beside it, not an ARIA state, say why it cannot be armed.
+  const attributes = forbidden ? ` title="${escapeHtml(controlAccessHint(access))}"` : "";
+  return `<div class="slide-confirm${forbidden ? " slide-confirm-forbidden" : ""}"${attributes} data-text-off="${escapeHtml(t("header.enable_switches"))}" data-text-on="${escapeHtml(t("header.switches_enabled"))}">
+      <span class="slide-confirm-text">${escapeHtml(t("header.enable_switches"))}</span>
+      <div class="slide-confirm-knob">
+        <span-icon icon="mdi:lock"></span-icon>
+      </div>
+    </div>${options.note === false ? "" : controlNoteHTML(access)}`;
 }
 
 /**
@@ -160,16 +191,7 @@ export function buildHeaderHTML(topology: PanelTopology, config: CardConfig, opt
           <button class="gear-icon panel-gear" title="${escapeHtml(t("header.graph_settings"))}">
             <span-icon icon="mdi:cog"></span-icon>
           </button>
-          ${
-            showSwitches
-              ? `<div class="slide-confirm" data-text-off="${escapeHtml(t("header.enable_switches"))}" data-text-on="${escapeHtml(t("header.switches_enabled"))}">
-            <span class="slide-confirm-text">${escapeHtml(t("header.enable_switches"))}</span>
-            <div class="slide-confirm-knob">
-              <span-icon icon="mdi:lock"></span-icon>
-            </div>
-          </div>`
-              : ""
-          }
+          ${showSwitches ? buildSlideConfirmHTML(viewControlAccess(topology)) : ""}
         </div>
         ${buildPanelStatsHTML(topology, config)}
       </div>

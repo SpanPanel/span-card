@@ -7,7 +7,7 @@ import { slotRatingLabel } from "../helpers/shared-meters.js";
 import { circuitCurrentA, circuitPowerW, circuitUtilizationPct, drawsAsOn, getCircuitStateClasses, readsAsProducer, switchPresence } from "./circuit-state.js";
 import { buildSheddingIconHTML, buildTogglePillHTML } from "./circuit-controls.js";
 import { utilizationClass } from "./monitoring-status.js";
-import type { Circuit, HomeAssistant, CardConfig, MonitoringPointInfo } from "../types.js";
+import type { Circuit, HomeAssistant, CardConfig, ControlAccess, MonitoringPointInfo } from "../types.js";
 
 /**
  * Build the search bar HTML for the list view.
@@ -42,7 +42,8 @@ export function buildUnitToggleHTML(config: CardConfig): string {
  * Build a compact circuit row for the collapsed list view. `judged` is the
  * circuit as current monitoring judges it (`judgedAs`): the row's utilization is
  * read against its rating, which for a member of a shared meter is the group's
- * capacity, while the badge shows the circuit's own breaker.
+ * capacity, while the badge shows the circuit's own breaker. `access` says
+ * whether the user may operate its switch (`circuitControlAccess`).
  */
 export function buildListRowHTML(
   uuid: string,
@@ -52,7 +53,8 @@ export function buildListRowHTML(
   monitoringInfo: MonitoringPointInfo | null,
   sheddingPriority: string,
   isExpanded: boolean,
-  judged: Pick<Circuit, "entities" | "breaker_rating_a" | "monitoring_rating_a">
+  judged: Pick<Circuit, "entities" | "breaker_rating_a" | "monitoring_rating_a">,
+  access: ControlAccess
 ): string {
   const isOn = drawsAsOn(circuit, hass);
   const presence = switchPresence(circuit, hass);
@@ -94,7 +96,7 @@ export function buildListRowHTML(
     ? ""
     : presence === "none"
       ? `<span class="list-status-badge ${isOn ? "list-status-on" : "list-status-off"}">${isOn ? "ON" : "OFF"}</span>`
-      : buildTogglePillHTML(isOn, presence);
+      : buildTogglePillHTML(isOn, presence, access);
 
   return `
     <div class="list-row ${isOn ? "" : "circuit-off"} ${isExpanded ? "list-row-expanded" : ""}"
