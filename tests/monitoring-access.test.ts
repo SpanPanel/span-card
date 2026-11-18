@@ -1,0 +1,258 @@
+import { describe, it, expect, afterEach, vi } from "vitest";
+import { readdirSync, readFileSync } from "node:fs";
+import { dirname, join, sep } from "node:path";
+import { fileURLToPath } from "node:url";
+import {
+  canEditMonitoring,
+  lockMonitoringControls,
+  monitoringFailureText,
+  monitoringWrites,
+  MonitoringChangeRefused,
+  readOnlyNote,
+  reportMonitoringFailure,
+  type MonitoringWrites,
+} from "../src/core/monitoring-access.js";
+import { ErrorStore } from "../src/core/error-store.js";
+import { setLanguage } from "../src/i18n.js";
+import "../src/core/span-switch.js";
+import type { HomeAssistant } from "../src/types.js";
+
+type Message = Record<string, unknown>;
+
+/**
+ * Every monitoring service of the integration's that changes something, each of
+ * which it refuses a logged-in user who is not a Home Assistant administrator.
+ */
+const WRITE_SERVICES = [
+  "set_global_monitoring",
+  "set_circuit_threshold",
+  "clear_circuit_threshold",
+  "set_mains_threshold",
+  "clear_mains_threshold",
+  "set_circuit_package_ratings",
+  "clear_circuit_package_ratings",
+  "test_notification",
+] as const;
+
+/** The module that alone sends them, each only for a user who may change monitoring. */
+const ACCESS_MODULE = "core/monitoring-access.ts";
+
+const ADMIN_ONLY = "Only an administrator can change monitoring.";
+
+/** The card's source files, by their path under `src/`. The path is taken apart by hand: happy-dom's `URL` reads no file URL. */
+const SRC = join(dirname(fileURLToPath(import.meta.url)), "..", "src");
+const SOURCES: ReadonlyArray<readonly [string, string]> = readdirSync(SRC, { recursive: true, encoding: "utf8" })
+  .filter(path => path.endsWith(".ts"))
+  .map(path => [path.split(sep).join("/"), readFileSync(join(SRC, path), "utf8")] as const);
+
+/** A Home Assistant whose user is `user`, recording every message sent, which `answer` answers. */
+function recording(user: HomeAssistant["user"], answer: (msg: Message) => Promise<unknown> = async () => ({})): { hass: HomeAssistant; sent: Message[] } {
+  const sent: Message[] = [];
+  const callWS = vi.fn(async (msg: Message): Promise<unknown> => {
+    sent.push(msg);
+    return answer(msg);
+  });
+  const hass = { states: {}, services: {}, language: "en", user, callService: async () => undefined, callWS } as unknown as HomeAssistant;
+  return { hass, sent };
+}
+
+/** Each of the changes `writes` offers, by its name. */
+function changesOf(writes: MonitoringWrites): Array<keyof MonitoringWrites> {
+  return Object.keys(writes).filter((key): key is keyof MonitoringWrites => key in writes);
+}
+
+afterEach(() => {
+  setLanguage("en");
+  vi.restoreAllMocks();
+});
+
+describe("the monitoring write services", () => {
+  it.each(WRITE_SERVICES)("%s is named nowhere in the card's source but the module that sends it only for an administrator", service => {
+    const named = new RegExp(`\\b${service}\\b`);
+    expect(SOURCES.filter(([, text]) => named.test(text)).map(([path]) => path)).toEqual([ACCESS_MODULE]);
+  });
+
+  it("are each sent by one of the module's changes for an administrator, and nothing else is", async () => {
+    const { hass, sent } = recording({ is_admin: true });
+    const writes = monitoringWrites(hass);
+    for (const change of changesOf(writes)) await writes[change]({ config_entry_id: "entry-1" });
+
+    expect(sent.map(msg => msg.service).sort()).toEqual([...WRITE_SERVICES].sort());
+    for (const msg of sent)
+      expect(msg).toEqual({ type: "call_service", domain: "span_panel", service: msg.service, service_data: { config_entry_id: "entry-1" } });
+  });
+
+  it("are sent within the call, as calling the service directly sends one", () => {
+    const { hass, sent } = recording({ is_admin: true });
+    void monitoringWrites(hass).setCircuitThreshold({ circuit_id: "sensor.oven_current", monitoring_enabled: false });
+    expect(sent.map(msg => msg.service)).toEqual(["set_circuit_threshold"]);
+  });
+
+  it.each([
+    ["is not an administrator", { is_admin: false }],
+    ["the frontend says nothing of", undefined],
+  ])("are refused, with nothing sent, for a user who %s", async (_who, user) => {
+    const { hass, sent } = recording(user);
+    const writes = monitoringWrites(hass);
+    for (const change of changesOf(writes)) {
+      await expect(writes[change]({})).rejects.toBeInstanceOf(MonitoringChangeRefused);
+    }
+    expect(sent).toEqual([]);
+  });
+
+  it("are refused where there is no Home Assistant yet to send them to", async () => {
+    const writes = monitoringWrites(null);
+    for (const change of changesOf(writes)) {
+      await expect(writes[change]({})).rejects.toBeInstanceOf(MonitoringChangeRefused);
+    }
+  });
+
+  it.each([
+    ["a service's handler raises it", { code: "home_assistant_error", message: "Unauthorized" }],
+    ["a service's handler raises UnknownUser, for a user Home Assistant does not know", { code: "home_assistant_error", message: "UnknownUser" }],
+    ["the websocket command raises it", { code: "unauthorized", message: "Unauthorized" }],
+  ])("take the integration's Unauthorized, as when %s, as a refusal for want of administrator rights", async (_how, refusal) => {
+    const { hass } = recording({ is_admin: true }, async () => Promise.reject(refusal));
+    const sending = monitoringWrites(hass).setGlobalMonitoring({ enabled: false });
+    await expect(sending).rejects.toBeInstanceOf(MonitoringChangeRefused);
+    await expect(sending).rejects.toThrow(ADMIN_ONLY);
+  });
+
+  it.each([
+    ["a validation error", { code: "service_validation_error", message: "Validation error: out of range", translation_key: "threshold_out_of_range" }],
+    ["another error of Home Assistant's", { code: "home_assistant_error", message: "Panel unreachable" }],
+  ])("pass on any other refusal, such as %s, as the integration gave it", async (_what, refusal) => {
+    const { hass } = recording({ is_admin: true }, async () => Promise.reject(refusal));
+    await expect(monitoringWrites(hass).setMainsThreshold({ leg: "upstream_l1" })).rejects.toBe(refusal);
+  });
+});
+
+describe("canEditMonitoring", () => {
+  it("is true for an administrator only", () => {
+    expect(canEditMonitoring(recording({ is_admin: true }).hass)).toBe(true);
+    expect(canEditMonitoring(recording({ is_admin: false }).hass)).toBe(false);
+  });
+
+  it("is false where the frontend says nothing of the user, or there is no Home Assistant yet", () => {
+    expect(canEditMonitoring(recording(undefined).hass)).toBe(false);
+    expect(canEditMonitoring(null)).toBe(false);
+    expect(canEditMonitoring(undefined)).toBe(false);
+  });
+});
+
+describe("a refusal for want of administrator rights", () => {
+  it("says so in the user's language", () => {
+    setLanguage("fr");
+    expect(new MonitoringChangeRefused().message).toBe("Seul un administrateur peut modifier la surveillance.");
+  });
+
+  it("is what a failed change's report says, where any other failure says what it was given", () => {
+    expect(monitoringFailureText(new MonitoringChangeRefused(), "Unable to save threshold")).toBe(ADMIN_ONLY);
+    expect(monitoringFailureText({ code: "unknown_error", message: "boom" }, "Unable to save threshold")).toBe("Unable to save threshold");
+  });
+
+  it("is shown in the error store, as is any other failed change", () => {
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const errors = new ErrorStore();
+    reportMonitoringFailure(errors, new MonitoringChangeRefused(), "circuit threshold toggle");
+    expect(errors.active.map(e => [e.key, e.level, e.message])).toEqual([["service:monitoring", "error", ADMIN_ONLY]]);
+
+    const others = new ErrorStore();
+    reportMonitoringFailure(others, { code: "unknown_error", message: "boom" }, "circuit threshold toggle");
+    expect(others.active.map(e => e.message)).toEqual(["Unable to save threshold"]);
+  });
+});
+
+describe("lockMonitoringControls", () => {
+  function drawn(): HTMLElement {
+    const root = document.createElement("div");
+    root.innerHTML = `
+      <input type="checkbox" class="cb">
+      <input type="radio" class="radio">
+      <input type="number" class="number" value="80">
+      <input type="text" class="text" value="SPAN: {name}">
+      <textarea class="area">{name}</textarea>
+      <select class="select"><option value="active" selected>Active</option></select>
+      <button type="button" class="button">Reset</button>
+      <button type="button" class="mark">✎</button>
+      <span-switch class="switch"></span-switch>
+    `;
+    document.body.appendChild(root);
+    return root;
+  }
+  const at = <T extends HTMLElement>(root: HTMLElement, selector: string): T => root.querySelector<T>(selector)!;
+
+  it("makes a field holding text or a number read-only, so what it holds can still be read, and disables every other control", () => {
+    const root = drawn();
+    lockMonitoringControls(root);
+
+    for (const field of [".number", ".text", ".area"]) {
+      expect(at<HTMLInputElement>(root, field).readOnly).toBe(true);
+      expect(at<HTMLInputElement>(root, field).disabled).toBe(false);
+    }
+    expect(at<HTMLInputElement>(root, ".number").value).toBe("80");
+    for (const control of [".cb", ".radio", ".select", ".button", ".switch"]) expect(at(root, control).hasAttribute("disabled")).toBe(true);
+    root.remove();
+  });
+
+  it("titles each control with why, dims each native one, and leaves the switch to dim itself", () => {
+    const root = drawn();
+    lockMonitoringControls(root);
+
+    for (const control of root.querySelectorAll<HTMLElement>("input, textarea, select, button, span-switch")) expect(control.title).toBe(ADMIN_ONLY);
+    for (const control of root.querySelectorAll<HTMLElement>("input, textarea, select, button")) {
+      expect(control.style.opacity).toBe("0.5");
+      expect(control.style.cursor).toBe("not-allowed");
+    }
+    expect(at(root, ".switch").style.opacity).toBe("");
+    root.remove();
+  });
+
+  it("dims a control once: not again where it, or what holds it, is drawn dimmed already", () => {
+    const root = document.createElement("div");
+    root.innerHTML = `
+      <div class="off" style="opacity:0.4;"><span><input type="number" class="held" value="80"></span></div>
+      <button type="button" class="own" style="opacity:0.4;">Targets</button>
+      <div class="whole" style="opacity:1;"><button type="button" class="plain">Reset</button></div>
+    `;
+    document.body.appendChild(root);
+    lockMonitoringControls(root);
+
+    expect(at(root, ".held").style.opacity).toBe("");
+    expect(at<HTMLInputElement>(root, ".held").readOnly).toBe(true);
+    expect(at(root, ".held").style.cursor).toBe("not-allowed");
+    expect(at(root, ".own").style.opacity).toBe("0.4");
+    expect(at(root, ".plain").style.opacity).toBe("0.5");
+    root.remove();
+  });
+
+  it("leaves a control the caller names as changing nothing as it is", () => {
+    const root = drawn();
+    lockMonitoringControls(root, ".mark");
+
+    const mark = at<HTMLButtonElement>(root, ".mark");
+    expect(mark.disabled).toBe(false);
+    expect(mark.title).toBe("");
+    expect(mark.style.opacity).toBe("");
+    expect(at<HTMLButtonElement>(root, ".button").disabled).toBe(true);
+    root.remove();
+  });
+
+  it("changes nothing more when it locks what it has locked", () => {
+    const root = drawn();
+    lockMonitoringControls(root);
+    const once = root.innerHTML;
+    lockMonitoringControls(root);
+    expect(root.innerHTML).toBe(once);
+    root.remove();
+  });
+});
+
+describe("readOnlyNote", () => {
+  it("says, as a note, that only an administrator can change monitoring", () => {
+    const note = readOnlyNote();
+    expect(note.getAttribute("role")).toBe("note");
+    expect(note.dataset.role).toBe("monitoring-read-only");
+    expect(note.textContent).toBe(ADMIN_ONLY);
+  });
+});

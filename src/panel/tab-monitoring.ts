@@ -15,6 +15,15 @@ import { focusedIn, isFocusLost } from "../helpers/focus.js";
 import { bindLimitField, isLimitField, LIMIT_RANGES, type LimitField, type LimitFieldHandle } from "../helpers/number-field.js";
 import { bindOtherBreakerField, reportPackageRatingsFailure, type OtherBreakerFieldHandle } from "../helpers/other-breaker-field.js";
 import { circuitLabelsByMonitoringKey } from "../core/monitoring-status.js";
+import {
+  canEditMonitoring,
+  lockMonitoringControls,
+  monitoringWrites,
+  readOnlyNote,
+  reportMonitoringFailure,
+  type MonitoringServiceData,
+  type MonitoringWrites,
+} from "../core/monitoring-access.js";
 import type { ErrorStore } from "../core/error-store.js";
 import type {
   EntityNameItem,
@@ -507,6 +516,39 @@ function targetsName(text: string): string {
   return tf("notification.targets_button", { targets: text });
 }
 
+/** The rating marks, which change nothing: each only shows where its rating comes from. */
+const RATING_MARK = ".rating-user-set";
+
+/**
+ * Show the tab's settings (`settings`) read-only, to a user who may not change
+ * monitoring (`canEditMonitoring`): a note under the heading says why, and every
+ * control in them is locked but the rating marks (`lockMonitoringControls`).
+ */
+function showReadOnly(settings: HTMLElement): void {
+  settings.querySelector("h2")?.after(readOnlyNote());
+  lockMonitoringControls(settings, RATING_MARK);
+}
+
+/** Say `message`, a failure, in the global settings' status line `line`. */
+function sayStatusFailure(line: HTMLElement, message: string): void {
+  line.textContent = `${t("error.prefix")} ${message}`;
+  line.style.color = "var(--error-color, #f44336)";
+}
+
+/**
+ * Show switch `control` as what is known to be stored, once a change it made
+ * (to `on`, stored or not) has settled and the tab has been read again. A read
+ * that drew the tab afresh drew every switch from the status, `control` going
+ * with what it replaced; where none did, as where the read failed, a change
+ * stored is drawn as stored, and a refused one leaves the switch as last
+ * drawn, what the integration held then.
+ */
+function settleSwitch(control: HTMLInputElement, stored: boolean, on: boolean): void {
+  if (!control.isConnected) return;
+  if (stored) control.toggleAttribute("checked", on);
+  control.checked = control.hasAttribute("checked");
+}
+
 /** The longest a redraw waits on a press whose release never arrives. */
 const PRESS_WAIT_MS = 3000;
 
@@ -657,6 +699,14 @@ export class MonitoringTab {
   private _renderSeq = 0;
   /** What the tab last drew, and where; null before its first draw. */
   private _drawn: DrawnTab | null = null;
+  /**
+   * A failure the global settings' status line is to say once the tab next
+   * draws them: a refusal of the Enabled switch, whose line the read after it
+   * draws over. Whichever drawing comes next says it, so a read that overtakes
+   * that one does not lose it. It goes as the user leaves the tab, or as the
+   * tab is drawn for another panel.
+   */
+  private _statusFailure: string | null = null;
 
   constructor() {
     this._configEntryId = null;
@@ -666,6 +716,7 @@ export class MonitoringTab {
 
   stop(): void {
     this._epoch += 1;
+    this._statusFailure = null;
     if (this._notifyCloseHandler) {
       document.removeEventListener("click", this._notifyCloseHandler as EventListener);
       this._notifyCloseHandler = null;
@@ -687,6 +738,7 @@ export class MonitoringTab {
   async render(container: HTMLElement, hass: HomeAssistant, configEntryId?: string, topology?: TopologySource, headerHTML: string = ""): Promise<void> {
     // Focus, and what was typed, is kept across a redraw of the same panel's settings, never carried to another's.
     const samePanel = configEntryId === undefined || configEntryId === this._configEntryId;
+    if (!samePanel) this._statusFailure = null;
     if (configEntryId !== undefined) this._configEntryId = configEntryId;
     if (topology !== undefined) this._circuitLabels = circuitLabelsOf(topology);
     else if (!samePanel) this._circuitLabels = NO_CIRCUIT_LABELS;
@@ -702,7 +754,8 @@ export class MonitoringTab {
     // read, so the read shows it; the user is still here, so the epoch stays. One
     // that fails has said so where it failed.
     await this._flushPendingSaves().catch(() => undefined);
-    let status: MonitoringStatusResponse | null;
+    let status: MonitoringStatusResponse | null = null;
+    let readFailed = false;
     try {
       const serviceData: Record<string, unknown> = {};
       if (this._configEntryId) serviceData.config_entry_id = this._configEntryId;
@@ -716,13 +769,17 @@ export class MonitoringTab {
       status = coerceMonitoringStatusResponse(resp?.response);
     } catch (err) {
       console.warn("SPAN Panel: monitoring status fetch failed", err);
-      status = null;
+      readFailed = true;
     }
     const labels = await labelsRead;
     if (epoch !== this._epoch || seq !== this._renderSeq) return;
     // A press under way lands on the control pressed before that control is drawn again.
     await PressWatch.of(container).settled();
     if (epoch !== this._epoch || seq !== this._renderSeq) return;
+    if (readFailed) {
+      this._showReadFailure(container, samePanel);
+      return;
+    }
 
     const globalSettings = status?.global_settings ?? {};
     const isEnabled = status?.enabled === true;
@@ -864,7 +921,7 @@ export class MonitoringTab {
     const { drawing, overTable } = this._drawingIn(container);
     drawing.content.innerHTML = `
       ${this._headerHTML}
-      <div style="padding:16px;">
+      <div class="monitoring-settings" style="padding:16px;">
         <h2 style="margin-top:0;">${t("monitoring.heading")}</h2>
 
         <div style="margin-bottom:24px;padding:16px;background:var(--secondary-background-color,#252530);border-radius:8px;">
@@ -1052,6 +1109,9 @@ export class MonitoringTab {
       </div>
     `;
 
+    const settings = drawing.content.querySelector<HTMLElement>(".monitoring-settings");
+    if (settings && !canEditMonitoring(hass)) showReadOnly(settings);
+
     // Set indeterminate state on toggle-all checkbox
     const toggleAllCb = container.querySelector<HTMLInputElement>("#toggle-all-circuits");
     if (toggleAllCb && !allEnabled && someEnabled) {
@@ -1069,7 +1129,7 @@ export class MonitoringTab {
 
     this._bindGlobalControls(container, hass);
     this._bindNotifyTargetSelect(container, hass);
-    this._bindNotificationSettings(container, hass);
+    this._bindNotificationSettings(container, hass, currentPriority);
     this._bindToggleAll(container, hass, circuits, mains);
     this._bindCircuitToggles(container, hass);
     this._bindMainsToggles(container, hass);
@@ -1080,6 +1140,49 @@ export class MonitoringTab {
     this._bindRatingMarks(container);
     restoreFocus(container, kept);
     this._sayNewWarnings(drawing, overTable && samePanel, warnings, names);
+    this._sayStatusFailure(container);
+  }
+
+  /**
+   * A read of the status failed: the failure is said as a failed read of it is
+   * said elsewhere, and what the tab drew of the panel stays as the integration
+   * last gave it, rather than defaults that could show monitoring off where it
+   * is on. Where the tab holds nothing of the panel's, it says the status could
+   * not be loaded in place of the settings.
+   */
+  private _showReadFailure(container: HTMLElement, samePanel: boolean): void {
+    this.errorStore?.add({ key: "fetch:monitoring", level: "warning", message: t("error.monitoring_failed"), persistent: false });
+    if (samePanel && this._holdsDrawing(container)) {
+      this._sayStatusFailure(container);
+      return;
+    }
+    const { drawing } = this._drawingIn(container);
+    drawing.content.innerHTML = `
+      ${this._headerHTML}
+      <div class="monitoring-settings" style="padding:16px;">
+        <h2 style="margin-top:0;">${t("monitoring.heading")}</h2>
+        <p class="monitoring-read-failed" role="alert" style="color:var(--error-color);">${escapeHtml(t("error.monitoring_failed"))}</p>
+      </div>
+    `;
+    drawing.warnings = new Map();
+    drawing.announcer.textContent = "";
+  }
+
+  /** Say in the global settings' status line, as drawn now, the failure waiting to be said there, if any (`_statusFailure`). */
+  private _sayStatusFailure(container: HTMLElement): void {
+    const message = this._statusFailure;
+    const line = container.querySelector<HTMLElement>("#global-status");
+    if (message === null || !line) return;
+    this._statusFailure = null;
+    sayStatusFailure(line, message);
+  }
+
+  /** Whether `container` holds what the tab drew in it last, and nothing else. */
+  private _holdsDrawing(container: HTMLElement): boolean {
+    const drawn = this._drawn;
+    return (
+      drawn?.container === container && container.childNodes.length === 2 && container.firstChild === drawn.content && container.lastChild === drawn.announcer
+    );
   }
 
   /**
@@ -1089,12 +1192,7 @@ export class MonitoringTab {
    */
   private _drawingIn(container: HTMLElement): { drawing: DrawnTab; overTable: boolean } {
     const drawn = this._drawn;
-    if (
-      drawn?.container === container &&
-      container.childNodes.length === 2 &&
-      container.firstChild === drawn.content &&
-      container.lastChild === drawn.announcer
-    ) {
+    if (drawn && this._holdsDrawing(container)) {
       return { drawing: drawn, overTable: true };
     }
     const content = document.createElement("div");
@@ -1136,23 +1234,15 @@ export class MonitoringTab {
     if (epoch === this._epoch) await this.render(container, hass);
   }
 
-  private _serviceData(data: Record<string, unknown>): Record<string, unknown> {
+  /** `data` for the panel this tab shows: its config entry added, where the tab names one. */
+  private _serviceData(data: MonitoringServiceData): MonitoringServiceData {
     if (this._configEntryId) data.config_entry_id = this._configEntryId;
     return data;
   }
 
-  /** Call the integration's `service` with `data` for the panel this tab shows (`_serviceData`). */
-  private _callService(hass: HomeAssistant, service: string, data: Record<string, unknown>): Promise<unknown> {
-    return hass.callWS({
-      type: "call_service",
-      domain: INTEGRATION_DOMAIN,
-      service,
-      service_data: this._serviceData({ ...data }),
-    });
-  }
-
-  private _callSetGlobal(hass: HomeAssistant, data: Record<string, unknown>): Promise<unknown> {
-    return this._callService(hass, "set_global_monitoring", data);
+  /** Store the global settings in `data` for the panel this tab shows (`_serviceData`). */
+  private _callSetGlobal(hass: HomeAssistant, data: MonitoringServiceData): Promise<void> {
+    return monitoringWrites(hass).setGlobalMonitoring(this._serviceData({ ...data }));
   }
 
   /**
@@ -1164,10 +1254,9 @@ export class MonitoringTab {
     const serviceData = this._serviceData({ [setting]: value });
     const send = async (): Promise<void> => {
       try {
-        await hass.callWS({ type: "call_service", domain: INTEGRATION_DOMAIN, service: "set_global_monitoring", service_data: serviceData });
+        await monitoringWrites(hass).setGlobalMonitoring(serviceData);
       } catch (err: unknown) {
-        console.warn(`SPAN Panel: ${setting} save failed`, err);
-        this.errorStore?.add({ key: "service:monitoring", level: "error", message: t("error.threshold_failed"), persistent: false });
+        reportMonitoringFailure(this.errorStore, err, `${setting} save`);
         throw err;
       }
     };
@@ -1190,11 +1279,8 @@ export class MonitoringTab {
     const statusEl = container.querySelector<HTMLElement>("#global-status");
 
     const reportFailure = (target: HTMLElement | null, err: unknown, fallback: string): void => {
-      if (!target) return;
       // `null` is a form that failed validation: there is no rejection to report.
-      const message = err === null ? fallback : errorText(err);
-      target.textContent = `${t("error.prefix")} ${message}`;
-      target.style.color = "var(--error-color, #f44336)";
+      if (target) sayStatusFailure(target, err === null ? fallback : errorText(err));
     };
 
     // The tab is read again after a save, since every point on the global thresholds shows them.
@@ -1241,21 +1327,22 @@ export class MonitoringTab {
 
     if (enabledCheckbox) {
       // Turning monitoring on sends the four global fields as they stand, so it is
-      // refused where one is not a whole number in its range; refused, or refused
-      // by the integration, the switch and the fields are put back as they were.
+      // refused where one is not a whole number in its range, sending nothing, and
+      // the switch and the fields are put back as they were. Stored, or refused by
+      // the integration, the tab is read again, so the switch shows what is stored
+      // whatever else was sent meanwhile (`settleSwitch`); a refusal is said in
+      // the status line of whichever drawing comes next (`_statusFailure`).
       enabledCheckbox.addEventListener("change", async () => {
         const epoch = this._epoch;
         const enabled = enabledCheckbox.checked;
-        const putBack = (): void => {
-          enabledCheckbox.checked = !enabled;
-          showFields(!enabled);
-        };
         showFields(enabled);
+        let stored = true;
         try {
           if (enabled) {
             const data = readGlobalFields();
             if (!data) {
-              putBack();
+              enabledCheckbox.checked = !enabled;
+              showFields(!enabled);
               reportFailure(statusEl, null, t("monitoring.enable_invalid"));
               return;
             }
@@ -1264,11 +1351,12 @@ export class MonitoringTab {
             await this._callSetGlobal(hass, { enabled: false });
           }
         } catch (err: unknown) {
-          putBack();
-          reportFailure(statusEl, err, t("error.failed"));
-          return;
+          stored = false;
+          if (epoch === this._epoch) this._statusFailure = errorText(err);
         }
         await this._redraw(container, hass, epoch);
+        settleSwitch(enabledCheckbox, stored, enabled);
+        if (enabledCheckbox.isConnected) showFields(enabledCheckbox.checked);
       });
     }
   }
@@ -1338,26 +1426,24 @@ export class MonitoringTab {
     }
   }
 
-  private _bindNotificationSettings(container: HTMLElement, hass: HomeAssistant): void {
+  /** The notification settings' controls, `storedPriority` being the priority the status read gave. */
+  private _bindNotificationSettings(container: HTMLElement, hass: HomeAssistant, storedPriority: string): void {
     const prioritySelect = container.querySelector<HTMLSelectElement>("#g-priority");
     const titleInput = container.querySelector<HTMLInputElement>("#g-title-template");
     const messageInput = container.querySelector<HTMLInputElement>("#g-message-template");
 
     if (prioritySelect) {
+      // A change the integration refuses shows the priority stored again.
       prioritySelect.addEventListener("change", async () => {
         const epoch = this._epoch;
         try {
           await this._callSetGlobal(hass, { notification_priority: prioritySelect.value });
-          await this._redraw(container, hass, epoch);
         } catch (err) {
-          console.warn("SPAN Panel: notification priority change failed", err);
-          this.errorStore?.add({
-            key: "service:monitoring",
-            level: "error",
-            message: t("error.threshold_failed"),
-            persistent: false,
-          });
+          reportMonitoringFailure(this.errorStore, err, "notification priority change");
+          prioritySelect.value = storedPriority;
+          return;
         }
+        await this._redraw(container, hass, epoch);
       });
     }
     if (titleInput) {
@@ -1387,14 +1473,7 @@ export class MonitoringTab {
           this._saveOnPause(hass, "notify_targets", checked.map(c => c.value).join(", "));
           await this._flushPendingSaves();
 
-          const serviceData: Record<string, unknown> = {};
-          if (this._configEntryId) serviceData.config_entry_id = this._configEntryId;
-          await hass.callWS({
-            type: "call_service",
-            domain: INTEGRATION_DOMAIN,
-            service: "test_notification",
-            service_data: serviceData,
-          });
+          await monitoringWrites(hass).testNotification(this._serviceData({}));
           if (testStatus) {
             testStatus.textContent = t("notification.test_sent");
             testStatus.style.color = "var(--success-color, #4caf50)";
@@ -1423,42 +1502,17 @@ export class MonitoringTab {
     toggleAll.addEventListener("change", async () => {
       const epoch = this._epoch;
       const enabled = toggleAll.checked;
-      const calls: Promise<unknown>[] = [
+      const writes = monitoringWrites(hass);
+      const calls: Promise<void>[] = [
         ...Object.keys(circuits).map(entityId =>
-          hass
-            .callWS({
-              type: "call_service",
-              domain: INTEGRATION_DOMAIN,
-              service: "set_circuit_threshold",
-              service_data: this._serviceData({ circuit_id: entityId, monitoring_enabled: enabled }),
-            })
-            .catch(err => {
-              console.warn("SPAN Panel: circuit monitoring toggle failed", err);
-              this.errorStore?.add({
-                key: "service:monitoring",
-                level: "error",
-                message: t("error.threshold_failed"),
-                persistent: false,
-              });
-            })
+          writes
+            .setCircuitThreshold(this._serviceData({ circuit_id: entityId, monitoring_enabled: enabled }))
+            .catch((err: unknown) => reportMonitoringFailure(this.errorStore, err, "circuit monitoring toggle"))
         ),
         ...Object.keys(mains).map(entityId =>
-          hass
-            .callWS({
-              type: "call_service",
-              domain: INTEGRATION_DOMAIN,
-              service: "set_mains_threshold",
-              service_data: this._serviceData({ leg: entityId, monitoring_enabled: enabled }),
-            })
-            .catch(err => {
-              console.warn("SPAN Panel: mains monitoring toggle failed", err);
-              this.errorStore?.add({
-                key: "service:monitoring",
-                level: "error",
-                message: t("error.threshold_failed"),
-                persistent: false,
-              });
-            })
+          writes
+            .setMainsThreshold(this._serviceData({ leg: entityId, monitoring_enabled: enabled }))
+            .catch((err: unknown) => reportMonitoringFailure(this.errorStore, err, "mains monitoring toggle"))
         ),
       ];
       await Promise.all(calls);
@@ -1466,43 +1520,41 @@ export class MonitoringTab {
     });
   }
 
+  /**
+   * The mains' switch turns monitoring on or off for its leg. Stored or refused,
+   * the tab is read again, so the switch shows what is stored, whatever else was
+   * sent meanwhile (`settleSwitch`); a refusal is said.
+   */
   private _bindMainsToggles(container: HTMLElement, hass: HomeAssistant): void {
     for (const cb of container.querySelectorAll<HTMLInputElement>(".mains-toggle")) {
       cb.addEventListener("change", async () => {
         const epoch = this._epoch;
         const entityId = cb.dataset.entity;
         const enabled = cb.checked;
+        let stored = true;
         try {
-          await hass.callWS({
-            type: "call_service",
-            domain: INTEGRATION_DOMAIN,
-            service: "set_mains_threshold",
-            service_data: this._serviceData({ leg: entityId, monitoring_enabled: enabled }),
-          });
+          await monitoringWrites(hass).setMainsThreshold(this._serviceData({ leg: entityId, monitoring_enabled: enabled }));
         } catch (err) {
-          console.warn("SPAN Panel: mains threshold toggle failed", err);
-          this.errorStore?.add({
-            key: "service:monitoring",
-            level: "error",
-            message: t("error.threshold_failed"),
-            persistent: false,
-          });
-          cb.checked = !enabled;
-          return;
+          reportMonitoringFailure(this.errorStore, err, "mains threshold toggle");
+          stored = false;
         }
         await this._redraw(container, hass, epoch);
+        settleSwitch(cb, stored, enabled);
       });
     }
   }
 
-  /** A circuit's switch turns monitoring on or off for it (`_setCircuitMonitoring`), and goes back where that fails. */
+  /**
+   * A circuit's switch turns monitoring on or off for it (`_setCircuitMonitoring`),
+   * and shows what is stored once that settles (`settleSwitch`).
+   */
   private _bindCircuitToggles(container: HTMLElement, hass: HomeAssistant): void {
     for (const cb of container.querySelectorAll<HTMLInputElement>(".circuit-toggle")) {
       const entityId = cb.dataset.entity;
       if (entityId === undefined) continue;
       cb.addEventListener("change", async () => {
         const enabled = cb.checked;
-        if (!(await this._setCircuitMonitoring(container, hass, entityId, enabled))) cb.checked = !enabled;
+        settleSwitch(cb, await this._setCircuitMonitoring(container, hass, entityId, enabled), enabled);
       });
     }
   }
@@ -1518,25 +1570,21 @@ export class MonitoringTab {
 
   /**
    * Turn monitoring on or off for circuit `entityId`, the one call the row's
-   * switch and the averaged-legs warning's button both send, then read the tab
-   * again. Resolves whether it was stored; a failure is said, and nothing redrawn.
+   * switch and the averaged-legs warning's button both send. Stored or refused,
+   * the tab is read again, so the row shows what is stored, whatever else was
+   * sent meanwhile; a refusal is said. Resolves whether it was stored.
    */
   private async _setCircuitMonitoring(container: HTMLElement, hass: HomeAssistant, entityId: string, enabled: boolean): Promise<boolean> {
     const epoch = this._epoch;
+    let stored = true;
     try {
-      await this._callService(hass, "set_circuit_threshold", { circuit_id: entityId, monitoring_enabled: enabled });
+      await monitoringWrites(hass).setCircuitThreshold(this._serviceData({ circuit_id: entityId, monitoring_enabled: enabled }));
     } catch (err) {
-      console.warn("SPAN Panel: circuit threshold toggle failed", err);
-      this.errorStore?.add({
-        key: "service:monitoring",
-        level: "error",
-        message: t("error.threshold_failed"),
-        persistent: false,
-      });
-      return false;
+      reportMonitoringFailure(this.errorStore, err, "circuit threshold toggle");
+      stored = false;
     }
     await this._redraw(container, hass, epoch);
-    return true;
+    return stored;
   }
 
   /**
@@ -1555,37 +1603,28 @@ export class MonitoringTab {
       bindLimitField(input, field, {
         report: fieldFeedback(input),
         save: amount => {
-          const service = isMains ? "set_mains_threshold" : "set_circuit_threshold";
-          const data = isMains ? { leg: entityId, [field]: amount } : { circuit_id: entityId, [field]: amount };
-          void this._saveThreshold(container, hass, input, service, data);
+          void this._saveThreshold(container, hass, input, writes =>
+            isMains
+              ? writes.setMainsThreshold(this._serviceData({ leg: entityId, [field]: amount }))
+              : writes.setCircuitThreshold(this._serviceData({ circuit_id: entityId, [field]: amount }))
+          );
         },
       });
     }
   }
 
+  /** Send a field's threshold with `send`, then read the tab again; a failure is said, and the field marked. */
   private async _saveThreshold(
     container: HTMLElement,
     hass: HomeAssistant,
     input: HTMLInputElement,
-    service: string,
-    data: Record<string, unknown>
+    send: (writes: MonitoringWrites) => Promise<void>
   ): Promise<void> {
     const epoch = this._epoch;
     try {
-      await hass.callWS({
-        type: "call_service",
-        domain: INTEGRATION_DOMAIN,
-        service,
-        service_data: this._serviceData(data),
-      });
+      await send(monitoringWrites(hass));
     } catch (err) {
-      console.warn("SPAN Panel: threshold input save failed", err);
-      this.errorStore?.add({
-        key: "service:monitoring",
-        level: "error",
-        message: t("error.threshold_failed"),
-        persistent: false,
-      });
+      reportMonitoringFailure(this.errorStore, err, "threshold input save");
       input.style.borderColor = ERROR_BORDER;
       return;
     }
@@ -1635,7 +1674,7 @@ export class MonitoringTab {
   ): Promise<void> {
     const epoch = this._epoch;
     try {
-      await this._callService(hass, "set_circuit_package_ratings", { circuit_id: copy.circuitId, package_ratings_a: [copy.panelA, amps] });
+      await monitoringWrites(hass).setCircuitPackageRatings(this._serviceData({ circuit_id: copy.circuitId, package_ratings_a: [copy.panelA, amps] }));
     } catch (err: unknown) {
       reportPackageRatingsFailure(hass, this.errorStore, err);
       if (field.answerRefusal(amps) && input.isConnected && isFocusLost()) input.focus();
@@ -1648,7 +1687,7 @@ export class MonitoringTab {
   private async _clearPackageRatings(container: HTMLElement, hass: HomeAssistant, copy: RowCopy): Promise<boolean> {
     const epoch = this._epoch;
     try {
-      await this._callService(hass, "clear_circuit_package_ratings", { circuit_id: copy.circuitId });
+      await monitoringWrites(hass).clearCircuitPackageRatings(this._serviceData({ circuit_id: copy.circuitId }));
     } catch (err: unknown) {
       reportPackageRatingsFailure(hass, this.errorStore, err);
       return false;
@@ -1676,10 +1715,11 @@ export class MonitoringTab {
       const isMains = btn.dataset.type === "mains";
       bindBusyButton(btn, async () => {
         const epoch = this._epoch;
-        const service = isMains ? "clear_mains_threshold" : "clear_circuit_threshold";
-        const param = this._serviceData(isMains ? { leg: entityId } : { circuit_id: entityId });
+        const writes = monitoringWrites(hass);
         try {
-          await hass.callService(INTEGRATION_DOMAIN, service, param);
+          await (isMains
+            ? writes.clearMainsThreshold(this._serviceData({ leg: entityId }))
+            : writes.clearCircuitThreshold(this._serviceData({ circuit_id: entityId })));
         } catch (err: unknown) {
           console.warn("SPAN Panel: threshold reset failed", err);
           void serviceErrorMessage(hass, err, INTEGRATION_DOMAIN, t("error.threshold_failed")).then(message => {

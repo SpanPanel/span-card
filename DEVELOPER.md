@@ -50,6 +50,7 @@ src/
     dom-updater.ts          # Incremental DOM updates for live data
     history-loader.ts       # Loads history from HA recorder (raw + statistics)
     monitoring-status.ts    # Monitoring status cache + utilization helpers
+    monitoring-access.ts    # Who may change monitoring, and how the views keep to it
     graph-settings.ts       # Graph horizon settings cache + effective horizon lookup
     side-panel.ts           # Sliding configuration panel (custom element)
     registry-types.ts       # Device and entity registry entries, and the panel filter
@@ -176,6 +177,21 @@ device, its SPAN identifier included. The integration's entries come from one of
 A panel's own devices are told the same way. The split also left a helper that had linked itself to a battery or a charger owning a copy of that device, whose
 `via_device_id` can point at the panel. `owningPanelDevice()` and the entity fallback's circuits and sub-devices (`discoverEntitiesFallback()`) take only a
 device `sharesOwner()` accepts.
+
+### Monitoring Changes
+
+Only a Home Assistant administrator may change a panel's monitoring: the integration refuses a logged-in user who is not one each of its monitoring services
+that changes something, while `get_monitoring_status` stays open to everyone. `src/core/monitoring-access.ts` holds the card's side of that rule:
+
+- `monitoringWrites(hass)` is the one way the card sends a monitoring change, one method per service. It sends nothing for a user `canEditMonitoring()` does not
+  accept, which is anyone the frontend does not say is an administrator, and it turns the integration's Unauthorized into a `MonitoringChangeRefused`, whose
+  message says only an administrator can change monitoring, so each view's report of a failed change says that. `tests/monitoring-access.test.ts` fails where
+  one of these services is named anywhere else in `src/`.
+- For anyone else, the Monitoring tab and a circuit's Monitoring section show every setting as it stands, under a note from `readOnlyNote()` saying why nothing
+  there can be changed. `lockMonitoringControls()` makes each field read-only, so what it holds can still be read and selected, and disables every other control
+  but the rating marks, which change nothing. The side panel locks again what the package ratings editor redraws. The frontend can say who the user is only
+  after a view is drawn, so the sidebar dashboard draws the Monitoring tab, and an open side panel its Monitoring section, again as `canEditMonitoring()`
+  changes.
 
 ## TypeScript
 

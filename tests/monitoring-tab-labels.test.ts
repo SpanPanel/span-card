@@ -96,7 +96,8 @@ function install(): Install {
   const callService = vi.fn(
     async (domain: string, service: string, data: Message): Promise<unknown> => callWS({ type: "call_service", domain, service, service_data: data })
   );
-  return { hass: { states: {}, services: {}, language: "en", callService, callWS } as unknown as HomeAssistant, saves };
+  // An administrator, who may change monitoring.
+  return { hass: { states: {}, services: {}, language: "en", user: { is_admin: true }, callService, callWS } as unknown as HomeAssistant, saves };
 }
 
 const mounted: HTMLElement[] = [];

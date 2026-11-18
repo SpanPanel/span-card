@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { MonitoringTab } from "../src/panel/tab-monitoring.js";
 import type { HomeAssistant } from "../src/types.js";
 
-/** Monitoring enabled; every settings save is rejected the way Home Assistant rejects: a plain { code, message }. */
+/** An administrator's, monitoring enabled; every settings save is rejected the way Home Assistant rejects: a plain { code, message }. */
 function hassRejectingSaves(): HomeAssistant {
   const callWS = vi.fn(async (msg: Record<string, unknown>) => {
     if (msg.service === "get_monitoring_status") {
@@ -15,7 +15,7 @@ function hassRejectingSaves(): HomeAssistant {
     }
     throw { code: "service_validation_error", message: "Monitoring is not configured" };
   });
-  return { states: {}, services: {}, language: "en", callService: async () => undefined, callWS } as unknown as HomeAssistant;
+  return { states: {}, services: {}, language: "en", user: { is_admin: true }, callService: async () => undefined, callWS } as unknown as HomeAssistant;
 }
 
 describe("the monitoring tab's errors", () => {

@@ -205,7 +205,8 @@ async function openOven(initial: Circuit): Promise<OpenPanel> {
     if (msg.service === "get_graph_settings") return { response: {} };
     return {};
   });
-  const hass = { states: {}, services: {}, language: "en", callService: async () => undefined, callWS } as unknown as HomeAssistant;
+  // An administrator, who may change monitoring.
+  const hass = { states: {}, services: {}, language: "en", user: { is_admin: true }, callService: async () => undefined, callWS } as unknown as HomeAssistant;
   const root = document.createElement("div");
   root.innerHTML = `<div class="gear-icon" data-uuid="c-1"></div><span-side-panel></span-side-panel>`;
   document.body.appendChild(root);
@@ -217,6 +218,10 @@ async function openOven(initial: Circuit): Promise<OpenPanel> {
   await ctrl.onGearClick({ target: root.querySelector(".gear-icon") } as unknown as Event, root);
   return { root, panel, ctrl, callWS, setStatus: c => (status = monitoringFor(c)) };
 }
+
+/** The data of every call of the integration's `service` the open panel has sent, in the order sent. */
+const sentTo = (open: OpenPanel, service: string): Record<string, unknown>[] =>
+  open.callWS.mock.calls.flatMap(([msg]) => (msg.service === service ? [msg.service_data as Record<string, unknown>] : []));
 
 const section = (p: SidePanel): HTMLElement | null => p.shadowRoot!.querySelector<HTMLElement>('[data-role="rating-section"]');
 const input = (p: SidePanel): HTMLInputElement => p.shadowRoot!.querySelector<HTMLInputElement>('[data-role="rating-input"]')!;
@@ -274,7 +279,7 @@ describe("refreshCircuitSidePanel", () => {
 
   it("keeps a value being typed in the focused field across a refresh, and sends it when committed", async () => {
     const open = await openOven(circuit(20, 20));
-    const sent = vi.spyOn(open.panel as unknown as { _callDomainService: (s: string, d: Record<string, unknown>) => Promise<unknown> }, "_callDomainService");
+    const sent = (): Record<string, unknown>[] => sentTo(open, "set_circuit_package_ratings");
     const field = input(open.panel);
     field.focus();
     field.value = "3";
@@ -287,9 +292,9 @@ describe("refreshCircuitSidePanel", () => {
 
     expect(input(open.panel)).toBe(field);
     expect(field.value).toBe("30");
-    expect(sent).not.toHaveBeenCalled();
+    expect(sent()).toEqual([]);
     field.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter" }));
-    expect(sent).toHaveBeenCalledWith("set_circuit_package_ratings", expect.objectContaining({ package_ratings_a: [20, 30] }));
+    expect(sent()).toEqual([expect.objectContaining({ package_ratings_a: [20, 30] })]);
   });
 
   it("keeps the editor where it was: after the judged-against line, above the Global/Custom choice", async () => {
@@ -306,7 +311,6 @@ describe("refreshCircuitSidePanel", () => {
 
   it("keeps a threshold value being typed, and still sends it, across a rebuild", async () => {
     const open = await openOven(circuit(20, 20));
-    const sent = vi.spyOn(open.panel as unknown as { _callDomainService: (s: string, d: Record<string, unknown>) => Promise<unknown> }, "_callDomainService");
     const threshold = (): HTMLInputElement => open.panel.shadowRoot!.querySelector<HTMLInputElement>('[data-role="threshold-continuous"]')!;
     const typing = threshold();
     typing.value = "65";
@@ -319,7 +323,7 @@ describe("refreshCircuitSidePanel", () => {
 
     expect(threshold()).toBe(typing);
     expect(threshold().value).toBe("65");
-    expect(sent).toHaveBeenCalledWith("set_circuit_threshold", expect.objectContaining({ continuous_threshold_pct: 65 }));
+    expect(sentTo(open, "set_circuit_threshold")).toEqual([expect.objectContaining({ continuous_threshold_pct: 65 })]);
   });
 
   it("adds the editor, in its place, when a circuit first has a panel rating to judge against", async () => {
@@ -685,9 +689,10 @@ describe("the sidebar dashboard", () => {
     (panel as unknown as { _activeTab: string })._activeTab = tab;
   }
 
-  async function mount(connection: FakeConnection, isAdmin = true): Promise<Panel> {
+  /** The dashboard drawn for `hass`, an administrator's unless `isAdmin` is false. */
+  async function mount(connection: FakeConnection, isAdmin = true, hass = panelHass(connection, isAdmin)): Promise<Panel> {
     const panel = document.createElement("span-panel") as Panel;
-    panel.hass = panelHass(connection, isAdmin);
+    panel.hass = hass;
     document.body.appendChild(panel);
     mounted.push(panel);
     await vi.waitFor(() => expect(render).toHaveBeenCalled());
@@ -722,6 +727,37 @@ describe("the sidebar dashboard", () => {
     await mount(connection);
 
     expect(connection.live(PACKAGE_RATINGS_CHANGED)).toBe(2);
+  });
+
+  it("hands a side panel open on the dashboard the Home Assistant that says the user is an administrator, which unlocks its Monitoring section", async () => {
+    render.mockImplementation(async (container: HTMLElement) => {
+      container.innerHTML = "<span-side-panel></span-side-panel>";
+      return rendered;
+    });
+    const connection = new FakeConnection();
+    const unknown = { ...panelHass(connection), user: undefined };
+    const panel = await mount(connection, true, unknown);
+    const side = panel.shadowRoot!.querySelector("span-side-panel") as SidePanel;
+    side.hass = unknown;
+    side.open({
+      uuid: "c-1",
+      name: "Oven",
+      entities: {},
+      showMonitoring: true,
+      monitoringInfo: { monitoring_enabled: true },
+      graphHorizonInfo: { horizon: "5m", has_override: false, globalHorizon: "5m" },
+      members: [{ uuid: "c-1", circuit: circuit(20, 20) }],
+      capacityA: null,
+      configEntryId: "entry-1",
+    });
+    const toggle = (): HTMLElement => side.shadowRoot!.querySelector<HTMLElement>('[data-role="monitoring-toggle"]')!;
+    expect(toggle().hasAttribute("disabled")).toBe(true);
+
+    const admin = panelHass(connection);
+    panel.hass = admin;
+
+    await vi.waitFor(() => expect(side.hass).toBe(admin));
+    expect(toggle().hasAttribute("disabled")).toBe(false);
   });
 
   it("subscribes nothing for a non-administrator", async () => {
@@ -1071,6 +1107,35 @@ describe("the sidebar dashboard", () => {
       expect(reads[reads.length - 1]!.service_data).toEqual({ config_entry_id: "entry-2" });
       expect(fieldOf(panel, OVEN)!.value).toBe("");
       expect(packageSaves()).toEqual([]);
+    });
+
+    it("are drawn again, usable, once Home Assistant says the user, unknown as the tab was drawn, is an administrator", async () => {
+      holds(circuit(20, 20), dryerOf(circuit(20, 20)));
+      const connection = new FakeConnection();
+      const panel = await mount(connection, true, { ...panelHass(connection), user: undefined });
+      showTab(panel, "monitoring");
+      await vi.waitFor(() => expect(fieldOf(panel, OVEN)?.readOnly).toBe(true));
+      expect(content(panel).querySelector('[data-role="monitoring-read-only"]')).not.toBeNull();
+
+      panel.hass = panelHass(connection);
+
+      await vi.waitFor(() => expect(fieldOf(panel, OVEN)?.readOnly).toBe(false));
+      expect(content(panel).querySelector('[data-role="monitoring-read-only"]')).toBeNull();
+      expect(content(panel).querySelector<HTMLInputElement>("#monitoring-enabled")!.disabled).toBe(false);
+    });
+
+    it("leaves the tab as drawn for a Home Assistant that says the same of the user", async () => {
+      holds(circuit(20, 20), dryerOf(circuit(20, 20)));
+      const connection = new FakeConnection();
+      const panel = await mount(connection);
+      showTab(panel, "monitoring");
+      await vi.waitFor(() => expect(fieldOf(panel, OVEN)).not.toBeNull());
+      const reads = callsTo("get_monitoring_status").length;
+
+      panel.hass = panelHass(connection);
+      await flush();
+
+      expect(callsTo("get_monitoring_status")).toHaveLength(reads);
     });
 
     it("leaves the tab running across a re-render of the view it shows, and stops it once the user leaves", async () => {

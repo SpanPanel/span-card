@@ -111,7 +111,8 @@ function integration({ ovenOverride = false, ovenName = "Oven", monitoringOn = t
   const callService = vi.fn(
     async (domain: string, service: string, data: Message): Promise<unknown> => callWS({ type: "call_service", domain, service, service_data: data })
   );
-  const hass = { states: {}, services: {}, language: "en", callService, callWS } as unknown as HomeAssistant;
+  // An administrator, who may change monitoring.
+  const hass = { states: {}, services: {}, language: "en", user: { is_admin: true }, callService, callWS } as unknown as HomeAssistant;
   return {
     hass,
     saves,

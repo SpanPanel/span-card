@@ -19,6 +19,11 @@
   Assistant 2026.8 could appear a second time.
 - **The side panel's switches are drawn in the colors of Home Assistant's own switches**, and in a theme's switch colors where it sets them.
 
+### Changed
+
+- **For a user who is not an administrator, the Monitoring tab and each circuit's Monitoring section show monitoring read-only**, with every setting still in
+  view and a note saying only an administrator can change it.
+
 ## 0.11.0
 
 ### Added

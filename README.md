@@ -121,6 +121,8 @@ You can copy it in either of two places, which always show the same copy:
   the second one here." **Remove copied ratings** removes the copy, and the section says what the circuit is judged against: "Judged against 40 A: 20-20 from
   your SPAN app (the panel publishes 20 A)". The section is not part of the Lovelace card or the list tabs.
 
+Changing a copied rating, like any change to monitoring, takes a Home Assistant administrator; for anyone else, both places show it read-only.
+
 A field saves when you press Enter or leave it, never while you type, and only a whole number of amps of 1 or more; anything else is marked for correction.
 Threshold and duration fields save the same way, with a whole number in their range. Every open view shows a changed copy, whether the change came from this
 browser, another one or a service call, and a field you are typing in keeps what you typed.
