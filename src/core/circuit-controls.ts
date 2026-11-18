@@ -18,6 +18,8 @@ function pillTitle(access: ControlAccess, shared: boolean): string {
  * unavailable, and titled as switching the group when circuits share its relay.
  * Where the user may not operate the panel's controls (`access`), it is drawn
  * forbidden, titled with why; a click on it sends nothing (`controlWrites`).
+ * The pill is a plain element with no role, so its title, not an ARIA state,
+ * says it cannot be operated.
  */
 export function buildTogglePillHTML(isOn: boolean, presence: SwitchPresence, access: ControlAccess, shared = false): string {
   if (presence === "none") return "";
@@ -26,8 +28,7 @@ export function buildTogglePillHTML(isOn: boolean, presence: SwitchPresence, acc
   if (shared) classes.push("toggle-shared");
   if (!access.mayOperate) classes.push("toggle-forbidden");
   const title = pillTitle(access, shared);
-  const attributes = `${title ? ` title="${escapeHtml(title)}"` : ""}${access.mayOperate ? "" : ' aria-disabled="true"'}`;
-  return `<div class="${classes.join(" ")}"${attributes}>
+  return `<div class="${classes.join(" ")}"${title ? ` title="${escapeHtml(title)}"` : ""}>
     <span class="toggle-label">${isOn ? t("grid.on") : t("grid.off")}</span>
     <span class="toggle-knob"></span>
   </div>`;
@@ -44,8 +45,6 @@ export function applyTogglePill(scope: ParentNode, isOn: boolean, presence: Swit
   const title = pillTitle(access, pill.classList.contains("toggle-shared"));
   if (title) pill.title = title;
   else pill.removeAttribute("title");
-  if (access.mayOperate) pill.removeAttribute("aria-disabled");
-  else pill.setAttribute("aria-disabled", "true");
   const label = pill.querySelector(".toggle-label");
   if (label) label.textContent = isOn ? t("grid.on") : t("grid.off");
 }

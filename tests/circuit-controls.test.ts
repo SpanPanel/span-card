@@ -42,11 +42,13 @@ describe("the toggle pill", () => {
     expect(pill.classList.contains("toggle-on")).toBe(true);
   });
 
-  it("is drawn untitled and not forbidden where the user may operate the panel's controls", () => {
+  it("is drawn untitled and not forbidden where the user may operate the panel's controls, with no ARIA state either way", () => {
     const pill = host(buildTogglePillHTML(true, "operable", CONTROLS_OPERABLE)).querySelector(".toggle-pill")!;
     expect(pill.classList.contains("toggle-forbidden")).toBe(false);
     expect(pill.hasAttribute("title")).toBe(false);
-    expect(pill.hasAttribute("aria-disabled")).toBe(false);
+    const forbidden = host(buildTogglePillHTML(true, "operable", ADMIN_ONLY)).querySelector(".toggle-pill")!;
+    for (const drawn of [pill, forbidden])
+      expect([...drawn.attributes].map(attr => attr.name).filter(name => name.startsWith("aria-") || name === "role")).toEqual([]);
   });
 
   it.each([
@@ -59,7 +61,6 @@ describe("the toggle pill", () => {
     expect(pill.classList.contains("toggle-forbidden")).toBe(true);
     expect(pill.classList.contains("toggle-on")).toBe(true);
     expect(pill.getAttribute("title")).toBe(why);
-    expect(pill.getAttribute("aria-disabled")).toBe("true");
   });
 
   it("says why it is forbidden over that it switches every circuit in its space", () => {
@@ -69,17 +70,15 @@ describe("the toggle pill", () => {
     expect(forbidden.getAttribute("title")).toBe("Only an administrator can operate this panel's controls.");
   });
 
-  it("keeps toggle-forbidden, its title and aria-disabled in step with the access, a shared switch's title coming back", () => {
+  it("keeps toggle-forbidden and its title in step with the access, with no ARIA state on a pill that has no role, a shared switch's title coming back", () => {
     const scope = host(buildTogglePillHTML(true, "operable", CONTROLS_OPERABLE, true));
     const pill = scope.querySelector(".toggle-pill")!;
     applyTogglePill(scope, true, "operable", ADMIN_ONLY);
     expect(pill.classList.contains("toggle-forbidden")).toBe(true);
     expect(pill.getAttribute("title")).toBe("Only an administrator can operate this panel's controls.");
-    expect(pill.getAttribute("aria-disabled")).toBe("true");
     applyTogglePill(scope, true, "operable", CONTROLS_OPERABLE);
     expect(pill.classList.contains("toggle-forbidden")).toBe(false);
     expect(pill.getAttribute("title")).toBe("Switches every circuit in this space");
-    expect(pill.hasAttribute("aria-disabled")).toBe(false);
   });
 
   it("leaves a pill that is neither forbidden nor shared untitled as it updates", () => {

@@ -25,7 +25,8 @@ export interface HeaderRenderOptions {
  */
 export function buildSlideConfirmHTML(access: ControlAccess): string {
   const forbidden = !access.mayOperate;
-  const attributes = forbidden ? ` aria-disabled="true" title="${escapeHtml(controlAccessHint(access))}"` : "";
+  // A plain element with no role, so its title and the note beside it, not an ARIA state, say why it cannot be armed.
+  const attributes = forbidden ? ` title="${escapeHtml(controlAccessHint(access))}"` : "";
   return `<div class="slide-confirm${forbidden ? " slide-confirm-forbidden" : ""}"${attributes} data-text-off="${escapeHtml(t("header.enable_switches"))}" data-text-on="${escapeHtml(t("header.switches_enabled"))}">
       <span class="slide-confirm-text">${escapeHtml(t("header.enable_switches"))}</span>
       <div class="slide-confirm-knob">
