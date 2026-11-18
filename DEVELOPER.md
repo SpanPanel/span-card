@@ -51,6 +51,7 @@ src/
     history-loader.ts       # Loads history from HA recorder (raw + statistics)
     monitoring-status.ts    # Monitoring status cache + utilization helpers
     monitoring-access.ts    # Who may change monitoring, and how the views keep to it
+    control-access.ts       # Who may operate a panel's relays and priorities, and the one way the card sends a change
     graph-settings.ts       # Graph horizon settings cache + effective horizon lookup
     side-panel.ts           # Sliding configuration panel (custom element)
     registry-types.ts       # Device and entity registry entries, and the panel filter
@@ -192,6 +193,31 @@ that changes something, while `get_monitoring_status` stays open to everyone. `s
   but the rating marks, which change nothing. The side panel locks again what the package ratings editor redraws. The frontend can say who the user is only
   after a view is drawn, so the sidebar dashboard draws the Monitoring tab, and an open side panel its Monitoring section, again as `canEditMonitoring()`
   changes.
+
+### Control Changes
+
+The integration's control gate decides who may operate a panel's relays and shedding priorities: its options can let only an administrator operate them, or
+switch control off. `panel_topology` says what the gate would decide for the user who asked, as `control_access: {may_operate, reason}`, where `reason` is
+`admin_only` or `control_disabled` when `may_operate` is false. `src/core/control-access.ts` holds the card's side of that rule:
+
+- `controlAccess(topology)` reads it. Where the topology says nothing, as from an integration that predates the field or from the entity fallback, the controls
+  are taken as operable, as they always were, and the gate still refuses what it refuses. `circuitControlAccess()` answers for one circuit: in the Favorites
+  view each favorite keeps its own panel's answer on its `FavoriteRef`. `viewControlAccess()` answers for a view's "Enable Switches" slider, which is operable
+  where any of the view's circuits is.
+- `controlWrites(hass, access)` is the one way the card sends a change: `setRelay()` sends `switch.turn_on` or `switch.turn_off`, and `setPriority()` sends
+  `select.select_option`, each over the websocket, so Home Assistant shows no toast of its own beside the card's banner. It sends nothing where the access does
+  not allow it, rejecting with a `ControlChangeRefused` that says why. `tests/control-access.test.ts` fails where a relay, priority or lock service is named
+  anywhere else in `src/`. The card sends nothing to the integration's control lock switch; "Enable Switches" is the card's own arming of its toggles.
+- `reportControlFailure()` puts a failed change in the error store, saying why as the gate said it: the refusal's translation key is looked up in the
+  integration's exception translations (`serviceErrorMessage()`), so an armed control lock, a relay operated a moment ago, or a policy that changed since the
+  topology was fetched each read as the gate words them.
+- Where the user may not operate the controls, each is drawn disabled and titled with why (`controlAccessHint()`): the side panel's relay switch and priority
+  select, under a note in the first of their sections (`controlNoteHTML()`); each toggle pill in the breaker grid and the list rows (`toggle-forbidden`); and
+  the slider (`slide-confirm-forbidden`, which `bindSlideConfirm()` never arms), with a note under the panel's name, or beside the slider in the Favorites
+  strip. The gear, the favorite, the graph horizon and the read-only monitoring stay open.
+- A refused change never stays shown: the side panel's switch and select show again what Home Assistant reports, and a toggle pill only ever shows that.
+- The access arrives with each topology, and `sameTopologyStructure()` counts a change of it as a change of structure, so the views draw again. A view waits for
+  an open side panel to close, so that panel takes the new access in place (`refreshControlAccess()`), keeping what else it shows.
 
 ## TypeScript
 
