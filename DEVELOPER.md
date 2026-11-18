@@ -212,9 +212,17 @@ the first of `control_disabled`, `admin_only` and `read_only` that applies. `src
   `select.select_option`, each over the websocket, so Home Assistant shows no toast of its own beside the card's banner. It sends nothing where the access does
   not allow it, rejecting with a `ControlChangeRefused` that says why. Home Assistant's Unauthorized (`isUnauthorized()`), for a user the integration lets
   operate the panel whose permissions do not cover this one entity, comes back as a `ControlChangeRefused` saying so in the user's language, since its own
-  message is English. `tests/control-access.test.ts` fails where a relay, priority or lock service is named anywhere else in `src/`, where `callService` is
-  called at all, or where a `call_service` message outside the module names any domain but `domain: INTEGRATION_DOMAIN`. The card sends nothing to the
-  integration's control lock switch; "Enable Switches" is the card's own arming of its toggles.
+  message is English. The card sends nothing to the integration's control lock switch; "Enable Switches" is the card's own arming of its toggles.
+- `tests/control-access.test.ts` reads the text of `src/` and fails where:
+  - a relay or priority service (`turn_on`, `turn_off`, `toggle`, `select_option`, `select_next`, `select_previous`, `select_first` or `select_last`) is named
+    outside the module, quoted, after its domain (`"switch.toggle"`) or in a REST path (`"services/switch/toggle"`);
+  - `callService` is called, or named anywhere but the `HomeAssistant` type, or `callApi(` or the `execute_script` command appears;
+  - `call_service` appears other than as a message's `type`, so a message built from a constant is seen;
+  - a `call_service` message holds a spread, which could bring a domain in;
+  - a `call_service` message outside the module names any domain but `domain: INTEGRATION_DOMAIN`, or names more than one.
+
+  It reads text, not code: a message changed after it is built, as by `msg.domain = "switch"`, is not seen.
+
 - `reportControlFailure()` puts a failed change in the error store, saying why as the gate said it: the refusal's translation key is looked up in the
   integration's exception translations (`serviceErrorMessage()`), so an armed control lock, a relay operated a moment ago, or a policy that changed since the
   topology was fetched each read as the gate words them.

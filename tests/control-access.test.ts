@@ -127,6 +127,40 @@ function namesIntegrationDomain(message: string): boolean {
   return domains.length === 1 && /(^|[\s{,])domain:\s*INTEGRATION_DOMAIN\s*[,}\n]/.test(message);
 }
 
+/**
+ * Whether `text` names service `service`: quoted, as a service is named, alone or
+ * after its domain or a REST path (`"switch.toggle"`, `"services/switch/toggle"`).
+ * A name with an underscore is matched bare too, which nothing else in the card
+ * is called; "toggle" bare is a class name and a DOM method.
+ */
+function namesService(service: string, text: string): boolean {
+  const quoted = `["'\`./]${service}["'\`]`;
+  return new RegExp(service.includes("_") ? `${quoted}|\\b${service}\\b(?!_)` : quoted).test(text);
+}
+
+/**
+ * Each way `text` could send a service call that the guard does not see the
+ * domain of. `call_service` may appear only as a message's `type`, so a message
+ * built from a constant is seen; a message may hold no spread, which could
+ * bring a domain in; and outside the controls module (`ownDomains` false) its
+ * one domain is `INTEGRATION_DOMAIN`. Home Assistant's other ways to call a
+ * service, `callService`, `callApi` and the `execute_script` command, appear
+ * nowhere. A message changed after it is built is not seen.
+ */
+function unguardedSends(text: string, ownDomains = false): string[] {
+  const reasons: string[] = [];
+  const messages = callServiceMessages(text);
+  if ((text.match(/call_service/g) ?? []).length !== messages.length) reasons.push("call_service named other than as a message's type");
+  for (const message of messages) {
+    if (message.includes("...")) reasons.push(`a spread in ${message.slice(0, 60)}`);
+    if (!ownDomains && !namesIntegrationDomain(message)) reasons.push(`a domain not the integration's in ${message.slice(0, 60)}`);
+  }
+  if (/\.callService\(/.test(text)) reasons.push("callService");
+  if (/\bcallApi\s*\(/.test(text)) reasons.push("callApi");
+  if (/\bexecute_script\b/.test(text)) reasons.push("execute_script");
+  return reasons;
+}
+
 /** A Home Assistant recording every message sent, which `answer` answers. */
 function recording(answer: (msg: Message) => Promise<unknown> = async () => ({})): {
   hass: HomeAssistant;
@@ -192,10 +226,18 @@ afterEach(() => {
 
 describe("the services that change a panel's controls", () => {
   it.each(CONTROL_SERVICES)("%s is named nowhere in the card's source but the module that sends it only where the user may", service => {
-    // Quoted, as a service is named; a name with an underscore also bare, which nothing else in the card is called. "toggle" bare is a class name.
-    const named = new RegExp(service.includes("_") ? `(["'\`])${service}\\1|\\b${service}\\b(?!_)` : `(["'\`])${service}\\1`);
-    const naming = SOURCES.filter(([, text]) => named.test(text)).map(([path]) => path);
+    const naming = SOURCES.filter(([, text]) => namesService(service, text)).map(([path]) => path);
     expect(naming).toEqual(SENT.has(service) ? [ACCESS_MODULE] : []);
+  });
+
+  it.each([
+    ["quoted", `service: "toggle"`, true],
+    ["after its domain", `service: "switch.toggle"`, true],
+    ["in a REST path", `callApi("POST", "services/switch/toggle")`, true],
+    ["as a class list's method", `pill.classList.toggle("toggle-on", isOn)`, false],
+    ["inside a class name", `class="monitoring-toggle"`, false],
+  ])("would see toggle named %s, and only as a service", (_how, text, named) => {
+    expect(namesService("toggle", text)).toBe(named);
   });
 
   it("are never sent through Home Assistant's callService, which the card calls nowhere", () => {
@@ -204,12 +246,8 @@ describe("the services that change a panel's controls", () => {
     expect(SOURCES.filter(([, text]) => /\bcallService\b/.test(text)).map(([path]) => path)).toEqual(["types.ts"]);
   });
 
-  it("are sent by no call_service message but the module's: every other one is the integration's own", () => {
-    const strays = SOURCES.filter(([path]) => path !== ACCESS_MODULE).flatMap(([path, text]) =>
-      callServiceMessages(text)
-        .filter(message => !namesIntegrationDomain(message))
-        .map(message => `${path}: ${message.slice(0, 80)}`)
-    );
+  it("are sent by no service call but the module's: every other call_service message is the integration's own", () => {
+    const strays = SOURCES.flatMap(([path, text]) => unguardedSends(text, path === ACCESS_MODULE).map(reason => `${path}: ${reason}`));
     expect(strays).toEqual([]);
     // The module's sends are found the same way, so the scan sees a message wherever one is.
     expect(callServiceMessages(SOURCES.find(([path]) => path === ACCESS_MODULE)![1])).toHaveLength(1);
@@ -220,15 +258,18 @@ describe("the services that change a panel's controls", () => {
     ["a quoted domain key", `hass.callWS({ "type": "call_service", "domain": "switch", "service": "turn_on" })`],
     ["a domain in backticks", "hass.callWS({ type: `call_service`, domain: `switch`, service: x })"],
     ["a second domain after the integration's", `hass.callWS({ type: "call_service", domain: INTEGRATION_DOMAIN, service, "domain": "select" })`],
-  ])("would find a call_service message with %s", (_what, source) => {
-    const messages = callServiceMessages(source);
-    expect(messages).toHaveLength(1);
-    expect(namesIntegrationDomain(messages[0]!)).toBe(false);
+    ["its type held in a constant", `const KIND = "call_service";\nhass.callWS({ type: KIND, domain: "switch", service: "turn_on" })`],
+    ["a spread, which can bring a domain in", `hass.callWS({ type: "call_service", domain: INTEGRATION_DOMAIN, ...overrides })`],
+    ["a script run for it", `hass.callWS({ type: "execute_script", sequence: [{ action: next }] })`],
+    ["the REST API", `hass.callApi("POST", path, data)`],
+    ["Home Assistant's callService", `hass.callService(domain, service, data)`],
+  ])("would find a service call sent with %s", (_what, source) => {
+    expect(unguardedSends(source)).not.toEqual([]);
   });
 
   it("would let a call_service message to the integration pass", () => {
     const source = `hass.callWS({\n  type: "call_service",\n  domain: INTEGRATION_DOMAIN,\n  service: "get_favorites",\n  service_data: { config_entry_id: id },\n})`;
-    expect(callServiceMessages(source).map(namesIntegrationDomain)).toEqual([true]);
+    expect(unguardedSends(source)).toEqual([]);
   });
 
   it("are each sent by one of the module's changes, over the websocket alone, where the user may operate the controls", async () => {
