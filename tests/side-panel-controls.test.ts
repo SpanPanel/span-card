@@ -399,6 +399,72 @@ describe("an open side panel moved in the DOM, as a dashboard moves its card bet
   });
 });
 
+describe("a graph horizon change still on its way as the panel leaves the page", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  /** The panel's graph settings side panel, with a horizon select for the kitchen, over a Home Assistant that records each call. */
+  function panelSettings(callWS: CallWS): SidePanel {
+    const panel = document.createElement("span-side-panel") as SidePanel;
+    document.body.appendChild(panel);
+    mounted.push(panel);
+    panel.hass = hass({ [SWITCH]: "on" }, callWS);
+    panel.errorStore = new ErrorStore();
+    panel.open({
+      panelMode: true,
+      topology: { circuits: { kitchen: KITCHEN } },
+      graphSettings: { global_horizon: "5m", circuits: {} },
+      configEntryId: "entry-1",
+    });
+    return panel;
+  }
+
+  /** Choose `horizon` for the kitchen, as the user does. */
+  function chooseHorizon(panel: SidePanel, horizon: string): void {
+    const select = panel.shadowRoot!.querySelector<HTMLSelectElement>('select[data-uuid="kitchen"]')!;
+    select.value = horizon;
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+
+  function horizonWrites(callWS: ReturnType<typeof vi.fn<CallWS>>): unknown[] {
+    return callWS.mock.calls.map(([msg]) => msg).filter(msg => msg.service === "set_circuit_graph_horizon");
+  }
+
+  it("is sent once, the horizon chosen, where a dashboard moves the panel within the wait", async () => {
+    vi.useFakeTimers();
+    const callWS = vi.fn<CallWS>(async () => ({}));
+    const panel = panelSettings(callWS);
+    chooseHorizon(panel, "1h");
+
+    const parent = document.createElement("div");
+    document.body.appendChild(parent);
+    mounted.push(parent);
+    parent.appendChild(panel);
+    expect(horizonWrites(callWS)).toEqual([]);
+    await vi.advanceTimersByTimeAsync(500);
+
+    expect(horizonWrites(callWS)).toEqual([
+      {
+        type: "call_service",
+        domain: "span_panel",
+        service: "set_circuit_graph_horizon",
+        service_data: { circuit_id: "kitchen", horizon: "1h", config_entry_id: "entry-1" },
+      },
+    ]);
+  });
+
+  it("is sent once even where the panel is taken off the page for good", async () => {
+    vi.useFakeTimers();
+    const callWS = vi.fn<CallWS>(async () => ({}));
+    const panel = panelSettings(callWS);
+    chooseHorizon(panel, "1h");
+    panel.remove();
+    await vi.advanceTimersByTimeAsync(500);
+    expect(horizonWrites(callWS)).toHaveLength(1);
+  });
+});
+
 describe("the side panel's relay and priority, for assistive technology", () => {
   it("are named by their labels", () => {
     const panel = openFor({ [SWITCH]: "on", [SELECT]: "never" });

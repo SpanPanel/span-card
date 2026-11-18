@@ -582,17 +582,6 @@ class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
     return this._hass;
   }
 
-  /**
-   * Cancel any debounced write still pending. Nothing else: a dashboard moves
-   * an open panel with its card, as a masonry view does re-columning on
-   * rotation, and the panel goes on as it was, on the same circuit, with the
-   * same access and stored monitoring, its controls and their listeners intact.
-   * Its state is reset only as it opens or closes (`open`, `close`).
-   */
-  disconnectedCallback(): void {
-    this._clearDebounceTimers();
-  }
-
   open(config: SidePanelConfig): void {
     this._config = config;
     this._storedMonitoring =
@@ -2178,6 +2167,16 @@ class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
 
   // ── Debounce ────────────────────────────────────────────────────────
 
+  /**
+   * Run `fn` once `ms` pass with no other call under `key`. A write so delayed is
+   * the user's change, already shown by the control they changed, so it is sent
+   * even where the panel leaves the page meanwhile: a dashboard moves an open
+   * panel with its card, as a masonry view does re-columning on rotation, and
+   * the panel goes on as it was, its circuit, access, stored monitoring, controls
+   * and pending writes intact. Each write reads only what it captured and Home
+   * Assistant, never the panel's config. Only `close` cancels a pending write;
+   * the panel's state is reset only as it opens or closes (`open`, `close`).
+   */
   private _debounce(key: string, ms: number, fn: () => void): void {
     if (this._debounceTimers[key]) {
       clearTimeout(this._debounceTimers[key]);
