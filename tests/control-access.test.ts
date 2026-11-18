@@ -419,9 +419,9 @@ describe("viewControlAccess", () => {
   });
 
   it("is operable in the Favorites view where the user may operate any favorite's panel", () => {
-    expect(
-      viewControlAccess(favorites({ a: circuitRef("panel-1", ADMIN_ONLY), b: circuitRef("panel-2", CONTROLS_OPERABLE) }, { a: RELAY, b: PRIORITY }))
-    ).toEqual(CONTROLS_OPERABLE);
+    expect(viewControlAccess(favorites({ a: circuitRef("panel-1", ADMIN_ONLY), b: circuitRef("panel-2", CONTROLS_OPERABLE) }, { a: RELAY, b: RELAY }))).toEqual(
+      CONTROLS_OPERABLE
+    );
     expect(viewControlAccess(favorites({}))).toEqual(CONTROLS_OPERABLE);
   });
 
@@ -434,6 +434,15 @@ describe("viewControlAccess", () => {
   it("leaves a favorite sub-device, which has no relay, out of it", () => {
     const subDevice: FavoriteRef = { panelDeviceId: "panel-2", kind: "sub_device", targetId: "bess", configEntryId: "entry-2" };
     expect(viewControlAccess(favorites({ a: circuitRef("panel-1", ADMIN_ONLY), b: subDevice }, { a: RELAY }))).toEqual(ADMIN_ONLY);
+  });
+
+  it("leaves out a panel whose favorites draw only a priority select, which the slider arms nothing of, though its note counts it", () => {
+    const merged = favorites({ a: circuitRef("panel-1", CONTROLS_OPERABLE), b: circuitRef("panel-2", ADMIN_ONLY) }, { a: PRIORITY, b: RELAY });
+    expect(viewControlAccess(merged)).toEqual(ADMIN_ONLY);
+    expect([...favoritesPanelAccess(merged)]).toEqual([
+      ["panel-1", CONTROLS_OPERABLE],
+      ["panel-2", ADMIN_ONLY],
+    ]);
   });
 
   it("leaves out a panel whose favorites draw no relay or priority, so its access arms nothing", () => {

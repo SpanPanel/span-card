@@ -55,29 +55,43 @@ export function circuitControlAccess(topology: PanelTopology | null | undefined,
 
 /**
  * The access a view's "Enable Switches" slider answers for, which arms every
- * switch the view draws: operable where the user may operate the controls of
+ * toggle the view draws: operable where the user may operate the controls of
  * any of its panels, else why not, as the first of them says. A Favorites view
- * of several panels counts those it draws a relay or priority control of
- * (`favoritesPanelAccess`), and is armed for those the user may operate; each
- * other circuit's switch refuses on its own (`circuitControlAccess`). A view
- * with no such control has no switch to arm, and nothing to forbid.
+ * of several panels counts those it draws a toggle of (`hasRelay`), and is
+ * armed for those the user may operate; each other circuit's toggle refuses on
+ * its own (`circuitControlAccess`). A priority select is no toggle, and the
+ * slider arms none, so a panel whose favorites draw only selects is not
+ * counted. A view with no toggle has none to arm, and nothing to forbid.
  */
 export function viewControlAccess(topology: PanelTopology | null | undefined): ControlAccess {
   if (!topology || !isFavoritesTopology(topology)) return controlAccess(topology);
-  const panels = [...favoritesPanelAccess(topology).values()];
+  const panels = [...panelsDrawing(topology, hasRelay).values()];
   const [first] = panels;
   if (!first || panels.some(access => access.mayOperate)) return CONTROLS_OPERABLE;
   return first;
 }
 
 /**
- * Whether `circuit` has a control the card draws: a relay switch the user may
- * control (`is_user_controllable`), as `switchPresence` judges it before it
- * reads the switch's state, or a shedding priority select.
+ * Whether `circuit` draws a relay toggle: a switch the user may control
+ * (`is_user_controllable`), as `switchPresence` judges it before it reads the
+ * switch's state.
  */
+function hasRelay(circuit: Circuit | undefined): boolean {
+  return !!circuit?.entities?.switch && circuit.is_user_controllable !== false;
+}
+
+/** Whether `circuit` has a control the card draws: a relay toggle (`hasRelay`) or a shedding priority select. */
 function hasControls(circuit: Circuit | undefined): boolean {
-  if (!circuit) return false;
-  return (!!circuit.entities?.switch && circuit.is_user_controllable !== false) || !!circuit.entities?.select;
+  return hasRelay(circuit) || !!circuit?.entities?.select;
+}
+
+/** Each panel of the Favorites view that has a favorite `draws` says it draws, by its device id, with the access its circuits' refs hold. */
+function panelsDrawing(topology: FavoritesTopology, draws: (circuit: Circuit | undefined) => boolean): Map<string, ControlAccess> {
+  const panels = new Map<string, ControlAccess>();
+  for (const [id, ref] of Object.entries(topology._favoriteRefs)) {
+    if (isCircuitRef(ref) && draws(topology.circuits[id])) panels.set(ref.panelDeviceId, ref.controlAccess);
+  }
+  return panels;
 }
 
 /**
@@ -88,11 +102,7 @@ function hasControls(circuit: Circuit | undefined): boolean {
  * there to forbid, and is left out.
  */
 export function favoritesPanelAccess(topology: FavoritesTopology): ReadonlyMap<string, ControlAccess> {
-  const panels = new Map<string, ControlAccess>();
-  for (const [id, ref] of Object.entries(topology._favoriteRefs)) {
-    if (isCircuitRef(ref) && hasControls(topology.circuits[id])) panels.set(ref.panelDeviceId, ref.controlAccess);
-  }
-  return panels;
+  return panelsDrawing(topology, hasControls);
 }
 
 /** The hint for each reason the integration gives, each said as it is asked for, in the user's language then. */

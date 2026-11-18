@@ -207,7 +207,8 @@ the first of `control_disabled`, `admin_only` and `read_only` that applies. `src
   panel's config (`CircuitModeConfig.controlAccess`) and each Favorites circuit ref (`FavoriteCircuitRef`) must carry one, so the compiler flags a path that
   omits it, and a Favorites circuit with no circuit ref is not operable (`CONTROLS_NOT_KNOWN`). `circuitControlAccess()` answers for one circuit, in the
   Favorites view from its own panel's ref. `viewControlAccess()` answers for a view's "Enable Switches" slider, which is operable where any of the view's panels
-  is; in the Favorites view it counts only the panels whose favorites draw a relay or priority control (`favoritesPanelAccess()`).
+  is; in the Favorites view it counts only the panels whose favorites draw a relay toggle, the one control it arms, while a panel's note counts a priority
+  select too (`favoritesPanelAccess()`).
 - `controlWrites(hass, access)` is the one way the card sends a change: `setRelay()` sends `switch.turn_on` or `switch.turn_off`, and `setPriority()` sends
   `select.select_option`, each over the websocket, so Home Assistant shows no toast of its own beside the card's banner. It sends nothing where the access does
   not allow it, rejecting with a `ControlChangeRefused` that says why. Home Assistant's Unauthorized (`isUnauthorized()`), for a user the integration lets
