@@ -10,6 +10,7 @@ vi.mock("../src/card/card-discovery.js", async importOriginal => ({
 import { discoverEntitiesFallback, discoverTopology } from "../src/card/card-discovery.js";
 import { CONTROLS_OPERABLE } from "../src/core/control-access.js";
 import { DashboardController } from "../src/core/dashboard-controller.js";
+import { ErrorStore } from "../src/core/error-store.js";
 import { updateCircuitDOM } from "../src/core/dom-updater.js";
 import { FavoritesController } from "../src/core/favorites-controller.js";
 import { renderCircuitSlot } from "../src/core/grid-renderer.js";
@@ -80,12 +81,23 @@ const STATES = {
 
 /** Every relay or priority change the card sent. */
 let controlSends: Message[] = [];
+/** What the integration's control gate answers each relay or priority change with; null takes it. */
+let gateRefusal: Message | null = null;
+
+/** The integration's exception messages, as Home Assistant loads them for the frontend in the user's language. */
+const GATE_MESSAGES: Record<string, string> = {
+  "component.span_panel.exceptions.control_locked.message": "El bloqueo de control del panel SPAN está activado.",
+};
 
 function hassFor(connection: FakeConnection): HomeAssistant {
   return hassWith(connection, {
     states: STATES,
+    loadBackendTranslation: async () => (key: string) => GATE_MESSAGES[key] ?? "",
     callWS: (async (msg: Message) => {
-      if (msg.type === "call_service" && (msg.domain === "switch" || msg.domain === "select")) controlSends.push(msg);
+      if (msg.type === "call_service" && (msg.domain === "switch" || msg.domain === "select")) {
+        controlSends.push(msg);
+        if (gateRefusal) throw gateRefusal;
+      }
       if (msg.type === "config/area_registry/list" || msg.type === "config/entity_registry/list" || msg.type === "config/device_registry/list") return [];
       return {};
     }) as HomeAssistant["callWS"],
@@ -96,6 +108,7 @@ const mounted: HTMLElement[] = [];
 
 beforeEach(() => {
   controlSends = [];
+  gateRefusal = null;
   mockFallback.mockRejectedValue(new Error("no fallback"));
 });
 
@@ -257,6 +270,40 @@ describe("the card's list views, for a user who may not operate the panel's cont
     for (const pill of drawn) pill.click();
     await flush();
     expect(controlSends).toEqual([]);
+  });
+});
+
+describe("a toggle's change the control gate refuses", () => {
+  const LOCKED = {
+    code: "service_validation_error",
+    message: "Validation error: The SPAN panel's control lock is armed. Disarm it before operating circuits.",
+    translation_domain: "span_panel",
+    translation_key: "control_locked",
+    translation_placeholders: {},
+  };
+
+  /** Arm the view's switches, refuse the change, tap the kitchen's toggle, and answer what the banner was handed. */
+  async function refusedTap(root: ShadowRoot): Promise<Array<[string, string]>> {
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const added = vi.spyOn(ErrorStore.prototype, "add");
+    gateRefusal = LOCKED;
+    drag(root.querySelector<HTMLElement>(".slide-confirm")!);
+    root.querySelector<HTMLElement>('[data-uuid="kitchen"] .toggle-pill, [data-row-uuid="kitchen"] .toggle-pill')!.click();
+    await vi.waitFor(() => expect(added.mock.calls.some(([entry]) => entry.key === "service:relay")).toBe(true));
+    return added.mock.calls.filter(([entry]) => entry.key === "service:relay").map(([entry]) => [entry.level, entry.message]);
+  }
+
+  it("says why in the gate's words, in the user's language, from a breaker grid toggle", async () => {
+    const { root } = await mount(topology(ALLOWED));
+    expect(await refusedTap(root)).toEqual([["error", "El bloqueo de control del panel SPAN está activado."]]);
+    expect(controlSends.map(msg => msg.service)).toEqual(["turn_off"]);
+  });
+
+  it("says why in the gate's words, in the user's language, from a list row's toggle", async () => {
+    const { root } = await mount(topology(ALLOWED));
+    root.querySelector<HTMLElement>('#card-tabs [data-tab="activity"]')!.click();
+    await vi.waitFor(() => expect(root.querySelector('[data-row-uuid="kitchen"] .toggle-pill')).not.toBeNull());
+    expect(await refusedTap(root)).toEqual([["error", "El bloqueo de control del panel SPAN está activado."]]);
   });
 });
 

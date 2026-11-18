@@ -69,10 +69,16 @@ let favorites: Record<string, { circuits: string[]; sub_devices: string[] }> = {
 let deviceListCalls = 0;
 /** What `get_monitoring_status` answers; null answers nothing. */
 let monitoring: Record<string, unknown> | null = null;
+/** The entity states Home Assistant holds. */
+let states: HomeAssistant["states"] = {};
+/** Every relay or priority change sent. */
+let controlSends: Record<string, unknown>[] = [];
 
 function hassFor(connection: FakeConnection): HomeAssistant {
   return hassWith(connection, {
+    states,
     callWS: (async (msg: Record<string, unknown>) => {
+      if (msg.type === "call_service" && (msg.domain === "switch" || msg.domain === "select")) controlSends.push(msg);
       if (msg.type === "config/device_registry/list") {
         deviceListCalls += 1;
         return devices;
@@ -98,6 +104,8 @@ beforeEach(() => {
   favorites = {};
   deviceListCalls = 0;
   monitoring = null;
+  states = {};
+  controlSends = [];
   watch = vi.spyOn(ErrorStore.prototype, "watchPanelStatus");
   watchMany = vi.spyOn(ErrorStore.prototype, "watchPanelStatuses");
   vi.spyOn(DashboardTab.prototype, "render").mockResolvedValue(null);
@@ -680,5 +688,116 @@ describe("span-panel subscriptions", () => {
 
       await vi.waitFor(() => expect(build).toHaveBeenCalledTimes(2));
     });
+  });
+});
+
+describe("span-panel, for a user who may not operate every panel's controls", () => {
+  const ADMIN_ONLY_HINT = "Only an administrator can operate this panel's controls.";
+  const entity = (entity_id: string, state: string) => ({ entity_id, state, attributes: {}, last_changed: "", last_updated: "" });
+
+  /** Panel `n`'s topology: one circuit, `c<n>`, with its relay and priority, saying `control_access` where given. */
+  function panelTopology(n: number, control_access?: { may_operate: boolean; reason: string | null }): Awaited<ReturnType<typeof discoverTopology>> {
+    return {
+      topology: {
+        circuits: {
+          [`c${n}`]: {
+            name: `Circuit ${n}`,
+            device_id: `circuit-device-${n}-c${n}`,
+            tabs: [1],
+            entities: { power: `sensor.c${n}_power`, switch: `switch.c${n}_breaker`, select: `select.c${n}_priority` },
+            is_user_controllable: true,
+            relay_state: "CLOSED",
+          },
+        },
+        panel_entities: { panel_status: statusOf(`panel-${n}`) },
+        panel_device_id: `panel-${n}`,
+        ...(control_access ? { control_access } : {}),
+      } as unknown as PanelTopology,
+      panelDevice: null,
+      panelSize: 32,
+    };
+  }
+
+  /** Drag a slider's knob to its end, as a user arms the switches; the layout is given, which happy-dom has none of. */
+  function arm(slide: HTMLElement): void {
+    const knob = slide.querySelector<HTMLElement>(".slide-confirm-knob")!;
+    Object.defineProperty(slide, "offsetWidth", { configurable: true, get: () => 160 });
+    Object.defineProperty(knob, "offsetWidth", { configurable: true, get: () => 24 });
+    Object.defineProperty(knob, "offsetLeft", { configurable: true, get: () => Number.parseFloat(knob.style.left || "2") });
+    knob.dispatchEvent(new MouseEvent("mousedown", { clientX: 2, bubbles: true }));
+    slide.dispatchEvent(new MouseEvent("mousemove", { clientX: 400, bubbles: true }));
+    slide.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+  }
+
+  it("gives a circuit side panel open on the By Panel tab the access a re-seed brings, the tab drawn over only once it closes", async () => {
+    // The real By Panel tab, its intervals stubbed so none outlives the test.
+    vi.mocked(DashboardTab.prototype.render).mockRestore();
+    states = { "switch.c1_breaker": entity("switch.c1_breaker", "on") };
+    vi.spyOn(DashboardController.prototype, "startIntervals").mockImplementation(() => {});
+    mockDiscover.mockImplementation(async () => panelTopology(1));
+    const connection = new FakeConnection();
+    const panel = await mount(connection, () => expect(watch).toHaveBeenCalledWith(statusOf("panel-1")));
+    const content = panel.shadowRoot!.getElementById("tab-content")!;
+    await vi.waitFor(() => expect(content.querySelector(".panel-grid")).not.toBeNull());
+    connection.emit(ENTRY_RELOADS, loaded(1));
+    await flush();
+    const render = vi.spyOn(DashboardTab.prototype, "render");
+
+    const sidePanel = content.querySelector("span-side-panel") as HTMLElement & { hass: HomeAssistant; open(config: unknown): void; close(): void };
+    // As the circuit's gear opens it.
+    sidePanel.hass = panel.hass;
+    sidePanel.open({
+      uuid: "c1",
+      name: "Circuit 1",
+      members: [{ uuid: "c1", circuit: panelTopology(1).topology!.circuits.c1 }],
+      capacityA: null,
+      entities: { power: "sensor.c1_power", select: "select.c1_priority" },
+      monitoringInfo: null,
+      graphHorizonInfo: { horizon: "5m", has_override: false, globalHorizon: "5m" },
+      configEntryId: "entry-1",
+      controlAccess: { mayOperate: true, reason: null },
+    });
+    const priority = sidePanel.shadowRoot!.querySelector<HTMLSelectElement>('[data-role="shedding-select"]')!;
+    expect(priority.title).toBe("");
+    mockDiscover.mockImplementation(async () => panelTopology(1, { may_operate: false, reason: "admin_only" }));
+
+    connection.emit(ENTRY_RELOADS, loaded(1));
+
+    await vi.waitFor(() => expect(priority.title).toBe(ADMIN_ONLY_HINT));
+    expect(sidePanel.shadowRoot!.querySelector('[data-role="controls-note"]')!.textContent).toBe(ADMIN_ONLY_HINT);
+    expect(render).not.toHaveBeenCalled();
+
+    sidePanel.close();
+    await vi.waitFor(() => expect(render).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(content.querySelector(".toggle-pill.toggle-forbidden")).not.toBeNull());
+  });
+
+  it("draws a Favorites view of two panels with each circuit's toggle as its own panel allows, and the slider armable for the one it does", async () => {
+    devices = [device(1), device(2)];
+    favorites = { "panel-1": { circuits: ["c1"], sub_devices: [] }, "panel-2": { circuits: ["c2"], sub_devices: [] } };
+    states = { "switch.c1_breaker": entity("switch.c1_breaker", "on"), "switch.c2_breaker": entity("switch.c2_breaker", "on") };
+    mockDiscover.mockImplementation(async (_hass, deviceId) =>
+      deviceId === "panel-1" ? panelTopology(1, { may_operate: false, reason: "admin_only" }) : panelTopology(2, { may_operate: true, reason: null })
+    );
+    vi.spyOn(DashboardController.prototype, "startIntervals").mockImplementation(() => {});
+    localStorage.setItem("span_panel_selected", "favorites");
+    const connection = new FakeConnection();
+    const panel = await mount(connection, () => expect(mockDiscover).toHaveBeenCalledTimes(2));
+    const content = panel.shadowRoot!.getElementById("tab-content")!;
+    await vi.waitFor(() => expect(content.querySelectorAll(".list-row .toggle-pill")).toHaveLength(2));
+
+    const pill = (circuit: string): HTMLElement => content.querySelector<HTMLElement>(`.list-row[data-row-uuid="${circuit}"] .toggle-pill`)!;
+    expect(pill("panel-1|c1").classList.contains("toggle-forbidden")).toBe(true);
+    expect(pill("panel-1|c1").title).toBe(ADMIN_ONLY_HINT);
+    expect(pill("panel-2|c2").classList.contains("toggle-forbidden")).toBe(false);
+    const slide = content.querySelector<HTMLElement>(".favorites-summary .slide-confirm")!;
+    expect(slide.classList.contains("slide-confirm-forbidden")).toBe(false);
+
+    arm(slide);
+    pill("panel-1|c1").click();
+    pill("panel-2|c2").click();
+    await flush();
+
+    expect(controlSends.map(msg => [msg.service, (msg.target as { entity_id: string }).entity_id])).toEqual([["turn_off", "switch.c2_breaker"]]);
   });
 });
