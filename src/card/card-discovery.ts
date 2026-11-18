@@ -186,8 +186,10 @@ function subDeviceRecord(sub: DeviceRegistryEntry, entities: EntityRegistryEntry
 }
 
 /**
- * Build a topology from the device and entity registries, for a user who may
- * not ask the integration for one: only an administrator may.
+ * Build a topology from the device and entity registries, where the integration
+ * gives none: an integration that lets only an administrator read
+ * `panel_topology` refuses anyone else, and a read that fails falls back here
+ * too. It carries no monitoring rating.
  *
  * A circuit is found by its power sensor, wherever that sits among the panel's
  * devices: on the circuit's own device, a child of the panel's; on the panel

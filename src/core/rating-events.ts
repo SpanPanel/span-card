@@ -31,6 +31,18 @@ export function mergeCircuitIds(a: ReadonlySet<string> | null, b: ReadonlySet<st
 }
 
 /**
+ * Whether Home Assistant lets `hass`'s user hear rating events
+ * (`subscribePackageRatingChanges`): only an administrator, as the event is not
+ * among those Core lets anyone subscribe to, and Core refuses, logging an error,
+ * anyone else who asks. Anyone else's view takes a changed copy as it next reads
+ * the topology. A user the frontend has not yet said is an administrator is taken
+ * as not one until it says so.
+ */
+export function canHearRatingChanges(hass: HomeAssistant | null | undefined): boolean {
+  return hass?.user?.is_admin === true;
+}
+
+/**
  * Call `onChange` whenever the package ratings copied from the SPAN app change on the given config entry, with the
  * circuits the event names (null where it names none, so any circuit may have changed).
  *
@@ -39,9 +51,9 @@ export function mergeCircuitIds(a: ReadonlySet<string> | null, b: ReadonlySet<st
  * one) would leave it showing the old monitoring rating. An event for another entry
  * is ignored: two panels can publish the same circuit id, and each keeps its own copies.
  *
- * Only administrators may subscribe to this event, which matches `panel_topology`
- * being admin-only; a caller whose topology came from the entity fallback should not
- * subscribe. Resolves to the unsubscribe function.
+ * A caller subscribes only for a user who may hear the event
+ * (`canHearRatingChanges`), and only where its topology came from `panel_topology`:
+ * one from the entity fallback carries no rating. Resolves to the unsubscribe function.
  */
 export async function subscribePackageRatingChanges(
   hass: HomeAssistant,

@@ -116,7 +116,7 @@ export function relayClosed(c: CircuitControlFields, hass: HomeAssistant): boole
 /**
  * `none` unless the circuit has a `switch` role, is user-controllable and the
  * switch has a state object; then `operable` while it reads on or off, and
- * `inert` otherwise. A non-admin's fallback topology names every switch the
+ * `inert` otherwise. A topology from entity discovery names every switch the
  * entity registry holds, a disabled one included, and a switch with no state
  * object draws nothing.
  */
