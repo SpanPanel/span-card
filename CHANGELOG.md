@@ -17,6 +17,8 @@
   time and that second entry did not load.
 - **For a user who is not an administrator, the card shows each battery, charger and solar device once**, where one that a helper was linked to before Home
   Assistant 2026.8 could appear a second time.
+- **For a user who may not operate a panel, its breaker switches, priority selects and Enable Switches are shown disabled with the reason**, where a breaker
+  switch they changed was refused and went on showing the change.
 - **The side panel's switches are drawn in the colors of Home Assistant's own switches**, and in a theme's switch colors where it sets them.
 
 ### Changed
