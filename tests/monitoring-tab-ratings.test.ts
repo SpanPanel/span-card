@@ -118,6 +118,8 @@ interface Integration {
   reads: () => number;
   /** Hold every later save until the test answers it. */
   holdSaves: () => Array<() => void>;
+  /** Fail every later status read, as a lost connection does, while `on`. */
+  failReads: (on: boolean) => void;
 }
 
 /**
@@ -170,6 +172,7 @@ function integration({
   const saves: Message[] = [];
   let reads = 0;
   let heldSaves: Array<() => void> | null = null;
+  let failingReads = false;
   const root = (): Message => {
     const status: Message = { enabled: true, global_settings: { ...settings }, circuits: structuredClone(circuits), mains: structuredClone(mains) };
     if (offered !== "absent") status.monitoring_rating_offered = offered;
@@ -178,6 +181,7 @@ function integration({
   const callWS = vi.fn(async (msg: Message): Promise<unknown> => {
     if (msg.service === "get_monitoring_status") {
       reads += 1;
+      if (failingReads) throw { code: "connection_lost", message: "Connection lost" };
       return { response: root() };
     }
     const data = (msg.service_data ?? {}) as Message;
@@ -216,13 +220,14 @@ function integration({
   );
   // An administrator, who may change monitoring.
   const hass = { states: {}, services: {}, language: "en", user: { is_admin: true }, callService, callWS } as unknown as HomeAssistant;
-  return { hass, saves, reads: () => reads, holdSaves: () => (heldSaves = []) };
+  return { hass, saves, reads: () => reads, holdSaves: () => (heldSaves = []), failReads: on => (failingReads = on) };
 }
 
 const mounted: HTMLElement[] = [];
 afterEach(() => {
   for (const el of mounted.splice(0)) el.remove();
   setLanguage("en");
+  vi.restoreAllMocks();
 });
 
 /**
@@ -803,6 +808,40 @@ describe("a warning a redraw brings", () => {
 
     expect(announcerOf(container)).toBe(region);
     expect(said).toEqual([`Oven: ${GLOBAL_WARNING}`]);
+  });
+
+  it("says nothing of the warnings the read after a failed one draws, where the tab showed that it could not load them", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const panel = integration({ copies: { [OVEN]: [20, 20] }, globals: GLOBALS_ABOVE });
+    const { tab, container } = await shown(panel);
+    expect(warningOf(container, OVEN)).not.toBeNull();
+    // Another tab was shown, which takes this one's content, and the read as the user comes back fails.
+    container.replaceChildren();
+    panel.failReads(true);
+    await tab.render(container, panel.hass);
+    expect(container.querySelector(".monitoring-read-failed")).not.toBeNull();
+    const said = sayings(announcerOf(container)!);
+
+    panel.failReads(false);
+    await tab.render(container, panel.hass);
+
+    expect(warningOf(container, OVEN)).not.toBeNull();
+    expect(announcerOf(container)!.textContent).toBe("");
+    expect(said).toEqual([]);
+  });
+
+  it("says nothing of the warnings a first read draws after the one before it failed", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const panel = integration({ copies: { [OVEN]: [20, 20] }, globals: GLOBALS_ABOVE });
+    panel.failReads(true);
+    const { tab, container } = await shown(panel);
+    expect(container.querySelector(".monitoring-read-failed")).not.toBeNull();
+
+    panel.failReads(false);
+    await tab.render(container, panel.hass);
+
+    expect(warningOf(container, OVEN)).not.toBeNull();
+    expect(announcerOf(container)!.textContent).toBe("");
   });
 
   it("says nothing as the tab is first drawn, its warnings already shown", async () => {

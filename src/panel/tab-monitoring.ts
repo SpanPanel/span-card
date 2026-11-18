@@ -1148,7 +1148,9 @@ export class MonitoringTab {
    * said elsewhere, and what the tab drew of the panel stays as the integration
    * last gave it, rather than defaults that could show monitoring off where it
    * is on. Where the tab holds nothing of the panel's, it says the status could
-   * not be loaded in place of the settings.
+   * not be loaded in place of the settings. That is no table to draw over: it
+   * is left out of what the tab drew (`_drawn`), so the read that next answers
+   * draws its table afresh, saying none of its warnings as new.
    */
   private _showReadFailure(container: HTMLElement, samePanel: boolean): void {
     this.errorStore?.add({ key: "fetch:monitoring", level: "warning", message: t("error.monitoring_failed"), persistent: false });
@@ -1164,8 +1166,8 @@ export class MonitoringTab {
         <p class="monitoring-read-failed" role="alert" style="color:var(--error-color);">${escapeHtml(t("error.monitoring_failed"))}</p>
       </div>
     `;
-    drawing.warnings = new Map();
     drawing.announcer.textContent = "";
+    this._drawn = null;
   }
 
   /** Say in the global settings' status line, as drawn now, the failure waiting to be said there, if any (`_statusFailure`). */
