@@ -616,6 +616,10 @@ describe("a two-space circuit's Rating cell", () => {
     expect(toggle.checked).toBe(false);
     expect(rowOf(container, DRYER).style.opacity).toBe("0.4");
     expect(root.activeElement).toBe(toggle);
+    // All / None shows the rows as a read draws them: part on, the other points still monitored.
+    const toggleAll = container.querySelector<HTMLInputElement>("#toggle-all-circuits")!;
+    expect(toggleAll.checked).toBe(false);
+    expect(toggleAll.indeterminate).toBe(true);
   });
 
   it("keeps the warning, a usable button and the row as drawn where turning it off is refused and the read after it fails", async () => {

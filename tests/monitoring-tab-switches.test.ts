@@ -473,6 +473,44 @@ describe("All / None, where the read after its changes fails", () => {
     expect(said.mock.calls.map(([entry]) => entry.message)).toEqual([ADMIN_ONLY, READ_FAILED]);
   });
 
+  it("goes part on, then off, as one row's switch and then the other's change it, stored with no read to draw them", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const panel = integration();
+    const { container } = await shown(panel);
+    panel.failReads(true);
+    const turnRow = (row: HTMLInputElement): void => {
+      row.checked = false;
+      row.dispatchEvent(new Event("change"));
+    };
+
+    turnRow(ovenIn(container));
+    await settle();
+    expect(panel.stored.oven).toBe(false);
+    expect(toggleAllIn(container).checked).toBe(false);
+    expect(toggleAllIn(container).indeterminate).toBe(true);
+
+    turnRow(mainsIn(container));
+    await settle();
+    expect(panel.stored.mains).toBe(false);
+    expect(toggleAllIn(container).checked).toBe(false);
+    expect(toggleAllIn(container).indeterminate).toBe(false);
+  });
+
+  it("stays as drawn where a row's own change is refused with no read to draw it", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const panel = integration();
+    const { container } = await shown(panel);
+    panel.refuse(true);
+    panel.failReads(true);
+
+    ovenIn(container).checked = false;
+    ovenIn(container).dispatchEvent(new Event("change"));
+    await settle();
+
+    expect(toggleAllIn(container).checked).toBe(true);
+    expect(toggleAllIn(container).indeterminate).toBe(false);
+  });
+
   it("shows the rows and itself as drawn where every change is refused", async () => {
     vi.spyOn(console, "warn").mockImplementation(() => undefined);
     const panel = integration();

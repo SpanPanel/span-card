@@ -586,6 +586,18 @@ function settleToggleAll(toggleAll: HTMLInputElement, container: HTMLElement): v
   toggleAll.indeterminate = !all && rows.some(row => row.checked);
 }
 
+/**
+ * Settle the switch of one point's row in `container` (`settleRowSwitch`), and
+ * All / None with it (`settleToggleAll`), which shows what the rows then show,
+ * where no read has drawn the tab afresh.
+ */
+function settlePointSwitch(container: HTMLElement, control: HTMLInputElement, stored: boolean, on: boolean): void {
+  if (!control.isConnected) return;
+  settleRowSwitch(control, stored, on);
+  const toggleAll = container.querySelector<HTMLInputElement>("#toggle-all-circuits");
+  if (toggleAll) settleToggleAll(toggleAll, container);
+}
+
 /** The longest a redraw waits on a press whose release never arrives. */
 const PRESS_WAIT_MS = 3000;
 
@@ -1584,7 +1596,8 @@ export class MonitoringTab {
   /**
    * The mains' switch turns monitoring on or off for its leg. Stored or refused,
    * the tab is read again, so the switch shows what is stored, whatever else was
-   * sent meanwhile, its row with it (`settleRowSwitch`); a refusal is said.
+   * sent meanwhile, its row and All / None with it (`settlePointSwitch`); a
+   * refusal is said.
    */
   private _bindMainsToggles(container: HTMLElement, hass: HomeAssistant): void {
     for (const cb of container.querySelectorAll<HTMLInputElement>(".mains-toggle")) {
@@ -1600,14 +1613,15 @@ export class MonitoringTab {
           stored = false;
         }
         await this._redraw(container, hass, epoch);
-        settleRowSwitch(cb, stored, enabled);
+        settlePointSwitch(container, cb, stored, enabled);
       });
     }
   }
 
   /**
    * A circuit's switch turns monitoring on or off for it (`_setCircuitMonitoring`),
-   * and shows what is stored once that settles, its row with it (`settleRowSwitch`).
+   * and shows what is stored once that settles, its row and All / None with it
+   * (`settlePointSwitch`).
    */
   private _bindCircuitToggles(container: HTMLElement, hass: HomeAssistant): void {
     for (const cb of container.querySelectorAll<HTMLInputElement>(".circuit-toggle")) {
@@ -1615,7 +1629,7 @@ export class MonitoringTab {
       if (entityId === undefined) continue;
       cb.addEventListener("change", async () => {
         const enabled = cb.checked;
-        settleRowSwitch(cb, await this._setCircuitMonitoring(container, hass, entityId, enabled), enabled);
+        settlePointSwitch(container, cb, await this._setCircuitMonitoring(container, hass, entityId, enabled), enabled);
       });
     }
   }
@@ -1641,14 +1655,14 @@ export class MonitoringTab {
 
   /**
    * Show circuit `entityId` with monitoring off, as Turn off monitoring
-   * (`button`) stored it, in the drawing kept: the row's switch off and the row
-   * dimmed (`settleRowSwitch`), and the warning holding the button gone, as a
-   * read draws none for a circuit not monitored. Focus on the button goes to
-   * the switch, as it does after a redraw.
+   * (`button`) stored it, in the drawing kept: the row's switch off, the row
+   * dimmed and All / None as the rows then show (`settlePointSwitch`), and the
+   * warning holding the button gone, as a read draws none for a circuit not
+   * monitored. Focus on the button goes to the switch, as it does after a redraw.
    */
   private _settleTurnedOff(container: HTMLElement, button: HTMLElement, entityId: string): void {
     const toggle = rowSwitchOf(container, "circuit-toggle", entityId);
-    if (toggle) settleRowSwitch(toggle, true, false);
+    if (toggle) settlePointSwitch(container, toggle, true, false);
     const warned = button.closest(".rating-warning-row");
     const hadFocus = focusWithin(warned);
     warned?.remove();
