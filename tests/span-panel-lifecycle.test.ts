@@ -400,6 +400,7 @@ describe("span-panel subscriptions", () => {
       monitoringInfo: null,
       graphHorizonInfo: { horizon: "5m", has_override: false, globalHorizon: "5m" },
       configEntryId: "entry-1",
+      controlAccess: { mayOperate: true, reason: null },
     });
     const refreshed = vi.spyOn(sidePanel, "refreshControlAccess");
     mockDiscover.mockImplementation(async () => withControlAccess({ may_operate: false, reason: "admin_only" }));

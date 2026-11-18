@@ -271,6 +271,8 @@ function openPanel(
     members: [{ uuid: "c-1", circuit }],
     capacityA: null,
     configEntryId: "entry-1",
+    // Monitoring is governed apart from the controls: the user here may operate them.
+    controlAccess: { mayOperate: true, reason: null },
     ...config,
   });
   return side;

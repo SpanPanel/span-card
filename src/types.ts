@@ -392,15 +392,27 @@ export type FavoriteKind = "circuit" | "sub_device";
  * Favorites pseudo-panel to route per-target service calls back to the
  * correct SPAN panel/config entry after aggregating across panels.
  */
-export interface FavoriteRef {
+interface FavoriteRefBase {
   panelDeviceId: string;
   kind: FavoriteKind;
   /** Real circuit uuid (kind ``circuit``) or HA device id (kind ``sub_device``). */
   targetId: string;
   configEntryId: string | null;
-  /** Whether the user may operate the controls of the panel it came from; absent where not known, taken as operable. */
-  controlAccess?: ControlAccess;
 }
+
+/** A favorited circuit's origin, with whether the user may operate the controls of the panel it came from. */
+export interface FavoriteCircuitRef extends FavoriteRefBase {
+  kind: "circuit";
+  controlAccess: ControlAccess;
+}
+
+/** A favorited sub-device's origin; a sub-device has no relay or priority to operate. */
+export interface FavoriteSubDeviceRef extends FavoriteRefBase {
+  kind: "sub_device";
+}
+
+/** A favorite's origin, told apart by `kind`: a circuit's carries its panel's control access, which the compiler requires of every one built. */
+export type FavoriteRef = FavoriteCircuitRef | FavoriteSubDeviceRef;
 
 /**
  * Merged topology for the Favorites pseudo-panel. Circuits and
@@ -411,6 +423,11 @@ export interface FavoriteRef {
  */
 export interface FavoritesTopology extends PanelTopology {
   _favoriteRefs: Record<string, FavoriteRef>;
+}
+
+/** Whether `topology` is the Favorites view's, merged from several panels, each circuit and sub-device with its ref. */
+export function isFavoritesTopology(topology: PanelTopology): topology is FavoritesTopology {
+  return "_favoriteRefs" in topology;
 }
 
 // -- Graph settings --

@@ -1,5 +1,5 @@
 import { SUB_DEVICE_TYPE_PV } from "../constants.js";
-import type { FavoritesTopology, PanelTopology, SubDevice } from "../types.js";
+import { isFavoritesTopology, type PanelTopology, type SubDevice } from "../types.js";
 
 /**
  * The order tiles are drawn and editor groups listed in.
@@ -36,10 +36,6 @@ export function orderSubDevices(entries: [string, SubDevice][], panelOf: (devId:
     ordered.push(...(groups.get(panel) ?? []));
   }
   return ordered;
-}
-
-function isFavoritesTopology(topology: PanelTopology): topology is FavoritesTopology {
-  return "_favoriteRefs" in topology;
 }
 
 /** The panel each sub-device belongs to: from its ref on a favorites topology, else the one panel. */

@@ -1,12 +1,16 @@
 import { INTEGRATION_DOMAIN } from "../constants.js";
-import { serviceErrorMessage } from "../helpers/error-text.js";
+import { isUnauthorized, serviceErrorMessage } from "../helpers/error-text.js";
 import { escapeHtml } from "../helpers/sanitize.js";
 import { t } from "../i18n.js";
+import { isFavoritesTopology } from "../types.js";
 import type { ErrorStore } from "./error-store.js";
-import type { ControlAccess, ControlBlock, FavoritesTopology, HomeAssistant, PanelTopology } from "../types.js";
+import type { ControlAccess, ControlBlock, FavoriteCircuitRef, FavoriteRef, HomeAssistant, PanelTopology } from "../types.js";
 
 /** Controls the user may operate: what the card takes where the integration says nothing of them. */
 export const CONTROLS_OPERABLE: ControlAccess = Object.freeze({ mayOperate: true, reason: null });
+
+/** Controls whose access the card cannot tell, as a circuit with no ref of its own, or none at all: taken as not operable. */
+export const CONTROLS_NOT_KNOWN: ControlAccess = Object.freeze({ mayOperate: false, reason: null });
 
 const BLOCKS: readonly ControlBlock[] = ["control_disabled", "admin_only", "read_only"];
 
@@ -23,7 +27,8 @@ function isBlock(value: unknown): value is ControlBlock {
  * the generic hint answers. Where the integration says nothing, as one that
  * predates it does, and a topology built from the registries, the controls
  * are taken as operable, as they always were; the gate still refuses what it
- * refuses, and the card says why (`reportControlFailure`).
+ * refuses, and the card says why (`reportControlFailure`). This reader alone
+ * takes silence as operable: everything after it carries the access it gives.
  */
 export function controlAccess(topology: PanelTopology | null | undefined): ControlAccess {
   const wire: unknown = topology?.control_access;
@@ -32,19 +37,20 @@ export function controlAccess(topology: PanelTopology | null | undefined): Contr
   return { mayOperate: false, reason: "reason" in wire && isBlock(wire.reason) ? wire.reason : null };
 }
 
-/** Whether `topology` is the Favorites view's, whose circuits come from several panels (`FavoritesTopology`). */
-function isFavoritesTopology(topology: PanelTopology): topology is FavoritesTopology {
-  return "_favoriteRefs" in topology;
+function isCircuitRef(ref: FavoriteRef | undefined): ref is FavoriteCircuitRef {
+  return ref?.kind === "circuit";
 }
 
 /**
  * Whether the user may operate circuit `circuitId`'s controls in `topology`:
  * its panel's access (`controlAccess`), and in the Favorites view that of the
- * panel the circuit came from, as each panel says its own.
+ * panel the circuit came from, as its ref holds it. A circuit there with no
+ * circuit ref has no panel to say, and is taken as not operable.
  */
 export function circuitControlAccess(topology: PanelTopology | null | undefined, circuitId: string): ControlAccess {
-  if (topology && isFavoritesTopology(topology)) return topology._favoriteRefs[circuitId]?.controlAccess ?? CONTROLS_OPERABLE;
-  return controlAccess(topology);
+  if (!topology || !isFavoritesTopology(topology)) return controlAccess(topology);
+  const ref = topology._favoriteRefs[circuitId];
+  return isCircuitRef(ref) ? ref.controlAccess : CONTROLS_NOT_KNOWN;
 }
 
 /**
@@ -52,39 +58,43 @@ export function circuitControlAccess(topology: PanelTopology | null | undefined,
  * switch the view draws: operable where the user may operate the controls of
  * any of its circuits, else why not, as the first of its panels says. A
  * Favorites view of several panels is armed for those the user may operate;
- * each other circuit's switch refuses on its own (`circuitControlAccess`).
+ * each other circuit's switch refuses on its own (`circuitControlAccess`). A
+ * view with no circuit has no switch to arm, and nothing to forbid.
  */
 export function viewControlAccess(topology: PanelTopology | null | undefined): ControlAccess {
   if (!topology || !isFavoritesTopology(topology)) return controlAccess(topology);
   const circuits = Object.values(topology._favoriteRefs)
-    .filter(ref => ref.kind === "circuit")
-    .map(ref => ref.controlAccess ?? CONTROLS_OPERABLE);
-  if (circuits.length === 0 || circuits.some(access => access.mayOperate)) return CONTROLS_OPERABLE;
-  return circuits[0] ?? CONTROLS_OPERABLE;
+    .filter(isCircuitRef)
+    .map(ref => ref.controlAccess);
+  const [first] = circuits;
+  if (!first || circuits.some(access => access.mayOperate)) return CONTROLS_OPERABLE;
+  return first;
 }
 
-/** The hint for each reason the integration gives. */
-const HINT_KEYS: Readonly<Record<ControlBlock, string>> = {
-  control_disabled: "controls.disabled",
-  admin_only: "controls.admin_only",
-  read_only: "controls.read_only",
+/** The hint for each reason the integration gives, each said as it is asked for, in the user's language then. */
+const HINTS: Readonly<Record<ControlBlock, () => string>> = {
+  control_disabled: () => t("controls.disabled"),
+  admin_only: () => t("controls.admin_only"),
+  read_only: () => t("controls.read_only"),
 };
 
 /** Why controls with `access` cannot be operated, in the user's language: its reason's hint, or the generic one; "" where they can. */
 export function controlAccessHint(access: ControlAccess): string {
   if (access.mayOperate) return "";
-  return t(access.reason ? HINT_KEYS[access.reason] : "controls.not_operable");
+  return access.reason ? HINTS[access.reason]() : t("controls.not_operable");
 }
 
 /**
- * A change of a relay or a shedding priority the card sends nothing for: the
- * user may not operate the panel's controls (`ControlAccess`), or the card has
- * no Home Assistant yet to send it to. Its message says why, as each view's
- * report of a failed change shows it (`reportControlFailure`).
+ * A change of a relay or a shedding priority refused, with its message saying
+ * why, as each view's report of a failed change shows it
+ * (`reportControlFailure`): by the card, which sends nothing where the user may
+ * not operate the panel's controls, or by Home Assistant, whose Unauthorized,
+ * for a user its permissions do not let control this one entity, says only
+ * that in English.
  */
 export class ControlChangeRefused extends Error {
-  constructor(access: ControlAccess) {
-    super(controlAccessHint(access) || t("controls.not_operable"));
+  constructor(message: string) {
+    super(message);
     this.name = "ControlChangeRefused";
   }
 }
@@ -94,8 +104,8 @@ export class ControlChangeRefused extends Error {
  * is sent through these (`controlWrites`), so none is sent for a user who may
  * not operate the panel's controls. Each resolves once Home Assistant has taken
  * it, and rejects with its refusal: the integration's control gate says why,
- * whether only an administrator may operate the panel, its control lock is
- * armed, or the relay was operated a moment ago.
+ * whether its control lock is armed or the relay was operated a moment ago,
+ * and Home Assistant's Unauthorized arrives as a `ControlChangeRefused`.
  */
 export interface ControlWrites {
   /** Close (`on`) or open the relay that switch `entityId` operates. */
@@ -106,10 +116,10 @@ export interface ControlWrites {
 
 /**
  * The changes `hass`'s user can send to controls with `access`. Each is
- * refused, with nothing sent, where the user may not operate them, as where
- * there is no Home Assistant yet; otherwise it is sent within the call.
+ * refused, with nothing sent, where the user may not operate them; otherwise
+ * it is sent within the call.
  */
-export function controlWrites(hass: HomeAssistant | null, access: ControlAccess): ControlWrites {
+export function controlWrites(hass: HomeAssistant, access: ControlAccess): ControlWrites {
   return {
     setRelay: (entityId, on) => sendControl(hass, access, "switch", on ? "turn_on" : "turn_off", entityId, {}),
     setPriority: (entityId, option) => sendControl(hass, access, "select", "select_option", entityId, { option }),
@@ -117,15 +127,20 @@ export function controlWrites(hass: HomeAssistant | null, access: ControlAccess)
 }
 
 async function sendControl(
-  hass: HomeAssistant | null,
+  hass: HomeAssistant,
   access: ControlAccess,
-  domain: string,
+  domain: "switch" | "select",
   service: string,
   entityId: string,
   data: Record<string, unknown>
 ): Promise<void> {
-  if (!hass || !access.mayOperate) throw new ControlChangeRefused(access);
-  await hass.callWS({ type: "call_service", domain, service, service_data: data, target: { entity_id: entityId } });
+  if (!access.mayOperate) throw new ControlChangeRefused(controlAccessHint(access));
+  try {
+    await hass.callWS({ type: "call_service", domain, service, service_data: data, target: { entity_id: entityId } });
+  } catch (err: unknown) {
+    // The integration lets a user operate the panel who may control some of its circuits' entities; Home Assistant refuses the others.
+    throw isUnauthorized(err) ? new ControlChangeRefused(t("controls.entity_unauthorized")) : err;
+  }
 }
 
 /** The controls a failure is reported for: the error store's key for each, and what it says where nothing says why. */
@@ -137,10 +152,10 @@ const FAILURES = {
 /**
  * Show in `errors` that a change of a `control` failed, saying why: the
  * integration's refusal in the user's language, as its control gate gives it
- * (`serviceErrorMessage`), the card's own where it sent nothing
- * (`ControlChangeRefused`), else that the change could not be made.
+ * (`serviceErrorMessage`), the card's own (`ControlChangeRefused`), else that
+ * the change could not be made.
  */
-export function reportControlFailure(hass: HomeAssistant | null, errors: ErrorStore | null, err: unknown, control: keyof typeof FAILURES): void {
+export function reportControlFailure(hass: HomeAssistant, errors: ErrorStore | null, err: unknown, control: keyof typeof FAILURES): void {
   console.warn(`SPAN Panel: ${control} change failed`, err);
   const { key, fallback } = FAILURES[control];
   void serviceErrorMessage(hass, err, INTEGRATION_DOMAIN, fallback()).then(message => {

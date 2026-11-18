@@ -11,7 +11,7 @@ import { bindLimitField, LIMIT_RANGES, type LimitField, type LimitFieldHandle } 
 import { focusWithin } from "../helpers/focus.js";
 import { circuitMonitoringInfo, monitoringStatusFrom } from "./monitoring-status.js";
 import { canEditMonitoring, lockMonitoringControls, monitoringWrites, readOnlyNote, reportMonitoringFailure } from "./monitoring-access.js";
-import { CONTROLS_OPERABLE, controlNoteHTML, controlWrites, reportControlFailure, titleControl } from "./control-access.js";
+import { CONTROLS_NOT_KNOWN, controlNoteHTML, controlWrites, reportControlFailure, titleControl } from "./control-access.js";
 import { addFavorite, removeFavorite } from "./favorites-store.js";
 import { sortedCircuitsForSection } from "./favorites-sections.js";
 import { subDeviceCharts } from "../helpers/sub-device-power.js";
@@ -108,10 +108,10 @@ export type CircuitModeConfig = CircuitControlFields & {
   /** Route domain service calls to this config entry (favorites view). */
   configEntryId?: string | null;
   /**
-   * Whether the user may operate the circuit's relay and shedding priority, as its panel says (`circuitControlAccess`);
-   * absent, as from a caller that says nothing of it, taken as operable.
+   * Whether the user may operate the circuit's relay and shedding priority, as its panel says (`circuitControlAccess`).
+   * Every caller says it: only the wire reader (`controlAccess`) takes the integration's silence as operable.
    */
-  controlAccess?: ControlAccess;
+  controlAccess: ControlAccess;
 };
 
 interface SubDeviceModeConfig {
@@ -164,6 +164,11 @@ const LIMIT_FIELDS: Readonly<Record<LimitKey, LimitField>> = {
   "window-m": "window_duration_m",
   "cooldown-m": "cooldown_duration_m",
 };
+
+/** The ids that name the circuit's relay switch and priority select, and the note that says why neither can be operated. One circuit is shown at a time. */
+const RELAY_LABEL_ID = "relay-label";
+const PRIORITY_LABEL_ID = "priority-label";
+const CONTROLS_NOTE_ID = "controls-note";
 
 // ── Styles ────────────────────────────────────────────────────────────────
 
@@ -544,9 +549,10 @@ class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
   /**
    * Whether the user may operate the open circuit's relay and priority: as the
    * panel opened with it (`controlAccess`), then as a topology fetched again
-   * says it (`refreshControlAccess`). Operable in any other mode, which has neither.
+   * says it (`refreshControlAccess`). Not operable while no circuit is open, in
+   * any other mode, which has neither.
    */
-  private _controlAccess: ControlAccess = CONTROLS_OPERABLE;
+  private _controlAccess: ControlAccess = CONTROLS_NOT_KNOWN;
   constructor() {
     super();
     this.attachShadow({ mode: "open" });
@@ -580,14 +586,14 @@ class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
     this._clearDebounceTimers();
     this._config = null;
     this._storedMonitoring = null;
-    this._controlAccess = CONTROLS_OPERABLE;
+    this._controlAccess = CONTROLS_NOT_KNOWN;
   }
 
   open(config: SidePanelConfig): void {
     this._config = config;
     this._storedMonitoring =
       config.panelMode || config.subDeviceMode || config.favoritesMode ? null : new StoredMonitoring(config.uuid, isMonitored(config.monitoringInfo));
-    this._controlAccess = config.panelMode || config.subDeviceMode || config.favoritesMode ? CONTROLS_OPERABLE : (config.controlAccess ?? CONTROLS_OPERABLE);
+    this._controlAccess = config.panelMode || config.subDeviceMode || config.favoritesMode ? CONTROLS_NOT_KNOWN : config.controlAccess;
     this._render();
     // Force reflow before adding attribute so the transition animates
     void this.offsetHeight;
@@ -640,7 +646,7 @@ class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
     this.removeAttribute("data-mode");
     this._config = null;
     this._storedMonitoring = null;
-    this._controlAccess = CONTROLS_OPERABLE;
+    this._controlAccess = CONTROLS_NOT_KNOWN;
     this.dispatchEvent(new CustomEvent("side-panel-closed", { bubbles: true, composed: true }));
   }
 
@@ -1095,8 +1101,14 @@ class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
    */
   private _placeControlNote(scope: ParentNode): void {
     scope.querySelector('[data-role="controls-note"]')?.remove();
-    const firstControl = scope.querySelector('[data-role="relay-toggle"], [data-role="shedding-select"]');
-    firstControl?.closest(".section")?.insertAdjacentHTML("beforeend", controlNoteHTML(this._controlAccess));
+    const controls = [...scope.querySelectorAll<HTMLElement>('[data-role="relay-toggle"], [data-role="shedding-select"]')];
+    controls[0]?.closest(".section")?.insertAdjacentHTML("beforeend", controlNoteHTML(this._controlAccess));
+    const note = scope.querySelector<HTMLElement>('[data-role="controls-note"]');
+    if (note) note.id = CONTROLS_NOTE_ID;
+    for (const control of controls) {
+      if (note) control.setAttribute("aria-describedby", CONTROLS_NOTE_ID);
+      else control.removeAttribute("aria-describedby");
+    }
   }
 
   /**
@@ -1459,10 +1471,13 @@ class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
 
     const label = document.createElement("span");
     label.className = "field-label";
+    label.id = RELAY_LABEL_ID;
     label.textContent = t("sidepanel.breaker");
 
     const toggle = document.createElement("span-switch");
     toggle.dataset.role = "relay-toggle";
+    // Named by its label, as a native control would be; described by the note saying why it cannot be operated, where one shows.
+    toggle.setAttribute("aria-labelledby", RELAY_LABEL_ID);
     const entityId = cfg.entities.switch;
     this._applyRelayToggle(toggle, cfg);
 
@@ -1500,10 +1515,12 @@ class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
 
     const label = document.createElement("span");
     label.className = "field-label";
+    label.id = PRIORITY_LABEL_ID;
     label.textContent = t("sidepanel.priority_label");
 
     const selectEl = document.createElement("select");
     selectEl.dataset.role = "shedding-select";
+    selectEl.setAttribute("aria-labelledby", PRIORITY_LABEL_ID);
     const entityId = cfg.entities.select;
 
     for (const key of SELECTABLE_PRIORITY_KEYS) {
@@ -1517,6 +1534,7 @@ class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
 
     selectEl.addEventListener("change", () => {
       const hass = this._hass;
+      if (!hass) return;
       controlWrites(hass, this._controlAccess)
         .setPriority(entityId, selectEl.value)
         .catch((err: unknown) => {

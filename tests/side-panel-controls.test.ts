@@ -92,7 +92,7 @@ function openFor(states: Record<string, string>, options: OpenOptions = {}): Sid
     priority: options.priority,
     monitoringInfo: null,
     graphHorizonInfo: { horizon: "5m", has_override: false, globalHorizon: "5m" },
-    ...(options.controlAccess ? { controlAccess: options.controlAccess } : {}),
+    controlAccess: options.controlAccess ?? OPERABLE,
   });
   return panel;
 }
@@ -172,13 +172,11 @@ describe("the side panel's controls", () => {
     expect(relay(panel).disabled).toBe(true);
   });
 
-  it("are untitled, with no note, where the user may operate them or the caller says nothing of it", () => {
-    for (const controlAccess of [OPERABLE, undefined]) {
-      const panel = openFor({ [SWITCH]: "on", [SELECT]: "never" }, { controlAccess });
-      expect(relay(panel).hasAttribute("title")).toBe(false);
-      expect(select(panel).hasAttribute("title")).toBe(false);
-      expect(note(panel)).toBeNull();
-    }
+  it("are untitled, with no note, where the user may operate them", () => {
+    const panel = openFor({ [SWITCH]: "on", [SELECT]: "never" }, { controlAccess: OPERABLE });
+    expect(relay(panel).hasAttribute("title")).toBe(false);
+    expect(select(panel).hasAttribute("title")).toBe(false);
+    expect(note(panel)).toBeNull();
   });
 });
 
@@ -347,7 +345,42 @@ describe("the side panel's controls, as the access the user has changes while it
   });
 });
 
+describe("the side panel's relay and priority, for assistive technology", () => {
+  it("are named by their labels", () => {
+    const panel = openFor({ [SWITCH]: "on", [SELECT]: "never" });
+    const root = panel.shadowRoot!;
+    expect(root.getElementById(relay(panel).getAttribute("aria-labelledby")!)!.textContent).toBe("Breaker");
+    expect(root.getElementById(select(panel).getAttribute("aria-labelledby")!)!.textContent).toBe("Priority");
+  });
+
+  it("are described by the note saying why neither can be operated, and by nothing once both can", () => {
+    const panel = openFor({ [SWITCH]: "on", [SELECT]: "never" }, { controlAccess: ADMIN_ONLY });
+    const root = panel.shadowRoot!;
+    for (const control of [relay(panel), select(panel)]) expect(root.getElementById(control.getAttribute("aria-describedby")!)).toBe(note(panel));
+
+    panel.refreshControlAccess(OPERABLE);
+    for (const control of [relay(panel), select(panel)]) expect(control.hasAttribute("aria-describedby")).toBe(false);
+
+    panel.refreshControlAccess(ADMIN_ONLY);
+    for (const control of [relay(panel), select(panel)]) expect(root.getElementById(control.getAttribute("aria-describedby")!)).toBe(note(panel));
+  });
+});
+
+/** Home Assistant's Unauthorized for this one entity, as a service raises it for a user its permissions do not let control it. */
+const UNAUTHORIZED = { code: "home_assistant_error", message: "Unauthorized" };
+const ENTITY_UNAUTHORIZED = "Your Home Assistant account can't operate this control.";
+
 describe("a relay change refused", () => {
+  it('by Home Assistant for this one entity shows the relay as it is, and says the account cannot operate it, not "Unauthorized"', async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const panel = openFor({ [SWITCH]: "on", [SELECT]: "never" }, { callWS: async () => Promise.reject(UNAUTHORIZED) });
+    vi.spyOn(panel.errorStore!, "add");
+    relay(panel).click();
+    await settle();
+    expect(relay(panel).checked).toBe(true);
+    expect(reported(panel)).toEqual([["service:relay", ENTITY_UNAUTHORIZED]]);
+  });
+
   it("shows the relay as Home Assistant reports it, never as clicked, and says why as the gate says it", async () => {
     vi.spyOn(console, "warn").mockImplementation(() => undefined);
     const panel = openFor({ [SWITCH]: "on", [SELECT]: "never" }, { callWS: async () => Promise.reject(refusal("admin_only_control")) });
@@ -423,6 +456,17 @@ describe("a relay change refused", () => {
 });
 
 describe("a priority change refused", () => {
+  it("by Home Assistant for this one entity shows the priority as it is, and says the account cannot operate it, in the user's language", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    setLanguage("ja");
+    const panel = openFor({ [SWITCH]: "on", [SELECT]: "never" }, { callWS: async () => Promise.reject({ code: "unauthorized", message: "Unauthorized" }) });
+    vi.spyOn(panel.errorStore!, "add");
+    choose(panel, "off_grid");
+    await settle();
+    expect(select(panel).value).toBe("never");
+    expect(reported(panel)).toEqual([["service:shedding", "お使いのHome Assistantアカウントでは、このコントロールを操作できません。"]]);
+  });
+
   it("shows the priority as Home Assistant reports it, never as chosen, and says why as the gate says it", async () => {
     vi.spyOn(console, "warn").mockImplementation(() => undefined);
     const panel = openFor({ [SWITCH]: "on", [SELECT]: "never" }, { callWS: async () => Promise.reject(refusal("admin_only_control")) });

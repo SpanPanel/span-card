@@ -204,7 +204,15 @@ describe("the chart limit line on each update", () => {
     const hassObj = monitoredHass(true);
     const ctrl = new DashboardController();
     ctrl.init(topology, CFG, hassObj, "entry-1");
-    ctrl.setFavoriteRefs({ "panel-1|kitchen": { panelDeviceId: "panel-1", kind: "circuit", targetId: "kitchen", configEntryId: "entry-1" } });
+    ctrl.setFavoriteRefs({
+      "panel-1|kitchen": {
+        panelDeviceId: "panel-1",
+        kind: "circuit",
+        targetId: "kitchen",
+        configEntryId: "entry-1",
+        controlAccess: { mayOperate: true, reason: null },
+      },
+    });
     await ctrl.fetchMergedMonitoringStatus(["entry-1"]);
 
     expect(limitsAfterUpdate(ctrl, topology)).toContain(50);
@@ -212,7 +220,15 @@ describe("the chart limit line on each update", () => {
 
   it("forgets the Favorites view's status when it leaves the view, so a later visit starts from none", async () => {
     const topology = { circuits: { "panel-1|kitchen": CIRCUIT } } as unknown as PanelTopology;
-    const refs = { "panel-1|kitchen": { panelDeviceId: "panel-1", kind: "circuit" as const, targetId: "kitchen", configEntryId: "entry-1" } };
+    const refs = {
+      "panel-1|kitchen": {
+        panelDeviceId: "panel-1",
+        kind: "circuit" as const,
+        targetId: "kitchen",
+        configEntryId: "entry-1",
+        controlAccess: { mayOperate: true, reason: null },
+      },
+    };
     const ctrl = new DashboardController();
     ctrl.init(topology, CFG, monitoredHass(true), "entry-1");
     ctrl.setFavoriteRefs(refs);

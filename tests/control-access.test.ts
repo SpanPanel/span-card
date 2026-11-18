@@ -3,6 +3,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  CONTROLS_NOT_KNOWN,
   CONTROLS_OPERABLE,
   ControlChangeRefused,
   circuitControlAccess,
@@ -38,6 +39,45 @@ const ADMIN_ONLY: ControlAccess = { mayOperate: false, reason: "admin_only" };
 const SWITCHED_OFF: ControlAccess = { mayOperate: false, reason: "control_disabled" };
 const READ_ONLY: ControlAccess = { mayOperate: false, reason: "read_only" };
 const ADMIN_ONLY_HINT = "Only an administrator can operate this panel's controls.";
+
+/** Every controls key, as each locale says it. */
+const HINTS_BY_LANGUAGE: Record<string, Record<string, string>> = {
+  en: {
+    "controls.admin_only": "Only an administrator can operate this panel's controls.",
+    "controls.disabled": "Control of this panel is switched off in its options.",
+    "controls.read_only": "Your Home Assistant account can't operate this panel's controls.",
+    "controls.entity_unauthorized": "Your Home Assistant account can't operate this control.",
+    "controls.not_operable": "You can't operate this panel's controls.",
+  },
+  es: {
+    "controls.admin_only": "Solo un administrador puede operar los controles de este panel.",
+    "controls.disabled": "El control de este panel está desactivado en sus opciones.",
+    "controls.read_only": "Su cuenta de Home Assistant no puede operar los controles de este panel.",
+    "controls.entity_unauthorized": "Su cuenta de Home Assistant no puede operar este control.",
+    "controls.not_operable": "No puede operar los controles de este panel.",
+  },
+  fr: {
+    "controls.admin_only": "Seul un administrateur peut utiliser les commandes de ce panneau.",
+    "controls.disabled": "La commande de ce panneau est désactivée dans ses options.",
+    "controls.read_only": "Votre compte Home Assistant ne peut pas utiliser les commandes de ce panneau.",
+    "controls.entity_unauthorized": "Votre compte Home Assistant ne peut pas utiliser cette commande.",
+    "controls.not_operable": "Vous ne pouvez pas utiliser les commandes de ce panneau.",
+  },
+  ja: {
+    "controls.admin_only": "このパネルのコントロールを操作できるのは管理者のみです。",
+    "controls.disabled": "このパネルのコントロールはオプションで無効になっています。",
+    "controls.read_only": "お使いのHome Assistantアカウントでは、このパネルのコントロールを操作できません。",
+    "controls.entity_unauthorized": "お使いのHome Assistantアカウントでは、このコントロールを操作できません。",
+    "controls.not_operable": "このパネルのコントロールは操作できません。",
+  },
+  pt: {
+    "controls.admin_only": "Somente um administrador pode operar os controles deste painel.",
+    "controls.disabled": "O controle deste painel está desativado nas suas opções.",
+    "controls.read_only": "Sua conta do Home Assistant não pode operar os controles deste painel.",
+    "controls.entity_unauthorized": "Sua conta do Home Assistant não pode operar este controle.",
+    "controls.not_operable": "Você não pode operar os controles deste painel.",
+  },
+};
 const READ_ONLY_HINT = "Your Home Assistant account can't operate this panel's controls.";
 
 /** The card's source files, by their path under `src/`. The path is taken apart by hand: happy-dom's `URL` reads no file URL. */
@@ -45,6 +85,46 @@ const SRC = join(dirname(fileURLToPath(import.meta.url)), "..", "src");
 const SOURCES: ReadonlyArray<readonly [string, string]> = readdirSync(SRC, { recursive: true, encoding: "utf8" })
   .filter(path => path.endsWith(".ts"))
   .map(path => [path.split(sep).join("/"), readFileSync(join(SRC, path), "utf8")] as const);
+
+/** The index of the brace that opens the object literal holding `at` in `text`, or -1. */
+function openingBrace(text: string, at: number): number {
+  let depth = 0;
+  for (let i = at - 1; i >= 0; i--) {
+    if (text[i] === "}") depth++;
+    else if (text[i] === "{") {
+      if (depth === 0) return i;
+      depth--;
+    }
+  }
+  return -1;
+}
+
+/** The index of the brace that closes the one opening at `open` in `text`, or the text's end. */
+function closingBrace(text: string, open: number): number {
+  let depth = 0;
+  for (let i = open; i < text.length; i++) {
+    if (text[i] === "{") depth++;
+    else if (text[i] === "}" && --depth === 0) return i;
+  }
+  return text.length - 1;
+}
+
+/**
+ * Each `call_service` message in `text`, as the object literal that holds it:
+ * a `type` of `call_service`, its key bare or quoted and its value in any quotes.
+ */
+function callServiceMessages(text: string): string[] {
+  return [...text.matchAll(/["'`]?type["'`]?\s*:\s*["'`]call_service["'`]/g)].map(match => {
+    const open = openingBrace(text, match.index);
+    return open < 0 ? match[0] : text.slice(open, closingBrace(text, open) + 1);
+  });
+}
+
+/** Whether a `call_service` message names one domain, and that the integration's, as `domain: INTEGRATION_DOMAIN`. */
+function namesIntegrationDomain(message: string): boolean {
+  const domains = message.match(/["'`]?\bdomain["'`]?\s*:/g) ?? [];
+  return domains.length === 1 && /(^|[\s{,])domain:\s*INTEGRATION_DOMAIN\s*[,}\n]/.test(message);
+}
 
 /** A Home Assistant recording every message sent, which `answer` answers. */
 function recording(answer: (msg: Message) => Promise<unknown> = async () => ({})): {
@@ -90,9 +170,19 @@ function favorites(refs: Record<string, FavoriteRef>): FavoritesTopology {
   return { circuits: {}, _favoriteRefs: refs } as unknown as FavoritesTopology;
 }
 
-function circuitRef(panelDeviceId: string, access?: ControlAccess): FavoriteRef {
-  return { panelDeviceId, kind: "circuit", targetId: "kitchen", configEntryId: `entry-${panelDeviceId}`, ...(access ? { controlAccess: access } : {}) };
+function circuitRef(panelDeviceId: string, access: ControlAccess): FavoriteRef {
+  return { panelDeviceId, kind: "circuit", targetId: "kitchen", configEntryId: `entry-${panelDeviceId}`, controlAccess: access };
 }
+
+/** Home Assistant's Unauthorized, in each shape it reaches the frontend: from a service, for a user it does not know, and from the websocket command. */
+const UNAUTHORIZED = [
+  { code: "home_assistant_error", message: "Unauthorized" },
+  { code: "home_assistant_error", message: "UnknownUser" },
+  { code: "unauthorized", message: "Unauthorized" },
+] as const;
+
+/** A Home Assistant with no exception translations to load, so a refusal says what its message says. */
+const NO_TRANSLATIONS = {} as HomeAssistant;
 
 afterEach(() => {
   setLanguage("en");
@@ -107,9 +197,37 @@ describe("the services that change a panel's controls", () => {
     expect(naming).toEqual(SENT.has(service) ? [ACCESS_MODULE] : []);
   });
 
-  it("are sent to no switch, select or lock but by the module", () => {
-    const sendsTo = /callService\(\s*["'](switch|select|lock)["']|domain:\s*["'](switch|select|lock)["']/;
-    expect(SOURCES.filter(([, text]) => sendsTo.test(text)).map(([path]) => path)).toEqual([]);
+  it("are never sent through Home Assistant's callService, which the card calls nowhere", () => {
+    expect(SOURCES.filter(([, text]) => /\.callService\(/.test(text)).map(([path]) => path)).toEqual([]);
+    // Named only where the frontend's type declares it, so no alias or destructured copy of it is called either.
+    expect(SOURCES.filter(([, text]) => /\bcallService\b/.test(text)).map(([path]) => path)).toEqual(["types.ts"]);
+  });
+
+  it("are sent by no call_service message but the module's: every other one is the integration's own", () => {
+    const strays = SOURCES.filter(([path]) => path !== ACCESS_MODULE).flatMap(([path, text]) =>
+      callServiceMessages(text)
+        .filter(message => !namesIntegrationDomain(message))
+        .map(message => `${path}: ${message.slice(0, 80)}`)
+    );
+    expect(strays).toEqual([]);
+    // The module's sends are found the same way, so the scan sees a message wherever one is.
+    expect(callServiceMessages(SOURCES.find(([path]) => path === ACCESS_MODULE)![1])).toHaveLength(1);
+  });
+
+  it.each([
+    ["a domain held in a variable", `hass.callWS({ type: "call_service", domain, service: "turn_on" })`],
+    ["a quoted domain key", `hass.callWS({ "type": "call_service", "domain": "switch", "service": "turn_on" })`],
+    ["a domain in backticks", "hass.callWS({ type: `call_service`, domain: `switch`, service: x })"],
+    ["a second domain after the integration's", `hass.callWS({ type: "call_service", domain: INTEGRATION_DOMAIN, service, "domain": "select" })`],
+  ])("would find a call_service message with %s", (_what, source) => {
+    const messages = callServiceMessages(source);
+    expect(messages).toHaveLength(1);
+    expect(namesIntegrationDomain(messages[0]!)).toBe(false);
+  });
+
+  it("would let a call_service message to the integration pass", () => {
+    const source = `hass.callWS({\n  type: "call_service",\n  domain: INTEGRATION_DOMAIN,\n  service: "get_favorites",\n  service_data: { config_entry_id: id },\n})`;
+    expect(callServiceMessages(source).map(namesIntegrationDomain)).toEqual([true]);
   });
 
   it("are each sent by one of the module's changes, over the websocket alone, where the user may operate the controls", async () => {
@@ -151,9 +269,16 @@ describe("the services that change a panel's controls", () => {
     expect(sent).toEqual([]);
   });
 
-  it("are refused where there is no Home Assistant yet to send them to", async () => {
-    for (const err of await refusalsOf(controlWrites(null, CONTROLS_OPERABLE))) expect(err).toBeInstanceOf(ControlChangeRefused);
-  });
+  it.each(UNAUTHORIZED)(
+    "take Home Assistant's refusal for this one entity ($code, $message), whose English says nothing more, as the card's own, in the user's language",
+    async refusal => {
+      const { hass } = recording(async () => Promise.reject(refusal));
+      setLanguage("pt");
+      const sending = controlWrites(hass, CONTROLS_OPERABLE).setRelay("switch.kitchen_breaker", true);
+      await expect(sending).rejects.toBeInstanceOf(ControlChangeRefused);
+      await expect(sending).rejects.toThrow("Sua conta do Home Assistant não pode operar este controle.");
+    }
+  );
 
   it("pass on the integration's refusal as it gave it", async () => {
     const refusal = {
@@ -205,16 +330,18 @@ describe("circuitControlAccess", () => {
     expect(circuitControlAccess(topology(), "kitchen")).toEqual(CONTROLS_OPERABLE);
   });
 
-  it("is the circuit's own panel's in the Favorites view, and operable where that is not known", () => {
-    const merged = favorites({
-      "panel-1|kitchen": circuitRef("panel-1", ADMIN_ONLY),
-      "panel-2|kitchen": circuitRef("panel-2", CONTROLS_OPERABLE),
-      "panel-3|kitchen": circuitRef("panel-3"),
-    });
+  it("is the circuit's own panel's in the Favorites view", () => {
+    const merged = favorites({ "panel-1|kitchen": circuitRef("panel-1", ADMIN_ONLY), "panel-2|kitchen": circuitRef("panel-2", CONTROLS_OPERABLE) });
     expect(circuitControlAccess(merged, "panel-1|kitchen")).toEqual(ADMIN_ONLY);
     expect(circuitControlAccess(merged, "panel-2|kitchen")).toEqual(CONTROLS_OPERABLE);
-    expect(circuitControlAccess(merged, "panel-3|kitchen")).toEqual(CONTROLS_OPERABLE);
-    expect(circuitControlAccess(merged, "panel-9|gone")).toEqual(CONTROLS_OPERABLE);
+  });
+
+  it("is not operable in the Favorites view for a circuit with no circuit ref, which has no panel to say", () => {
+    const subDevice: FavoriteRef = { panelDeviceId: "panel-2", kind: "sub_device", targetId: "bess", configEntryId: "entry-2" };
+    const merged = favorites({ "panel-1|kitchen": circuitRef("panel-1", CONTROLS_OPERABLE), "panel-2|bess": subDevice });
+    expect(circuitControlAccess(merged, "panel-9|gone")).toEqual(CONTROLS_NOT_KNOWN);
+    expect(circuitControlAccess(merged, "panel-2|bess")).toEqual(CONTROLS_NOT_KNOWN);
+    expect(CONTROLS_NOT_KNOWN.mayOperate).toBe(false);
   });
 });
 
@@ -245,26 +372,23 @@ describe("why controls cannot be operated", () => {
     expect(controlNoteHTML(CONTROLS_OPERABLE)).toBe("");
   });
 
-  it.each([
-    ["en", ADMIN_ONLY_HINT],
-    ["es", "Solo un administrador puede operar los controles de este panel."],
-    ["fr", "Seul un administrateur peut utiliser les commandes de ce panneau."],
-    ["ja", "このパネルのコントロールを操作できるのは管理者のみです。"],
-    ["pt", "Somente um administrador pode operar os controles deste painel."],
-  ])("is said in the user's language (%s)", (language, text) => {
-    setLanguage(language);
-    expect(controlAccessHint(ADMIN_ONLY)).toBe(text);
-  });
+  it.each(Object.entries(HINTS_BY_LANGUAGE))(
+    "is said in the user's language, for every reason and the refusal for one entity (%s)",
+    async (language, hints) => {
+      setLanguage(language);
+      expect(controlAccessHint(ADMIN_ONLY)).toBe(hints["controls.admin_only"]);
+      expect(controlAccessHint(SWITCHED_OFF)).toBe(hints["controls.disabled"]);
+      expect(controlAccessHint(READ_ONLY)).toBe(hints["controls.read_only"]);
+      expect(controlAccessHint({ mayOperate: false, reason: null })).toBe(hints["controls.not_operable"]);
+      const { hass } = recording(async () => Promise.reject(UNAUTHORIZED[0]));
+      await expect(controlWrites(hass, CONTROLS_OPERABLE).setPriority("select.x", "never")).rejects.toThrow(hints["controls.entity_unauthorized"]);
+    }
+  );
 
-  it.each([
-    ["en", READ_ONLY_HINT],
-    ["es", "Su cuenta de Home Assistant no puede operar los controles de este panel."],
-    ["fr", "Votre compte Home Assistant ne peut pas utiliser les commandes de ce panneau."],
-    ["ja", "お使いのHome Assistantアカウントでは、このパネルのコントロールを操作できません。"],
-    ["pt", "Sua conta do Home Assistant não pode operar os controles deste painel."],
-  ])("is said for a read-only account in the user's language (%s)", (language, text) => {
-    setLanguage(language);
-    expect(controlAccessHint(READ_ONLY)).toBe(text);
+  it("covers every one of the card's controls keys in that table", () => {
+    const source = readFileSync(join(SRC, "i18n.ts"), "utf8");
+    const keys = [...new Set([...source.matchAll(/"(controls\.[a-z_]+)"/g)].map(match => match[1]))].sort();
+    for (const hints of Object.values(HINTS_BY_LANGUAGE)) expect(Object.keys(hints).sort()).toEqual(keys);
   });
 
   it("is the generic hint for a reason the card does not know, which reads as no reason", () => {
@@ -297,7 +421,7 @@ describe("reportControlFailure", () => {
     return { loadBackendTranslation: async () => (key: string) => messages[key] ?? "" } as unknown as HomeAssistant;
   }
 
-  async function reported(hass: HomeAssistant | null, err: unknown, control: "relay" | "priority"): Promise<Array<[string, string, string]>> {
+  async function reported(hass: HomeAssistant, err: unknown, control: "relay" | "priority"): Promise<Array<[string, string, string]>> {
     vi.spyOn(console, "warn").mockImplementation(() => undefined);
     const errors = new ErrorStore();
     const add = vi.spyOn(errors, "add");
@@ -319,15 +443,26 @@ describe("reportControlFailure", () => {
       translation_domain: "span_panel",
       translation_key: "admin_only_control",
     };
-    expect(await reported(null, err, "priority")).toEqual([["service:shedding", "error", "Only a Home Assistant administrator may operate this SPAN panel."]]);
+    expect(await reported(NO_TRANSLATIONS, err, "priority")).toEqual([
+      ["service:shedding", "error", "Only a Home Assistant administrator may operate this SPAN panel."],
+    ]);
   });
 
   it("says why the card sent nothing", async () => {
-    expect(await reported(null, new ControlChangeRefused(ADMIN_ONLY), "relay")).toEqual([["service:relay", "error", ADMIN_ONLY_HINT]]);
+    expect(await reported(NO_TRANSLATIONS, new ControlChangeRefused(ADMIN_ONLY_HINT), "relay")).toEqual([["service:relay", "error", ADMIN_ONLY_HINT]]);
+  });
+
+  it("says, in the user's language, that the account cannot operate this one control, for Home Assistant's Unauthorized", async () => {
+    setLanguage("fr");
+    const { hass } = recording(async () => Promise.reject(UNAUTHORIZED[2]));
+    const err = await controlWrites(hass, CONTROLS_OPERABLE)
+      .setRelay("switch.kitchen_breaker", false)
+      .catch((refused: unknown) => refused);
+    expect(await reported(hass, err, "relay")).toEqual([["service:relay", "error", "Votre compte Home Assistant ne peut pas utiliser cette commande."]]);
   });
 
   it("says the change could not be made where nothing says why", async () => {
-    expect(await reported(null, {}, "relay")).toEqual([["service:relay", "error", "Unable to toggle relay"]]);
-    expect(await reported(null, {}, "priority")).toEqual([["service:shedding", "error", "Unable to update shedding priority"]]);
+    expect(await reported(NO_TRANSLATIONS, {}, "relay")).toEqual([["service:relay", "error", "Unable to toggle relay"]]);
+    expect(await reported(NO_TRANSLATIONS, {}, "priority")).toEqual([["service:shedding", "error", "Unable to update shedding priority"]]);
   });
 });

@@ -11,6 +11,26 @@ export function errorText(err: unknown): string {
   return String(err);
 }
 
+/**
+ * The messages of Home Assistant's Unauthorized and of its UnknownUser, the one
+ * raised for a user it does not know, each of which takes its class's name.
+ */
+const UNAUTHORIZED_MESSAGES: ReadonlySet<unknown> = new Set(["Unauthorized", "UnknownUser"]);
+
+/**
+ * Whether Home Assistant refused a service call as Unauthorized, or as one of
+ * its kinds (`UNAUTHORIZED_MESSAGES`): for a user its permissions do not let
+ * call it, or a user it does not know. Raised by the service, it reaches the
+ * frontend as a `home_assistant_error` whose message is the exception's name;
+ * raised by the websocket command, it has a code of its own. Its message is
+ * English whatever the user's language, so each caller says it in its own words.
+ */
+export function isUnauthorized(err: unknown): boolean {
+  if (typeof err !== "object" || err === null) return false;
+  const code = "code" in err ? err.code : undefined;
+  return code === "unauthorized" || (code === "home_assistant_error" && "message" in err && UNAUTHORIZED_MESSAGES.has(err.message));
+}
+
 /** Home Assistant's prefix on a ServiceValidationError's message, which says nothing to a user. */
 const VALIDATION_PREFIX = "Validation error: ";
 
