@@ -538,10 +538,19 @@ class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
   }
 
   set hass(val: HomeAssistant | null) {
+    const accessChanged = canEditMonitoring(this._hass) !== canEditMonitoring(val);
     this._hass = val;
-    if (this.hasAttribute("open") && this._config) {
-      this._updateLiveState();
-    }
+    if (!this.hasAttribute("open") || !this._config) return;
+    // The Monitoring section is drawn for whether the user may change monitoring, which
+    // the frontend can say only after the panel opened: it is drawn again as that changes.
+    if (accessChanged && this._showsMonitoring()) this._render();
+    else this._updateLiveState();
+  }
+
+  /** Whether the panel is open on a circuit with its Monitoring section shown. */
+  private _showsMonitoring(): boolean {
+    const cfg = this._config;
+    return !!cfg && !cfg.panelMode && !cfg.subDeviceMode && !cfg.favoritesMode && cfg.showMonitoring === true;
   }
 
   get hass(): HomeAssistant | null {

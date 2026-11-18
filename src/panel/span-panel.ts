@@ -20,6 +20,7 @@ import { DEVICE_REGISTRY_UPDATED, renamedDeviceId, topologyNamesDevice } from ".
 import { subscribeEntryReloads } from "../core/entry-reload.js";
 import { discoverPanelDevices } from "../core/panel-devices.js";
 import { mergeCircuitIds, subscribePackageRatingChanges } from "../core/rating-events.js";
+import { canEditMonitoring } from "../core/monitoring-access.js";
 import { sameTopologyStructure } from "../core/topology-structure.js";
 import { discoverTopology } from "../card/card-discovery.js";
 import { RetryManager } from "../core/retry-manager.js";
@@ -379,6 +380,8 @@ export class SpanPanelElement extends LitElement {
       } else if (!this._root.getElementById("tab-content")) {
         // Re-render only if the tab-content container was lost
         this._scheduleTabRender();
+      } else if (canEditMonitoring(oldHass) !== canEditMonitoring(this.hass)) {
+        this._monitoringAccessChanged();
       }
 
       if (!oldHass && this.hass) {
@@ -450,6 +453,19 @@ export class SpanPanelElement extends LitElement {
         }
       }
     }
+  }
+
+  /**
+   * Draw again what shows monitoring once whether the user may change it
+   * changes (`canEditMonitoring`), as where the frontend says who the user is
+   * only after the dashboard is drawn: the Monitoring tab, which draws its
+   * settings over in place, and a side panel open on any tab, which, given the
+   * new Home Assistant, draws its Monitoring section again.
+   */
+  private _monitoringAccessChanged(): void {
+    if (this._activeTab === "monitoring") this._scheduleTabRender();
+    const sidePanel = this._root.getElementById("tab-content")?.querySelector("span-side-panel") as { hass: HomeAssistant | null } | null | undefined;
+    if (sidePanel) sidePanel.hass = this.hass;
   }
 
   setConfig(_config: CardConfig): void {

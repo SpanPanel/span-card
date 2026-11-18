@@ -694,6 +694,46 @@ describe("a circuit's Monitoring section, for a user who is not an administrator
   });
 });
 
+describe("a circuit's Monitoring section, as Home Assistant says who the user is", () => {
+  const controlsOf = (side: SidePanel): Array<HTMLInputElement | HTMLButtonElement> => [
+    ...monitoringSection(side).querySelectorAll<HTMLInputElement | HTMLButtonElement>("input, button"),
+  ];
+
+  it("is drawn again, its controls usable, once Home Assistant says the user, unknown as it opened, is an administrator", () => {
+    const side = openPanel(integration(undefined), oven([20, 20]), OWN_THRESHOLDS);
+    expect(monitoringSection(side).querySelector('[data-role="monitoring-read-only"]')).not.toBeNull();
+
+    side.hass = integration({ is_admin: true }).hass;
+
+    expect(monitoringSection(side).querySelector('[data-role="monitoring-read-only"]')).toBeNull();
+    expect(at(monitoringSection(side), '[data-role="monitoring-toggle"]').hasAttribute("disabled")).toBe(false);
+    expect(controlsOf(side).length).toBeGreaterThan(0);
+    for (const control of controlsOf(side)) {
+      expect(control.disabled).toBe(false);
+      expect(control instanceof HTMLInputElement && control.readOnly).toBe(false);
+      expect(control.title).not.toBe(ADMIN_ONLY);
+    }
+  });
+
+  it("is drawn again read-only once the user is no longer an administrator", () => {
+    const side = openPanel(integration({ is_admin: true }), oven([20, 20]), OWN_THRESHOLDS);
+
+    side.hass = integration({ is_admin: false }).hass;
+
+    expect(monitoringSection(side).querySelector('[data-role="monitoring-read-only"]')).not.toBeNull();
+    expect(at(monitoringSection(side), '[data-role="monitoring-toggle"]').hasAttribute("disabled")).toBe(true);
+  });
+
+  it("is left as it is by a Home Assistant that says the same of the user", () => {
+    const side = openPanel(integration({ is_admin: true }), oven([20, 20]), OWN_THRESHOLDS);
+    const section = monitoringSection(side);
+
+    side.hass = integration({ is_admin: true }).hass;
+
+    expect(monitoringSection(side)).toBe(section);
+  });
+});
+
 describe("a circuit's Monitoring section, for an administrator", () => {
   it("draws no note, and its controls usable", () => {
     const side = openPanel(integration({ is_admin: true }), oven([20, 20]), OWN_THRESHOLDS);

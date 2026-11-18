@@ -689,9 +689,10 @@ describe("the sidebar dashboard", () => {
     (panel as unknown as { _activeTab: string })._activeTab = tab;
   }
 
-  async function mount(connection: FakeConnection, isAdmin = true): Promise<Panel> {
+  /** The dashboard drawn for `hass`, an administrator's unless `isAdmin` is false. */
+  async function mount(connection: FakeConnection, isAdmin = true, hass = panelHass(connection, isAdmin)): Promise<Panel> {
     const panel = document.createElement("span-panel") as Panel;
-    panel.hass = panelHass(connection, isAdmin);
+    panel.hass = hass;
     document.body.appendChild(panel);
     mounted.push(panel);
     await vi.waitFor(() => expect(render).toHaveBeenCalled());
@@ -726,6 +727,37 @@ describe("the sidebar dashboard", () => {
     await mount(connection);
 
     expect(connection.live(PACKAGE_RATINGS_CHANGED)).toBe(2);
+  });
+
+  it("hands a side panel open on the dashboard the Home Assistant that says the user is an administrator, which unlocks its Monitoring section", async () => {
+    render.mockImplementation(async (container: HTMLElement) => {
+      container.innerHTML = "<span-side-panel></span-side-panel>";
+      return rendered;
+    });
+    const connection = new FakeConnection();
+    const unknown = { ...panelHass(connection), user: undefined };
+    const panel = await mount(connection, true, unknown);
+    const side = panel.shadowRoot!.querySelector("span-side-panel") as SidePanel;
+    side.hass = unknown;
+    side.open({
+      uuid: "c-1",
+      name: "Oven",
+      entities: {},
+      showMonitoring: true,
+      monitoringInfo: { monitoring_enabled: true },
+      graphHorizonInfo: { horizon: "5m", has_override: false, globalHorizon: "5m" },
+      members: [{ uuid: "c-1", circuit: circuit(20, 20) }],
+      capacityA: null,
+      configEntryId: "entry-1",
+    });
+    const toggle = (): HTMLElement => side.shadowRoot!.querySelector<HTMLElement>('[data-role="monitoring-toggle"]')!;
+    expect(toggle().hasAttribute("disabled")).toBe(true);
+
+    const admin = panelHass(connection);
+    panel.hass = admin;
+
+    await vi.waitFor(() => expect(side.hass).toBe(admin));
+    expect(toggle().hasAttribute("disabled")).toBe(false);
   });
 
   it("subscribes nothing for a non-administrator", async () => {
@@ -1075,6 +1107,35 @@ describe("the sidebar dashboard", () => {
       expect(reads[reads.length - 1]!.service_data).toEqual({ config_entry_id: "entry-2" });
       expect(fieldOf(panel, OVEN)!.value).toBe("");
       expect(packageSaves()).toEqual([]);
+    });
+
+    it("are drawn again, usable, once Home Assistant says the user, unknown as the tab was drawn, is an administrator", async () => {
+      holds(circuit(20, 20), dryerOf(circuit(20, 20)));
+      const connection = new FakeConnection();
+      const panel = await mount(connection, true, { ...panelHass(connection), user: undefined });
+      showTab(panel, "monitoring");
+      await vi.waitFor(() => expect(fieldOf(panel, OVEN)?.readOnly).toBe(true));
+      expect(content(panel).querySelector('[data-role="monitoring-read-only"]')).not.toBeNull();
+
+      panel.hass = panelHass(connection);
+
+      await vi.waitFor(() => expect(fieldOf(panel, OVEN)?.readOnly).toBe(false));
+      expect(content(panel).querySelector('[data-role="monitoring-read-only"]')).toBeNull();
+      expect(content(panel).querySelector<HTMLInputElement>("#monitoring-enabled")!.disabled).toBe(false);
+    });
+
+    it("leaves the tab as drawn for a Home Assistant that says the same of the user", async () => {
+      holds(circuit(20, 20), dryerOf(circuit(20, 20)));
+      const connection = new FakeConnection();
+      const panel = await mount(connection);
+      showTab(panel, "monitoring");
+      await vi.waitFor(() => expect(fieldOf(panel, OVEN)).not.toBeNull());
+      const reads = callsTo("get_monitoring_status").length;
+
+      panel.hass = panelHass(connection);
+      await flush();
+
+      expect(callsTo("get_monitoring_status")).toHaveLength(reads);
     });
 
     it("leaves the tab running across a re-render of the view it shows, and stops it once the user leaves", async () => {

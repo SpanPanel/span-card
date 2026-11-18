@@ -189,7 +189,9 @@ that changes something, while `get_monitoring_status` stays open to everyone. `s
   one of these services is named anywhere else in `src/`.
 - For anyone else, the Monitoring tab and a circuit's Monitoring section show every setting as it stands, under a note from `readOnlyNote()` saying why nothing
   there can be changed. `lockMonitoringControls()` makes each field read-only, so what it holds can still be read and selected, and disables every other control
-  but the rating marks, which change nothing. The side panel locks again what the package ratings editor redraws.
+  but the rating marks, which change nothing. The side panel locks again what the package ratings editor redraws. The frontend can say who the user is only
+  after a view is drawn, so the sidebar dashboard draws the Monitoring tab, and an open side panel its Monitoring section, again as `canEditMonitoring()`
+  changes.
 
 ## TypeScript
 
