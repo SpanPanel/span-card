@@ -6,7 +6,8 @@ import type { Circuit, HassEntity, HomeAssistant, MonitoringPointInfo } from "..
 
 // The integration lets only a Home Assistant administrator change a panel's
 // monitoring. These show the Monitoring tab and a circuit's Monitoring section
-// saying so where the integration refuses a change.
+// saying so where the integration refuses a change, and drawn read-only for
+// anyone else.
 
 type Message = Record<string, unknown>;
 
@@ -188,6 +189,7 @@ type SidePanel = HTMLElement & {
   hass: HomeAssistant;
   errorStore: ErrorStore | null;
   open(config: unknown): void;
+  refreshRating(view: unknown): void;
 };
 
 /** A MAIN 32 circuit in one space, holding `copied` as its copy where one is given. */
@@ -252,5 +254,288 @@ describe("a circuit's Monitoring section, where the integration refuses a change
     errors.clear();
     at(side.shadowRoot!, '[data-role="rating-threshold-reset"]').click();
     await vi.waitFor(() => expect(messages(errors)).toEqual([ADMIN_ONLY]));
+  });
+});
+
+// ── Read-only for a user who is not an administrator ─────────────────────
+
+const settle = (): Promise<void> => new Promise(resolve => setTimeout(resolve, 0));
+
+/** Every control of the tab's that changes monitoring, by the selector that finds it. */
+const TAB_CONTROLS = [
+  "#monitoring-enabled",
+  "#g-continuous",
+  "#g-spike",
+  "#g-window",
+  "#g-cooldown",
+  "#notify-all-targets",
+  "#notify-target-btn",
+  ".notify-target-cb",
+  "#g-priority",
+  "#g-title-template",
+  "#g-message-template",
+  "#test-notification-btn",
+  "#toggle-all-circuits",
+  ".circuit-toggle",
+  ".mains-toggle",
+  ".threshold-input",
+  ".rating-input",
+  ".rating-clear",
+  ".rating-turn-off",
+  ".reset-btn",
+];
+/** The tab's controls whose value is read as text, made read-only rather than disabled. */
+const TAB_FIELDS = "#g-continuous, #g-spike, #g-window, #g-cooldown, #g-title-template, #g-message-template, .threshold-input, .rating-input";
+
+/**
+ * Use every control in `root` as a user would, its lock aside: type and commit
+ * in each field and leave it, change each choice, press each button.
+ */
+async function useEveryControl(root: ParentNode): Promise<void> {
+  for (const control of [...root.querySelectorAll<HTMLElement>("input, select, button, span-switch")]) {
+    if (control instanceof HTMLInputElement && (control.type === "number" || control.type === "text")) {
+      control.focus();
+      control.value = control.type === "number" ? "42" : "typed";
+      control.dispatchEvent(new Event("input"));
+      control.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter" }));
+      control.blur();
+    } else if (control instanceof HTMLInputElement || control instanceof HTMLSelectElement) {
+      if (control instanceof HTMLInputElement) control.checked = !control.checked;
+      control.dispatchEvent(new Event("change"));
+    } else {
+      control.dispatchEvent(new MouseEvent("click", { bubbles: true, composed: true }));
+    }
+  }
+  await vi.advanceTimersByTimeAsync(5000);
+}
+
+describe("the Monitoring tab, for a user who is not an administrator", () => {
+  it("shows every setting as it stands, with a note under the heading saying only an administrator can change them", async () => {
+    const { container } = await shown(integration({ is_admin: false }));
+
+    const note = at(container, '[data-role="monitoring-read-only"]');
+    expect(note.textContent).toBe(ADMIN_ONLY);
+    expect(note.getAttribute("role")).toBe("note");
+    expect(note.previousElementSibling?.tagName).toBe("H2");
+
+    expect(at<HTMLInputElement>(container, "#monitoring-enabled").checked).toBe(true);
+    expect(at<HTMLInputElement>(container, "#g-continuous").value).toBe("80");
+    // The option drawn chosen: happy-dom's select reads another option's value straight after parsing.
+    expect(at(container, '#g-priority option[value="active"]').hasAttribute("selected")).toBe(true);
+    expect(at<HTMLInputElement>(container, "#g-title-template").value).toBe("SPAN: {name}");
+    expect(at(container, "#notify-target-label").textContent).toBe(PHONE);
+    expect(cell(container, GARAGE, "continuous_threshold_pct").value).toBe("90");
+    expect(at<HTMLInputElement>(container, `.circuit-toggle[data-entity="${GARAGE}"]`).checked).toBe(false);
+    expect(at<HTMLInputElement>(container, `.rating-input[data-entity="${OVEN}"]`).value).toBe("20");
+    expect(at(container, `.rating-turn-off[data-entity="${DRYER}"]`)).toBeTruthy();
+    expect(at(container, `.reset-btn[data-entity="${MAINS}"]`)).toBeTruthy();
+  });
+
+  it("locks every control that changes monitoring: its fields read-only, every other control disabled, each titled with why", async () => {
+    const { container } = await shown(integration({ is_admin: false }));
+
+    for (const selector of TAB_CONTROLS) {
+      const controls = [...container.querySelectorAll<HTMLInputElement | HTMLButtonElement | HTMLSelectElement>(selector)];
+      expect(controls.length, selector).toBeGreaterThan(0);
+      for (const control of controls) {
+        const field = control.matches(TAB_FIELDS);
+        expect(control instanceof HTMLInputElement && control.readOnly, selector).toBe(field);
+        expect(control.disabled, selector).toBe(!field);
+        expect(control.title, selector).toBe(ADMIN_ONLY);
+        expect(control.style.opacity, selector).toBe("0.5");
+      }
+    }
+    // Nothing the settings draw is left usable.
+    const settings = at(container, ".monitoring-settings");
+    const usable = [...settings.querySelectorAll<HTMLInputElement>("input, select, button")].filter(control => !control.disabled && !control.readOnly);
+    expect(usable).toEqual([]);
+  });
+
+  it("sends no change whatever is done to its controls, nor as the tab is left", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const panel = integration({ is_admin: false });
+    const { tab, container } = await shown(panel);
+
+    await useEveryControl(at(container, ".monitoring-settings"));
+    tab.stop();
+    await vi.advanceTimersByTimeAsync(5000);
+
+    expect(panel.writes()).toEqual([]);
+    expect(panel.sent).toContain("get_monitoring_status");
+  });
+
+  it("leaves the rating marks usable, as they only show where a rating comes from", async () => {
+    // A panel not offering copies draws the Oven's copied rating with its mark rather than a field.
+    const { container } = await shown(integration({ is_admin: false }, { offered: false }));
+    const mark = at<HTMLButtonElement>(container, ".rating-user-set");
+
+    expect(mark.disabled).toBe(false);
+    expect(mark.title).not.toBe(ADMIN_ONLY);
+    mark.click();
+    expect(mark.getAttribute("aria-expanded")).toBe("true");
+  });
+
+  it("is read-only too for a user the frontend says nothing of", async () => {
+    const { container } = await shown(integration(undefined));
+    expect(container.querySelector('[data-role="monitoring-read-only"]')).not.toBeNull();
+    expect(at<HTMLInputElement>(container, "#monitoring-enabled").disabled).toBe(true);
+  });
+});
+
+describe("the Monitoring tab, for an administrator", () => {
+  it("draws no note, and every control usable", async () => {
+    const { container } = await shown(integration({ is_admin: true }));
+
+    expect(container.querySelector('[data-role="monitoring-read-only"]')).toBeNull();
+    for (const selector of TAB_CONTROLS) {
+      for (const control of container.querySelectorAll<HTMLInputElement | HTMLButtonElement | HTMLSelectElement>(selector)) {
+        expect(control.disabled, selector).toBe(false);
+        expect(control instanceof HTMLInputElement && control.readOnly, selector).toBe(false);
+        expect(control.title, selector).not.toBe(ADMIN_ONLY);
+      }
+    }
+  });
+
+  it("sends a change the user makes", async () => {
+    const panel = integration({ is_admin: true });
+    const { container } = await shown(panel);
+
+    const toggle = at<HTMLInputElement>(container, `.circuit-toggle[data-entity="${GARAGE}"]`);
+    toggle.checked = true;
+    toggle.dispatchEvent(new Event("change"));
+    await settle();
+
+    expect(panel.writes()).toEqual(["set_circuit_threshold"]);
+  });
+
+  it("sends every kind of change from the controls a user who is not an administrator cannot use", async () => {
+    vi.useFakeTimers();
+    const panel = integration({ is_admin: true });
+    const { container } = await shown(panel);
+
+    await useEveryControl(at(container, ".monitoring-settings"));
+
+    expect(new Set(panel.writes())).toEqual(WRITE_SERVICES);
+  });
+});
+
+/** A MAIN 32 circuit across two spaces, its copy kept on averaged legs. */
+const DRYER_CIRCUIT: Circuit = {
+  name: "Washer Dryer",
+  tabs: [3, 5],
+  entities: {},
+  breaker_rating_a: 20,
+  monitoring_rating_a: 20,
+  monitoring_rating_user_set: false,
+  package_ratings_a: [20, 30],
+  package_ratings_form: "two_spaces",
+  package_ratings_state: "averaged_legs",
+};
+
+const monitoringSection = (side: SidePanel): HTMLElement => at(side.shadowRoot!, '[data-role="monitoring-section"]');
+
+describe("a circuit's Monitoring section, for a user who is not an administrator", () => {
+  it("shows what monitoring is set to, with a note under the switch saying only an administrator can change it", () => {
+    const side = openPanel(integration({ is_admin: false }), oven([20, 20]), OWN_THRESHOLDS);
+    const section = monitoringSection(side);
+
+    const note = at(section, '[data-role="monitoring-read-only"]');
+    expect(note.textContent).toBe(ADMIN_ONLY);
+    expect(note.previousElementSibling?.classList.contains("monitoring-header")).toBe(true);
+    expect(at(section, '[data-role="monitoring-toggle"]').hasAttribute("checked")).toBe(true);
+    expect(at(section, '[data-role="judged-against"]').textContent).toBe("Judged against 40 A: 20-20 from your SPAN app (the panel publishes 20 A)");
+    expect(at<HTMLInputElement>(section, 'input[name="monitoring-mode"][value="custom"]').checked).toBe(true);
+    expect(at<HTMLInputElement>(section, '[data-role="threshold-continuous"]').value).toBe("120");
+    expect(at<HTMLInputElement>(section, '[data-role="rating-input"]').value).toBe("20");
+  });
+
+  it("says why while monitoring is off and the details are hidden", () => {
+    const side = openPanel(integration({ is_admin: false }), oven(null), { monitoring_enabled: false });
+    expect(at(monitoringSection(side), '[data-role="monitoring-details"]').style.display).toBe("none");
+    expect(at(monitoringSection(side), '[data-role="monitoring-read-only"]').textContent).toBe(ADMIN_ONLY);
+  });
+
+  it("locks the switch, the Global/Custom choice, the thresholds, and the package ratings editor's field, reset and warning buttons", () => {
+    const side = openPanel(integration({ is_admin: false }), oven([20, 20]), OWN_THRESHOLDS);
+    const section = monitoringSection(side);
+
+    expect(at(section, '[data-role="monitoring-toggle"]').hasAttribute("disabled")).toBe(true);
+    for (const radio of section.querySelectorAll<HTMLInputElement>('input[name="monitoring-mode"]')) expect(radio.disabled).toBe(true);
+    const thresholds = [...section.querySelectorAll<HTMLInputElement>('input[data-role^="threshold-"]')];
+    expect(thresholds).toHaveLength(4);
+    for (const field of thresholds) expect(field.readOnly).toBe(true);
+    expect(at<HTMLInputElement>(section, '[data-role="rating-input"]').readOnly).toBe(true);
+    expect(at<HTMLButtonElement>(section, '[data-role="rating-reset"]').disabled).toBe(true);
+    expect(at<HTMLButtonElement>(section, '[data-role="rating-threshold-reset"]').disabled).toBe(true);
+    for (const control of section.querySelectorAll<HTMLElement>("input, button, span-switch")) expect(control.title).toBe(ADMIN_ONLY);
+  });
+
+  it("locks the averaged-legs warning's button", () => {
+    const side = openPanel(integration({ is_admin: false }), DRYER_CIRCUIT, { monitoring_enabled: true });
+    expect(at<HTMLButtonElement>(monitoringSection(side), '[data-role="rating-turn-off-monitoring"]').disabled).toBe(true);
+  });
+
+  it("locks what a refresh draws: the reset a copy stored elsewhere brings", () => {
+    const side = openPanel(integration({ is_admin: false }), oven(null), { monitoring_enabled: true });
+    expect(side.shadowRoot!.querySelector('[data-role="rating-reset"]')).toBeNull();
+
+    side.refreshRating({
+      members: [{ uuid: "c-1", circuit: oven([20, 20]) }],
+      capacityA: null,
+      monitoringInfo: { monitoring_enabled: true },
+      monitoringGlobals: null,
+    });
+
+    const reset = at<HTMLButtonElement>(monitoringSection(side), '[data-role="rating-reset"]');
+    expect(reset.disabled).toBe(true);
+    expect(reset.title).toBe(ADMIN_ONLY);
+  });
+
+  it("sends no change whatever is done to its controls", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const panel = integration({ is_admin: false });
+    const side = openPanel(panel, oven([20, 20]), OWN_THRESHOLDS);
+
+    await useEveryControl(monitoringSection(side));
+
+    expect(panel.writes()).toEqual([]);
+  });
+
+  it("leaves the rest of the side panel as it is: the graph horizon stays usable", () => {
+    const side = openPanel(integration({ is_admin: false }), oven(null), { monitoring_enabled: true });
+    const segments = [...side.shadowRoot!.querySelectorAll<HTMLButtonElement>(".horizon-segment")];
+    expect(segments.length).toBeGreaterThan(0);
+    for (const segment of segments) {
+      expect(segment.disabled).toBe(false);
+      expect(segment.title).not.toBe(ADMIN_ONLY);
+    }
+  });
+});
+
+describe("a circuit's Monitoring section, for an administrator", () => {
+  it("draws no note, and its controls usable", () => {
+    const side = openPanel(integration({ is_admin: true }), oven([20, 20]), OWN_THRESHOLDS);
+    const section = monitoringSection(side);
+
+    expect(section.querySelector('[data-role="monitoring-read-only"]')).toBeNull();
+    expect(at(section, '[data-role="monitoring-toggle"]').hasAttribute("disabled")).toBe(false);
+    for (const control of section.querySelectorAll<HTMLInputElement | HTMLButtonElement>("input, button")) {
+      expect(control.disabled).toBe(false);
+      expect(control instanceof HTMLInputElement && control.readOnly).toBe(false);
+    }
+  });
+
+  it("sends each change its controls make, from the controls a user who is not an administrator cannot use", async () => {
+    vi.useFakeTimers();
+    const panel = integration({ is_admin: true });
+    const side = openPanel(panel, oven([20, 20]), OWN_THRESHOLDS);
+
+    await useEveryControl(monitoringSection(side));
+
+    expect(new Set(panel.writes())).toEqual(
+      new Set(["set_circuit_threshold", "clear_circuit_threshold", "set_circuit_package_ratings", "clear_circuit_package_ratings"])
+    );
   });
 });

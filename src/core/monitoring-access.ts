@@ -8,12 +8,14 @@ import type { HomeAssistant } from "../types.js";
  * Home Assistant administrator change it, refusing anyone else each of its
  * monitoring services that changes something, while reading it stays open to
  * all; a user the frontend does not say is an administrator is taken as not one.
+ * Every view that changes monitoring asks this, and shows anyone else what
+ * monitoring is set to, read-only (`lockMonitoringControls`).
  */
 export function canEditMonitoring(hass: HomeAssistant | null | undefined): boolean {
   return hass?.user?.is_admin === true;
 }
 
-/** That only an administrator can change monitoring, as a refusal's message says it. */
+/** Why a read-only view of monitoring changes nothing: its note, each locked control's title, and a refusal's message. */
 function adminOnlyText(): string {
   return t("monitoring.admin_only");
 }
@@ -113,4 +115,47 @@ export function monitoringFailureText(err: unknown, fallback: string): string {
 export function reportMonitoringFailure(errors: ErrorStore | null, err: unknown, change: string): void {
   console.warn(`SPAN Panel: ${change} failed`, err);
   errors?.add({ key: "service:monitoring", level: "error", message: monitoringFailureText(err, t("error.threshold_failed")), persistent: false });
+}
+
+/** Every control a view draws: its fields, choices and buttons, and the card's switches. */
+const CONTROLS = "input, select, textarea, button, span-switch";
+
+/** The input types whose value is read as text: locked, one is made read-only, so what it holds can still be read and selected. */
+const READABLE_INPUTS: ReadonlySet<string> = new Set(["number", "text"]);
+
+/** The opacity a locked native control is drawn at, the one the side panel draws a disabled field at. */
+const LOCKED_OPACITY = "0.5";
+
+/**
+ * Lock every control in `root` that changes monitoring, for a user who may not
+ * change it (`canEditMonitoring`), so the view shows what monitoring is set to
+ * and changes nothing. A field holding text or a number is made read-only, so
+ * what it holds can still be read, selected and scrolled through; any other
+ * control is disabled. Each is titled with why. A native control is dimmed,
+ * with the cursor saying it is not to be used; a switch dims itself. A control
+ * `except` matches, one that changes nothing, such as a rating mark showing its
+ * note, is left as it is. Locking a control again changes nothing, so a view
+ * can lock again what it has redrawn.
+ */
+export function lockMonitoringControls(root: ParentNode, except?: string): void {
+  const title = adminOnlyText();
+  for (const control of root.querySelectorAll<HTMLElement>(CONTROLS)) {
+    if (except !== undefined && control.matches(except)) continue;
+    if ((control instanceof HTMLInputElement && READABLE_INPUTS.has(control.type)) || control instanceof HTMLTextAreaElement) control.readOnly = true;
+    else control.setAttribute("disabled", "");
+    control.title = title;
+    if (control.localName === "span-switch") continue;
+    control.style.opacity = LOCKED_OPACITY;
+    control.style.cursor = "not-allowed";
+  }
+}
+
+/** The note a read-only view of monitoring shows above what it locks, saying why nothing there can be changed. */
+export function readOnlyNote(): HTMLParagraphElement {
+  const note = document.createElement("p");
+  note.dataset.role = "monitoring-read-only";
+  note.setAttribute("role", "note");
+  note.style.cssText = "margin:8px 0 12px;font-size:0.85em;color:var(--secondary-text-color);";
+  note.textContent = adminOnlyText();
+  return note;
 }

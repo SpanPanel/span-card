@@ -15,7 +15,15 @@ import { focusedIn, isFocusLost } from "../helpers/focus.js";
 import { bindLimitField, isLimitField, LIMIT_RANGES, type LimitField, type LimitFieldHandle } from "../helpers/number-field.js";
 import { bindOtherBreakerField, reportPackageRatingsFailure, type OtherBreakerFieldHandle } from "../helpers/other-breaker-field.js";
 import { circuitLabelsByMonitoringKey } from "../core/monitoring-status.js";
-import { monitoringWrites, reportMonitoringFailure, type MonitoringServiceData, type MonitoringWrites } from "../core/monitoring-access.js";
+import {
+  canEditMonitoring,
+  lockMonitoringControls,
+  monitoringWrites,
+  readOnlyNote,
+  reportMonitoringFailure,
+  type MonitoringServiceData,
+  type MonitoringWrites,
+} from "../core/monitoring-access.js";
 import type { ErrorStore } from "../core/error-store.js";
 import type {
   EntityNameItem,
@@ -508,6 +516,19 @@ function targetsName(text: string): string {
   return tf("notification.targets_button", { targets: text });
 }
 
+/** The rating marks, which change nothing: each only shows where its rating comes from. */
+const RATING_MARK = ".rating-user-set";
+
+/**
+ * Show the tab's settings (`settings`) read-only, to a user who may not change
+ * monitoring (`canEditMonitoring`): a note under the heading says why, and every
+ * control in them is locked but the rating marks (`lockMonitoringControls`).
+ */
+function showReadOnly(settings: HTMLElement): void {
+  settings.querySelector("h2")?.after(readOnlyNote());
+  lockMonitoringControls(settings, RATING_MARK);
+}
+
 /** The longest a redraw waits on a press whose release never arrives. */
 const PRESS_WAIT_MS = 3000;
 
@@ -865,7 +886,7 @@ export class MonitoringTab {
     const { drawing, overTable } = this._drawingIn(container);
     drawing.content.innerHTML = `
       ${this._headerHTML}
-      <div style="padding:16px;">
+      <div class="monitoring-settings" style="padding:16px;">
         <h2 style="margin-top:0;">${t("monitoring.heading")}</h2>
 
         <div style="margin-bottom:24px;padding:16px;background:var(--secondary-background-color,#252530);border-radius:8px;">
@@ -1052,6 +1073,9 @@ export class MonitoringTab {
         </table>
       </div>
     `;
+
+    const settings = drawing.content.querySelector<HTMLElement>(".monitoring-settings");
+    if (settings && !canEditMonitoring(hass)) showReadOnly(settings);
 
     // Set indeterminate state on toggle-all checkbox
     const toggleAllCb = container.querySelector<HTMLInputElement>("#toggle-all-circuits");

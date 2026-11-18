@@ -187,6 +187,9 @@ that changes something, while `get_monitoring_status` stays open to everyone. `s
   accept, which is anyone the frontend does not say is an administrator, and it turns the integration's Unauthorized into a `MonitoringChangeRefused`, whose
   message says only an administrator can change monitoring, so each view's report of a failed change says that. `tests/monitoring-access.test.ts` fails where
   one of these services is named anywhere else in `src/`.
+- For anyone else, the Monitoring tab and a circuit's Monitoring section show every setting as it stands, under a note from `readOnlyNote()` saying why nothing
+  there can be changed. `lockMonitoringControls()` makes each field read-only, so what it holds can still be read and selected, and disables every other control
+  but the rating marks, which change nothing. The side panel locks again what the package ratings editor redraws.
 
 ## TypeScript
 

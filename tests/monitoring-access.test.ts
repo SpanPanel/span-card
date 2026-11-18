@@ -4,14 +4,17 @@ import { dirname, join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   canEditMonitoring,
+  lockMonitoringControls,
   monitoringFailureText,
   monitoringWrites,
   MonitoringChangeRefused,
+  readOnlyNote,
   reportMonitoringFailure,
   type MonitoringWrites,
 } from "../src/core/monitoring-access.js";
 import { ErrorStore } from "../src/core/error-store.js";
 import { setLanguage } from "../src/i18n.js";
+import "../src/core/span-switch.js";
 import type { HomeAssistant } from "../src/types.js";
 
 type Message = Record<string, unknown>;
@@ -147,5 +150,81 @@ describe("a refusal for want of administrator rights", () => {
     const others = new ErrorStore();
     reportMonitoringFailure(others, { code: "unknown_error", message: "boom" }, "circuit threshold toggle");
     expect(others.active.map(e => e.message)).toEqual(["Unable to save threshold"]);
+  });
+});
+
+describe("lockMonitoringControls", () => {
+  function drawn(): HTMLElement {
+    const root = document.createElement("div");
+    root.innerHTML = `
+      <input type="checkbox" class="cb">
+      <input type="radio" class="radio">
+      <input type="number" class="number" value="80">
+      <input type="text" class="text" value="SPAN: {name}">
+      <textarea class="area">{name}</textarea>
+      <select class="select"><option value="active" selected>Active</option></select>
+      <button type="button" class="button">Reset</button>
+      <button type="button" class="mark">✎</button>
+      <span-switch class="switch"></span-switch>
+    `;
+    document.body.appendChild(root);
+    return root;
+  }
+  const at = <T extends HTMLElement>(root: HTMLElement, selector: string): T => root.querySelector<T>(selector)!;
+
+  it("makes a field holding text or a number read-only, so what it holds can still be read, and disables every other control", () => {
+    const root = drawn();
+    lockMonitoringControls(root);
+
+    for (const field of [".number", ".text", ".area"]) {
+      expect(at<HTMLInputElement>(root, field).readOnly).toBe(true);
+      expect(at<HTMLInputElement>(root, field).disabled).toBe(false);
+    }
+    expect(at<HTMLInputElement>(root, ".number").value).toBe("80");
+    for (const control of [".cb", ".radio", ".select", ".button", ".switch"]) expect(at(root, control).hasAttribute("disabled")).toBe(true);
+    root.remove();
+  });
+
+  it("titles each control with why, dims each native one, and leaves the switch to dim itself", () => {
+    const root = drawn();
+    lockMonitoringControls(root);
+
+    for (const control of root.querySelectorAll<HTMLElement>("input, textarea, select, button, span-switch")) expect(control.title).toBe(ADMIN_ONLY);
+    for (const control of root.querySelectorAll<HTMLElement>("input, textarea, select, button")) {
+      expect(control.style.opacity).toBe("0.5");
+      expect(control.style.cursor).toBe("not-allowed");
+    }
+    expect(at(root, ".switch").style.opacity).toBe("");
+    root.remove();
+  });
+
+  it("leaves a control the caller names as changing nothing as it is", () => {
+    const root = drawn();
+    lockMonitoringControls(root, ".mark");
+
+    const mark = at<HTMLButtonElement>(root, ".mark");
+    expect(mark.disabled).toBe(false);
+    expect(mark.title).toBe("");
+    expect(mark.style.opacity).toBe("");
+    expect(at<HTMLButtonElement>(root, ".button").disabled).toBe(true);
+    root.remove();
+  });
+
+  it("changes nothing more when it locks what it has locked", () => {
+    const root = drawn();
+    lockMonitoringControls(root);
+    const once = root.innerHTML;
+    lockMonitoringControls(root);
+    expect(root.innerHTML).toBe(once);
+    root.remove();
+  });
+});
+
+describe("readOnlyNote", () => {
+  it("says, as a note, that only an administrator can change monitoring", () => {
+    const note = readOnlyNote();
+    expect(note.getAttribute("role")).toBe("note");
+    expect(note.dataset.role).toBe("monitoring-read-only");
+    expect(note.textContent).toBe(ADMIN_ONLY);
   });
 });

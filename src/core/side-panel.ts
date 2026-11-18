@@ -10,7 +10,14 @@ import { PackageRatingsEditor, type PackageRatingsHost, type PackageRatingsView 
 import { bindLimitField, LIMIT_RANGES, type LimitField, type LimitFieldHandle } from "../helpers/number-field.js";
 import { focusWithin } from "../helpers/focus.js";
 import { circuitMonitoringInfo, monitoringStatusFrom } from "./monitoring-status.js";
-import { monitoringWrites, reportMonitoringFailure, type MonitoringWrites } from "./monitoring-access.js";
+import {
+  canEditMonitoring,
+  lockMonitoringControls,
+  monitoringWrites,
+  readOnlyNote,
+  reportMonitoringFailure,
+  type MonitoringWrites,
+} from "./monitoring-access.js";
 import { addFavorite, removeFavorite } from "./favorites-store.js";
 import { sortedCircuitsForSection } from "./favorites-sections.js";
 import { subDeviceCharts } from "../helpers/sub-device-power.js";
@@ -1575,6 +1582,7 @@ class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
     const text = this._judgedAgainstText(cfg.monitoringInfo);
     if (judged.textContent !== text) judged.textContent = text;
     this._ratingsEditor.sync(judged);
+    this._lockMonitoringIfReadOnly();
   }
 
   // ── Graph horizon section ──────────────────────────────────────────
@@ -1681,6 +1689,7 @@ class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
   private _renderMonitoringSection(body: HTMLDivElement, cfg: CircuitModeConfig): void {
     const section = document.createElement("div");
     section.className = "section";
+    section.dataset.role = "monitoring-section";
 
     const headerRow = document.createElement("div");
     headerRow.className = "monitoring-header";
@@ -1702,6 +1711,8 @@ class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
     headerRow.appendChild(sectionLabel);
     headerRow.appendChild(enableToggle);
     section.appendChild(headerRow);
+    // Shown with the switch, so it says why even while monitoring is off and the details are hidden.
+    if (!canEditMonitoring(this._hass)) section.appendChild(readOnlyNote());
 
     const detailsWrap = document.createElement("div");
     detailsWrap.dataset.role = "monitoring-details";
@@ -1767,6 +1778,18 @@ class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
     }
 
     body.appendChild(section);
+    this._lockMonitoringIfReadOnly();
+  }
+
+  /**
+   * Lock what the Monitoring section draws to change monitoring, for a user who
+   * may not change it (`canEditMonitoring`), so it shows what monitoring is set
+   * to and changes nothing (`lockMonitoringControls`): as the section is drawn,
+   * and again as the package ratings editor redraws what it holds.
+   */
+  private _lockMonitoringIfReadOnly(): void {
+    const section = this.shadowRoot?.querySelector('[data-role="monitoring-section"]');
+    if (section && !canEditMonitoring(this._hass)) lockMonitoringControls(section);
   }
 
   /**
