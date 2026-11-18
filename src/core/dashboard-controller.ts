@@ -650,8 +650,11 @@ export class DashboardController {
    * access the user now has to the panel's controls, as `topology`, that panel's
    * fetched again, says it (`controlAccess`); where it changed, the side panel
    * brings its relay, its priority and its note up to date in place
-   * (`refreshControlAccess`). The access arrives with each topology, and a view
-   * drawn again waits for an open side panel to close.
+   * (`refreshControlAccess`). The access arrives with each topology. The
+   * sidebar waits for an open side panel to close before it draws its view
+   * again, so this is how that panel learns it; the card draws its view again
+   * at once, and its By Panel side panel, which sits outside the view, learns
+   * it here.
    */
   refreshCircuitControlAccess(root: ParentNode, entryId: string | null, topology: PanelTopology): void {
     const sidePanel = root.querySelector("span-side-panel") as SpanSidePanelElement | null;

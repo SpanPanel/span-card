@@ -203,23 +203,32 @@ the first of `control_disabled`, `admin_only` and `read_only` that applies. `src
 
 - `controlAccess(topology)` reads it. `may_operate` decides, and `reason` only picks the hint; a reason the card does not know reads as none, which the generic
   hint answers. Where the topology says nothing, as from an integration that predates the field or from the entity fallback, the controls are taken as operable,
-  as they always were, and the gate still refuses what it refuses. `circuitControlAccess()` answers for one circuit: in the Favorites view each favorite keeps
-  its own panel's answer on its `FavoriteRef`. `viewControlAccess()` answers for a view's "Enable Switches" slider, which is operable where any of the view's
+  as they always were, and the gate still refuses what it refuses. This reader alone takes silence as operable. Past it the access is required: a circuit side
+  panel's config (`CircuitModeConfig.controlAccess`) and each Favorites circuit ref (`FavoriteCircuitRef`) must carry one, so the compiler flags a path that
+  omits it, and a Favorites circuit with no circuit ref is not operable (`CONTROLS_NOT_KNOWN`). `circuitControlAccess()` answers for one circuit, in the
+  Favorites view from its own panel's ref. `viewControlAccess()` answers for a view's "Enable Switches" slider, which is operable where any of the view's
   circuits is.
 - `controlWrites(hass, access)` is the one way the card sends a change: `setRelay()` sends `switch.turn_on` or `switch.turn_off`, and `setPriority()` sends
   `select.select_option`, each over the websocket, so Home Assistant shows no toast of its own beside the card's banner. It sends nothing where the access does
-  not allow it, rejecting with a `ControlChangeRefused` that says why. `tests/control-access.test.ts` fails where a relay, priority or lock service is named
-  anywhere else in `src/`. The card sends nothing to the integration's control lock switch; "Enable Switches" is the card's own arming of its toggles.
+  not allow it, rejecting with a `ControlChangeRefused` that says why. Home Assistant's Unauthorized (`isUnauthorized()`), for a user the integration lets
+  operate the panel whose permissions do not cover this one entity, comes back as a `ControlChangeRefused` saying so in the user's language, since its own
+  message is English. `tests/control-access.test.ts` fails where a relay, priority or lock service is named anywhere else in `src/`, where `callService` is
+  called at all, or where a `call_service` message outside the module names any domain but `domain: INTEGRATION_DOMAIN`. The card sends nothing to the
+  integration's control lock switch; "Enable Switches" is the card's own arming of its toggles.
 - `reportControlFailure()` puts a failed change in the error store, saying why as the gate said it: the refusal's translation key is looked up in the
   integration's exception translations (`serviceErrorMessage()`), so an armed control lock, a relay operated a moment ago, or a policy that changed since the
   topology was fetched each read as the gate words them.
 - Where the user may not operate the controls, each is drawn disabled and titled with why (`controlAccessHint()`): the side panel's relay switch and priority
   select, under a note in the first of their sections (`controlNoteHTML()`); each toggle pill in the breaker grid and the list rows (`toggle-forbidden`); and
   the slider (`slide-confirm-forbidden`, which `bindSlideConfirm()` never arms), with a note under the panel's name, or beside the slider in the Favorites
-  strip. The gear, the favorite, the graph horizon and the read-only monitoring stay open.
+  strip. The side panel's switch and select are named by their labels and described by the note (`aria-labelledby`, `aria-describedby`). The pill and the slider
+  are plain elements with no role, so their titles and the note, not an ARIA state, say why. The gear, the favorite, the graph horizon and the read-only
+  monitoring stay open.
 - A refused change never stays shown: the side panel's switch and select show again what Home Assistant reports, and a toggle pill only ever shows that.
-- The access arrives with each topology, and `sameTopologyStructure()` counts a change of it as a change of structure, so the views draw again. A view waits for
-  an open side panel to close, so that panel takes the new access in place (`refreshControlAccess()`), keeping what else it shows.
+- The access arrives with each topology, and `sameTopologyStructure()` counts a change of it as a change of structure, so the views draw again. The sidebar
+  waits for an open side panel to close before it draws a view again, so that panel takes the new access in place (`refreshControlAccess()`), keeping what else
+  it shows. The card draws its view again at once: its By Panel side panel sits outside the view and takes the new access in place, while a By Activity or By
+  Area side panel is drawn over with its list.
 
 ## TypeScript
 
