@@ -4,7 +4,7 @@ import { escapeHtml } from "../helpers/sanitize.js";
 import { t } from "../i18n.js";
 import { isFavoritesTopology } from "../types.js";
 import type { ErrorStore } from "./error-store.js";
-import type { ControlAccess, ControlBlock, FavoriteCircuitRef, FavoriteRef, FavoritesTopology, HomeAssistant, PanelTopology } from "../types.js";
+import type { Circuit, ControlAccess, ControlBlock, FavoriteCircuitRef, FavoriteRef, FavoritesTopology, HomeAssistant, PanelTopology } from "../types.js";
 
 /** Controls the user may operate: what the card takes where the integration says nothing of them. */
 export const CONTROLS_OPERABLE: ControlAccess = Object.freeze({ mayOperate: true, reason: null });
@@ -56,31 +56,41 @@ export function circuitControlAccess(topology: PanelTopology | null | undefined,
 /**
  * The access a view's "Enable Switches" slider answers for, which arms every
  * switch the view draws: operable where the user may operate the controls of
- * any of its circuits, else why not, as the first of its panels says. A
- * Favorites view of several panels is armed for those the user may operate;
- * each other circuit's switch refuses on its own (`circuitControlAccess`). A
- * view with no circuit has no switch to arm, and nothing to forbid.
+ * any of its panels, else why not, as the first of them says. A Favorites view
+ * of several panels counts those it draws a relay or priority control of
+ * (`favoritesPanelAccess`), and is armed for those the user may operate; each
+ * other circuit's switch refuses on its own (`circuitControlAccess`). A view
+ * with no such control has no switch to arm, and nothing to forbid.
  */
 export function viewControlAccess(topology: PanelTopology | null | undefined): ControlAccess {
   if (!topology || !isFavoritesTopology(topology)) return controlAccess(topology);
-  const circuits = Object.values(topology._favoriteRefs)
-    .filter(isCircuitRef)
-    .map(ref => ref.controlAccess);
-  const [first] = circuits;
-  if (!first || circuits.some(access => access.mayOperate)) return CONTROLS_OPERABLE;
+  const panels = [...favoritesPanelAccess(topology).values()];
+  const [first] = panels;
+  if (!first || panels.some(access => access.mayOperate)) return CONTROLS_OPERABLE;
   return first;
 }
 
 /**
- * Each panel the Favorites view draws a circuit of, by its device id, with the
- * access the user has to that panel's controls, as its circuits' refs hold it.
- * A panel that gives the view only sub-devices has no relay there to forbid,
- * and is left out.
+ * Whether `circuit` has a control the card draws: a relay switch the user may
+ * control (`is_user_controllable`), as `switchPresence` judges it before it
+ * reads the switch's state, or a shedding priority select.
+ */
+function hasControls(circuit: Circuit | undefined): boolean {
+  if (!circuit) return false;
+  return (!!circuit.entities?.switch && circuit.is_user_controllable !== false) || !!circuit.entities?.select;
+}
+
+/**
+ * Each panel the Favorites view draws a relay or priority control of, by its
+ * device id, with the access the user has to that panel's controls, as its
+ * circuits' refs hold it. A panel whose favorites have no such control, as
+ * one that gives the view only sub-devices or metered circuits, has nothing
+ * there to forbid, and is left out.
  */
 export function favoritesPanelAccess(topology: FavoritesTopology): ReadonlyMap<string, ControlAccess> {
   const panels = new Map<string, ControlAccess>();
-  for (const ref of Object.values(topology._favoriteRefs)) {
-    if (isCircuitRef(ref)) panels.set(ref.panelDeviceId, ref.controlAccess);
+  for (const [id, ref] of Object.entries(topology._favoriteRefs)) {
+    if (isCircuitRef(ref) && hasControls(topology.circuits[id])) panels.set(ref.panelDeviceId, ref.controlAccess);
   }
   return panels;
 }

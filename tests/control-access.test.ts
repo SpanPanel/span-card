@@ -201,8 +201,8 @@ function topology(control_access?: unknown): PanelTopology {
   return { circuits: {}, ...(control_access === undefined ? {} : { control_access }) } as unknown as PanelTopology;
 }
 
-function favorites(refs: Record<string, FavoriteRef>): FavoritesTopology {
-  return { circuits: {}, _favoriteRefs: refs } as unknown as FavoritesTopology;
+function favorites(refs: Record<string, FavoriteRef>, circuits: Record<string, unknown> = {}): FavoritesTopology {
+  return { circuits, _favoriteRefs: refs } as unknown as FavoritesTopology;
 }
 
 function circuitRef(panelDeviceId: string, access: ControlAccess): FavoriteRef {
@@ -387,14 +387,28 @@ describe("circuitControlAccess", () => {
   });
 });
 
+/** Favorited circuits by what they draw: a relay switch, a priority select, only a reading, or a switch the user may not control. */
+const RELAY = { name: "Relay", tabs: [1], entities: { switch: "switch.relay" } };
+const PRIORITY = { name: "Priority", tabs: [2], entities: { select: "select.priority" } };
+const METERED = { name: "Metered", tabs: [3], entities: { power: "sensor.metered_power" } };
+const LOCKED = { ...RELAY, is_user_controllable: false };
+
 describe("favoritesPanelAccess", () => {
-  it("is each panel the view draws a circuit of, with its access, and leaves out a panel that gives it only sub-devices", () => {
-    const subDevice: FavoriteRef = { panelDeviceId: "panel-3", kind: "sub_device", targetId: "bess", configEntryId: "entry-3" };
-    const merged = favorites({ a: circuitRef("panel-1", ADMIN_ONLY), b: circuitRef("panel-2", CONTROLS_OPERABLE), c: subDevice });
+  it("is each panel the view draws a relay or a priority control of, with its access", () => {
+    const merged = favorites({ a: circuitRef("panel-1", ADMIN_ONLY), b: circuitRef("panel-2", CONTROLS_OPERABLE) }, { a: RELAY, b: PRIORITY });
     expect([...favoritesPanelAccess(merged)]).toEqual([
       ["panel-1", ADMIN_ONLY],
       ["panel-2", CONTROLS_OPERABLE],
     ]);
+  });
+
+  it("leaves out a panel whose favorites draw no such control: only sub-devices, metered circuits, or a switch the user may not control", () => {
+    const subDevice: FavoriteRef = { panelDeviceId: "panel-3", kind: "sub_device", targetId: "bess", configEntryId: "entry-3" };
+    const merged = favorites(
+      { a: circuitRef("panel-1", ADMIN_ONLY), b: circuitRef("panel-2", ADMIN_ONLY), c: subDevice, d: circuitRef("panel-4", SWITCHED_OFF) },
+      { a: METERED, b: LOCKED, d: RELAY }
+    );
+    expect([...favoritesPanelAccess(merged)]).toEqual([["panel-4", SWITCHED_OFF]]);
   });
 });
 
@@ -405,17 +419,26 @@ describe("viewControlAccess", () => {
   });
 
   it("is operable in the Favorites view where the user may operate any favorite's panel", () => {
-    expect(viewControlAccess(favorites({ a: circuitRef("panel-1", ADMIN_ONLY), b: circuitRef("panel-2", CONTROLS_OPERABLE) }))).toEqual(CONTROLS_OPERABLE);
+    expect(
+      viewControlAccess(favorites({ a: circuitRef("panel-1", ADMIN_ONLY), b: circuitRef("panel-2", CONTROLS_OPERABLE) }, { a: RELAY, b: PRIORITY }))
+    ).toEqual(CONTROLS_OPERABLE);
     expect(viewControlAccess(favorites({}))).toEqual(CONTROLS_OPERABLE);
   });
 
   it("is not operable in the Favorites view where the user may operate none, saying why as the first panel does", () => {
-    expect(viewControlAccess(favorites({ a: circuitRef("panel-1", SWITCHED_OFF), b: circuitRef("panel-2", ADMIN_ONLY) }))).toEqual(SWITCHED_OFF);
+    expect(viewControlAccess(favorites({ a: circuitRef("panel-1", SWITCHED_OFF), b: circuitRef("panel-2", ADMIN_ONLY) }, { a: RELAY, b: RELAY }))).toEqual(
+      SWITCHED_OFF
+    );
   });
 
   it("leaves a favorite sub-device, which has no relay, out of it", () => {
     const subDevice: FavoriteRef = { panelDeviceId: "panel-2", kind: "sub_device", targetId: "bess", configEntryId: "entry-2" };
-    expect(viewControlAccess(favorites({ a: circuitRef("panel-1", ADMIN_ONLY), b: subDevice }))).toEqual(ADMIN_ONLY);
+    expect(viewControlAccess(favorites({ a: circuitRef("panel-1", ADMIN_ONLY), b: subDevice }, { a: RELAY }))).toEqual(ADMIN_ONLY);
+  });
+
+  it("leaves out a panel whose favorites draw no relay or priority, so its access arms nothing", () => {
+    const merged = favorites({ a: circuitRef("panel-1", CONTROLS_OPERABLE), b: circuitRef("panel-2", ADMIN_ONLY) }, { a: METERED, b: RELAY });
+    expect(viewControlAccess(merged)).toEqual(ADMIN_ONLY);
   });
 });
 

@@ -206,8 +206,8 @@ the first of `control_disabled`, `admin_only` and `read_only` that applies. `src
   as they always were, and the gate still refuses what it refuses. This reader alone takes silence as operable. Past it the access is required: a circuit side
   panel's config (`CircuitModeConfig.controlAccess`) and each Favorites circuit ref (`FavoriteCircuitRef`) must carry one, so the compiler flags a path that
   omits it, and a Favorites circuit with no circuit ref is not operable (`CONTROLS_NOT_KNOWN`). `circuitControlAccess()` answers for one circuit, in the
-  Favorites view from its own panel's ref. `viewControlAccess()` answers for a view's "Enable Switches" slider, which is operable where any of the view's
-  circuits is.
+  Favorites view from its own panel's ref. `viewControlAccess()` answers for a view's "Enable Switches" slider, which is operable where any of the view's panels
+  is; in the Favorites view it counts only the panels whose favorites draw a relay or priority control (`favoritesPanelAccess()`).
 - `controlWrites(hass, access)` is the one way the card sends a change: `setRelay()` sends `switch.turn_on` or `switch.turn_off`, and `setPriority()` sends
   `select.select_option`, each over the websocket, so Home Assistant shows no toast of its own beside the card's banner. It sends nothing where the access does
   not allow it, rejecting with a `ControlChangeRefused` that says why. Home Assistant's Unauthorized (`isUnauthorized()`), for a user the integration lets
@@ -230,8 +230,9 @@ the first of `control_disabled`, `admin_only` and `read_only` that applies. `src
   select, under a note in the first of their sections (`controlNoteHTML()`); each toggle pill in the breaker grid and the list rows (`toggle-forbidden`); and
   the slider (`slide-confirm-forbidden`, which `bindSlideConfirm()` never arms), with a note under the panel's name.
 - The Favorites view mixes panels, so its slider can be armed where the user may operate any of them, and its strip carries no note. Instead each panel the user
-  may not operate says why under its own name in the stats grid (`favoritesPanelAccess()`), and a tap on one of its toggles, whose title a touch never shows,
-  puts the hint in the banner as a transient warning, in the store's one transient slot, so tapping again replaces it rather than stacking it.
+  may not operate whose favorites draw a relay or priority control says why under its own name in the stats grid (`favoritesPanelAccess()`), and a tap on one of
+  its toggles, whose title a touch never shows, puts the hint in the banner as a transient warning, in the store's one transient slot, so tapping again replaces
+  it rather than stacking it.
 - The side panel's switch and select are named by their labels and described by the note (`aria-labelledby`, `aria-describedby`). The pill and the slider are
   plain elements with no role, so their titles and the note, not an ARIA state, say why. The gear, the favorite, the graph horizon and the read-only monitoring
   stay open.
