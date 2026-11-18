@@ -345,6 +345,60 @@ describe("the side panel's controls, as the access the user has changes while it
   });
 });
 
+describe("an open side panel moved in the DOM, as a dashboard moves its card between columns", () => {
+  /** Move `panel` under a parent of its own, as a masonry view re-columning does, and hand it Home Assistant again. */
+  function move(panel: SidePanel): void {
+    const hassNow = panel.hass;
+    const parent = document.createElement("div");
+    document.body.appendChild(parent);
+    mounted.push(parent);
+    parent.appendChild(panel);
+    panel.hass = hassNow;
+  }
+
+  it("still sends a relay and a priority change where the user may operate the controls", async () => {
+    const callWS = vi.fn<CallWS>(async () => ({}));
+    const panel = openFor({ [SWITCH]: "on", [SELECT]: "never" }, { callWS, controlAccess: OPERABLE });
+    move(panel);
+
+    expect(panel.hasAttribute("open")).toBe(true);
+    expect(relay(panel).disabled).toBe(false);
+    relay(panel).click();
+    choose(panel, "off_grid");
+    await settle();
+
+    expect(callWS.mock.calls.map(([msg]) => [msg.domain, msg.service])).toEqual([
+      ["switch", "turn_off"],
+      ["select", "select_option"],
+    ]);
+  });
+
+  it("still refuses them, saying why, where the user may not", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const callWS = vi.fn<CallWS>(async () => ({}));
+    const panel = openFor({ [SWITCH]: "on", [SELECT]: "never" }, { callWS, controlAccess: ADMIN_ONLY });
+    vi.spyOn(panel.errorStore!, "add");
+    move(panel);
+
+    expect(relay(panel).disabled).toBe(true);
+    relay(panel).click();
+    choose(panel, "off_grid");
+    await settle();
+
+    expect(callWS).not.toHaveBeenCalled();
+    expect(reported(panel)).toEqual([["service:shedding", ADMIN_ONLY_HINT]]);
+    expect(note(panel)!.textContent).toBe(ADMIN_ONLY_HINT);
+  });
+
+  it("still takes the access a topology fetched again gives, being still open on its circuit", () => {
+    const panel = openFor({ [SWITCH]: "on", [SELECT]: "never" }, { controlAccess: OPERABLE });
+    move(panel);
+    panel.refreshControlAccess(ADMIN_ONLY);
+    expect(relay(panel).disabled).toBe(true);
+    expect(note(panel)!.textContent).toBe(ADMIN_ONLY_HINT);
+  });
+});
+
 describe("the side panel's relay and priority, for assistive technology", () => {
   it("are named by their labels", () => {
     const panel = openFor({ [SWITCH]: "on", [SELECT]: "never" });

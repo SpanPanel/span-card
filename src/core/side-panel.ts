@@ -582,11 +582,15 @@ class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
     return this._hass;
   }
 
+  /**
+   * Cancel any debounced write still pending. Nothing else: a dashboard moves
+   * an open panel with its card, as a masonry view does re-columning on
+   * rotation, and the panel goes on as it was, on the same circuit, with the
+   * same access and stored monitoring, its controls and their listeners intact.
+   * Its state is reset only as it opens or closes (`open`, `close`).
+   */
   disconnectedCallback(): void {
     this._clearDebounceTimers();
-    this._config = null;
-    this._storedMonitoring = null;
-    this._controlAccess = CONTROLS_NOT_KNOWN;
   }
 
   open(config: SidePanelConfig): void {
