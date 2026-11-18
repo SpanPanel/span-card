@@ -460,6 +460,60 @@ const STYLES = `
 
 `;
 
+// ── Stored monitoring ─────────────────────────────────────────────────────
+
+/**
+ * Whether monitoring is on for the circuit a side panel opened on, as the
+ * integration holds it as far as the panel knows: as the panel opened with it,
+ * as the integration last answered, or as the latest change sent that it
+ * stored. A change stored after a later one was is older than that one, and is
+ * not taken. The Monitoring switch shows this again once none of its changes is
+ * on its way, so a refused change never stays shown, two refused in a row
+ * included, and one refused after another was stored shows that one.
+ */
+class StoredMonitoring {
+  /** The serial of the latest change sent, and of the change `on` came from. */
+  private _sent = 0;
+  private _from = 0;
+  /** How many changes are on their way. */
+  private _pending = 0;
+
+  constructor(
+    readonly uuid: string,
+    private _on: boolean
+  ) {}
+
+  get on(): boolean {
+    return this._on;
+  }
+
+  /** Whether no change is on its way. */
+  get settled(): boolean {
+    return this._pending === 0;
+  }
+
+  /** Take the integration's answer that monitoring is `on`, as a status read gives it. */
+  answered(on: boolean): void {
+    this._on = on;
+  }
+
+  /** Send a change to `on` with `send`, which resolves whether the integration stored it; resolves the same. */
+  async send(on: boolean, send: () => Promise<boolean>): Promise<boolean> {
+    const serial = ++this._sent;
+    this._pending += 1;
+    try {
+      const stored = await send();
+      if (stored && serial > this._from) {
+        this._on = on;
+        this._from = serial;
+      }
+      return stored;
+    } finally {
+      this._pending -= 1;
+    }
+  }
+}
+
 // ── Component ─────────────────────────────────────────────────────────────
 
 class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
@@ -472,6 +526,8 @@ class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
   private _thresholdReads = 0;
   /** The open circuit's custom threshold and duration fields. */
   private _limitFields: LimitFieldHandle[] = [];
+  /** The open circuit's monitoring as the integration holds it, which its Monitoring switch shows again; null in any other mode. */
+  private _storedMonitoring: StoredMonitoring | null = null;
   constructor() {
     super();
     this.attachShadow({ mode: "open" });
@@ -495,10 +551,13 @@ class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
   disconnectedCallback(): void {
     this._clearDebounceTimers();
     this._config = null;
+    this._storedMonitoring = null;
   }
 
   open(config: SidePanelConfig): void {
     this._config = config;
+    this._storedMonitoring =
+      config.panelMode || config.subDeviceMode || config.favoritesMode ? null : new StoredMonitoring(config.uuid, isMonitored(config.monitoringInfo));
     this._render();
     // Force reflow before adding attribute so the transition animates
     void this.offsetHeight;
@@ -536,6 +595,7 @@ class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
       monitoringGlobals: view.monitoringGlobals,
     };
     this._config = next;
+    this._monitoringStoredAs(cfg.uuid, view.monitoringInfo);
 
     const subtitle = shadow.querySelector(".subtitle");
     if (subtitle) subtitle.textContent = this._circuitSubtitle(next);
@@ -549,6 +609,7 @@ class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
     this.removeAttribute("open");
     this.removeAttribute("data-mode");
     this._config = null;
+    this._storedMonitoring = null;
     this.dispatchEvent(new CustomEvent("side-panel-closed", { bubbles: true, composed: true }));
   }
 
@@ -1535,8 +1596,31 @@ class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
     const cfg = this._openCircuitConfig(uuid);
     if (!cfg) return;
     this._config = { ...cfg, monitoringInfo: info, monitoringGlobals: globals };
+    this._monitoringStoredAs(uuid, info);
     if (info.has_override !== true) this._showGlobalChoice();
     this._syncMonitoring();
+  }
+
+  /**
+   * Take the integration's answer, `info`, for whether monitoring is on for
+   * circuit `uuid`, which its Monitoring switch shows again once its changes
+   * settle (`StoredMonitoring`). Ignored where there is no answer, or the panel
+   * is open on another circuit.
+   */
+  private _monitoringStoredAs(uuid: string, info: MonitoringPointInfo | null): void {
+    const stored = this._storedMonitoring;
+    if (info && stored?.uuid === uuid) stored.answered(isMonitored(info));
+  }
+
+  /**
+   * Show monitoring for the open circuit as the integration holds it (`stored`),
+   * once none of the Monitoring switch's changes is on its way, where the switch
+   * shows otherwise. Ignored where the panel has since opened again.
+   */
+  private _showStoredMonitoring(stored: StoredMonitoring | null): void {
+    if (!stored || stored !== this._storedMonitoring || !stored.settled) return;
+    const shown = this.shadowRoot?.querySelector('[data-role="monitoring-toggle"]')?.hasAttribute("checked");
+    if (shown !== stored.on) this._showMonitoringEnabled(stored.uuid, stored.on);
   }
 
   /**
@@ -1753,11 +1837,14 @@ class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
     thresholdsWrap.appendChild(this._createLimitRow(t("sidepanel.cooldown"), "cooldown-m", cooldownVal, "m", cfg));
     detailsWrap.appendChild(thresholdsWrap);
 
-    // Event: monitoring enable toggle, shown at once as the user set it, and shown as it was again where that is refused.
+    // Event: monitoring enable toggle, shown at once as the user set it, then, once
+    // its changes settle, as the integration holds it, so a refused change goes.
     enableToggle.addEventListener("change", async () => {
       const checked = enableToggle.checked;
+      const stored = this._storedMonitoring;
       this._showMonitoringEnabled(cfg.uuid, checked);
-      if (!(await this._sendMonitoringEnabled(cfg, checked))) this._showMonitoringEnabled(cfg.uuid, !checked);
+      await this._sendMonitoringEnabled(cfg, checked);
+      this._showStoredMonitoring(stored);
     });
 
     // Event: radio change. Choosing Global is the threshold reset, which puts the choice back if it fails.
@@ -1788,18 +1875,23 @@ class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
   /**
    * Send whether monitoring is on for the circuit, the Monitoring switch's call,
    * which the averaged-legs warning's button sends too. Resolves whether it
-   * succeeded; a failure is shown as the switch has always shown one.
+   * succeeded, which the circuit's stored monitoring follows
+   * (`StoredMonitoring`); a failure is shown as the switch has always shown one.
    */
   private async _sendMonitoringEnabled(cfg: CircuitModeConfig, enabled: boolean): Promise<boolean> {
     const data: Record<string, unknown> = { circuit_id: cfg.entities?.power || cfg.uuid, monitoring_enabled: enabled };
     if (cfg.configEntryId) data.config_entry_id = cfg.configEntryId;
-    try {
-      await monitoringWrites(this._hass).setCircuitThreshold(data);
-      return true;
-    } catch (err: unknown) {
-      reportMonitoringFailure(this.errorStore, err, "monitoring update");
-      return false;
-    }
+    const send = async (): Promise<boolean> => {
+      try {
+        await monitoringWrites(this._hass).setCircuitThreshold(data);
+        return true;
+      } catch (err: unknown) {
+        reportMonitoringFailure(this.errorStore, err, "monitoring update");
+        return false;
+      }
+    };
+    const stored = this._storedMonitoring;
+    return stored?.uuid === cfg.uuid ? stored.send(enabled, send) : send();
   }
 
   /**

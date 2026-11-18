@@ -77,24 +77,39 @@ interface Integration {
   sent: string[];
   /** The monitoring changes among them. */
   writes: () => string[];
+  /** Hold every later change until the test answers it: with nothing to store it, or with the refusal given. */
+  holdWrites: () => Array<(refusal?: unknown) => void>;
 }
 
-/**
- * Home Assistant for a user who is `user`, with one panel's monitoring, which
- * offers copies of package ratings unless `offered` is false: every change is
- * stored, or refused with `refusal` where one is given.
- */
-function integration(user: HomeAssistant["user"], { offered = true, refusal = null as unknown } = {}): Integration {
+interface IntegrationOptions {
+  /** Whether the panel offers copies of package ratings. */
+  offered?: boolean;
+  /** What every change is refused with; null stores it. */
+  refusal?: unknown;
+  /** Entity states beside the notify target's, by entity id. */
+  states?: Record<string, string>;
+}
+
+/** An entity's state as Home Assistant holds it. */
+function entityState(entity_id: string, state: string): HassEntity {
+  return { entity_id, state, attributes: {}, last_changed: "", last_updated: "" };
+}
+
+/** Home Assistant for a user who is `user`, with one panel's monitoring: every change is stored, refused, or held (`IntegrationOptions`). */
+function integration(user: HomeAssistant["user"], { offered = true, refusal = null, states = {} }: IntegrationOptions = {}): Integration {
   const sent: string[] = [];
+  let held: Array<(refusal?: unknown) => void> | null = null;
   const callWS = vi.fn(async (msg: Message): Promise<unknown> => {
     if (typeof msg.service === "string") sent.push(msg.service);
     if (msg.service === "get_monitoring_status") return { response: status(offered) };
+    const queue = held;
+    if (queue) return new Promise((resolve, reject) => queue.push(answer => (answer === undefined ? resolve({}) : reject(answer))));
     if (refusal !== null) throw refusal;
     return {};
   });
-  const phone: HassEntity = { entity_id: PHONE, state: "unknown", attributes: {}, last_changed: "", last_updated: "" };
-  const hass = { states: { [PHONE]: phone }, services: {}, language: "en", user, callService: async () => undefined, callWS } as unknown as HomeAssistant;
-  return { hass, sent, writes: () => sent.filter(service => WRITE_SERVICES.has(service)) };
+  const entities = Object.fromEntries([[PHONE, entityState(PHONE, "unknown")], ...Object.entries(states).map(([id, state]) => [id, entityState(id, state)])]);
+  const hass = { states: entities, services: {}, language: "en", user, callService: async () => undefined, callWS } as unknown as HomeAssistant;
+  return { hass, sent, writes: () => sent.filter(service => WRITE_SERVICES.has(service)), holdWrites: () => (held = []) };
 }
 
 const mounted: HTMLElement[] = [];
@@ -291,6 +306,101 @@ describe("a circuit's Monitoring section, where the integration refuses a change
     await vi.waitFor(() => expect(messages(errors)).toEqual([ADMIN_ONLY]));
     expect(toggle.hasAttribute("checked")).toBe(true);
     expect(details.style.display).toBe("block");
+  });
+});
+
+describe("a circuit's Monitoring switch, after changes in a row", () => {
+  type Switch = HTMLElement & { checked: boolean };
+  const toggleOf = (side: SidePanel): Switch => at<Switch>(side.shadowRoot!, '[data-role="monitoring-toggle"]');
+  const detailsOf = (side: SidePanel): HTMLElement => at(side.shadowRoot!, '[data-role="monitoring-details"]');
+  /** Flip the switch to `on`, as a click does. */
+  function turn(side: SidePanel, on: boolean): void {
+    const toggle = toggleOf(side);
+    toggle.checked = on;
+    toggle.dispatchEvent(new Event("change"));
+  }
+  const settle = (): Promise<void> => new Promise(resolve => setTimeout(resolve, 0));
+
+  it("shows what is stored where two in a row are both refused", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const side = openPanel(integration({ is_admin: true }, { refusal: UNAUTHORIZED }), oven(null), { monitoring_enabled: true });
+
+    turn(side, false);
+    turn(side, true);
+    await settle();
+
+    expect(toggleOf(side).hasAttribute("checked")).toBe(true);
+    expect(detailsOf(side).style.display).toBe("block");
+  });
+
+  it("shows what is stored where three in a row are refused, the last still showing as it goes", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const panel = integration({ is_admin: true });
+    const answers = panel.holdWrites();
+    const side = openPanel(panel, oven(null), { monitoring_enabled: true });
+
+    turn(side, false);
+    turn(side, true);
+    turn(side, false);
+    answers[0]!(UNAUTHORIZED);
+    answers[1]!(UNAUTHORIZED);
+    await settle();
+    // The last change is on its way: the switch shows it until it settles.
+    expect(toggleOf(side).hasAttribute("checked")).toBe(false);
+
+    answers[2]!(UNAUTHORIZED);
+    await settle();
+    expect(toggleOf(side).hasAttribute("checked")).toBe(true);
+  });
+
+  it("shows the change the integration stored where the ones after it are refused", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const panel = integration({ is_admin: true });
+    const answers = panel.holdWrites();
+    const side = openPanel(panel, oven(null), { monitoring_enabled: true });
+
+    turn(side, false);
+    turn(side, true);
+    turn(side, false);
+    answers[0]!();
+    answers[1]!(UNAUTHORIZED);
+    answers[2]!(UNAUTHORIZED);
+    await settle();
+
+    expect(toggleOf(side).hasAttribute("checked")).toBe(false);
+    expect(detailsOf(side).style.display).toBe("none");
+  });
+
+  it("keeps the later of two changes stored, though the earlier answers last", async () => {
+    const panel = integration({ is_admin: true });
+    const answers = panel.holdWrites();
+    const side = openPanel(panel, oven(null), { monitoring_enabled: true });
+
+    turn(side, false);
+    turn(side, true);
+    answers[1]!();
+    answers[0]!();
+    await settle();
+
+    expect(toggleOf(side).hasAttribute("checked")).toBe(true);
+  });
+
+  it("shows what the integration last answered where a change is refused", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const side = openPanel(integration({ is_admin: true }, { refusal: UNAUTHORIZED }), oven(null), { monitoring_enabled: true });
+    // Another browser turned monitoring off; the refresh says so, the switch still showing it on.
+    side.refreshRating({
+      members: [{ uuid: "c-1", circuit: oven(null) }],
+      capacityA: null,
+      monitoringInfo: { monitoring_enabled: false },
+      monitoringGlobals: null,
+    });
+
+    turn(side, false);
+    await settle();
+
+    expect(toggleOf(side).hasAttribute("checked")).toBe(false);
+    expect(detailsOf(side).style.display).toBe("none");
   });
 });
 
