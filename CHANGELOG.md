@@ -3,6 +3,14 @@
 **This card is no longer distributed through HACS:** SPAN Panel 2.0.5 and later ships it, 0.8.8 is the last release HACS can install, and
 [Installation](README.md#installation) says how to remove a HACS copy.
 
+## 0.12.1
+
+### Fixed
+
+- **A SPAN Panel card opened while Home Assistant is starting or restarting, or while the integration retries a panel it cannot reach, says it is waiting for
+  the panel to load and draws the panel once it has loaded**, where it showed "Unable to connect to SPAN Panel" until Retry was pressed or the dashboard was
+  opened again.
+
 ## 0.12.0
 
 ### Added

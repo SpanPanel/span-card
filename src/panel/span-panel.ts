@@ -885,7 +885,7 @@ export class SpanPanelElement extends LitElement {
       this._requestTabRender();
       return;
     }
-    let topology: PanelTopology | null;
+    let topology: PanelTopology;
     try {
       ({ topology } = await discoverTopology(this.hass, panelId, null));
     } catch (err) {
@@ -896,12 +896,12 @@ export class SpanPanelElement extends LitElement {
     if (this._renderedTopologies.get(panelId) !== rendered) return;
     // A change of access is a change of structure, but the view waits for an
     // open side panel to close, so that panel takes the access now.
-    if (topology) this._refreshOpenSidePanelAccess(panelId, topology);
-    if (topology && onTopology) {
+    this._refreshOpenSidePanelAccess(panelId, topology);
+    if (onTopology) {
       await onTopology(topology);
       if (this._renderedTopologies.get(panelId) !== rendered) return;
     }
-    if (topology && sameTopologyStructure(topology, rendered)) return;
+    if (sameTopologyStructure(topology, rendered)) return;
     this._requestTabRender();
   }
 
@@ -998,7 +998,7 @@ export class SpanPanelElement extends LitElement {
       const result = await discoverTopology(this.hass, targetPanelId, retry);
       // Guard against supersession: user may have switched panels during fetch.
       if (this._selectedPanelId !== targetPanelId) return;
-      const entityId = result.topology?.panel_entities?.panel_status;
+      const entityId = result.topology.panel_entities?.panel_status;
       if (entityId) {
         this._errorStore.watchPanelStatus(entityId);
         this._errorStore.updateHass(this.hass);
@@ -1332,9 +1332,9 @@ export class SpanPanelElement extends LitElement {
           if (superseded()) return;
           await this._listDashCtrl.fetchAndBuildHorizonMaps();
           if (superseded()) return;
-          const headerHTML = result.topology ? buildHeaderHTML(result.topology, config) : "";
+          const headerHTML = buildHeaderHTML(result.topology, config);
           this._listCtrl.setColumns(this._listColumns);
-          this._listCtrl.renderActivityView(container, this.hass, result.topology!, config, this._listDashCtrl.monitoringCache.status, headerHTML);
+          this._listCtrl.renderActivityView(container, this.hass, result.topology, config, this._listDashCtrl.monitoringCache.status, headerHTML);
           await this._listDashCtrl.loadHistory();
           if (superseded()) return;
           this._listDashCtrl.updateDOM(container);
@@ -1364,9 +1364,9 @@ export class SpanPanelElement extends LitElement {
           if (superseded()) return;
           await this._listDashCtrl.fetchAndBuildHorizonMaps();
           if (superseded()) return;
-          const headerHTML = result.topology ? buildHeaderHTML(result.topology, config) : "";
+          const headerHTML = buildHeaderHTML(result.topology, config);
           this._listCtrl.setColumns(this._listColumns);
-          this._listCtrl.renderAreaView(container, this.hass, result.topology!, config, this._listDashCtrl.monitoringCache.status, headerHTML);
+          this._listCtrl.renderAreaView(container, this.hass, result.topology, config, this._listDashCtrl.monitoringCache.status, headerHTML);
           await this._listDashCtrl.loadHistory();
           if (superseded()) return;
           this._listDashCtrl.updateDOM(container);

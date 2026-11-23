@@ -81,7 +81,7 @@ export interface Circuit {
   entities: CircuitEntities;
   /**
    * The circuit's own device, a child of the panel's, by its registry id. Null where the circuit has none; absent
-   * from an integration that predates circuit devices, and from entity discovery where it finds none.
+   * from an integration that predates circuit devices.
    */
   device_id?: string | null;
   /** The panel's own breaker rating; null when it publishes none. */
@@ -213,8 +213,8 @@ export interface PanelTopology {
   shared_meter_groups?: Record<string, SharedMeterGroup>;
   /**
    * Whether the user who asked may operate the panel's controls, its relays and shedding priorities, by the rule the
-   * integration's control gate enforces. Absent from an integration that predates it, and from a topology built from
-   * the registries, where the card takes the controls as operable (`controlAccess`).
+   * integration's control gate enforces. Absent from an integration that predates it, where the card takes the
+   * controls as operable (`controlAccess`).
    */
   control_access?: ControlAccessWire;
 }
@@ -255,9 +255,9 @@ export interface SharedMeterGroup {
 /** A SPAN panel's device registry entry, or the sidebar's stand-in for one: its Favorites choice. */
 export type PanelDevice = DeviceRegistryEntry;
 
+/** A panel's topology as `discoverTopology` reads it from `panel_topology`, and the panel's size in breaker spaces. */
 export interface DiscoveryResult {
-  topology: PanelTopology | null;
-  panelDevice: PanelDevice | null;
+  topology: PanelTopology;
   panelSize: number;
 }
 

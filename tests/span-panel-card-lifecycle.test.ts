@@ -4,10 +4,9 @@ import type { CardConfig, HomeAssistant, PanelTopology } from "../src/types.js";
 vi.mock("../src/card/card-discovery.js", async importOriginal => ({
   ...(await importOriginal<typeof import("../src/card/card-discovery.js")>()),
   discoverTopology: vi.fn(),
-  discoverEntitiesFallback: vi.fn(),
 }));
 
-import { discoverEntitiesFallback, discoverTopology } from "../src/card/card-discovery.js";
+import { discoverTopology } from "../src/card/card-discovery.js";
 import { DashboardController } from "../src/core/dashboard-controller.js";
 import { ErrorStore } from "../src/core/error-store.js";
 import "../src/card/span-panel-card.js";
@@ -21,7 +20,6 @@ import { DEVICE_REGISTRY, ENTITY_REGISTRY, ENTRY_RELOADS, FakeConnection, flush,
  */
 
 const mockDiscover = vi.mocked(discoverTopology);
-const mockFallback = vi.mocked(discoverEntitiesFallback);
 type Card = HTMLElement & { setConfig(c: CardConfig): void; hass: HomeAssistant };
 
 const SWITCH = "switch.kitchen_breaker";
@@ -48,9 +46,11 @@ function topology(withSwitch: boolean): PanelTopology {
   } as unknown as PanelTopology;
 }
 
-function hassFor(connection: FakeConnection): HomeAssistant {
+/** Home Assistant for `user`, of whom the frontend says nothing unless given one. */
+function hassFor(connection: FakeConnection, user?: HomeAssistant["user"]): HomeAssistant {
   const state = (entity_id: string, s: string) => ({ entity_id, state: s, attributes: {}, last_changed: "", last_updated: "" });
   return hassWith(connection, {
+    user,
     states: { [SWITCH]: state(SWITCH, "on"), "sensor.kitchen_power": state("sensor.kitchen_power", "120"), [STATUS]: state(STATUS, "on") },
     callWS: (async (msg: Record<string, unknown>) => {
       switch (msg.type) {
@@ -72,23 +72,21 @@ let watch: ReturnType<typeof vi.spyOn>;
 
 beforeEach(() => {
   watch = vi.spyOn(ErrorStore.prototype, "watchPanelStatus");
-  mockDiscover.mockImplementation(async () => ({ topology: topology(true), panelDevice: null, panelSize: 32 }));
-  mockFallback.mockRejectedValue(new Error("no fallback"));
+  mockDiscover.mockImplementation(async () => ({ topology: topology(true), panelSize: 32 }));
 });
 
 afterEach(() => {
   for (const el of mounted.splice(0)) el.remove();
   vi.restoreAllMocks();
   mockDiscover.mockReset();
-  mockFallback.mockReset();
 });
 
-async function mount(connection: FakeConnection): Promise<Card> {
+async function mount(connection: FakeConnection, user?: HomeAssistant["user"]): Promise<Card> {
   const card = document.createElement("span-panel-card") as Card;
   card.setConfig({ device_id: "panel-1" } as CardConfig);
   document.body.appendChild(card);
   mounted.push(card);
-  card.hass = hassFor(connection);
+  card.hass = hassFor(connection, user);
   await vi.waitFor(() => expect(connection.live(ENTRY_RELOADS)).toBe(1));
   await flush();
   return card;
@@ -141,7 +139,7 @@ describe("span-panel-card subscriptions", () => {
     await vi.waitFor(() => expect(mockDiscover).toHaveBeenCalled());
 
     card.remove();
-    resolve({ topology: topology(true), panelDevice: null, panelSize: 32 });
+    resolve({ topology: topology(true), panelSize: 32 });
     await flush();
     expect(connection.subscriptions).toHaveLength(0);
 
@@ -215,7 +213,7 @@ describe("span-panel-card subscriptions", () => {
     const card = await mount(connection);
     expect(card.shadowRoot!.querySelector(".toggle-pill")).not.toBeNull();
     const refetched = topology(false);
-    mockDiscover.mockImplementation(async () => ({ topology: refetched, panelDevice: null, panelSize: 32 }));
+    mockDiscover.mockImplementation(async () => ({ topology: refetched, panelSize: 32 }));
 
     reload(connection);
     await vi.waitFor(() => expect(card.shadowRoot!.querySelector(".toggle-pill")).toBeNull());
@@ -245,7 +243,7 @@ describe("span-panel-card subscriptions", () => {
     const connection = new FakeConnection();
     const card = await mount(connection);
     const grid = card.shadowRoot!.querySelector(".panel-grid");
-    mockDiscover.mockImplementation(async () => ({ topology: topology(false), panelDevice: null, panelSize: 32 }));
+    mockDiscover.mockImplementation(async () => ({ topology: topology(false), panelSize: 32 }));
 
     reload(connection);
     await vi.waitFor(() => expect(card.shadowRoot!.querySelector(".panel-grid")).not.toBe(grid));
@@ -260,7 +258,7 @@ describe("span-panel-card subscriptions", () => {
     shell.classList.remove("switches-disabled");
     const opened = topology(true);
     opened.circuits.kitchen!.relay_state = "OPEN";
-    mockDiscover.mockImplementation(async () => ({ topology: opened, panelDevice: null, panelSize: 32 }));
+    mockDiscover.mockImplementation(async () => ({ topology: opened, panelSize: 32 }));
 
     reload(connection);
     await vi.waitFor(() => expect(mockDiscover).toHaveBeenCalledTimes(2));
@@ -280,7 +278,7 @@ describe("span-panel-card subscriptions", () => {
     const grid = card.shadowRoot!.querySelector(".panel-grid");
     const changed = topology(false);
     changed.circuits.kitchen!.relay_state = "OPEN";
-    mockDiscover.mockImplementation(async () => ({ topology: changed, panelDevice: null, panelSize: 32 }));
+    mockDiscover.mockImplementation(async () => ({ topology: changed, panelSize: 32 }));
 
     reload(connection);
     await vi.waitFor(() => expect(card.shadowRoot!.querySelector(".panel-grid")).not.toBe(grid));
@@ -297,14 +295,14 @@ describe("span-panel-card subscriptions", () => {
 
     const other = topology(true);
     other.circuits.kitchen!.name = "Garage";
-    mockDiscover.mockImplementation(async () => ({ topology: other, panelDevice: null, panelSize: 32 }));
+    mockDiscover.mockImplementation(async () => ({ topology: other, panelSize: 32 }));
     card.setConfig({ device_id: "panel-2" } as CardConfig);
     card.hass = hassFor(connection);
     await vi.waitFor(() => expect(card.shadowRoot!.textContent).toContain("Garage"));
 
     const stale = topology(true);
     stale.circuits.kitchen!.name = "Stale";
-    resolveStale({ topology: stale, panelDevice: null, panelSize: 32 });
+    resolveStale({ topology: stale, panelSize: 32 });
     await flush();
 
     expect(card.shadowRoot!.textContent).toContain("Garage");
@@ -320,7 +318,7 @@ describe("span-panel-card subscriptions", () => {
     await vi.waitFor(() => expect(mockDiscover).toHaveBeenCalledTimes(2));
 
     card.remove();
-    resolveStale({ topology: topology(false), panelDevice: null, panelSize: 32 });
+    resolveStale({ topology: topology(false), panelSize: 32 });
     await flush();
 
     expect(card.shadowRoot!.querySelector(".toggle-pill")).not.toBeNull();
@@ -337,26 +335,23 @@ describe("span-panel-card subscriptions", () => {
     await flush();
 
     expect(mockDiscover).toHaveBeenLastCalledWith(expect.anything(), "panel-1", null);
-    expect(mockFallback).not.toHaveBeenCalled();
     expect(add).not.toHaveBeenCalled();
     // A kept topology renders the next view; a nulled one would leave the grid in place.
     card.shadowRoot!.querySelector<HTMLElement>('.shared-tab[data-tab="activity"]')!.click();
     expect(card.shadowRoot!.querySelector(".list-row")).not.toBeNull();
   });
 
-  it("refreshes a non-admin's card from fallback discovery alone, in one attempt, without a toast", async () => {
-    mockDiscover.mockRejectedValue({ code: "unauthorized", message: "Unauthorized" });
-    mockFallback.mockImplementation(async () => ({ topology: topology(true), panelDevice: null, panelSize: 32 }));
+  it("refreshes the card of a user who is not an administrator from panel_topology, which answers every user, in one attempt", async () => {
     const connection = new FakeConnection();
-    await mount(connection);
+    const card = await mount(connection, { is_admin: false });
     const add = vi.spyOn(ErrorStore.prototype, "add");
+    mockDiscover.mockImplementation(async () => ({ topology: topology(false), panelSize: 32 }));
 
     reload(connection);
-    await vi.waitFor(() => expect(mockFallback).toHaveBeenCalledTimes(2));
-    await flush();
+    await vi.waitFor(() => expect(card.shadowRoot!.querySelector(".toggle-pill")).toBeNull());
 
-    expect(mockDiscover).toHaveBeenCalledTimes(1);
-    expect(mockFallback).toHaveBeenLastCalledWith(expect.anything(), "panel-1", null);
+    expect(mockDiscover).toHaveBeenCalledTimes(2);
+    expect(mockDiscover).toHaveBeenLastCalledWith(expect.anything(), "panel-1", null);
     expect(add).not.toHaveBeenCalled();
   });
 });
@@ -371,7 +366,7 @@ describe("span-panel-card device renames", () => {
     const connection = new FakeConnection();
     const card = await mount(connection);
     expect(card.shadowRoot!.textContent).not.toContain("Cooking");
-    mockDiscover.mockImplementation(async () => ({ topology: renamedKitchen(), panelDevice: null, panelSize: 32 }));
+    mockDiscover.mockImplementation(async () => ({ topology: renamedKitchen(), panelSize: 32 }));
 
     connection.emit(DEVICE_REGISTRY, deviceUpdate(KITCHEN_DEVICE, { name_by_user: null }));
 
@@ -380,18 +375,16 @@ describe("span-panel-card device renames", () => {
     expect(mockDiscover).toHaveBeenLastCalledWith(expect.anything(), "panel-1", null);
   });
 
-  it("relabels a non-admin's card from fallback discovery alone", async () => {
-    mockDiscover.mockRejectedValue({ code: "unauthorized", message: "Unauthorized" });
-    mockFallback.mockImplementation(async () => ({ topology: topology(true), panelDevice: null, panelSize: 32 }));
+  it("relabels the card of a user who is not an administrator from panel_topology", async () => {
     const connection = new FakeConnection();
-    const card = await mount(connection);
-    mockFallback.mockImplementation(async () => ({ topology: renamedKitchen(), panelDevice: null, panelSize: 32 }));
+    const card = await mount(connection, { is_admin: false });
+    mockDiscover.mockImplementation(async () => ({ topology: renamedKitchen(), panelSize: 32 }));
 
     connection.emit(DEVICE_REGISTRY, deviceUpdate(KITCHEN_DEVICE, { name_by_user: null }));
 
     await vi.waitFor(() => expect(card.shadowRoot!.textContent).toContain("Cooking"));
-    expect(mockDiscover).toHaveBeenCalledTimes(1);
-    expect(mockFallback).toHaveBeenLastCalledWith(expect.anything(), "panel-1", null);
+    expect(mockDiscover).toHaveBeenCalledTimes(2);
+    expect(mockDiscover).toHaveBeenLastCalledWith(expect.anything(), "panel-1", null);
   });
 
   it("does not re-fetch for a device change that is no rename of a device it shows", async () => {
@@ -416,7 +409,7 @@ describe("span-panel-card device renames", () => {
     await flush();
     expect(mockDiscover).toHaveBeenCalledTimes(2);
 
-    resolveFirst({ topology: topology(true), panelDevice: null, panelSize: 32 });
+    resolveFirst({ topology: topology(true), panelSize: 32 });
     await vi.waitFor(() => expect(mockDiscover).toHaveBeenCalledTimes(3));
     await flush();
     expect(mockDiscover).toHaveBeenCalledTimes(3);

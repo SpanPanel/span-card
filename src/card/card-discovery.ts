@@ -1,11 +1,14 @@
 import { INTEGRATION_DOMAIN } from "../constants.js";
 import { resolveAndAssignAreas } from "../core/area-resolver.js";
+import { subscribeEntryReloads } from "../core/entry-reload.js";
+import type { ConfigEntrySummary } from "../core/entry-reload.js";
 import { RetryManager } from "../core/retry-manager.js";
+import { errorText } from "../helpers/error-text.js";
 import { isPositiveInteger, measuresOutsidePanel, positionRange } from "../helpers/layout.js";
 import { t } from "../i18n.js";
-import { deviceName, entityOwnName, sharesOwner } from "../core/registry-types.js";
-import type { DeviceRegistryEntry, EntityRegistryEntry } from "../core/registry-types.js";
-import type { HomeAssistant, PanelTopology, PanelDevice, DiscoveryResult, Circuit, CircuitEntities, SubDevice, SubDeviceEntityInfo } from "../types.js";
+import { deviceName } from "../core/registry-types.js";
+import type { DeviceRegistryEntry } from "../core/registry-types.js";
+import type { HomeAssistant, PanelTopology, DiscoveryResult, Circuit } from "../types.js";
 
 // ── Primary discovery via custom WebSocket API ───────────────────────────────
 
@@ -27,16 +30,11 @@ export async function discoverTopology(hass: HomeAssistant, deviceId: string | u
   const devices = retry
     ? await retry.callWS<DeviceRegistryEntry[]>(hass, devicesMsg, { errorId: "fetch:topology" })
     : await hass.callWS<DeviceRegistryEntry[]>(devicesMsg);
-  // Found by the device topology names rather than the id the card holds: they
-  // differ when the card was configured before Home Assistant 2026.8, whose split
-  // of shared devices left the old id naming no device in this list.
-  const panelDeviceId = topology.panel_device_id ?? deviceId;
-  const panelDevice = devices.find(d => d.id === panelDeviceId) ?? null;
 
   labelCircuitsByDevice(topology.circuits, devices);
   await resolveAndAssignAreas(hass, topology);
 
-  return { topology, panelDevice, panelSize };
+  return { topology, panelSize };
 }
 
 /**
@@ -68,269 +66,88 @@ function panelSizeFromCircuits(circuits: Record<string, Circuit>): number {
   return maxTab > 0 ? maxTab + (maxTab % 2) : 0;
 }
 
-// ── The panel's config entry ─────────────────────────────────────────────────
+// ── Waiting for the panel's config entry to load ─────────────────────────────
 
 /**
- * The config entry that owns the panel: the one topology names, else the panel
- * device's own. Topology is asked first because it answers even when the card
- * holds an id from before Home Assistant 2026.8 and so found no device; the
- * device is the fallback for topology built by entity discovery, which names none.
+ * The codes Home Assistant refuses `panel_topology` with until the panel's
+ * config entry has loaded: the integration's `not_loaded` while the entry is
+ * set up, retried or reloaded, and its `no_data` for a loaded entry with no
+ * data yet, which setup's wait for the first data rules out and is taken the
+ * same way; and Home Assistant's own `unknown_command` before the integration
+ * has registered the command, which it does as the first of its entries sets up.
  */
-export function panelConfigEntryId(topology: PanelTopology | null, panelDevice: PanelDevice | null): string | null {
-  return topology?.config_entry_id ?? panelDevice?.config_entry_id ?? null;
-}
+const ENTRY_NOT_LOADED_CODES: ReadonlySet<unknown> = new Set(["not_loaded", "no_data", "unknown_command"]);
 
-// ── Fallback discovery from entity registry ──────────────────────────────────
+/** home-assistant-js-websocket's code for a lost connection, its `ERR_CONNECTION_LOST`. */
+const ERR_CONNECTION_LOST = 3;
 
-const POWER_SUFFIX = "_power";
-const BREAKER_RATING_SUFFIX = "_breaker_rating";
-/** What a circuit's power sensor is called on a device that already names the circuit: its label alone. */
-const POWER_LABEL = "Power";
-
-/** A circuit power sensor's unique id, taken apart. */
-interface PowerSensorId {
-  circuitId: string;
-  /** What comes before the circuit id: `span_{serial}`, as this unique id spells the serial. */
-  panelPrefix: string;
+/**
+ * Whether home-assistant-js-websocket rejected a call because the connection
+ * was lost. It rejects a call the lost connection cut off with an error result
+ * carrying the code, `{ type: "result", success: false, error: { code: 3,
+ * message } }`, and from 9.8.0 one sent while the socket is down the same way.
+ * Before 9.8.0 it rejected a call sent while the socket was down, and one
+ * queued during a reconnect, with the bare code. Both are taken, as the
+ * library's own `isConnectionLost` takes them.
+ */
+function isConnectionLost(err: unknown): boolean {
+  if (err === ERR_CONNECTION_LOST) return true;
+  if (typeof err !== "object" || err === null || !("error" in err)) return false;
+  const { error } = err;
+  return typeof error === "object" && error !== null && "code" in error && error.code === ERR_CONNECTION_LOST;
 }
 
 /**
- * The parts of a circuit power sensor's unique id, null for any other sensor.
- * The unique id is `span_{serial}_{circuit id}_power`, the serial lower-cased,
- * and the circuit id is opaque: everything between that prefix and the suffix,
- * `_` included. Where the unique id does not start with the panel's serial, the
- * serial is taken to be its second `_` segment.
+ * Whether a failed discovery means the panel's topology is not available yet,
+ * and its config entry reaching `loaded` will bring it: the entry has not
+ * loaded (`ENTRY_NOT_LOADED_CODES`), as while Home Assistant starts, while
+ * setup retries a panel it cannot reach, and during a reload; or the
+ * connection to Home Assistant was lost (`isConnectionLost`), as across a
+ * restart. Home Assistant's refusals are plain `{ code, message }` objects.
+ * Every other failure, such as for a device that is not a SPAN panel, is one
+ * that waiting does not end.
  */
-function parsePowerSensorId(uniqueId: string, serial: string): PowerSensorId | null {
-  if (!uniqueId.endsWith(POWER_SUFFIX)) return null;
-  const prefix = `span_${serial.toLowerCase()}_`;
-  const circuitId = serial && uniqueId.startsWith(prefix) ? uniqueId.slice(prefix.length, -POWER_SUFFIX.length) : uniqueId.split("_").slice(2, -1).join("_");
-  if (!circuitId) return null;
-  return { circuitId, panelPrefix: uniqueId.slice(0, -(circuitId.length + POWER_SUFFIX.length + 1)) };
+export function isTopologyPending(err: unknown): boolean {
+  if (isConnectionLost(err)) return true;
+  return typeof err === "object" && err !== null && "code" in err && ENTRY_NOT_LOADED_CODES.has(err.code);
 }
 
-/** The serial the panel device names in its integration identifier, "" where it names none. */
-function panelSerial(panelDevice: DeviceRegistryEntry): string {
-  let serial = "";
-  for (const pair of panelDevice.identifiers ?? []) {
-    // Identifier pairs are [domain, value]. Skip malformed shapes rather
-    // than silently indexing past the end.
-    if (!Array.isArray(pair) || pair.length < 2) continue;
-    const [domain, value] = pair;
-    if (domain === INTEGRATION_DOMAIN && typeof value === "string") {
-      serial = value;
-    }
+/**
+ * The config entry that owns device `deviceId`, as the device registry list
+ * says; null where the list holds no such device or names no owner for it, or
+ * cannot be read. An id saved before Home Assistant 2026.8 names no device in
+ * the list, since that release gave every device it split a new id, though the
+ * integration still answers it.
+ */
+async function owningEntryId(hass: HomeAssistant, deviceId: string): Promise<string | null> {
+  try {
+    const devices = await hass.callWS<DeviceRegistryEntry[]>({ type: "config/device_registry/list" });
+    return devices.find(d => d.id === deviceId)?.config_entry_id ?? null;
+  } catch (err) {
+    console.warn("SPAN Panel: device registry list failed; waiting for any SPAN Panel entry to load:", errorText(err));
+    return null;
   }
-  return serial;
-}
-
-/** The identifier the integration gives a circuit's own device: the panel's serial as its device spells it, then the circuit id. */
-function circuitDeviceIdentifier(serial: string, circuitId: string): string {
-  return `${serial}_circuit_${circuitId}`;
-}
-
-/** The tabs a circuit entity's `tabs` attribute names, as `tabs [7]` or `tabs [10:12]`; null for anything else. */
-function parseTabs(tabsAttr: unknown): number[] | null {
-  if (typeof tabsAttr !== "string" || !tabsAttr.startsWith("tabs [")) return null;
-  const content = tabsAttr.slice(6, -1);
-  const tabs = content.includes(":") ? content.split(":").map(Number) : [Number(content)];
-  return tabs.every(Number.isFinite) ? tabs : null;
-}
-
-/** The names a panel's device goes by: the user's and the integration's, each where it has one. */
-function panelNamesOf(panelDevice: DeviceRegistryEntry): string[] {
-  return [panelDevice.name_by_user, panelDevice.name].flatMap(name => (name?.trim() ? [name.trim()] : []));
 }
 
 /**
- * A name without the panel's in front, which a label on the panel's own
- * dashboard has no use for. Either of the panel's names may lead: the user's,
- * as in a name they typed, or the integration's, which it builds a charger's
- * device name from whatever the user calls the panel. The longer is taken
- * where both lead, and a name that is the panel's and nothing more is kept.
- */
-function withoutPanelName(name: string, panelNames: readonly string[]): string {
-  const leading = panelNames.filter(panelName => name.startsWith(`${panelName} `)).sort((a, b) => b.length - a.length)[0];
-  return leading === undefined ? name : name.slice(leading.length + 1);
-}
-
-/**
- * A circuit's label read from its power sensor's own name, for a sensor that
- * is not on a device of the circuit's own: the name without its ` Power`
- * ending and without the panel's name in front. "" where nothing is left,
- * which is a sensor with no name or one named `Power` alone.
- */
-function labelFromPowerSensorName(ownName: string, panelNames: readonly string[]): string {
-  if (ownName === POWER_LABEL) return "";
-  const label = ownName.endsWith(` ${POWER_LABEL}`) ? ownName.slice(0, -(POWER_LABEL.length + 1)) : ownName;
-  return withoutPanelName(label, panelNames);
-}
-
-/** A device's name and its entities' own names, for a battery or a charger: the shape topology gives a sub-device. */
-function subDeviceRecord(sub: DeviceRegistryEntry, entities: EntityRegistryEntry[]): SubDevice {
-  const modelLower = (sub.model ?? "").toLowerCase();
-  const isBess = modelLower.includes("battery") || (sub.identifiers ?? []).some(p => p[1].toLowerCase().includes("bess"));
-  const isEvse = modelLower.includes("drive") || (sub.identifiers ?? []).some(p => p[1].toLowerCase().includes("evse"));
-
-  const entMap: Record<string, SubDeviceEntityInfo> = {};
-  for (const e of entities) {
-    const info: SubDeviceEntityInfo = { domain: e.entity_id.split(".")[0] ?? "", unique_id: e.unique_id };
-    // The entity's own name, which is what the tile's readings are found by
-    // and its rows are labelled with; an entity with none is given none.
-    const ownName = entityOwnName(e);
-    if (ownName) info.original_name = ownName;
-    entMap[e.entity_id] = info;
-  }
-
-  return { name: deviceName(sub), type: isBess ? "bess" : isEvse ? "evse" : "unknown", entities: entMap };
-}
-
-/**
- * Build a topology from the device and entity registries, where the integration
- * gives none: an integration that lets only an administrator read
- * `panel_topology` refuses anyone else, and a read that fails falls back here
- * too. It carries no monitoring rating.
+ * Call `onLoaded` whenever the config entry of the panel `deviceId` names
+ * reaches `loaded`, one already loaded as the subscription starts included, so
+ * an entry that loaded between a failed discovery (`isTopologyPending`) and
+ * this subscription is not missed. The entry is the one that owns the panel's
+ * device; where that is not known (`owningEntryId`), any of the integration's
+ * entries is taken, and the next `panel_topology` says whether it was the
+ * panel's. Resolves to the unsubscribe function.
  *
- * A circuit is found by its power sensor, wherever that sits among the panel's
- * devices: on the circuit's own device, a child of the panel's; on the panel
- * device, where the integration has not given circuits devices yet; or on a
- * charger's device, which keeps its feed circuit's sensors.
+ * Nothing here watches the connection. home-assistant-js-websocket holds a
+ * subscription asked for while the socket is down until it reconnects, from
+ * 9.8.0 (9.7.1 never sent one), and replays every subscription after each
+ * reconnect, its first batch a re-seed that reports each loaded entry. Every
+ * Home Assistant the integration supports, 2026.11.0 on, ships a frontend that
+ * pins 9.8.0 (20261028.4 to .6), so a wait started across a restart ends once
+ * the entry loads, without a click.
  */
-export async function discoverEntitiesFallback(hass: HomeAssistant, deviceId: string | undefined, retry?: RetryManager | null): Promise<DiscoveryResult> {
-  const devicesMsg = { type: "config/device_registry/list" };
-  const entitiesMsg = { type: "config/entity_registry/list" };
-  const [devices, entities] = await Promise.all([
-    retry ? retry.callWS<DeviceRegistryEntry[]>(hass, devicesMsg, { errorId: "fetch:topology" }) : hass.callWS<DeviceRegistryEntry[]>(devicesMsg),
-    retry ? retry.callWS<EntityRegistryEntry[]>(hass, entitiesMsg, { errorId: "fetch:topology" }) : hass.callWS<EntityRegistryEntry[]>(entitiesMsg),
-  ]);
-
-  const panelDevice = devices.find(d => d.id === deviceId);
-  if (!panelDevice) return { topology: null, panelDevice: null, panelSize: 0 };
-
-  const serial = panelSerial(panelDevice);
-  const panelName = deviceName(panelDevice);
-  const panelNames = panelNamesOf(panelDevice);
-
-  // The panel's devices: itself, each circuit's, a child of it, and each
-  // battery's and charger's, reached through it; each owned by the panel's own
-  // config entry, which leaves out a copy of one a helper owns.
-  const circuitDevices = devices.filter(d => d.parent_device_id === panelDevice.id && sharesOwner(d, panelDevice));
-  const subDevices = devices.filter(d => d.via_device_id === panelDevice.id && sharesOwner(d, panelDevice));
-  const circuitDeviceIds = new Set(circuitDevices.map(d => d.id));
-  const deviceById = new Map([panelDevice, ...circuitDevices, ...subDevices].map(d => [d.id, d]));
-  const circuitDeviceByIdentifier = new Map<string, DeviceRegistryEntry>();
-  for (const device of circuitDevices) {
-    for (const pair of device.identifiers ?? []) {
-      if (pair[0] === INTEGRATION_DOMAIN) circuitDeviceByIdentifier.set(pair[1], device);
-    }
-  }
-
-  const entitiesByDevice = new Map<string, EntityRegistryEntry[]>();
-  for (const entity of entities) {
-    if (typeof entity.device_id !== "string" || !deviceById.has(entity.device_id)) continue;
-    const onDevice = entitiesByDevice.get(entity.device_id);
-    if (onDevice) onDevice.push(entity);
-    else entitiesByDevice.set(entity.device_id, [entity]);
-  }
-  const panelEntities = entitiesByDevice.get(panelDevice.id) ?? [];
-  const familyEntities = [...entitiesByDevice.values()].flat();
-
-  // A circuit's other entities are found by the unique ids the integration
-  // gives them, never by their entity ids, which each follow their own entity.
-  // A switch's unique id carries the serial as the panel reports it and a
-  // sensor's carries it lower-cased, so switches are matched without case.
-  const sensorByUniqueId = new Map<string, string>();
-  const switchByUniqueId = new Map<string, string>();
-  for (const entity of familyEntities) {
-    if (entity.entity_id.startsWith("sensor.")) sensorByUniqueId.set(entity.unique_id, entity.entity_id);
-    else if (entity.entity_id.startsWith("switch.")) switchByUniqueId.set(entity.unique_id.toLowerCase(), entity.entity_id);
-  }
-
-  const circuits: Record<string, Circuit> = {};
-
-  for (const ent of familyEntities) {
-    const state = hass.states[ent.entity_id];
-    if (!state) continue;
-    const attrs = state.attributes;
-    const tabs = parseTabs(attrs.tabs);
-    if (!tabs) continue;
-
-    // A circuit's sensors all carry its tabs; its power sensor alone stands for it.
-    const powerId = parsePowerSensorId(ent.unique_id, serial);
-    if (!powerId) continue;
-    const { circuitId, panelPrefix } = powerId;
-
-    // The circuit's own device: the one its power sensor is on, else the one
-    // the integration names for the circuit, which holds a charger's feed
-    // circuit's breaker switch while the charger's device holds its sensors.
-    const sensorDevice = typeof ent.device_id === "string" ? deviceById.get(ent.device_id) : undefined;
-    const circuitDevice =
-      sensorDevice && circuitDeviceIds.has(sensorDevice.id) ? sensorDevice : circuitDeviceByIdentifier.get(circuitDeviceIdentifier(serial, circuitId));
-
-    // Labelled by the circuit's device, the user's rename first. Without one,
-    // by the sensor's own name; and where that says only what it measures, as
-    // on a charger's device, by the device the sensor is on. Neither of the
-    // last two carries the panel's name, which the integration puts in front
-    // of a charger's.
-    const displayName =
-      (circuitDevice ? deviceName(circuitDevice) : "") ||
-      labelFromPowerSensorName(entityOwnName(ent), panelNames) ||
-      (sensorDevice && sensorDevice !== panelDevice ? withoutPanelName(deviceName(sensorDevice), panelNames) : "") ||
-      ent.entity_id;
-
-    const voltage = typeof attrs.voltage === "number" ? attrs.voltage : tabs.length === 2 ? 240 : 120;
-
-    const circuitEntities: CircuitEntities = { power: ent.entity_id };
-    const breakerSwitch = switchByUniqueId.get(`${panelPrefix}_relay_${circuitId}`.toLowerCase());
-    if (breakerSwitch) circuitEntities.switch = breakerSwitch;
-    const breakerRating = sensorByUniqueId.get(`${panelPrefix}_${circuitId}${BREAKER_RATING_SUFFIX}`);
-    if (breakerRating) circuitEntities.breaker_rating = breakerRating;
-
-    const circuit: Circuit = {
-      tabs,
-      name: displayName,
-      voltage,
-      device_type: typeof attrs.device_type === "string" ? attrs.device_type : "circuit",
-      relay_state: typeof attrs.relay_state === "string" ? attrs.relay_state : "UNKNOWN",
-      is_user_controllable: true,
-      breaker_rating_a: null,
-      entities: circuitEntities,
-    };
-    if (circuitDevice) circuit.device_id = circuitDevice.id;
-    circuits[circuitId] = circuit;
-  }
-
-  let panelSize = 0;
-  for (const ent of panelEntities) {
-    const state = hass.states[ent.entity_id];
-    if (state && isPositiveInteger(state.attributes.panel_size)) {
-      panelSize = state.attributes.panel_size;
-      break;
-    }
-  }
-  if (!panelSize) {
-    panelSize = panelSizeFromCircuits(circuits);
-  }
-  if (!panelSize) {
-    throw new Error(t("card.panel_size_error"));
-  }
-
-  const subDeviceMap: Record<string, SubDevice> = {};
-  for (const sub of subDevices) {
-    subDeviceMap[sub.id] = subDeviceRecord(sub, entitiesByDevice.get(sub.id) ?? []);
-  }
-
-  const topology: PanelTopology = {
-    serial,
-    firmware: panelDevice.sw_version ?? "",
-    panel_size: panelSize,
-    device_id: deviceId,
-    device_name: panelName || t("header.default_name"),
-    circuits,
-    sub_devices: subDeviceMap,
-  };
-
-  await resolveAndAssignAreas(hass, topology);
-
-  return { topology, panelDevice, panelSize };
+export async function subscribePanelEntryLoads(hass: HomeAssistant, deviceId: string, onLoaded: () => void): Promise<() => Promise<void>> {
+  const entryId = await owningEntryId(hass, deviceId);
+  const accept = (entry: ConfigEntrySummary): boolean => (entryId === null ? entry.domain === INTEGRATION_DOMAIN : entry.entry_id === entryId);
+  return subscribeEntryReloads(hass, accept, () => onLoaded(), { initialIsReseed: true });
 }

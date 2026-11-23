@@ -25,10 +25,10 @@ function isBlock(value: unknown): value is ControlBlock {
  * enforces. `may_operate` decides; `reason` only says why not, and one the
  * card does not know, as a later integration may send, reads as null, which
  * the generic hint answers. Where the integration says nothing, as one that
- * predates it does, and a topology built from the registries, the controls
- * are taken as operable, as they always were; the gate still refuses what it
- * refuses, and the card says why (`reportControlFailure`). This reader alone
- * takes silence as operable: everything after it carries the access it gives.
+ * predates it does, the controls are taken as operable, as they always were;
+ * the gate still refuses what it refuses, and the card says why
+ * (`reportControlFailure`). This reader alone takes silence as operable:
+ * everything after it carries the access it gives.
  */
 export function controlAccess(topology: PanelTopology | null | undefined): ControlAccess {
   const wire: unknown = topology?.control_access;

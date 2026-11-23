@@ -4,10 +4,9 @@ import type { CardConfig, ControlAccess, HomeAssistant, PanelTopology } from "..
 vi.mock("../src/card/card-discovery.js", async importOriginal => ({
   ...(await importOriginal<typeof import("../src/card/card-discovery.js")>()),
   discoverTopology: vi.fn(),
-  discoverEntitiesFallback: vi.fn(),
 }));
 
-import { discoverEntitiesFallback, discoverTopology } from "../src/card/card-discovery.js";
+import { discoverTopology } from "../src/card/card-discovery.js";
 import { CONTROLS_OPERABLE } from "../src/core/control-access.js";
 import { DashboardController } from "../src/core/dashboard-controller.js";
 import { ErrorStore } from "../src/core/error-store.js";
@@ -26,7 +25,6 @@ import { ENTRY_RELOADS, FakeConnection, flush, hassWith } from "./fake-connectio
  */
 
 const mockDiscover = vi.mocked(discoverTopology);
-const mockFallback = vi.mocked(discoverEntitiesFallback);
 type Card = HTMLElement & { setConfig(c: CardConfig): void; hass: HomeAssistant };
 type Message = Record<string, unknown>;
 
@@ -109,18 +107,16 @@ const mounted: HTMLElement[] = [];
 beforeEach(() => {
   controlSends = [];
   gateRefusal = null;
-  mockFallback.mockRejectedValue(new Error("no fallback"));
 });
 
 afterEach(() => {
   for (const el of mounted.splice(0)) el.remove();
   vi.restoreAllMocks();
   mockDiscover.mockReset();
-  mockFallback.mockReset();
 });
 
 async function mount(first: PanelTopology): Promise<{ card: Card; connection: FakeConnection; root: ShadowRoot }> {
-  mockDiscover.mockImplementation(async () => ({ topology: first, panelDevice: null, panelSize: 32 }));
+  mockDiscover.mockImplementation(async () => ({ topology: first, panelSize: 32 }));
   const connection = new FakeConnection();
   const card = document.createElement("span-panel-card") as Card;
   card.setConfig({ device_id: "panel-1" } as CardConfig);
@@ -310,12 +306,12 @@ describe("a toggle's change the control gate refuses", () => {
 describe("the card, as the access the user has changes", () => {
   it("draws the toggles forbidden once a refresh says the user may no longer operate them, and as before once it says they may", async () => {
     const { connection, root } = await mount(topology(ALLOWED));
-    mockDiscover.mockImplementation(async () => ({ topology: topology(BLOCKED), panelDevice: null, panelSize: 32 }));
+    mockDiscover.mockImplementation(async () => ({ topology: topology(BLOCKED), panelSize: 32 }));
     reload(connection);
     await vi.waitFor(() => expect(root.querySelector(".toggle-pill.toggle-forbidden")).not.toBeNull());
     expect(root.querySelector(".slide-confirm")!.classList.contains("slide-confirm-forbidden")).toBe(true);
 
-    mockDiscover.mockImplementation(async () => ({ topology: topology(ALLOWED), panelDevice: null, panelSize: 32 }));
+    mockDiscover.mockImplementation(async () => ({ topology: topology(ALLOWED), panelSize: 32 }));
     reload(connection);
     await vi.waitFor(() => expect(root.querySelector(".toggle-pill.toggle-forbidden")).toBeNull());
     expect(root.querySelector(".slide-confirm")!.classList.contains("slide-confirm-forbidden")).toBe(false);
@@ -327,7 +323,7 @@ describe("the card, as the access the user has changes", () => {
     const sidePanel = await openSidePanel(root, "kitchen");
     expect(sideRelay(sidePanel).disabled).toBe(false);
 
-    mockDiscover.mockImplementation(async () => ({ topology: topology({ may_operate: false, reason: "control_disabled" }), panelDevice: null, panelSize: 32 }));
+    mockDiscover.mockImplementation(async () => ({ topology: topology({ may_operate: false, reason: "control_disabled" }), panelSize: 32 }));
     reload(connection);
 
     await vi.waitFor(() => expect(sideRelay(sidePanel).disabled).toBe(true));
@@ -393,7 +389,6 @@ describe("the Favorites view's circuits", () => {
   it("each keep the access their own panel gives", async () => {
     mockDiscover.mockImplementation(async (_hass, deviceId) => ({
       topology: deviceId === "panel-1" ? topology(BLOCKED) : topology(),
-      panelDevice: null,
       panelSize: 32,
     }));
     const panels = [

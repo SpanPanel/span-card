@@ -97,6 +97,7 @@ const translations: Record<string, Record<string, string>> = {
     "error.areas_failed": "Area assignments may be out of sync",
     "error.retry": "Retry",
     "card.connecting": "Connecting to SPAN Panel...",
+    "card.waiting_for_load": "Waiting for SPAN Panel to load...",
 
     // Monitoring rating
     "monitoringRating.none": "no rating",
@@ -312,7 +313,6 @@ const translations: Record<string, Record<string, string>> = {
     "card.no_device": "Open the card editor and select your SPAN Panel device.",
     "card.device_not_found": "Panel device not found. Check device_id in card config.",
     "card.topology_error": "Topology response missing panel_size and no circuits found. Update the SPAN Panel integration.",
-    "card.panel_size_error": "Could not determine panel_size. No circuits found and no panel_size attribute. Update the SPAN Panel integration.",
 
     // Editor
     "editor.panel_label": "SPAN Panel",
@@ -425,6 +425,7 @@ const translations: Record<string, Record<string, string>> = {
     "error.areas_failed": "Las asignaciones de \u00e1reas pueden estar desincronizadas",
     "error.retry": "Reintentar",
     "card.connecting": "Conectando al SPAN Panel...",
+    "card.waiting_for_load": "Esperando a que cargue el SPAN Panel...",
 
     // Monitoring rating
     "monitoringRating.none": "sin calibre",
@@ -618,7 +619,6 @@ const translations: Record<string, Record<string, string>> = {
     "card.no_device": "Abra el editor de tarjeta y seleccione su dispositivo SPAN Panel.",
     "card.device_not_found": "Dispositivo de panel no encontrado. Verifique device_id en la configuraci\u00f3n de la tarjeta.",
     "card.topology_error": "La respuesta de topolog\u00eda no contiene panel_size y no se encontraron circuitos. Actualice la integraci\u00f3n SPAN Panel.",
-    "card.panel_size_error": "No se pudo determinar panel_size. No se encontraron circuitos ni atributo panel_size. Actualice la integraci\u00f3n SPAN Panel.",
     "editor.panel_label": "SPAN Panel",
     "editor.select_panel": "Seleccione un panel...",
     "editor.chart_window": "Ventana de tiempo del gr\u00e1fico",
@@ -727,6 +727,7 @@ const translations: Record<string, Record<string, string>> = {
     "error.areas_failed": "Les affectations de zones peuvent \u00eatre d\u00e9synchronis\u00e9es",
     "error.retry": "R\u00e9essayer",
     "card.connecting": "Connexion au SPAN Panel...",
+    "card.waiting_for_load": "En attente du chargement du SPAN Panel...",
 
     // Monitoring rating
     "monitoringRating.none": "aucun calibre",
@@ -922,8 +923,6 @@ const translations: Record<string, Record<string, string>> = {
     "card.device_not_found": "Appareil de panneau introuvable. V\u00e9rifiez device_id dans la configuration de la carte.",
     "card.topology_error":
       "La r\u00e9ponse de topologie ne contient pas panel_size et aucun circuit trouv\u00e9. Mettez \u00e0 jour l'int\u00e9gration SPAN Panel.",
-    "card.panel_size_error":
-      "Impossible de d\u00e9terminer panel_size. Aucun circuit trouv\u00e9 et aucun attribut panel_size. Mettez \u00e0 jour l'int\u00e9gration SPAN Panel.",
     "editor.panel_label": "SPAN Panel",
     "editor.select_panel": "S\u00e9lectionnez un panneau...",
     "editor.chart_window": "Fen\u00eatre de temps du graphique",
@@ -1035,6 +1034,7 @@ const translations: Record<string, Record<string, string>> = {
       "\u30a8\u30ea\u30a2\u5272\u308a\u5f53\u3066\u304c\u540c\u671f\u3055\u308c\u3066\u3044\u306a\u3044\u53ef\u80fd\u6027\u304c\u3042\u308a\u307e\u3059",
     "error.retry": "\u518d\u8a66\u884c",
     "card.connecting": "SPAN\u30d1\u30cd\u30eb\u306b\u63a5\u7d9a\u4e2d...",
+    "card.waiting_for_load": "SPAN\u30d1\u30cd\u30eb\u306e\u8aad\u307f\u8fbc\u307f\u3092\u5f85\u6a5f\u4e2d...",
 
     // Monitoring rating
     "monitoringRating.none": "\u5b9a\u683c\u306a\u3057",
@@ -1251,8 +1251,6 @@ const translations: Record<string, Record<string, string>> = {
       "\u30d1\u30cd\u30eb\u30c7\u30d0\u30a4\u30b9\u304c\u898b\u3064\u304b\u308a\u307e\u305b\u3093\u3002\u30ab\u30fc\u30c9\u8a2d\u5b9a\u306edevice_id\u3092\u78ba\u8a8d\u3057\u3066\u304f\u3060\u3055\u3044\u3002",
     "card.topology_error":
       "\u30c8\u30dd\u30ed\u30b8\u30fc\u5fdc\u7b54\u306bpanel_size\u304c\u306a\u304f\u3001\u56de\u8def\u304c\u898b\u3064\u304b\u308a\u307e\u305b\u3093\u3002SPAN Panel\u7d71\u5408\u3092\u66f4\u65b0\u3057\u3066\u304f\u3060\u3055\u3044\u3002",
-    "card.panel_size_error":
-      "panel_size\u3092\u5224\u5b9a\u3067\u304d\u307e\u305b\u3093\u3002\u56de\u8def\u304cpanel_size\u5c5e\u6027\u304c\u898b\u3064\u304b\u308a\u307e\u305b\u3093\u3002SPAN Panel\u7d71\u5408\u3092\u66f4\u65b0\u3057\u3066\u304f\u3060\u3055\u3044\u3002",
     "editor.panel_label": "SPAN Panel",
     "editor.select_panel": "\u30d1\u30cd\u30eb\u3092\u9078\u629e...",
     "editor.chart_window": "\u30b0\u30e9\u30d5\u6642\u9593\u30a6\u30a3\u30f3\u30c9\u30a6",
@@ -1361,6 +1359,7 @@ const translations: Record<string, Record<string, string>> = {
     "error.areas_failed": "As atribui\u00e7\u00f5es de \u00e1reas podem estar fora de sincroniza\u00e7\u00e3o",
     "error.retry": "Tentar novamente",
     "card.connecting": "Conectando ao SPAN Panel...",
+    "card.waiting_for_load": "Aguardando o carregamento do SPAN Panel...",
 
     // Monitoring rating
     "monitoringRating.none": "sem corrente nominal",
@@ -1554,8 +1553,6 @@ const translations: Record<string, Record<string, string>> = {
     "card.no_device": "Abra o editor do cart\u00e3o e selecione seu dispositivo SPAN Panel.",
     "card.device_not_found": "Dispositivo do painel n\u00e3o encontrado. Verifique device_id na configura\u00e7\u00e3o do cart\u00e3o.",
     "card.topology_error": "A resposta de topologia n\u00e3o cont\u00e9m panel_size e nenhum circuito encontrado. Atualize a integra\u00e7\u00e3o SPAN Panel.",
-    "card.panel_size_error":
-      "N\u00e3o foi poss\u00edvel determinar panel_size. Nenhum circuito encontrado e nenhum atributo panel_size. Atualize a integra\u00e7\u00e3o SPAN Panel.",
     "editor.panel_label": "SPAN Panel",
     "editor.select_panel": "Selecione um painel...",
     "editor.chart_window": "Janela de tempo do gr\u00e1fico",

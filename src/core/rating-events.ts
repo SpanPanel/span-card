@@ -52,8 +52,7 @@ export function canHearRatingChanges(hass: HomeAssistant | null | undefined): bo
  * is ignored: two panels can publish the same circuit id, and each keeps its own copies.
  *
  * A caller subscribes only for a user who may hear the event
- * (`canHearRatingChanges`), and only where its topology came from `panel_topology`:
- * one from the entity fallback carries no rating. Resolves to the unsubscribe function.
+ * (`canHearRatingChanges`). Resolves to the unsubscribe function.
  */
 export async function subscribePackageRatingChanges(
   hass: HomeAssistant,

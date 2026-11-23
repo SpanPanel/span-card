@@ -335,7 +335,7 @@ describe("the services that change a panel's controls", () => {
 });
 
 describe("controlAccess", () => {
-  it("takes the controls as operable where the integration says nothing of them, as an older one and entity discovery do", () => {
+  it("takes the controls as operable where the integration says nothing of them, as an older one does", () => {
     expect(controlAccess(topology())).toEqual(CONTROLS_OPERABLE);
     expect(controlAccess(null)).toEqual(CONTROLS_OPERABLE);
     expect(controlAccess(undefined)).toEqual(CONTROLS_OPERABLE);
