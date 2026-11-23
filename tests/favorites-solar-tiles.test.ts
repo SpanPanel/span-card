@@ -46,12 +46,13 @@ const hass = { states: {}, services: {}, language: "en" } as unknown as HomeAssi
 describe("solar tiles in the favorites view", () => {
   it("keeps each panel's Solar tile and inverters together, Solar tile first", async () => {
     const topologies: Record<string, PanelTopology> = { "panel-a": panelTopology("a"), "panel-b": panelTopology("b") };
-    mockDiscover.mockImplementation(async (_hass, panelDeviceId) => ({
+    mockDiscover.mockImplementation(async (_hass, panelDeviceId) => {
       // `discoverTopology` takes the device id as optional; build always passes one.
-      topology: (panelDeviceId && topologies[panelDeviceId]) || null,
-      panelDevice: null,
-      panelSize: 0,
-    }));
+      const topology = panelDeviceId ? topologies[panelDeviceId] : undefined;
+      // As `discoverTopology` does, it rejects where it has no topology to give.
+      if (!topology) throw new Error(`no topology for ${String(panelDeviceId)}`);
+      return { topology, panelSize: 0 };
+    });
     // Each panel's inverter was favorited before its Solar device.
     const favorites = {
       "panel-a": { circuits: [], sub_devices: ["inverter", "solar"] },

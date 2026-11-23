@@ -76,7 +76,7 @@ afterEach(() => {
 
 describe("a sub-device tile's gear on the standalone card, which shows no favorites", () => {
   async function renderCard(): Promise<ShadowRoot> {
-    mockDiscover.mockResolvedValue({ topology: TOPOLOGY, panelDevice: null, panelSize: 32 });
+    mockDiscover.mockResolvedValue({ topology: TOPOLOGY, panelSize: 32 });
     const card = document.createElement("span-panel-card") as HTMLElement & { setConfig(c: CardConfig): void; hass: HomeAssistant };
     card.setConfig({ device_id: "panel-device-1" } as CardConfig);
     document.body.appendChild(card);
@@ -99,7 +99,7 @@ describe("a sub-device tile's gear on the standalone card, which shows no favori
 
 describe("a sub-device tile's gear on the dashboard, which shows the panel's favorites", () => {
   it("is drawn for an inverter no circuit feeds, and opens a panel with its heart and no horizon", async () => {
-    mockDiscover.mockResolvedValue({ topology: TOPOLOGY, panelDevice: null, panelSize: 32 });
+    mockDiscover.mockResolvedValue({ topology: TOPOLOGY, panelSize: 32 });
     const tab = new DashboardTab();
     tab.setPanelFavorites({ panelDeviceId: "panel-device-1", circuitUuids: new Set(), subDeviceIds: new Set() });
     const container = document.createElement("div");

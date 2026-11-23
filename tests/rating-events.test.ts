@@ -5,10 +5,9 @@ import type { CardConfig, Circuit, HomeAssistant, PanelDevice, PanelTopology } f
 vi.mock("../src/card/card-discovery.js", async importOriginal => ({
   ...(await importOriginal<typeof import("../src/card/card-discovery.js")>()),
   discoverTopology: vi.fn(),
-  discoverEntitiesFallback: vi.fn(),
 }));
 
-import { discoverEntitiesFallback, discoverTopology } from "../src/card/card-discovery.js";
+import { discoverTopology } from "../src/card/card-discovery.js";
 import { DashboardController } from "../src/core/dashboard-controller.js";
 import { FavoritesController } from "../src/core/favorites-controller.js";
 import { FAVORITES_CHANGED_EVENT } from "../src/core/favorites-store.js";
@@ -23,7 +22,6 @@ import { FakeConnection, flush, hassWith } from "./fake-connection.js";
 import { blurOnRemoval } from "./removal-blur.js";
 
 const mockDiscover = vi.mocked(discoverTopology);
-const mockFallback = vi.mocked(discoverEntitiesFallback);
 
 function ratingEvent(entryId: string, circuitIds: string[] = ["c-1"]): unknown {
   return { event_type: PACKAGE_RATINGS_CHANGED, data: { config_entry_id: entryId, circuit_ids: circuitIds } };
@@ -583,21 +581,19 @@ describe("the standalone card", () => {
   beforeEach(() => {
     monitoringCalls = 0;
     cardStatus = null;
-    mockDiscover.mockImplementation(async () => ({ topology: cardTopology(circuit(20, 20)), panelDevice: null, panelSize: 32 }));
-    mockFallback.mockRejectedValue(new Error("no fallback"));
+    mockDiscover.mockImplementation(async () => ({ topology: cardTopology(circuit(20, 20)), panelSize: 32 }));
   });
   afterEach(() => {
     for (const el of mounted.splice(0)) el.remove();
     vi.restoreAllMocks();
     mockDiscover.mockReset();
-    mockFallback.mockReset();
   });
 
   it("re-fetches topology and monitoring, and redraws what is judged against the monitoring rating, on an event for its entry", async () => {
     // A measured 10 A: utilization is 10 A over the monitoring rating, the breaker label the panel's rating.
     const withCurrent = (c: Circuit): Circuit => ({ ...c, entities: { power: "sensor.oven_power", current: "sensor.oven_current" } });
     cardStatus = withCurrent(circuit(20, 20));
-    mockDiscover.mockImplementation(async () => ({ topology: cardTopology(withCurrent(circuit(20, 20))), panelDevice: null, panelSize: 32 }));
+    mockDiscover.mockImplementation(async () => ({ topology: cardTopology(withCurrent(circuit(20, 20))), panelSize: 32 }));
     const connection = new FakeConnection();
     const card = await mount(connection, { "sensor.oven_current": { entity_id: "sensor.oven_current", state: "10", attributes: {} } });
     const utilization = (): string | undefined => card.shadowRoot!.querySelector(".utilization")?.textContent?.trim();
@@ -607,7 +603,7 @@ describe("the standalone card", () => {
     const fetches = mockDiscover.mock.calls.length;
     const status = monitoringCalls;
     cardStatus = withCurrent(circuit(20, 50, true));
-    mockDiscover.mockImplementation(async () => ({ topology: cardTopology(withCurrent(circuit(20, 50, true))), panelDevice: null, panelSize: 32 }));
+    mockDiscover.mockImplementation(async () => ({ topology: cardTopology(withCurrent(circuit(20, 50, true))), panelSize: 32 }));
 
     connection.emit(PACKAGE_RATINGS_CHANGED, ratingEvent(ENTRY, ["oven"]));
 
@@ -690,14 +686,16 @@ describe("the standalone card", () => {
     expect(connection.subscriptions.filter(s => s.key === PACKAGE_RATINGS_CHANGED)).toHaveLength(2);
   });
 
-  it("does not subscribe when its topology came from the entity fallback", async () => {
+  it("subscribes nothing while it waits for its panel's entry to load, and subscribes once the topology names the entry", async () => {
     const connection = new FakeConnection();
-    mockDiscover.mockRejectedValue(new Error("not an administrator"));
-    mockFallback.mockImplementation(async () => ({ topology: cardTopology(circuit(null, null)), panelDevice: null, panelSize: 32 }));
+    mockDiscover.mockRejectedValueOnce({ code: "not_loaded", message: "SPAN Panel integration is not loaded" });
 
     await mount(connection);
-
     expect(connection.subscriptions.filter(s => s.key === PACKAGE_RATINGS_CHANGED)).toHaveLength(0);
+
+    connection.emit("config_entries/subscribe", [{ type: null, entry: { entry_id: ENTRY, domain: "span_panel", state: "loaded" } }]);
+
+    await vi.waitFor(() => expect(connection.live(PACKAGE_RATINGS_CHANGED)).toBe(1));
   });
 });
 
@@ -774,7 +772,7 @@ describe("the sidebar dashboard", () => {
     statusGate = null;
     sent = [];
     states = {};
-    mockDiscover.mockImplementation(async () => ({ topology: rendered, panelDevice: null, panelSize: 32 }));
+    mockDiscover.mockImplementation(async () => ({ topology: rendered, panelSize: 32 }));
     render = vi.spyOn(DashboardTab.prototype, "render").mockImplementation(async () => rendered);
     refreshSidePanel = vi.spyOn(DashboardTab.prototype, "refreshSidePanel").mockResolvedValue(undefined);
     invalidate = vi.spyOn(DashboardTab.prototype, "invalidateMonitoring");
@@ -1029,7 +1027,7 @@ describe("the sidebar dashboard", () => {
     await flush();
     const fetches = mockDiscover.mock.calls.length;
     const gates: Array<(t: PanelTopology) => void> = [];
-    mockDiscover.mockImplementation(() => new Promise(resolve => gates.push(topology => resolve({ topology, panelDevice: null, panelSize: 32 }))));
+    mockDiscover.mockImplementation(() => new Promise(resolve => gates.push(topology => resolve({ topology, panelSize: 32 }))));
 
     for (let i = 0; i < 5; i += 1) connection.emit(PACKAGE_RATINGS_CHANGED, ratingEvent("entry-1"));
     await flush();
@@ -1260,7 +1258,7 @@ describe("the sidebar dashboard", () => {
         localStorage.setItem("span_panel_selected", "favorites");
         localStorage.setItem("span_panel_favorites_view_state", JSON.stringify({ activeTab: "monitoring", expanded: { activity: [], area: [] } }));
         const second = { ...topologyOf(heater, "entry-2"), panel_device_id: "panel-2" } as PanelTopology;
-        mockDiscover.mockImplementation(async (_hass, panelId) => ({ topology: panelId === "panel-2" ? second : rendered, panelDevice: null, panelSize: 32 }));
+        mockDiscover.mockImplementation(async (_hass, panelId) => ({ topology: panelId === "panel-2" ? second : rendered, panelSize: 32 }));
         tables = {
           "entry-2": { response: { enabled: true, monitoring_rating_offered: true, circuits: { [HEATER]: { ...pointOf(heater), point_id: "c-1" } } } },
         };
@@ -1521,7 +1519,7 @@ describe("the sidebar dashboard", () => {
         const loading = new Promise<void>(resolve => (open = resolve));
         mockDiscover.mockImplementation(async () => {
           await loading;
-          return { topology: rendered, panelDevice: null, panelSize: 32 };
+          return { topology: rendered, panelSize: 32 };
         });
         const connection = new FakeConnection();
         const panel = document.createElement("span-panel") as Panel;

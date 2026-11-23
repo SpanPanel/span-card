@@ -35,7 +35,7 @@ src/
 
   card/
     span-panel-card.ts      # Main Lovelace card (extends HTMLElement)
-    card-discovery.ts       # WebSocket topology discovery + entity fallback
+    card-discovery.ts       # Topology discovery from span_panel/panel_topology, and the wait for the panel's entry to load
     card-suggestion.ts      # The card the card picker suggests for an entity of the integration's
     card-styles.ts          # Card CSS
 
@@ -126,7 +126,8 @@ card follows the registries itself.
 ```text
 Home Assistant
   ├─ Device Registry       → panel discovery
-  ├─ Entity Registry       → entity fallback discovery
+  ├─ Entity Registry       → circuit areas
+  ├─ Config Entries        → the panel's entry loading and reloading
   ├─ WebSocket API         → span_panel/panel_topology
   ├─ Recorder (history)    → raw history + statistics
   └─ hass.states           → live entity state
@@ -141,6 +142,25 @@ Home Assistant
         ▼
   Renderers (grid, header, sub-device, chart)
 ```
+
+### Card Discovery
+
+The card reads its panel from `span_panel/panel_topology` (`discoverTopology()` in `src/card/card-discovery.ts`), which the integration answers for every
+logged-in user. Until the panel's config entry has loaded, the topology is not available: the integration refuses it with `not_loaded` while Home Assistant
+starts, while setup retries a panel it cannot reach, or during a reload, and with `no_data` for a loaded entry with no data yet; Home Assistant answers
+`unknown_command` before the integration has registered the command, as its first entry sets up; and home-assistant-js-websocket rejects a call that a lost
+connection cut off, or one sent while it is down, with code 3, as an error result or as the bare code. `isTopologyPending()` tells those failures from the rest.
+
+First discovery spends no retries on them (`RetryPolicy.passThrough`): the card says it is waiting for the panel to load, and `subscribePanelEntryLoads()` asks
+again once the entry reaches `loaded`, an entry already loaded as it subscribes included. It waits for the entry the device registry list says owns the
+configured device, and for any of the integration's entries where the list does not hold that device, as for an id saved before Home Assistant 2026.8, or where
+the list cannot be read, as while the connection is down. The subscription is held across a reconnect and replayed after it, with a re-seed that reports each
+loaded entry, so a wait across a Home Assistant restart ends without a click; that rests on home-assistant-js-websocket 9.8.0, the version the frontend of every
+Home Assistant 2026.11 release pins.
+
+Any other failure is final: the card shows the persistent "Unable to connect" error and asks nothing more, whatever changes in Home Assistant, until Retry or a
+new config, and shows the error again when Lovelace re-attaches it. A failed wait subscription is such a failure. Once the card shows its panel, each reload of
+the entry and each rename of a device it shows by name re-fetches `panel_topology` in one attempt.
 
 ### Key Types
 
@@ -164,7 +184,6 @@ The Home Assistant registry entries live in `src/core/registry-types.ts`:
 - `sharesOwner()` — whether the config entry that owns a panel owns a device too, as it owns each of the panel's own devices
 - `owningPanelDevice()` — the panel one of those devices belongs to, or the device itself where it is a panel
 - `deviceName()` — a device's name as Home Assistant shows it
-- `entityOwnName()` — an entity's own name, the user's before the integration's, without its device's
 
 A panel is told by the config entry that owns it, not by an identifier in the integration's domain. Home Assistant 2026.8 split each device that several config
 entries shared into one device per entry, each keeping the shared device's identifiers, so a helper that had linked itself to a panel owns a copy of the panel's
@@ -176,8 +195,7 @@ device, its SPAN identifier included. The integration's entries come from one of
   sits on. The card picker's suggestion and the section strategy's starting config use it, since neither waits for an answer.
 
 A panel's own devices are told the same way. The split also left a helper that had linked itself to a battery or a charger owning a copy of that device, whose
-`via_device_id` can point at the panel. `owningPanelDevice()` and the entity fallback's circuits and sub-devices (`discoverEntitiesFallback()`) take only a
-device `sharesOwner()` accepts.
+`via_device_id` can point at the panel. `owningPanelDevice()` takes only a device `sharesOwner()` accepts.
 
 ### Monitoring Changes
 
@@ -202,13 +220,13 @@ operate them, and a user whose Home Assistant permissions do not allow controlli
 the first of `control_disabled`, `admin_only` and `read_only` that applies. `src/core/control-access.ts` holds the card's side of that rule:
 
 - `controlAccess(topology)` reads it. `may_operate` decides, and `reason` only picks the hint; a reason the card does not know reads as none, which the generic
-  hint answers. Where the topology says nothing, as from an integration that predates the field or from the entity fallback, the controls are taken as operable,
-  as they always were, and the gate still refuses what it refuses. This reader alone takes silence as operable. Past it the access is required: a circuit side
-  panel's config (`CircuitModeConfig.controlAccess`) and each Favorites circuit ref (`FavoriteCircuitRef`) must carry one, so the compiler flags a path that
-  omits it, and a Favorites circuit with no circuit ref is not operable (`CONTROLS_NOT_KNOWN`). `circuitControlAccess()` answers for one circuit, in the
-  Favorites view from its own panel's ref. `viewControlAccess()` answers for a view's "Enable Switches" slider, which is operable where any of the view's panels
-  is; in the Favorites view it counts only the panels whose favorites draw a relay toggle, the one control it arms, while a panel's note counts a priority
-  select too (`favoritesPanelAccess()`).
+  hint answers. Where the topology says nothing, as from an integration that predates the field, the controls are taken as operable, as they always were, and
+  the gate still refuses what it refuses. This reader alone takes silence as operable. Past it the access is required: a circuit side panel's config
+  (`CircuitModeConfig.controlAccess`) and each Favorites circuit ref (`FavoriteCircuitRef`) must carry one, so the compiler flags a path that omits it, and a
+  Favorites circuit with no circuit ref is not operable (`CONTROLS_NOT_KNOWN`). `circuitControlAccess()` answers for one circuit, in the Favorites view from its
+  own panel's ref. `viewControlAccess()` answers for a view's "Enable Switches" slider, which is operable where any of the view's panels is; in the Favorites
+  view it counts only the panels whose favorites draw a relay toggle, the one control it arms, while a panel's note counts a priority select too
+  (`favoritesPanelAccess()`).
 - `controlWrites(hass, access)` is the one way the card sends a change: `setRelay()` sends `switch.turn_on` or `switch.turn_off`, and `setPriority()` sends
   `select.select_option`, each over the websocket, so Home Assistant shows no toast of its own beside the card's banner. It sends nothing where the access does
   not allow it, rejecting with a `ControlChangeRefused` that says why. Home Assistant's Unauthorized (`isUnauthorized()`), for a user the integration lets

@@ -111,7 +111,6 @@ beforeEach(() => {
   vi.spyOn(DashboardTab.prototype, "render").mockResolvedValue(null);
   mockDiscover.mockImplementation(async (_hass, deviceId) => ({
     topology: { circuits: {}, panel_entities: { panel_status: statusOf(String(deviceId)) } } as unknown as PanelTopology,
-    panelDevice: null,
     panelSize: 32,
   }));
 });
@@ -315,7 +314,7 @@ describe("span-panel subscriptions", () => {
     await vi.waitFor(() => expect(mockDiscover.mock.calls.length).toBe(calls + 1));
 
     panel.remove();
-    resolveArea({ topology: { circuits: {}, panel_entities: {} } as unknown as PanelTopology, panelDevice: null, panelSize: 32 });
+    resolveArea({ topology: { circuits: {}, panel_entities: {} } as unknown as PanelTopology, panelSize: 32 });
     await vi.waitFor(() => expect(started).toHaveBeenCalled());
     await flush();
 
@@ -333,7 +332,6 @@ describe("span-panel subscriptions", () => {
         panel_entities: { panel_status: statusOf("panel-1") },
         panel_device_id: "panel-1",
       } as unknown as PanelTopology,
-      panelDevice: null,
       panelSize: 32,
     };
   }
@@ -713,7 +711,6 @@ describe("span-panel, for a user who may not operate every panel's controls", ()
         panel_device_id: `panel-${n}`,
         ...(control_access ? { control_access } : {}),
       } as unknown as PanelTopology,
-      panelDevice: null,
       panelSize: 32,
     };
   }

@@ -192,6 +192,65 @@ describe("RetryManager — panel offline short-circuit", () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// a rejection the caller answers itself
+// ---------------------------------------------------------------------------
+
+describe("RetryManager — a rejection the caller answers itself", () => {
+  const NOT_LOADED = { code: "not_loaded", message: "SPAN Panel integration is not loaded" };
+  const passThrough = (err: unknown): boolean => typeof err === "object" && err !== null && "code" in err && err.code === "not_loaded";
+  let store: ErrorStore;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    store = new ErrorStore();
+  });
+
+  afterEach(() => {
+    store.dispose();
+    vi.useRealTimers();
+  });
+
+  it("hands it back as it came, after one attempt, with no error in the store", async () => {
+    const hass = makeHass();
+    vi.mocked(hass.callWS).mockRejectedValue(NOT_LOADED);
+
+    await expect(new RetryManager(store, { passThrough }).callWS(hass, { type: "span_panel/panel_topology" }, { errorId: "fetch:topology" })).rejects.toBe(
+      NOT_LOADED
+    );
+
+    expect(hass.callWS).toHaveBeenCalledTimes(1);
+    expect(store.active).toEqual([]);
+  });
+
+  it("hands it back the same way while a panel is offline", async () => {
+    store.add({ key: "panel-offline", level: "error", message: "Panel offline", persistent: true });
+    const hass = makeHass();
+    vi.mocked(hass.callWS).mockRejectedValue(NOT_LOADED);
+
+    await expect(new RetryManager(store, { passThrough }).callWS(hass, { type: "span_panel/panel_topology" }, { errorId: "fetch:topology" })).rejects.toBe(
+      NOT_LOADED
+    );
+
+    expect(hass.callWS).toHaveBeenCalledTimes(1);
+    expect(store.active.map(e => e.key)).toEqual(["panel-offline"]);
+  });
+
+  it("still retries, and reports, any other rejection", async () => {
+    const hass = makeHass();
+    vi.mocked(hass.callWS).mockRejectedValue({ code: "unknown_error", message: "failed" });
+
+    const promise = new RetryManager(store, { passThrough }).callWS(hass, { type: "span_panel/panel_topology" }, { errorId: "fetch:topology", retries: 1 });
+    const caught = promise.catch(() => null);
+    await vi.advanceTimersByTimeAsync(1000);
+
+    await expect(promise).rejects.toThrow("failed");
+    await caught;
+    expect(hass.callWS).toHaveBeenCalledTimes(2);
+    expect(store.active.map(e => e.key)).toEqual(["fetch:topology"]);
+  });
+});
+
 describe("RetryManager — Home Assistant's rejection shape", () => {
   it("reports and throws the message of a { code, message } rejection", async () => {
     const store = new ErrorStore();

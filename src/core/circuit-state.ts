@@ -116,9 +116,9 @@ export function relayClosed(c: CircuitControlFields, hass: HomeAssistant): boole
 /**
  * `none` unless the circuit has a `switch` role, is user-controllable and the
  * switch has a state object; then `operable` while it reads on or off, and
- * `inert` otherwise. A topology from entity discovery names every switch the
- * entity registry holds, a disabled one included, and a switch with no state
- * object draws nothing.
+ * `inert` otherwise. A topology names a circuit's switch where the integration
+ * provides one, as its entity registry entry, which stays there when the user
+ * disables the switch; a switch with no state object draws nothing.
  */
 export function switchPresence(c: CircuitControlFields, hass: HomeAssistant): SwitchPresence {
   if (!c.entities?.switch || c.is_user_controllable === false) return "none";

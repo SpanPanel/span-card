@@ -53,7 +53,7 @@ describe("FavoritesController.build", () => {
   it("single panel with 2 favorited circuits → 2 composite-id circuits, no name prefix", async () => {
     const panel = makePanel("panel-1", "Home Panel", "entry-1");
     const topology = makeTopology({ "uuid-a": { name: "Kitchen" }, "uuid-b": { name: "Living Room" } });
-    mockDiscover.mockResolvedValue({ topology, panelDevice: panel, panelSize: 200 });
+    mockDiscover.mockResolvedValue({ topology, panelSize: 200 });
 
     const favorites = {
       "panel-1": { circuits: ["uuid-a", "uuid-b"], sub_devices: [] },
@@ -83,8 +83,8 @@ describe("FavoritesController.build", () => {
     const topology2 = makeTopology({ "uuid-b": { name: "Kitchen" } }, "SPAN 2");
 
     mockDiscover.mockImplementation((_hass, deviceId) => {
-      if (deviceId === "panel-1") return Promise.resolve({ topology: topology1, panelDevice: panel1, panelSize: 200 });
-      if (deviceId === "panel-2") return Promise.resolve({ topology: topology2, panelDevice: panel2, panelSize: 200 });
+      if (deviceId === "panel-1") return Promise.resolve({ topology: topology1, panelSize: 200 });
+      if (deviceId === "panel-2") return Promise.resolve({ topology: topology2, panelSize: 200 });
       return Promise.reject(new Error("unknown panel"));
     });
 
@@ -111,7 +111,7 @@ describe("FavoritesController.build", () => {
     const panel = makePanel("panel-1", "Home Panel", "entry-1");
     // "panel-2" is NOT in the panels array
     const topology = makeTopology({ "uuid-a": { name: "Kitchen" } });
-    mockDiscover.mockResolvedValue({ topology, panelDevice: panel, panelSize: 200 });
+    mockDiscover.mockResolvedValue({ topology, panelSize: 200 });
 
     const favorites = {
       "panel-1": { circuits: ["uuid-a"], sub_devices: [] },
@@ -133,7 +133,7 @@ describe("FavoritesController.build", () => {
     const topology1 = makeTopology({ "uuid-a": { name: "Office" } });
 
     mockDiscover.mockImplementation((_hass, deviceId) => {
-      if (deviceId === "panel-1") return Promise.resolve({ topology: topology1, panelDevice: panel1, panelSize: 200 });
+      if (deviceId === "panel-1") return Promise.resolve({ topology: topology1, panelSize: 200 });
       return Promise.reject(new Error("fetch failed"));
     });
 
@@ -155,7 +155,7 @@ describe("FavoritesController.build", () => {
     const panel = makePanel("panel-1", "Home Panel", "entry-1");
     // Topology only has "uuid-a"; "uuid-missing" is not in it
     const topology = makeTopology({ "uuid-a": { name: "Kitchen" } });
-    mockDiscover.mockResolvedValue({ topology, panelDevice: panel, panelSize: 200 });
+    mockDiscover.mockResolvedValue({ topology, panelSize: 200 });
 
     const favorites = {
       "panel-1": { circuits: ["uuid-a", "uuid-missing"], sub_devices: [] },
@@ -178,7 +178,7 @@ describe("FavoritesController.build", () => {
       device_name: "SPAN Panel",
       panel_entities: {},
     };
-    mockDiscover.mockResolvedValue({ topology, panelDevice: panel, panelSize: 200 });
+    mockDiscover.mockResolvedValue({ topology, panelSize: 200 });
 
     const favorites = {
       "panel-1": { circuits: [], sub_devices: ["sub-uuid-1"] },
@@ -200,7 +200,7 @@ describe("FavoritesController.build", () => {
   it("_favoriteRefs records origin for circuits", async () => {
     const panel = makePanel("panel-1", "Home Panel", "entry-1");
     const topology = makeTopology({ "uuid-a": { name: "Kitchen" } });
-    mockDiscover.mockResolvedValue({ topology, panelDevice: panel, panelSize: 200 });
+    mockDiscover.mockResolvedValue({ topology, panelSize: 200 });
 
     const favorites = {
       "panel-1": { circuits: ["uuid-a"], sub_devices: [] },
@@ -231,9 +231,7 @@ describe("FavoritesController.build", () => {
       return topology;
     };
     const topologies: Record<string, PanelTopology> = { "panel-1": grouped(30), "panel-2": grouped(25) };
-    mockDiscover.mockImplementation((_hass, deviceId) =>
-      Promise.resolve({ topology: topologies[deviceId]!, panelDevice: deviceId === "panel-1" ? panel1 : panel2, panelSize: 48 })
-    );
+    mockDiscover.mockImplementation((_hass, deviceId) => Promise.resolve({ topology: topologies[deviceId]!, panelSize: 48 }));
     const favorites = {
       "panel-1": { circuits: ["circuit-52", "circuit-53"], sub_devices: [] },
       "panel-2": { circuits: ["circuit-52"], sub_devices: [] },
@@ -263,7 +261,7 @@ describe("FavoritesController.build", () => {
     ] as const) {
       Object.assign(topology.circuits[uuid]!, { tabs: [52], breaker_rating_a: rating, shared_meter_group: "circuit-52" });
     }
-    mockDiscover.mockResolvedValue({ topology, panelDevice: panel, panelSize: 48 });
+    mockDiscover.mockResolvedValue({ topology, panelSize: 48 });
 
     const merged = (await controller.build(hass, { "panel-1": { circuits: ["circuit-52", "circuit-53"], sub_devices: [] } }, [panel])).topology;
 

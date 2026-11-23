@@ -88,11 +88,11 @@ export class DashboardTab {
     const totalRows = positionRowCount(positions);
     const monitoringStatus = this._ctrl.monitoringCache.status;
 
-    const headerHTML = buildHeaderHTML(topology!, config);
+    const headerHTML = buildHeaderHTML(topology, config);
     const monitoringSummaryHTML = buildMonitoringSummaryHTML(monitoringStatus);
-    const gridHTML = buildGridHTML(topology!, positions, hass, config, monitoringStatus);
-    const subDevHTML = buildSubDevicesHTML(topology!, hass, config, { showFavorites: this._ctrl.showFavorites });
-    const metersHTML = buildMetersStripHTML(topology!, hass, config);
+    const gridHTML = buildGridHTML(topology, positions, hass, config, monitoringStatus);
+    const subDevHTML = buildSubDevicesHTML(topology, hass, config, { showFavorites: this._ctrl.showFavorites });
+    const metersHTML = buildMetersStripHTML(topology, hass, config);
 
     container.innerHTML = `
       <style>${CARD_STYLES}</style>
