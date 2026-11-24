@@ -7,23 +7,20 @@
 
 ### Fixed
 
-- **A SPAN Panel card opened while Home Assistant is starting or restarting, or while the integration retries a panel it cannot reach, says it is waiting for
-  the panel to load and draws the panel once it has loaded**, where it showed "Unable to connect to SPAN Panel" until Retry was pressed or the dashboard was
-  opened again.
-- **The sidebar dashboard, opened while Home Assistant is starting or restarting or while the integration retries a panel it cannot reach, says it is waiting
-  for the panel to load and draws the panel once it has loaded**, where it showed errors, monitoring as off or missing favorites meanwhile, and could miss the
-  panel's unreachable warning.
-- **A SPAN Panel card or the sidebar dashboard whose panel failed to set up, as when it must be authenticated again, cannot load until Home Assistant is
-  restarted, or is disabled, says so and how to set it right, and draws the panel once it has loaded**, where the card showed "Unable to connect to SPAN Panel"
-  and the sidebar "SPAN Panel integration is not loaded", monitoring as off or no favorites.
-- **A SPAN Panel card left on a dashboard after its panel was removed says it is unable to connect**, where it drew an empty card.
-- **The card and the sidebar dashboard show a panel's monitoring again once a reload of the panel, as after its options are changed, finishes**, where a view
-  drawn or a circuit's side panel opened during the reload could show monitoring as off until opened again.
-- **The sidebar dashboard says no SPAN Panel is found where there is none**, where it showed "Panel device not found. Check device_id in card config."
-- **The sidebar dashboard's panel list catches up once the connection to Home Assistant is back**, where a panel added, removed or renamed just as the
-  connection was lost stayed listed as it was until the next change.
-- **The Monitoring tab's Event Bus help lists every key of the `span_panel_current_alert` event**, the new `alert_display_name`, the circuit's name as Home
-  Assistant shows it, among them, where it left out the keys for the monitoring rating, the copied package ratings and when the overload began.
+- **While Home Assistant is starting, or keeps retrying a panel it can't reach, the SPAN Panel card and the sidebar dashboard say they're waiting for the panel
+  and show it as soon as it's ready.** Before, the card said "Unable to connect to SPAN Panel" until you pressed Retry, and the sidebar showed errors,
+  monitoring as off, or no favorites.
+- **When a panel can't start because it needs you to sign in again, needs Home Assistant restarted, or is disabled, the card and the sidebar dashboard now say
+  so and what to do, and show the panel once it starts.** Before, the card said "Unable to connect to SPAN Panel" and the sidebar "SPAN Panel integration is not
+  loaded".
+- **A SPAN Panel card left on a dashboard after you remove its panel now says it can't connect, and the sidebar dashboard says when you have no SPAN Panel.**
+  Before, the card was blank and the sidebar showed "Panel device not found. Check device_id in card config."
+- **After a panel reloads, for example when you change its options, the card and the sidebar dashboard show its monitoring again.** Before, anything opened
+  during the reload could show monitoring as off until you opened it again.
+- **The sidebar dashboard's list of panels updates once the connection to Home Assistant comes back.** Before, a panel added, removed or renamed while the
+  connection was down stayed listed as it was.
+- **The Monitoring tab's Event Bus help now says what the `span_panel_current_alert` event is for, and links to the full list of its fields.** Before, it showed
+  a bare list of field names.
 
 ## 0.12.0
 

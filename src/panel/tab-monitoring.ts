@@ -1,4 +1,4 @@
-import { INTEGRATION_DOMAIN, INPUT_DEBOUNCE_MS, TANDEM_GUIDE_URL } from "../constants.js";
+import { ALERT_EVENT_FIELDS_URL, INTEGRATION_DOMAIN, INPUT_DEBOUNCE_MS, TANDEM_GUIDE_URL } from "../constants.js";
 import { escapeHtml } from "../helpers/sanitize.js";
 import { attrSelectorValue } from "../helpers/selector.js";
 import { errorText, serviceErrorMessage } from "../helpers/error-text.js";
@@ -435,6 +435,19 @@ function newWarningsText(drawn: ReadonlyMap<string, CopyWarning>, before: Readon
 /** Whether two tables' warnings are the same: the same rows, each with the same warning. */
 function sameWarnings(a: ReadonlyMap<string, CopyWarning>, b: ReadonlyMap<string, CopyWarning>): boolean {
   return a.size === b.size && [...a].every(([entity, warning]) => b.get(entity) === warning);
+}
+
+/**
+ * The help under the notification templates for whoever writes an automation on the Event Bus: what the
+ * `span_panel_current_alert` event carries, in words, and a link that opens the integration's list of its fields in a
+ * new tab. The translated sentence is escaped before the event's name is put in its `{event}` place, so the name is
+ * the only markup it holds.
+ */
+function eventBusHelpHTML(): string {
+  const sentence = escapeHtml(t("notification.event_bus_help")).replace("{event}", "<code>span_panel_current_alert</code>");
+  const fields = `<a href="${escapeHtml(ALERT_EVENT_FIELDS_URL)}" target="_blank" rel="noopener noreferrer"
+    style="${LINK_STYLE}">${escapeHtml(t("notification.event_bus_fields"))}</a>`;
+  return `${sentence} ${fields}`;
 }
 
 /**
@@ -1118,13 +1131,7 @@ export class MonitoringTab {
               <code>{utilization_pct}</code> <code>{window_m}</code> <code>{local_time}</code>
             </div>
             <div style="font-size:0.75em;color:var(--secondary-text-color);margin-top:6px;line-height:1.4;">
-              ${t("notification.event_bus_help")} <code>span_panel_current_alert</code>
-              ${t("notification.event_bus_payload")} <code>alert_source</code> <code>alert_id</code>
-              <code>alert_name</code> <code>alert_display_name</code> <code>alert_type</code> <code>current_a</code>
-              <code>breaker_rating_a</code> <code>monitoring_rating_a</code> <code>monitoring_rating_user_set</code>
-              <code>package_ratings_a</code> <code>package_ratings_state</code> <code>threshold_pct</code>
-              <code>utilization_pct</code> <code>panel_serial</code> <code>local_time</code>
-              <code>window_duration_s</code> <code>over_threshold_since</code>
+              ${eventBusHelpHTML()}
             </div>
 
             <div style="display:flex;align-items:center;gap:10px;margin-top:12px;">

@@ -53,6 +53,12 @@ export const SUB_DEVICE_KEY_PREFIX = "sub_";
  */
 export const TANDEM_GUIDE_URL = "https://github.com/SpanPanel/span/blob/main/tandems.md#main-32";
 
+/**
+ * The integration's documentation of the Monitoring view's Notification Settings, which lists every field of the
+ * `span_panel_current_alert` event; the Event Bus help links to it. It names `main`, so the link follows the newest list.
+ */
+export const ALERT_EVENT_FIELDS_URL = "https://github.com/SpanPanel/span/blob/main/frontend.md#notification-settings";
+
 // -- Chart layout constants --
 
 export const CIRCUIT_CHART_HEIGHT = 100;
