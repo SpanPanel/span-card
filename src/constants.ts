@@ -1,7 +1,7 @@
 import { t } from "./i18n.js";
 import type { ChartMetricDef, GraphHorizonPreset, SheddingPriorityDef } from "./types.js";
 
-export const CARD_VERSION = "0.12.1-beta.3";
+export const CARD_VERSION = "0.12.1-beta.4";
 
 // -- Defaults --
 
@@ -52,6 +52,12 @@ export const SUB_DEVICE_KEY_PREFIX = "sub_";
  * to. It names `main`, so the link follows the newest guide.
  */
 export const TANDEM_GUIDE_URL = "https://github.com/SpanPanel/span/blob/main/tandems.md#main-32";
+
+/**
+ * The integration's documentation of the Monitoring view's Notification Settings, which lists every field of the
+ * `span_panel_current_alert` event; the Event Bus help links to it. It names `main`, so the link follows the newest list.
+ */
+export const ALERT_EVENT_FIELDS_URL = "https://github.com/SpanPanel/span/blob/main/frontend.md#notification-settings";
 
 // -- Chart layout constants --
 

@@ -5,29 +5,12 @@ import type { HomeAssistant } from "../src/types.js";
 import { ErrorStore } from "../src/core/error-store.js";
 
 // With the Event Bus among its notify targets, the integration fires
-// `span_panel_current_alert` for each alert, and the Monitoring tab's notification
-// settings list the keys of its payload for whoever writes an automation on it.
+// `span_panel_current_alert` for each alert. The Monitoring tab's notification
+// settings name the event for whoever writes an automation on it, say in words
+// what it carries, and link to the integration's documentation for its fields.
 
-/** The keys of the payload `dispatch_alert` fires, in its order; the last two only where the alert has them. */
-const PAYLOAD_KEYS = [
-  "alert_source",
-  "alert_id",
-  "alert_name",
-  "alert_display_name",
-  "alert_type",
-  "current_a",
-  "breaker_rating_a",
-  "monitoring_rating_a",
-  "monitoring_rating_user_set",
-  "package_ratings_a",
-  "package_ratings_state",
-  "threshold_pct",
-  "utilization_pct",
-  "panel_serial",
-  "local_time",
-  "window_duration_s",
-  "over_threshold_since",
-];
+/** The integration's list of the event's fields, under the Monitoring view's Notification Settings. */
+const FIELDS_URL = "https://github.com/SpanPanel/span/blob/main/frontend.md#notification-settings";
 
 /** An administrator's Home Assistant whose panel has monitoring on, with the Event Bus among its targets. */
 function hass(): HomeAssistant {
@@ -59,20 +42,41 @@ afterEach(() => {
   for (const el of mounted.splice(0)) el.remove();
 });
 
+/** Render the tab in `language` and return the element holding the event's help. */
+async function eventHelp(language: string): Promise<HTMLElement | null | undefined> {
+  setLanguage(language);
+  const host = document.createElement("div");
+  document.body.appendChild(host);
+  mounted.push(host);
+  const container = document.createElement("div");
+  host.attachShadow({ mode: "open" }).appendChild(container);
+
+  await new MonitoringTab(new ErrorStore()).render(container, hass(), "entry-1", null);
+
+  return [...container.querySelectorAll("code")].find(code => code.textContent === "span_panel_current_alert")?.parentElement;
+}
+
 describe("the Monitoring tab's help for the Event Bus", () => {
-  it("names the event and lists every key of its payload, the circuit's name as Home Assistant shows it included", async () => {
-    const host = document.createElement("div");
-    document.body.appendChild(host);
-    mounted.push(host);
-    const container = document.createElement("div");
-    host.attachShadow({ mode: "open" }).appendChild(container);
+  it("names the event, says what it carries and links to its fields", async () => {
+    const help = await eventHelp("en");
 
-    await new MonitoringTab(new ErrorStore()).render(container, hass(), "entry-1", null);
+    expect(help?.textContent?.replace(/\s+/g, " ").trim()).toBe(
+      "With the Event Bus selected, each alert also fires the span_panel_current_alert event, carrying the circuit's name, " +
+        "the alert type, the current, the ratings and when it happened. See all of its fields."
+    );
+    // The event is the only name it shows: no list of the payload's keys.
+    expect([...(help?.querySelectorAll("code") ?? [])].map(code => code.textContent)).toEqual(["span_panel_current_alert"]);
+    const links = [...(help?.querySelectorAll("a") ?? [])];
+    expect(links.map(link => [link.textContent, link.getAttribute("href"), link.getAttribute("target"), link.getAttribute("rel")])).toEqual([
+      ["See all of its fields.", FIELDS_URL, "_blank", "noopener noreferrer"],
+    ]);
+  });
 
-    // The line that names the event, and holds the keys after it.
-    const help = [...container.querySelectorAll("code")].find(code => code.textContent === "span_panel_current_alert")?.parentElement;
-    expect(help?.textContent).toContain("Event Bus fires event type");
-    const codes = [...(help?.querySelectorAll("code") ?? [])].map(code => code.textContent);
-    expect(codes).toEqual(["span_panel_current_alert", ...PAYLOAD_KEYS]);
+  it.each(["es", "fr", "ja", "pt"])("names the event and links to its fields in %s", async language => {
+    const help = await eventHelp(language);
+
+    expect(help?.textContent).not.toContain("{event}");
+    expect([...(help?.querySelectorAll("code") ?? [])].map(code => code.textContent)).toEqual(["span_panel_current_alert"]);
+    expect([...(help?.querySelectorAll("a") ?? [])].map(link => link.getAttribute("href"))).toEqual([FIELDS_URL]);
   });
 });
