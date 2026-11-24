@@ -1,8 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import type { Circuit, HomeAssistant, PanelTopology } from "../src/types.js";
-import { discoverTopology, isTopologyPending, subscribePanelEntryLoads } from "../src/card/card-discovery.js";
-import { ErrorStore } from "../src/core/error-store.js";
-import { RetryManager } from "../src/core/retry-manager.js";
+import { discoverTopology, subscribePanelEntryLoads } from "../src/card/card-discovery.js";
 import { ENTRY_RELOADS, FakeConnection, hassWith } from "./fake-connection.js";
 import { PANEL, SECOND_PANEL, SECOND_SPAN_ENTRY, SPAN_ENTRY } from "./hass-registries.js";
 
@@ -95,57 +93,6 @@ describe("topology path labels a circuit by its device when the record carries d
   });
 });
 
-// Until the panel's config entry has loaded, `panel_topology` gives no topology:
-// the integration answers `not_loaded` while the entry is set up, retried or
-// reloaded, and `no_data` for a loaded entry before its first data; Home
-// Assistant answers `unknown_command` before the integration has registered it,
-// which it does as its first entry sets up; and home-assistant-js-websocket
-// rejects a call the lost connection cut off. Every other refusal is one that
-// waiting does not end.
-describe("isTopologyPending", () => {
-  it.each([
-    ["the entry not loaded", { code: "not_loaded", message: "SPAN Panel integration is not loaded" }],
-    ["a loaded entry with no data yet", { code: "no_data", message: "SPAN Panel has not yet provided any data" }],
-    ["a command Home Assistant does not know yet", { code: "unknown_command", message: "Unknown command." }],
-    ["a connection lost, as the error result the library rejects with", { type: "result", success: false, error: { code: 3, message: "Connection lost" } }],
-    ["a connection lost, as the bare code the library rejected a queued command with before 9.8.0", 3],
-  ])("holds for %s", (_case, err) => {
-    expect(isTopologyPending(err)).toBe(true);
-  });
-
-  it.each([
-    ["a device the registry does not hold", { code: "device_not_found", message: "Device not found" }],
-    ["a device no SPAN entry owns", { code: "not_span_panel", message: "Device is not a SPAN Panel device" }],
-    ["a circuit's or a sub-device's device", { code: "not_panel_device", message: "Use the SPAN panel device registry ID" }],
-    ["any other error Home Assistant answers", { code: "unknown_error", message: "Unknown error" }],
-    ["the library's invalid authentication, as an error result", { type: "result", success: false, error: { code: 2, message: "Invalid auth" } }],
-    ["the library's invalid authentication, as a bare code", 2],
-    ["an Error whose message names a code", new Error("not_loaded")],
-    ["a code as text, with no rejection object", "not_loaded"],
-    ["null", null],
-  ])("fails for %s", (_case, err) => {
-    expect(isTopologyPending(err)).toBe(false);
-  });
-
-  it.each([
-    ["the entry not loaded", { code: "not_loaded", message: "SPAN Panel integration is not loaded" }],
-    ["a connection lost", { type: "result", success: false, error: { code: 3, message: "Connection lost" } }],
-  ])("is, for %s, what a retry manager built to pass it through hands back from discoverTopology, after one ask", async (_case, refusal) => {
-    const callWS = vi.fn(async () => {
-      throw refusal;
-    });
-    const store = new ErrorStore();
-
-    await expect(
-      discoverTopology({ callWS } as unknown as HomeAssistant, CURRENT_ID, new RetryManager(store, { passThrough: isTopologyPending }))
-    ).rejects.toBe(refusal);
-
-    expect(callWS).toHaveBeenCalledTimes(1);
-    expect(store.active).toEqual([]);
-    store.dispose();
-  });
-});
-
 describe("subscribePanelEntryLoads", () => {
   const SEED = (...entries: Array<[string, string, string?]>): unknown[] =>
     entries.map(([entry_id, state, domain = "span_panel"]) => ({ type: null, entry: { entry_id, domain, state } }));
@@ -166,7 +113,7 @@ describe("subscribePanelEntryLoads", () => {
     await subscribePanelEntryLoads(
       hassListing(connection, async () => [PANEL, SECOND_PANEL]),
       PANEL.id,
-      onLoaded
+      { onLoaded, onStatus: () => {} }
     );
 
     connection.emit(ENTRY_RELOADS, SEED([SPAN_ENTRY, "loaded"], [SECOND_SPAN_ENTRY, "loaded"]));
@@ -178,26 +125,78 @@ describe("subscribePanelEntryLoads", () => {
     expect(onLoaded).toHaveBeenCalledTimes(2);
   });
 
-  it.each([
-    ["the device list does not hold the device, as for an id from before Home Assistant 2026.8", async () => [PANEL, SECOND_PANEL]],
-    ["the device list holds it with no owner", async () => [{ id: OLD_ID }]],
-    [
-      "the device list cannot be read",
-      async () => {
-        throw new Error("connection lost");
-      },
-    ],
-  ])("reports any of the integration's entries loading where %s", async (_case, devices) => {
-    vi.spyOn(console, "warn").mockImplementation(() => {});
+  it("reports any of the integration's entries loading where the device list does not hold the device, as for an id from before Home Assistant 2026.8", async () => {
     const connection = new FakeConnection();
     const onLoaded = vi.fn();
-    await subscribePanelEntryLoads(hassListing(connection, devices), OLD_ID, onLoaded);
+    const onStatus = vi.fn();
+    await subscribePanelEntryLoads(
+      hassListing(connection, async () => [PANEL, SECOND_PANEL]),
+      OLD_ID,
+      { onLoaded, onStatus }
+    );
 
     connection.emit(ENTRY_RELOADS, SEED([SPAN_ENTRY, "setup_retry"], ["hue-entry-1", "loaded", "hue"]));
     expect(onLoaded).not.toHaveBeenCalled();
     connection.emit(ENTRY_RELOADS, LOADED(SECOND_SPAN_ENTRY));
     expect(onLoaded).toHaveBeenCalledTimes(1);
-    vi.restoreAllMocks();
+    // What one of the integration's entries says of itself says nothing of a panel whose entry is not known.
+    connection.emit(ENTRY_RELOADS, [{ type: "updated", entry: { entry_id: SPAN_ENTRY, domain: "span_panel", state: "setup_error", disabled_by: null } }]);
+    connection.emit(ENTRY_RELOADS, [{ type: "removed", entry: { entry_id: SECOND_SPAN_ENTRY, domain: "span_panel", state: "not_loaded", disabled_by: null } }]);
+    expect(onStatus).not.toHaveBeenCalled();
+  });
+
+  it("waits for any of the integration's entries where the device list is refused by a lost connection, and for the panel's own once the subscription's first batch comes and the list answers", async () => {
+    const lost = { type: "result", success: false, error: { code: 3, message: "Connection lost" } };
+    let down = true;
+    const connection = new FakeConnection();
+    const onLoaded = vi.fn();
+    const onStatus = vi.fn();
+    const subscribed = subscribePanelEntryLoads(
+      hassListing(connection, async () => {
+        if (down) throw lost;
+        return [PANEL, SECOND_PANEL];
+      }),
+      PANEL.id,
+      { onLoaded, onStatus }
+    );
+    await vi.waitFor(() => expect(connection.live(ENTRY_RELOADS)).toBe(1));
+    const unsubscribe = await subscribed;
+
+    // The connection is back: the subscription's first batch comes, and another panel's entry is loaded.
+    down = false;
+    connection.emit(ENTRY_RELOADS, SEED([SPAN_ENTRY, "setup_error"], [SECOND_SPAN_ENTRY, "loaded"]));
+    expect(onLoaded).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => expect(connection.subscriptions.filter(sub => sub.key === ENTRY_RELOADS)).toHaveLength(2));
+    await vi.waitFor(() => expect(connection.live(ENTRY_RELOADS)).toBe(1));
+
+    connection.emit(ENTRY_RELOADS, SEED([SPAN_ENTRY, "setup_error"], [SECOND_SPAN_ENTRY, "loaded"]));
+    expect(onStatus.mock.calls).toEqual([["setup_failed"]]);
+    connection.emit(ENTRY_RELOADS, LOADED(SECOND_SPAN_ENTRY));
+    expect(onLoaded).toHaveBeenCalledTimes(1);
+    await unsubscribe();
+    expect(connection.live(ENTRY_RELOADS)).toBe(0);
+  });
+
+  it("reports what the panel's own entry says of itself as it changes, and its removal, and nothing of another panel's", async () => {
+    const connection = new FakeConnection();
+    const onStatus = vi.fn();
+    await subscribePanelEntryLoads(
+      hassListing(connection, async () => [PANEL, SECOND_PANEL]),
+      PANEL.id,
+      { onLoaded: () => {}, onStatus }
+    );
+    const updated = (entry_id: string, state: string, disabled_by: string | null = null): unknown[] => [
+      { type: "updated", entry: { entry_id, domain: "span_panel", state, disabled_by } },
+    ];
+
+    connection.emit(ENTRY_RELOADS, SEED([SPAN_ENTRY, "setup_in_progress"], [SECOND_SPAN_ENTRY, "setup_error"]));
+    connection.emit(ENTRY_RELOADS, updated(SPAN_ENTRY, "setup_retry"));
+    connection.emit(ENTRY_RELOADS, updated(SPAN_ENTRY, "setup_error"));
+    connection.emit(ENTRY_RELOADS, updated(SECOND_SPAN_ENTRY, "not_loaded", "user"));
+    connection.emit(ENTRY_RELOADS, updated(SPAN_ENTRY, "not_loaded", "user"));
+    connection.emit(ENTRY_RELOADS, [{ type: "removed", entry: { entry_id: SPAN_ENTRY, domain: "span_panel", state: "not_loaded", disabled_by: "user" } }]);
+
+    expect(onStatus.mock.calls).toEqual([["loading"], ["setup_failed"], ["disabled"], [null]]);
   });
 
   it("subscribes to config entries as the card's reload subscription does, and unsubscribes through what it resolves to", async () => {
@@ -205,7 +204,10 @@ describe("subscribePanelEntryLoads", () => {
     const unsubscribe = await subscribePanelEntryLoads(
       hassListing(connection, async () => [PANEL]),
       PANEL.id,
-      () => {}
+      {
+        onLoaded: () => {},
+        onStatus: () => {},
+      }
     );
 
     expect(connection.subscriptions.map(s => s.message)).toEqual([{ type: "config_entries/subscribe", type_filter: ["device"] }]);

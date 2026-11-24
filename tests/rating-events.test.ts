@@ -741,6 +741,7 @@ describe("the sidebar dashboard", () => {
           if (table) return table;
           if (status) return monitoringFor(status);
         }
+        if (msg.type === "span_panel/adopted/list") return { devices: [] };
         return {};
       }) as HomeAssistant["callWS"],
     });
@@ -972,6 +973,7 @@ describe("the sidebar dashboard", () => {
     const build = vi.spyOn(FavoritesController.prototype, "build").mockResolvedValue({
       topology: { circuits: {}, sub_devices: {}, _favoriteRefs: {} },
       entryIds: ["entry-1"],
+      awaitingPanelIds: [],
       perPanelStats: [{ panelDeviceId: "panel-1", panelName: "Panel 1", topology: rendered }],
     } as unknown as Awaited<ReturnType<FavoritesController["build"]>>);
     const refreshList = vi.spyOn(DashboardController.prototype, "refreshCircuitSidePanel").mockResolvedValue(undefined);

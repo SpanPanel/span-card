@@ -1,4 +1,5 @@
 import { INTEGRATION_DOMAIN } from "../constants.js";
+import { AWAITING_LOAD, isRefusedUntilEntryLoads } from "../core/entry-load.js";
 import { escapeHtml } from "../helpers/sanitize.js";
 import { errorText } from "../helpers/error-text.js";
 import { deepEqual } from "../helpers/deep-equal.js";
@@ -45,15 +46,15 @@ const BUTTON = `background:none;border:1px solid ${LINE};color:var(--primary-tex
 
 /** One read of a panel's rows: what it found, or why it found nothing. */
 interface ListRead {
-  /** The panel the read was for; a result for any other is dropped. */
-  deviceId: string | null;
   groups: AdoptedDeviceGroup[];
-  /** Why the read failed, or null when it succeeded. */
+  /** Why the read failed, or null when it succeeded or waits for the panel's entry to load. */
   error: string | null;
+  /** Whether the read was refused because the panel's config entry has not loaded yet (`isRefusedUntilEntryLoads`). */
+  awaitingLoad: boolean;
 }
 
-/** What adopting a read did to the view: dropped as stale, left it as shown, or changed it. */
-type ListAdoption = "stale" | "unchanged" | "changed";
+/** What adopting a read did to the view: left it as shown, or changed it. */
+type ListAdoption = "unchanged" | "changed";
 
 /** One row's editor while it is open. Only the expanded row has one. */
 interface EditorState {
@@ -138,6 +139,10 @@ export class AdoptedTab {
 
   private _groups: AdoptedDeviceGroup[] = [];
   private _loadError: string | null = null;
+  /** Whether the tab waits for the panel's config entry to load, with no rows to show until it has. */
+  private _awaitingLoad = false;
+  /** Moves on each stop, so a re-read started before the user left the tab paints nothing after (`refresh`, `_scheduleRefresh`). */
+  private _epoch = 0;
   private _query = "";
   private _expandedKey: string | null = null;
   private _editor: EditorState | null = null;
@@ -157,6 +162,7 @@ export class AdoptedTab {
   };
 
   stop(): void {
+    this._epoch += 1;
     if (this._refreshTimer) {
       clearTimeout(this._refreshTimer);
       this._refreshTimer = null;
@@ -164,8 +170,18 @@ export class AdoptedTab {
     this._unbind();
   }
 
-  async render(container: HTMLElement, hass: HomeAssistant, deviceId?: string): Promise<void> {
-    const nextDeviceId = deviceId === undefined ? this._deviceId : deviceId || null;
+  /**
+   * Read the panel `deviceId` names, "" for none selected, and paint the tab in
+   * `container`. Where the panel's config entry has not loaded
+   * (`isRefusedUntilEntryLoads`) it paints nothing and answers `AWAITING_LOAD`,
+   * for the dashboard to say what the wait says; `refresh` paints the tab once
+   * the entry loads. The dashboard renders its tabs one at a time, so no other
+   * render lands while this one reads. A detach stops the tab but not this read:
+   * the rows are painted in the container the dashboard keeps, and show as it is
+   * attached again.
+   */
+  async render(container: HTMLElement, hass: HomeAssistant, deviceId: string): Promise<typeof AWAITING_LOAD | undefined> {
+    const nextDeviceId = deviceId || null;
     if (nextDeviceId !== this._deviceId) {
       // Another panel's rows: an open editor and a filter belong to the
       // panel they were opened on, and a key from one panel resolves to
@@ -178,21 +194,29 @@ export class AdoptedTab {
     this._unbind();
     this._container = container;
     this._hass = hass;
-    // A render for another panel started meanwhile, and paints that panel.
-    if (this._adoptList(await this._fetchList(hass), false) === "stale") return;
+    this._adoptList(await this._fetchList(hass), false);
+    if (this._awaitingLoad) return AWAITING_LOAD;
     this._paint();
+    return undefined;
   }
 
   /**
    * Re-read the rows after the panel's entry reloaded, and repaint them only when
    * they changed. An open editor's state survives a repaint, but the field the
    * user is typing in would lose its focus and caret to one that changed nothing.
-   * A failed read keeps the rows on screen.
+   * A failed read keeps the rows on screen. A tab that waits for the entry to load
+   * holds no rows, so it is painted whole with whatever else the read finds. A
+   * read that the user left the tab during paints nothing.
    */
   async refresh(): Promise<void> {
     const hass = this._hass;
     if (!hass || !this._container) return;
-    if (this._adoptList(await this._fetchList(hass), true) === "changed") this._paintGroups();
+    const waiting = this._awaitingLoad;
+    const epoch = this._epoch;
+    const read = await this._fetchList(hass);
+    if (epoch !== this._epoch || this._adoptList(read, !waiting) !== "changed") return;
+    if (waiting) this._paint();
+    else this._paintGroups();
   }
 
   // ── Data ────────────────────────────────────────────────────────────
@@ -200,30 +224,34 @@ export class AdoptedTab {
   /** Read the curatable rows for the selected panel. It assigns nothing: `_adoptList` decides. */
   private async _fetchList(hass: HomeAssistant): Promise<ListRead> {
     const deviceId = this._deviceId;
-    if (!deviceId) return { deviceId, groups: [], error: null };
+    if (!deviceId) return { groups: [], error: null, awaitingLoad: false };
     try {
       const response = await hass.callWS<AdoptedListResponse>({
         type: `${INTEGRATION_DOMAIN}/adopted/list`,
         device_id: deviceId,
       });
-      return { deviceId, groups: Array.isArray(response?.devices) ? response.devices : [], error: null };
+      return { groups: response.devices, error: null, awaitingLoad: false };
     } catch (err) {
-      return { deviceId, groups: [], error: errorText(err) };
+      // `adopted/list` refuses a panel whose entry has not loaded as `panel_topology` does.
+      if (isRefusedUntilEntryLoads(err)) return { groups: [], error: null, awaitingLoad: true };
+      return { groups: [], error: errorText(err), awaitingLoad: false };
     }
   }
 
   /**
-   * Adopt a read unless the panel changed while it was in flight. ``keepOnError``
-   * holds the rows already on screen: a re-read runs while the entry is reloading,
-   * and a refusal there means "not yet", not "nothing to show". A recovery clears
-   * a load error even when it finds no rows.
+   * Adopt a read. Every read is of the panel the tab shows: only `render` changes
+   * the panel, the dashboard stops the tab before each render, and a re-read the
+   * tab was stopped during adopts nothing (`_epoch`). ``keepOnError`` holds the
+   * rows already on screen: a re-read runs while the entry is reloading, and a
+   * refusal there means "not yet", not "nothing to show". A recovery clears a
+   * load error, or ends a wait for the entry to load, even when it finds no rows.
    */
   private _adoptList(read: ListRead, keepOnError: boolean): ListAdoption {
-    if (read.deviceId !== this._deviceId) return "stale";
-    if (read.error !== null && keepOnError) return "unchanged";
-    const changed = read.error !== this._loadError || !deepEqual(read.groups, this._groups);
+    if ((read.error !== null || read.awaitingLoad) && keepOnError) return "unchanged";
+    const changed = read.error !== this._loadError || read.awaitingLoad !== this._awaitingLoad || !deepEqual(read.groups, this._groups);
     this._groups = read.groups;
     this._loadError = read.error;
+    this._awaitingLoad = read.awaitingLoad;
     return changed ? "changed" : "unchanged";
   }
 
@@ -765,8 +793,9 @@ export class AdoptedTab {
       this._refreshTimer = null;
       const hass = this._hass;
       if (!hass) return;
+      const epoch = this._epoch;
       void this._fetchList(hass).then(read => {
-        if (this._adoptList(read, true) === "changed") this._paintGroups();
+        if (epoch === this._epoch && this._adoptList(read, true) === "changed") this._paintGroups();
       });
     }, REFRESH_AFTER_SAVE_MS);
   }

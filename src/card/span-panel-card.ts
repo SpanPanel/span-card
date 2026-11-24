@@ -17,7 +17,9 @@ import { subscribeEntryReloads } from "../core/entry-reload.js";
 import { canHearRatingChanges, subscribePackageRatingChanges } from "../core/rating-events.js";
 import { batchCalls, coalesceRuns, makeRenderToken } from "../panel/coalesce.js";
 import { ErrorStore } from "../core/error-store.js";
-import { discoverTopology, isTopologyPending, subscribePanelEntryLoads } from "./card-discovery.js";
+import { discoverTopology, subscribePanelEntryLoads } from "./card-discovery.js";
+import { entryWaitLine, entryWaitOf, isRefusedUntilEntryLoads } from "../core/entry-load.js";
+import type { EntryLoad } from "../core/entry-load.js";
 import { RetryManager } from "../core/retry-manager.js";
 import { errorText } from "../helpers/error-text.js";
 import { deepEqual } from "../helpers/deep-equal.js";
@@ -69,10 +71,17 @@ export class SpanPanelCard extends LitElement {
   @state() private _discovering = false;
   /**
    * Whether first discovery waits for the panel's config entry to load, the
-   * topology not being available until it has (`isTopologyPending`). It
+   * topology not being available until it has (`isRefusedUntilEntryLoads`). It
    * outlasts a detach, so the card waits again when it returns.
    */
   @state() private _awaitingLoad = false;
+  /**
+   * Where the panel's config entry stands, as the wait for it last heard
+   * (`PanelEntryWatch.onStatus`); undefined before it has heard, and where the
+   * panel's entry is not known. The card says what the wait says of it
+   * (`entryWaitOf`): that it waits, or that setup failed or the panel is disabled.
+   */
+  @state() private _entryLoad: EntryLoad | undefined = undefined;
   /**
    * Whether first discovery failed for good. It holds until Retry or a
    * `setConfig`: no change of Home Assistant asks again, and a detach keeps it,
@@ -222,11 +231,10 @@ export class SpanPanelCard extends LitElement {
     // State 2: Not yet discovered -- connecting, or waiting for the panel's entry
     // to load; or failed, which the banner says, with a retry.
     if (!this._discovered) {
-      const status = this._awaitingLoad ? t("card.waiting_for_load") : t("card.connecting");
       return html`
         <div class="span-card">
           <span-error-banner .store=${this._errorStore}></span-error-banner>
-          ${this._discoveryFailed ? nothing : html`<div role="status" style="padding: 24px; color: var(--secondary-text-color);">${status}</div>`}
+          ${this._discoveryFailed ? nothing : this._renderStatusLine()}
         </div>
       `;
     }
@@ -247,6 +255,17 @@ export class SpanPanelCard extends LitElement {
       </div>
       <span-side-panel @side-panel-closed=${this._onSidePanelClosed}></span-side-panel>
     `;
+  }
+
+  /**
+   * The line the card shows until it draws its panel: that it is connecting, or
+   * what its wait for the panel's entry says (`entryWaitLine`), a wait that will
+   * not end by itself as an alert that says where to set it right.
+   */
+  private _renderStatusLine(): unknown {
+    if (!this._awaitingLoad) return html`<div role="status" style="padding: 24px; color: var(--secondary-text-color);">${t("card.connecting")}</div>`;
+    const line = entryWaitLine(entryWaitOf(this._entryLoad));
+    return html`<div role=${line.role} style=${`padding: 24px; color: ${line.color};`}>${line.text}</div>`;
   }
 
   updated(changedProps: Map<string, unknown>): void {
@@ -290,7 +309,7 @@ export class SpanPanelCard extends LitElement {
 
   /**
    * One attempt at first discovery, from `panel_topology`. A failure that means
-   * the topology is not available yet (`isTopologyPending`) is not retried on a
+   * the topology is not available yet (`isRefusedUntilEntryLoads`) is not retried on a
    * timer: the card says it is waiting, and asks again as the panel's entry
    * loads. Any other failure is final (`_failDiscovery`). A `setConfig`, or a
    * later attempt, drops the outcome of one that straddles it.
@@ -302,13 +321,13 @@ export class SpanPanelCard extends LitElement {
       return;
     }
     const superseded = this._beginDiscoveryRun();
-    const retry = new RetryManager(this._errorStore, { passThrough: isTopologyPending });
+    const retry = new RetryManager(this._errorStore, { passThrough: isRefusedUntilEntryLoads });
     let result: DiscoveryResult;
     try {
       result = await discoverTopology(hass, this._config.device_id, retry);
     } catch (err) {
       if (superseded()) return;
-      if (isTopologyPending(err)) {
+      if (isRefusedUntilEntryLoads(err)) {
         this._awaitEntryLoad();
         return;
       }
@@ -345,11 +364,11 @@ export class SpanPanelCard extends LitElement {
 
   /**
    * First discovery failed for good, for a reason waiting does not end, or as
-   * the wait's own subscription failed. The failure is final: the card shows
-   * the error until Retry (`_retryDiscovery`) or a `setConfig`, and asks
-   * nothing more meanwhile, so no later answer draws the panel under the error
-   * or starts a wait it hides. An ask still in flight, as one on the entry's
-   * load when the wait's subscription fails, is dropped with its answer.
+   * the panel's entry was removed while the card waited. The failure is final:
+   * the card shows the error until Retry (`_retryDiscovery`) or a `setConfig`,
+   * and asks nothing more meanwhile, so no later answer draws the panel under
+   * the error or starts a wait it hides. An ask still in flight, as one on the
+   * entry's load when the entry is then removed, is dropped with its answer.
    */
   private _failDiscovery(): void {
     this._beginDiscoveryRun();
@@ -393,20 +412,27 @@ export class SpanPanelCard extends LitElement {
 
   /**
    * Subscribe to the panel's entry reaching `loaded` (`subscribePanelEntryLoads`),
-   * each report asking first discovery again. A report to a wait no longer held
-   * asks nothing. A subscription that fails ends the wait as a failed discovery,
-   * with its retry, rather than leave the card waiting for a report that cannot come.
+   * each report asking first discovery again, and to where the entry stands,
+   * which the card says (`_entryLoad`). An entry that failed to set up or is
+   * disabled is said so, and still waited for, so the card draws its panel once
+   * the user has set it right, as after a reauth. An entry removed ends the wait
+   * as a failed discovery. A report to a wait no longer held asks nothing. The
+   * subscription is refused only where the connection is closed for good, as
+   * after a reconnect whose authentication failed, which reloads the frontend.
    */
   private _waitForEntryLoad(): void {
     this._dropEntryLoadWait();
     const deviceId = this._config.device_id;
     if (!this.hass || !deviceId) return;
-    const wait: Promise<() => Promise<void>> = subscribePanelEntryLoads(this.hass, deviceId, () => {
-      if (this._loadWait === wait) this._askOnEntryLoad();
-    }).catch((err: unknown): (() => Promise<void>) => {
-      console.warn("SPAN Panel: config entry subscription failed", err);
-      if (this._loadWait === wait) this._failDiscovery();
-      return async () => {};
+    const wait: Promise<() => Promise<void>> = subscribePanelEntryLoads(this.hass, deviceId, {
+      onLoaded: () => {
+        if (this._loadWait === wait) this._askOnEntryLoad();
+      },
+      onStatus: load => {
+        if (this._loadWait !== wait) return;
+        if (load === null) this._failDiscovery();
+        else this._entryLoad = load;
+      },
     });
     this._loadWait = wait;
   }
@@ -417,10 +443,15 @@ export class SpanPanelCard extends LitElement {
     this._dropEntryLoadWait();
   }
 
-  /** Unsubscribe the wait for the panel's entry, through the promise held, whenever it resolves. */
+  /**
+   * Unsubscribe the wait for the panel's entry, through the promise held,
+   * whenever it resolves, and forget where the entry stood: the next wait's
+   * subscription says it again as it starts.
+   */
   private _dropEntryLoadWait(): void {
     const wait = this._loadWait;
     this._loadWait = null;
+    this._entryLoad = undefined;
     void wait?.then(unsubscribe => unsubscribe());
   }
 

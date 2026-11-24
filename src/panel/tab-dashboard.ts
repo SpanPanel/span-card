@@ -1,4 +1,5 @@
 import { discoverTopology } from "../card/card-discovery.js";
+import { AWAITING_LOAD, isRefusedUntilEntryLoads } from "../core/entry-load.js";
 import { escapeHtml } from "../helpers/sanitize.js";
 import { errorText } from "../helpers/error-text.js";
 import { positionRange, positionRowCount, type PositionRange } from "../helpers/layout.js";
@@ -56,14 +57,19 @@ export class DashboardTab {
     this._ctrl.setPanelFavorites(info);
   }
 
-  /** Render the panel's grid; answers the topology it rendered, or null when it showed an error instead. */
+  /**
+   * Render the panel's grid; answers the topology it rendered, or null when it
+   * showed an error instead. Where the topology is not available until the
+   * panel's config entry loads (`isRefusedUntilEntryLoads`) it draws nothing and
+   * answers `AWAITING_LOAD`, for the dashboard to say what the wait says.
+   */
   async render(
     container: HTMLElement,
     hass: HomeAssistant,
     deviceId: string,
     config: CardConfig,
     configEntryId?: string | null
-  ): Promise<PanelTopology | null> {
+  ): Promise<PanelTopology | null | typeof AWAITING_LOAD> {
     this.stop();
     this._ctrl.reset();
     this._ctrl.showMonitoring = true;
@@ -77,6 +83,7 @@ export class DashboardTab {
       positions = positionRange(topology, result.panelSize);
       if (!positions) throw new Error(t("card.topology_error"));
     } catch (err) {
+      if (isRefusedUntilEntryLoads(err)) return AWAITING_LOAD;
       container.innerHTML = `<p style="color:var(--error-color);">${escapeHtml(errorText(err))}</p>`;
       return null;
     }

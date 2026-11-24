@@ -6,6 +6,7 @@ vi.mock("../src/card/card-discovery.js", () => ({
 }));
 
 import { discoverTopology } from "../src/card/card-discovery.js";
+import { ErrorStore } from "../src/core/error-store.js";
 import { FavoritesController, buildCompositeId } from "../src/core/favorites-controller.js";
 import { buildSubDevicesHTML } from "../src/core/sub-device-renderer.js";
 
@@ -59,7 +60,7 @@ describe("solar tiles in the favorites view", () => {
       "panel-b": { circuits: [], sub_devices: ["inverter", "solar"] },
     };
 
-    const { topology } = await new FavoritesController().build(hass, favorites, [panel("panel-a", "Alpha"), panel("panel-b", "Bravo")]);
+    const { topology } = await new FavoritesController().build(hass, favorites, [panel("panel-a", "Alpha"), panel("panel-b", "Bravo")], new ErrorStore());
     const html = buildSubDevicesHTML(topology, hass, {} as CardConfig, { showFavorites: true });
 
     const order = Array.from(html.matchAll(/data-subdev="([^"]+)"/g), match => match[1]);

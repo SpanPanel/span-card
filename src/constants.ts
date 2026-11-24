@@ -1,7 +1,7 @@
 import { t } from "./i18n.js";
 import type { ChartMetricDef, GraphHorizonPreset, SheddingPriorityDef } from "./types.js";
 
-export const CARD_VERSION = "0.12.1-beta.1";
+export const CARD_VERSION = "0.12.1-beta.2";
 
 // -- Defaults --
 

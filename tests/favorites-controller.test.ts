@@ -1,12 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { HomeAssistant, PanelDevice, PanelTopology } from "../src/types.js";
 
-vi.mock("../src/card/card-discovery.js", () => ({
+vi.mock("../src/card/card-discovery.js", async importOriginal => ({
+  ...(await importOriginal<typeof import("../src/card/card-discovery.js")>()),
   discoverTopology: vi.fn(),
 }));
 
 import { discoverTopology } from "../src/card/card-discovery.js";
+import { ErrorStore } from "../src/core/error-store.js";
 import { FavoritesController, buildCompositeId } from "../src/core/favorites-controller.js";
+import { RetryManager } from "../src/core/retry-manager.js";
 import { meterSlots } from "../src/helpers/shared-meters.js";
 
 const mockDiscover = vi.mocked(discoverTopology);
@@ -35,14 +38,17 @@ function makeTopology(circuits: Record<string, { name: string }>, deviceName = "
 
 describe("FavoritesController.build", () => {
   let controller: FavoritesController;
+  /** The dashboard's error store, which it hands every build. */
+  let store: ErrorStore;
 
   beforeEach(() => {
     controller = new FavoritesController();
+    store = new ErrorStore();
     mockDiscover.mockReset();
   });
 
   it("empty favorites → empty topology, no entries, no stats", async () => {
-    const result = await controller.build(hass, {}, []);
+    const result = await controller.build(hass, {}, [], store);
     expect(Object.keys(result.topology.circuits)).toHaveLength(0);
     expect(result.topology.sub_devices).toBeDefined();
     expect(Object.keys(result.topology.sub_devices!)).toHaveLength(0);
@@ -59,7 +65,7 @@ describe("FavoritesController.build", () => {
       "panel-1": { circuits: ["uuid-a", "uuid-b"], sub_devices: [] },
     };
 
-    const result = await controller.build(hass, favorites, [panel]);
+    const result = await controller.build(hass, favorites, [panel], store);
 
     const circuitKeys = Object.keys(result.topology.circuits);
     expect(circuitKeys).toHaveLength(2);
@@ -93,7 +99,7 @@ describe("FavoritesController.build", () => {
       "panel-2": { circuits: ["uuid-b"], sub_devices: [] },
     };
 
-    const result = await controller.build(hass, favorites, [panel1, panel2]);
+    const result = await controller.build(hass, favorites, [panel1, panel2], store);
 
     expect(Object.keys(result.topology.circuits)).toHaveLength(2);
 
@@ -118,13 +124,13 @@ describe("FavoritesController.build", () => {
       "panel-2": { circuits: ["uuid-z"], sub_devices: [] },
     };
 
-    const result = await controller.build(hass, favorites, [panel]);
+    const result = await controller.build(hass, favorites, [panel], store);
 
     // Only panel-1's circuit appears; panel-2 was dropped before fetch
     expect(Object.keys(result.topology.circuits)).toHaveLength(1);
     expect(result.topology.circuits[buildCompositeId("panel-1", "uuid-a")]).toBeDefined();
     expect(mockDiscover).toHaveBeenCalledTimes(1);
-    expect(mockDiscover).toHaveBeenCalledWith(hass, "panel-1", null);
+    expect(mockDiscover).toHaveBeenCalledWith(hass, "panel-1", expect.any(RetryManager));
   });
 
   it("discoverTopology rejection for one panel → that panel dropped, others still merge", async () => {
@@ -142,13 +148,35 @@ describe("FavoritesController.build", () => {
       "panel-2": { circuits: ["uuid-b"], sub_devices: [] },
     };
 
-    const result = await controller.build(hass, favorites, [panel1, panel2]);
+    const result = await controller.build(hass, favorites, [panel1, panel2], store);
 
     // Only panel-1 contributes; panel-2 fetch rejected and was dropped
     expect(Object.keys(result.topology.circuits)).toHaveLength(1);
     expect(result.topology.circuits[buildCompositeId("panel-1", "uuid-a")]).toBeDefined();
     expect(result.entryIds).toEqual(["entry-1"]);
     expect(result.perPanelStats).toHaveLength(1);
+    expect(result.awaitingPanelIds).toEqual([]);
+  });
+
+  it("leaves out a panel whose config entry has not loaded, and says the build waits for it to load", async () => {
+    const panel1 = makePanel("panel-1", "Good Panel", "entry-1");
+    const panel2 = makePanel("panel-2", "Loading Panel", "entry-2");
+    const topology1 = makeTopology({ "uuid-a": { name: "Office" } });
+    mockDiscover.mockImplementation((_hass, deviceId) => {
+      if (deviceId === "panel-1") return Promise.resolve({ topology: topology1, panelSize: 200 });
+      return Promise.reject({ code: "not_loaded", message: "SPAN Panel integration is not loaded" });
+    });
+
+    const result = await controller.build(
+      hass,
+      { "panel-1": { circuits: ["uuid-a"], sub_devices: [] }, "panel-2": { circuits: ["uuid-b"], sub_devices: [] } },
+      [panel1, panel2],
+      store
+    );
+
+    expect(Object.keys(result.topology.circuits)).toEqual([buildCompositeId("panel-1", "uuid-a")]);
+    expect(result.entryIds).toEqual(["entry-1"]);
+    expect(result.awaitingPanelIds).toEqual(["panel-2"]);
   });
 
   it("favorited uuid not present in topology → silently dropped", async () => {
@@ -161,7 +189,7 @@ describe("FavoritesController.build", () => {
       "panel-1": { circuits: ["uuid-a", "uuid-missing"], sub_devices: [] },
     };
 
-    const result = await controller.build(hass, favorites, [panel]);
+    const result = await controller.build(hass, favorites, [panel], store);
 
     expect(Object.keys(result.topology.circuits)).toHaveLength(1);
     expect(result.topology.circuits[buildCompositeId("panel-1", "uuid-a")]).toBeDefined();
@@ -184,7 +212,7 @@ describe("FavoritesController.build", () => {
       "panel-1": { circuits: [], sub_devices: ["sub-uuid-1"] },
     };
 
-    const result = await controller.build(hass, favorites, [panel]);
+    const result = await controller.build(hass, favorites, [panel], store);
 
     const compositeId = buildCompositeId("panel-1", "sub-uuid-1");
     expect(result.topology.sub_devices![compositeId]).toBeDefined();
@@ -206,7 +234,7 @@ describe("FavoritesController.build", () => {
       "panel-1": { circuits: ["uuid-a"], sub_devices: [] },
     };
 
-    const result = await controller.build(hass, favorites, [panel]);
+    const result = await controller.build(hass, favorites, [panel], store);
 
     const compositeId = buildCompositeId("panel-1", "uuid-a");
     expect(result.topology._favoriteRefs[compositeId]).toMatchObject({
@@ -237,7 +265,7 @@ describe("FavoritesController.build", () => {
       "panel-2": { circuits: ["circuit-52"], sub_devices: [] },
     };
 
-    const merged = (await controller.build(hass, favorites, [panel1, panel2])).topology;
+    const merged = (await controller.build(hass, favorites, [panel1, panel2], store)).topology;
 
     const key1 = buildCompositeId("panel-1", "circuit-52");
     const key2 = buildCompositeId("panel-2", "circuit-52");
@@ -263,7 +291,7 @@ describe("FavoritesController.build", () => {
     }
     mockDiscover.mockResolvedValue({ topology, panelSize: 48 });
 
-    const merged = (await controller.build(hass, { "panel-1": { circuits: ["circuit-52", "circuit-53"], sub_devices: [] } }, [panel])).topology;
+    const merged = (await controller.build(hass, { "panel-1": { circuits: ["circuit-52", "circuit-53"], sub_devices: [] } }, [panel], store)).topology;
 
     expect(merged.shared_meter_groups).toEqual({});
     expect(meterSlots(merged).map(slot => slot.circuit.breaker_rating_a)).toEqual([25]);

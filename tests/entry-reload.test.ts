@@ -10,8 +10,8 @@ import { ENTRY_RELOADS, FakeConnection, hassWith } from "./fake-connection.js";
  * any transition being reported.
  */
 
-function entry(entry_id: string, state: string, domain = "span_panel"): ConfigEntrySummary {
-  return { entry_id, domain, state };
+function entry(entry_id: string, state: string, domain = "span_panel", disabled_by: string | null = null): ConfigEntrySummary {
+  return { entry_id, domain, state, disabled_by };
 }
 
 function batch(...entries: ConfigEntrySummary[]): unknown {
@@ -80,7 +80,7 @@ describe("subscribeEntryReloads", () => {
     expect(loaded).not.toHaveBeenCalled();
   });
 
-  it("ignores a re-seed that no longer lists the entry, and still reports its later load", async () => {
+  it("ignores a re-seed that no longer lists an entry, and reports the load of one added after it", async () => {
     const connection = new FakeConnection();
     const { loaded } = await subscribe(connection);
     connection.emit(ENTRY_RELOADS, batch(entry("entry-1", "loaded")));
@@ -88,9 +88,91 @@ describe("subscribeEntryReloads", () => {
     connection.emit(ENTRY_RELOADS, batch());
     expect(loaded).not.toHaveBeenCalled();
 
-    connection.emit(ENTRY_RELOADS, change("added", entry("entry-1", "not_loaded")));
-    connection.emit(ENTRY_RELOADS, change("updated", entry("entry-1", "loaded")));
-    expect(loaded.mock.calls).toEqual([["entry-1"]]);
+    // Core gives every entry an id of its own and never reuses one.
+    connection.emit(ENTRY_RELOADS, change("added", entry("entry-3", "not_loaded")));
+    connection.emit(ENTRY_RELOADS, change("updated", entry("entry-3", "loaded")));
+    expect(loaded.mock.calls).toEqual([["entry-3"]]);
+  });
+
+  describe("what each accepted entry says of itself", () => {
+    async function watch(connection: FakeConnection) {
+      const onStatus = vi.fn();
+      await subscribeEntryReloads(
+        hassWith(connection),
+        e => e.domain === "span_panel",
+        () => {},
+        { initialIsReseed: false, onStatus }
+      );
+      return onStatus;
+    }
+
+    it("reports it for each entry of the first batch, and again only as it changes", async () => {
+      const connection = new FakeConnection();
+      const onStatus = await watch(connection);
+
+      connection.emit(ENTRY_RELOADS, batch(entry("entry-1", "setup_in_progress"), entry("entry-2", "loaded"), entry("other-1", "setup_error", "hue")));
+      connection.emit(ENTRY_RELOADS, change("updated", entry("entry-1", "setup_retry")));
+      connection.emit(ENTRY_RELOADS, change("updated", entry("entry-1", "setup_error")));
+      connection.emit(ENTRY_RELOADS, change("updated", entry("entry-1", "setup_in_progress")));
+      connection.emit(ENTRY_RELOADS, change("updated", entry("entry-1", "loaded")));
+
+      expect(onStatus.mock.calls).toEqual([
+        ["entry-1", "loading"],
+        ["entry-2", "loaded"],
+        ["entry-1", "setup_failed"],
+        ["entry-1", "loading"],
+        ["entry-1", "loaded"],
+      ]);
+    });
+
+    it("reports a disabled entry as disabled, in whatever state it is", async () => {
+      const connection = new FakeConnection();
+      const onStatus = await watch(connection);
+      connection.emit(ENTRY_RELOADS, batch(entry("entry-1", "loaded")));
+
+      connection.emit(ENTRY_RELOADS, change("updated", entry("entry-1", "loaded", "span_panel", "user")));
+      connection.emit(ENTRY_RELOADS, change("updated", entry("entry-1", "not_loaded", "span_panel", "user")));
+
+      expect(onStatus.mock.calls).toEqual([
+        ["entry-1", "loaded"],
+        ["entry-1", "disabled"],
+      ]);
+    });
+
+    it("reports an entry removed, or missing from a re-seed, as null, and one added as it then is", async () => {
+      const connection = new FakeConnection();
+      const onStatus = await watch(connection);
+      connection.emit(ENTRY_RELOADS, batch(entry("entry-1", "loaded"), entry("entry-2", "setup_retry")));
+
+      connection.emit(ENTRY_RELOADS, change("removed", entry("entry-2", "not_loaded")));
+      connection.emit(ENTRY_RELOADS, batch());
+      connection.emit(ENTRY_RELOADS, change("added", entry("entry-3", "not_loaded")));
+
+      expect(onStatus.mock.calls).toEqual([
+        ["entry-1", "loaded"],
+        ["entry-2", "loading"],
+        ["entry-2", null],
+        ["entry-1", null],
+        ["entry-3", "loading"],
+      ]);
+    });
+
+    it("hears each batch of the current entries, the first one and each re-seed, and no change", async () => {
+      const connection = new FakeConnection();
+      const onSeed = vi.fn();
+      await subscribeEntryReloads(
+        hassWith(connection),
+        e => e.domain === "span_panel",
+        () => {},
+        { initialIsReseed: false, onSeed }
+      );
+
+      connection.emit(ENTRY_RELOADS, batch(entry("entry-1", "setup_retry")));
+      connection.emit(ENTRY_RELOADS, change("updated", entry("entry-1", "loaded")));
+      connection.emit(ENTRY_RELOADS, batch(entry("entry-1", "loaded")));
+
+      expect(onSeed).toHaveBeenCalledTimes(2);
+    });
   });
 
   it("hands back an unsubscribe that can be awaited", async () => {

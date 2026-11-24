@@ -1,9 +1,10 @@
 import { INTEGRATION_DOMAIN } from "../constants.js";
 import { resolveAndAssignAreas } from "../core/area-resolver.js";
+import { isConnectionLost } from "../core/entry-load.js";
+import type { EntryLoad } from "../core/entry-load.js";
 import { subscribeEntryReloads } from "../core/entry-reload.js";
 import type { ConfigEntrySummary } from "../core/entry-reload.js";
 import { RetryManager } from "../core/retry-manager.js";
-import { errorText } from "../helpers/error-text.js";
 import { isPositiveInteger, measuresOutsidePanel, positionRange } from "../helpers/layout.js";
 import { t } from "../i18n.js";
 import { deviceName } from "../core/registry-types.js";
@@ -69,85 +70,122 @@ function panelSizeFromCircuits(circuits: Record<string, Circuit>): number {
 // ── Waiting for the panel's config entry to load ─────────────────────────────
 
 /**
- * The codes Home Assistant refuses `panel_topology` with until the panel's
- * config entry has loaded: the integration's `not_loaded` while the entry is
- * set up, retried or reloaded, and its `no_data` for a loaded entry with no
- * data yet, which setup's wait for the first data rules out and is taken the
- * same way; and Home Assistant's own `unknown_command` before the integration
- * has registered the command, which it does as the first of its entries sets up.
- */
-const ENTRY_NOT_LOADED_CODES: ReadonlySet<unknown> = new Set(["not_loaded", "no_data", "unknown_command"]);
-
-/** home-assistant-js-websocket's code for a lost connection, its `ERR_CONNECTION_LOST`. */
-const ERR_CONNECTION_LOST = 3;
-
-/**
- * Whether home-assistant-js-websocket rejected a call because the connection
- * was lost. It rejects a call the lost connection cut off with an error result
- * carrying the code, `{ type: "result", success: false, error: { code: 3,
- * message } }`, and from 9.8.0 one sent while the socket is down the same way.
- * Before 9.8.0 it rejected a call sent while the socket was down, and one
- * queued during a reconnect, with the bare code. Both are taken, as the
- * library's own `isConnectionLost` takes them.
- */
-function isConnectionLost(err: unknown): boolean {
-  if (err === ERR_CONNECTION_LOST) return true;
-  if (typeof err !== "object" || err === null || !("error" in err)) return false;
-  const { error } = err;
-  return typeof error === "object" && error !== null && "code" in error && error.code === ERR_CONNECTION_LOST;
-}
-
-/**
- * Whether a failed discovery means the panel's topology is not available yet,
- * and its config entry reaching `loaded` will bring it: the entry has not
- * loaded (`ENTRY_NOT_LOADED_CODES`), as while Home Assistant starts, while
- * setup retries a panel it cannot reach, and during a reload; or the
- * connection to Home Assistant was lost (`isConnectionLost`), as across a
- * restart. Home Assistant's refusals are plain `{ code, message }` objects.
- * Every other failure, such as for a device that is not a SPAN panel, is one
- * that waiting does not end.
- */
-export function isTopologyPending(err: unknown): boolean {
-  if (isConnectionLost(err)) return true;
-  return typeof err === "object" && err !== null && "code" in err && ENTRY_NOT_LOADED_CODES.has(err.code);
-}
-
-/**
  * The config entry that owns device `deviceId`, as the device registry list
- * says; null where the list holds no such device or names no owner for it, or
- * cannot be read. An id saved before Home Assistant 2026.8 names no device in
- * the list, since that release gave every device it split a new id, though the
- * integration still answers it.
+ * says; null where the list does not hold the device. An id saved before Home
+ * Assistant 2026.8 names no device in the list, since that release gave every
+ * device it split a new id, though the integration still answers it. Rejects
+ * as the list's request does, which it does only where the connection is lost:
+ * the list answers every logged-in user, and its handler has no path that
+ * refuses.
  */
 async function owningEntryId(hass: HomeAssistant, deviceId: string): Promise<string | null> {
-  try {
-    const devices = await hass.callWS<DeviceRegistryEntry[]>({ type: "config/device_registry/list" });
-    return devices.find(d => d.id === deviceId)?.config_entry_id ?? null;
-  } catch (err) {
-    console.warn("SPAN Panel: device registry list failed; waiting for any SPAN Panel entry to load:", errorText(err));
-    return null;
-  }
+  const devices = await hass.callWS<DeviceRegistryEntry[]>({ type: "config/device_registry/list" });
+  return devices.find(d => d.id === deviceId)?.config_entry_id ?? null;
+}
+
+/** What a wait for a panel's config entry hears of the entry (`subscribePanelEntryLoads`). */
+export interface PanelEntryWatch {
+  /** The entry reached `loaded`, one already loaded as the subscription starts included. */
+  onLoaded: () => void;
+  /**
+   * Where the entry stands (`entryLoadOf`): reported as the subscription starts,
+   * and again as that changes, and null once the entry is removed. Only an entry
+   * known to be the panel's is reported.
+   */
+  onStatus: (load: EntryLoad | null) => void;
 }
 
 /**
  * Call `onLoaded` whenever the config entry of the panel `deviceId` names
  * reaches `loaded`, one already loaded as the subscription starts included, so
- * an entry that loaded between a failed discovery (`isTopologyPending`) and
- * this subscription is not missed. The entry is the one that owns the panel's
- * device; where that is not known (`owningEntryId`), any of the integration's
+ * an entry that loaded between a failed discovery (`isRefusedUntilEntryLoads`)
+ * and this subscription is not missed, and `onStatus` with where that entry
+ * stands. The entry is the one that owns the panel's device (`owningEntryId`).
+ * Where the device list does not hold the device, any of the integration's
  * entries is taken, and the next `panel_topology` says whether it was the
- * panel's. Resolves to the unsubscribe function.
+ * panel's, while what any of them says of itself says nothing of the panel's,
+ * so `onStatus` hears nothing. Where the list is refused for a lost connection,
+ * the owner is looked up again once the connection is back
+ * (`subscribeUntilOwnerKnown`). Resolves to the unsubscribe function.
  *
  * Nothing here watches the connection. home-assistant-js-websocket holds a
  * subscription asked for while the socket is down until it reconnects, from
  * 9.8.0 (9.7.1 never sent one), and replays every subscription after each
  * reconnect, its first batch a re-seed that reports each loaded entry. Every
- * Home Assistant the integration supports, 2026.11.0 on, ships a frontend that
- * pins 9.8.0 (20261028.4 to .6), so a wait started across a restart ends once
- * the entry loads, without a click.
+ * Home Assistant from 2026.11.0, the first the integration supports, pins
+ * home-assistant-js-websocket 9.8.0, so a wait started across a restart ends
+ * once the entry loads, without a click.
  */
-export async function subscribePanelEntryLoads(hass: HomeAssistant, deviceId: string, onLoaded: () => void): Promise<() => Promise<void>> {
-  const entryId = await owningEntryId(hass, deviceId);
-  const accept = (entry: ConfigEntrySummary): boolean => (entryId === null ? entry.domain === INTEGRATION_DOMAIN : entry.entry_id === entryId);
-  return subscribeEntryReloads(hass, accept, () => onLoaded(), { initialIsReseed: true });
+export async function subscribePanelEntryLoads(hass: HomeAssistant, deviceId: string, watch: PanelEntryWatch): Promise<() => Promise<void>> {
+  let owner: string | null;
+  try {
+    owner = await owningEntryId(hass, deviceId);
+  } catch (err) {
+    if (!isConnectionLost(err)) throw err;
+    return subscribeUntilOwnerKnown(hass, deviceId, watch);
+  }
+  return subscribeForOwner(hass, owner, watch);
+}
+
+/** Wait for the loads of `owner`, hearing where it stands; or, where the owner is not known (null), for those of any of the integration's entries. */
+function subscribeForOwner(hass: HomeAssistant, owner: string | null, { onLoaded, onStatus }: PanelEntryWatch): Promise<() => Promise<void>> {
+  if (owner === null)
+    return subscribeEntryReloads(
+      hass,
+      entry => entry.domain === INTEGRATION_DOMAIN,
+      () => onLoaded(),
+      { initialIsReseed: true }
+    );
+  const accept = (entry: ConfigEntrySummary): boolean => entry.entry_id === owner;
+  return subscribeEntryReloads(hass, accept, () => onLoaded(), { initialIsReseed: true, onStatus: (_entryId, load) => onStatus(load) });
+}
+
+/**
+ * Wait for the loads of any of the integration's entries, the owner of
+ * `deviceId` not to be had for a lost connection, and look the owner up again as
+ * the subscription's batch of the current entries comes. Asked for while the
+ * connection is down, the subscription is held until it is back, so that batch
+ * comes over a live connection. Once the owner is known, wait for its entry alone
+ * (`subscribeForOwner`), whose own first batch says where it stands; a lookup the
+ * connection is lost for again waits for the next batch. Resolves to an
+ * unsubscribe function for whichever subscription then holds the wait.
+ */
+async function subscribeUntilOwnerKnown(hass: HomeAssistant, deviceId: string, watch: PanelEntryWatch): Promise<() => Promise<void>> {
+  let stopped = false;
+  let looking = false;
+  let current: Promise<() => Promise<void>>;
+  const lookAgain = async (): Promise<void> => {
+    if (looking) return;
+    looking = true;
+    let owner: string | null;
+    try {
+      owner = await owningEntryId(hass, deviceId);
+    } catch (err) {
+      looking = false;
+      if (!isConnectionLost(err)) throw err;
+      return;
+    }
+    if (stopped) return;
+    const before = current;
+    current = subscribeForOwner(hass, owner, watch);
+    await (
+      await before
+    )();
+  };
+  current = subscribeEntryReloads(
+    hass,
+    entry => entry.domain === INTEGRATION_DOMAIN,
+    () => watch.onLoaded(),
+    {
+      initialIsReseed: true,
+      onSeed: () => void lookAgain(),
+    }
+  );
+  await current;
+  return async () => {
+    stopped = true;
+    await (
+      await current
+    )();
+  };
 }

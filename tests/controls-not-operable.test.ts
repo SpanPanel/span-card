@@ -397,7 +397,7 @@ describe("the Favorites view's circuits", () => {
     ];
     const favorites = { "panel-1": { circuits: ["kitchen"], sub_devices: [] }, "panel-2": { circuits: ["kitchen"], sub_devices: [] } };
 
-    const { topology: merged } = await new FavoritesController().build({} as HomeAssistant, favorites, panels);
+    const { topology: merged } = await new FavoritesController().build({} as HomeAssistant, favorites, panels, new ErrorStore());
 
     expect(merged._favoriteRefs["panel-1|kitchen"]?.controlAccess).toEqual(ADMIN_ONLY);
     expect(merged._favoriteRefs["panel-2|kitchen"]?.controlAccess).toEqual(CONTROLS_OPERABLE);

@@ -1,4 +1,4 @@
-import { LitElement, html, css, nothing, unsafeCSS } from "lit";
+import { LitElement, html, css, unsafeCSS } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import { unsafeHTML } from "lit/directives/unsafe-html.js";
 import { INTEGRATION_DOMAIN } from "../constants.js";
@@ -24,6 +24,8 @@ import { controlNoteHTML, favoritesPanelAccess, viewControlAccess } from "../cor
 import { canEditMonitoring } from "../core/monitoring-access.js";
 import { sameTopologyStructure } from "../core/topology-structure.js";
 import { discoverTopology } from "../card/card-discovery.js";
+import { AWAITING_LOAD, combinedEntryWait, entryWaitLine, entryWaitOf, isConnectionLost, isRefusedUntilEntryLoads, showEntryWait } from "../core/entry-load.js";
+import type { EntryLoad, EntryWait } from "../core/entry-load.js";
 import { RetryManager } from "../core/retry-manager.js";
 import { buildHeaderHTML, buildPanelStatsHTML } from "../core/header-renderer.js";
 import { updatePanelStatsBlock } from "../core/dom-updater.js";
@@ -43,7 +45,7 @@ import {
   type FavoritesViewState,
 } from "./favorites-view-state.js";
 import { buildFavoritesSummaryHTML } from "./favorites-summary.js";
-import { batchCalls, coalesceRuns, makeRenderToken } from "./coalesce.js";
+import { batchCalls, coalesceRuns } from "./coalesce.js";
 import type { FavoritesPanelInfo } from "../core/favorites-sections.js";
 import type { CardConfig, FavoritesMap, FavoritesTopology, HomeAssistant, PanelDevice, PanelTopology } from "../types.js";
 
@@ -92,6 +94,13 @@ export class SpanPanelElement extends LitElement {
   @state() private _selectedPanelId: string | null = null;
   @state() private _activeTab: TabName = "dashboard";
   @state() private _discovered = false;
+  /**
+   * Whether the list of panels waits for the connection to Home Assistant,
+   * which a lost connection kept it from (`isConnectionLost`), as across a
+   * restart. The frontend hands the dashboard a new Home Assistant as the
+   * connection returns, and `updated` asks again then.
+   */
+  @state() private _awaitingConnection = false;
   @state() private _chartMetric: string | undefined;
   @state() private _listColumns: number = loadListColumns();
   @state() private _favorites: FavoritesMap = {};
@@ -138,6 +147,14 @@ export class SpanPanelElement extends LitElement {
   /** The topology the area tab last rendered; the area subscription reads it through a getter. */
   private _areaTopology: PanelTopology | null = null;
   private _reloadSub: Promise<() => Promise<void>> | null = null;
+  /** Where each of the integration's config entries stands, by entry id, as the entry subscription last reported it. */
+  private readonly _entryLoads = new Map<string, EntryLoad>();
+  /**
+   * The config entries the view waits for, as it drew in place of a panel what
+   * the wait says (`_showPanelWait`). A change of where one stands draws the view
+   * again (`_onEntryStatus`), and its load ends the wait (`_onEntryLoaded`).
+   */
+  private readonly _waitEntries = new Set<string>();
   /** One package ratings subscription per panel entry, each held as the promise it was handed. */
   private readonly _ratingSubs = new Map<string, Promise<() => void>>();
   /** Per panel, the rating refresh: a burst of events is one fetch in flight and at most one trailing, which sees the last change. */
@@ -148,7 +165,7 @@ export class SpanPanelElement extends LitElement {
    * The topology the current view rendered, by panel device id. An entry reload,
    * or a rename of a device the topology names, re-renders the view only when
    * its panel's topology changed structure since. The Monitoring tab records
-   * one fetched beside it; the Adopted tab records none, because a reload
+   * one fetched before it; the Adopted tab records none, because a reload
    * refreshes its rows instead.
    */
   private readonly _renderedTopologies = new Map<string, PanelTopology>();
@@ -363,12 +380,6 @@ export class SpanPanelElement extends LitElement {
     super.disconnectedCallback();
   }
 
-  firstUpdated(): void {
-    if (this.hass && !this._discovered) {
-      this._discoverPanels();
-    }
-  }
-
   updated(changedProps: Map<string, unknown>): void {
     if (changedProps.has("hass")) {
       const oldHass = changedProps.get("hass") as HomeAssistant | undefined;
@@ -376,8 +387,9 @@ export class SpanPanelElement extends LitElement {
       this._listDashCtrl.hass = this.hass;
       this._errorStore.updateHass(this.hass);
 
+      // The list is asked for with the first Home Assistant, and again with the one the frontend hands over as a lost connection returns.
       if (!this._discovered) {
-        this._discoverPanels();
+        if (!oldHass || this._awaitingConnection) this._discoverPanels();
       } else if (!this._root.getElementById("tab-content")) {
         // Re-render only if the tab-content container was lost
         this._scheduleTabRender();
@@ -421,6 +433,8 @@ export class SpanPanelElement extends LitElement {
         this._errorStore.clearPanelStatusWatch();
         this._watchedPanelId = null;
       } else {
+        // The previous panel's watch goes, though the new one cannot be had until its entry loads.
+        this._errorStore.clearPanelStatusWatch();
         this._updatePanelStatusWatch();
         // Leaving Favorites for a real panel — clear stale per-panel metadata
         // so an accidental gear click before the new per-panel render finishes
@@ -495,7 +509,8 @@ export class SpanPanelElement extends LitElement {
     }
 
     if (!this._discovered) {
-      const hasError = this._errorStore.hasPersistent("discovery-failed");
+      // A lost connection is waited out as the card waits for its panel: with the card's line.
+      const status = this._awaitingConnection ? entryWaitLine("waiting").text : t("card.connecting");
       return html`
         <div class="header">
           <div class="toolbar">
@@ -505,7 +520,7 @@ export class SpanPanelElement extends LitElement {
         </div>
         <div class="view">
           <span-error-banner .store=${this._errorStore}></span-error-banner>
-          ${hasError ? nothing : html`<div class="view-content" style="padding: 24px; color: var(--secondary-text-color);">${t("card.connecting")}</div>`}
+          <div class="view-content" role="status" style="padding: 24px; color: var(--secondary-text-color);">${status}</div>
         </div>
       `;
     }
@@ -714,24 +729,71 @@ export class SpanPanelElement extends LitElement {
     }
   }
 
-  /** Subscribe once to config-entry reloads of every SPAN panel; entries a later `_refreshPanels` adds are accepted too. */
+  /**
+   * Subscribe once to config-entry reloads of every SPAN panel, and to where
+   * each entry stands (`_onEntryStatus`); entries a later `_refreshPanels` adds
+   * are accepted too. Core refuses `config_entries/subscribe` to no logged-in
+   * user, so the subscription fails only where the connection is closed for
+   * good, as after a reconnect whose authentication failed, which reloads the
+   * frontend.
+   */
   private _subscribeEntryReloads(): void {
     if (this._reloadSub || !this.hass?.connection) return;
     this._reloadSub = subscribeEntryReloads(
       this.hass,
       entry => entry.domain === INTEGRATION_DOMAIN,
       entryId => this._onEntryLoaded(entryId),
-      { initialIsReseed: this._discovered }
-    ).catch((err: unknown): (() => Promise<void>) => {
-      console.warn("SPAN Panel: config entry subscription failed", err);
-      return async () => {};
-    });
+      { initialIsReseed: this._discovered, onStatus: (entryId, load) => this._onEntryStatus(entryId, load) }
+    );
   }
 
   private _unsubscribeEntryReloads(): void {
     const sub = this._reloadSub;
     this._reloadSub = null;
+    // The next subscription reports where each entry stands as it starts.
+    this._entryLoads.clear();
     void sub?.then(unsubscribe => unsubscribe());
+  }
+
+  /**
+   * Where config entry `entryId` stands changed, or the entry was removed
+   * (null). A view that waits for the entry asks again, and so says what the
+   * wait now says, or, for an entry removed, the error its panel's request now
+   * answers. A load is `_onEntryLoaded`'s to answer.
+   */
+  private _onEntryStatus(entryId: string, load: EntryLoad | null): void {
+    if (load === null) this._entryLoads.delete(entryId);
+    else this._entryLoads.set(entryId, load);
+    if (load !== "loaded" && this._waitEntries.has(entryId)) this._requestTabRender();
+  }
+
+  /**
+   * What the view says, in `container`, in place of panels `panelIds`, whose
+   * entries it waits for: that it waits while any of them can still load, else
+   * why none will, from where each entry stands (`entryWaitOf`,
+   * `combinedEntryWait`). A change of where one stands draws the view again
+   * (`_onEntryStatus`).
+   */
+  private _showPanelWait(container: HTMLElement, panelIds: readonly [string | null, ...Array<string | null>]): void {
+    const [first, ...rest] = panelIds;
+    showEntryWait(container, combinedEntryWait([this._waitFor(first), ...rest.map(panelId => this._waitFor(panelId))]));
+  }
+
+  /**
+   * What a wait for panel `panelId`'s entry says, from where the entry stands,
+   * the entry noted as one the view waits for. The panel is one the dashboard
+   * lists, each with the config entry that owns it (`isPanelDevice`): a panel's
+   * view waits only for the panel selected, after its request was refused until
+   * the entry loads, which a view with no panel selected never gets, and a
+   * selected panel that leaves the list is replaced as the list is refreshed,
+   * by another, Favorites or none (`_refreshPanels`); the Favorites view waits
+   * only for the panels still listed.
+   */
+  private _waitFor(panelId: string | null): EntryWait {
+    const entryId = this._panels.find(p => p.id === panelId)?.config_entry_id;
+    if (entryId === undefined) throw new Error(`span-panel: a view waits for panel ${String(panelId)}, which the dashboard does not list`);
+    this._waitEntries.add(entryId);
+    return entryWaitOf(this._entryLoads.get(entryId));
   }
 
   /**
@@ -845,9 +907,15 @@ export class SpanPanelElement extends LitElement {
    * A panel's entry finished loading, so its controls may have changed. A panel
    * the view shows -- the selected one, or any in the favorites view -- is
    * checked for a change of structure; any other panel may have been added or
-   * renamed.
+   * renamed. A view that rendered no topology for the panel, as one waiting for
+   * the entry to load, is drawn again (`_renderIfRestructured`); the Adopted tab
+   * reads its rows again, which ends a wait of its own (`AdoptedTab.refresh`);
+   * and the selected panel's status is watched where the watch found no
+   * topology (`_updatePanelStatusWatch`).
    */
   private _onEntryLoaded(entryId: string): void {
+    // The entry's load ends the view's wait for it: the view is drawn again below, or the Adopted tab reads its rows again.
+    this._waitEntries.delete(entryId);
     const panel = this._panels.find(p => p.id !== FAVORITES_PANEL_ID && p.config_entry_id === entryId);
     if (!this._isFavoritesView && (!panel || panel.id !== this._selectedPanelId)) {
       this._requestPanelsRefresh();
@@ -857,9 +925,12 @@ export class SpanPanelElement extends LitElement {
       this._requestTabRender();
       return;
     }
+    // Asks nothing where the panel's status is watched already.
+    if (!this._isFavoritesView) void this._updatePanelStatusWatch();
     if (this._isFavoritesView && !this._renderedTopologies.has(panel.id) && !panelHasFavorites(this._favorites, panel.id)) {
-      // Not shown here. A panel with favorites and no baseline is a fetch that
-      // failed when the view was built, and may succeed now, so it rebuilds.
+      // Not shown here. A panel with favorites and no baseline is one whose fetch
+      // failed, or whose entry had not loaded, when the view was built; it may
+      // be had now, so it rebuilds.
       return;
     }
     if (!this._isFavoritesView && this._activeTab === "adopted") {
@@ -905,12 +976,18 @@ export class SpanPanelElement extends LitElement {
     this._requestTabRender();
   }
 
-  /** The selected panel's topology in one attempt, or null when it cannot be had; for a view that renders none. */
-  private async _fetchBaselineTopology(): Promise<PanelTopology | null> {
+  /**
+   * The selected panel's topology in one attempt, for a view that renders none:
+   * null where it cannot be had, and `AWAITING_LOAD` where it is not available
+   * until the panel's entry loads (`isRefusedUntilEntryLoads`), for the view to
+   * say what the wait says.
+   */
+  private async _fetchBaselineTopology(): Promise<PanelTopology | null | typeof AWAITING_LOAD> {
     if (!this.hass || !this._selectedPanelId) return null;
     try {
       return (await discoverTopology(this.hass, this._selectedPanelId, null)).topology;
     } catch (err) {
+      if (isRefusedUntilEntryLoads(err)) return AWAITING_LOAD;
       console.warn("SPAN Panel: no topology baseline for this view:", errorText(err));
       return null;
     }
@@ -977,15 +1054,22 @@ export class SpanPanelElement extends LitElement {
     if (!idsChanged && !namesChanged) return;
 
     this._panels = this._buildPanelList(realPanels, this._favorites);
-    if (!this._panels.some(p => p.id === this._selectedPanelId) && this._panels.length > 0) {
-      const firstReal = realPanels[0];
-      if (firstReal) {
-        this._selectedPanelId = firstReal.id;
-        localStorage.setItem("span_panel_selected", this._selectedPanelId);
-      }
+    if (!this._panels.some(p => p.id === this._selectedPanelId)) {
+      // The selected panel is gone. The first one left takes its place; with none
+      // left, Favorites where it is listed, else no panel, so that no view asks
+      // for, or waits for, a panel the dashboard no longer lists (`_waitFor`).
+      const next = realPanels[0]?.id ?? (hasAnyFavorites(this._favorites) ? FAVORITES_PANEL_ID : null);
+      this._selectedPanelId = next;
+      if (next !== null) localStorage.setItem("span_panel_selected", next);
     }
   }
 
+  /**
+   * Watch the selected panel's status entity, which its topology names, for the
+   * banner that says the panel is unreachable. A panel whose entry has not
+   * loaded (`isRefusedUntilEntryLoads`) is asked once, with no retry and no error, and
+   * watched once the entry loads (`_onEntryLoaded`).
+   */
   private async _updatePanelStatusWatch(): Promise<void> {
     if (!this.hass || !this._selectedPanelId) return;
     if (this._selectedPanelId === FAVORITES_PANEL_ID) return;
@@ -994,7 +1078,7 @@ export class SpanPanelElement extends LitElement {
     const targetPanelId = this._selectedPanelId;
     this._watchedPanelId = targetPanelId;
     try {
-      const retry = new RetryManager(this._errorStore);
+      const retry = new RetryManager(this._errorStore, { passThrough: isRefusedUntilEntryLoads });
       const result = await discoverTopology(this.hass, targetPanelId, retry);
       // Guard against supersession: user may have switched panels during fetch.
       if (this._selectedPanelId !== targetPanelId) return;
@@ -1004,14 +1088,23 @@ export class SpanPanelElement extends LitElement {
         this._errorStore.updateHass(this.hass);
       }
     } catch (err) {
-      console.warn("SPAN Panel: unable to fetch topology for panel status watching", err);
-      // Reset so a retry (e.g., user re-selects same panel) can attempt the fetch again.
+      if (!isRefusedUntilEntryLoads(err)) console.warn("SPAN Panel: unable to fetch topology for panel status watching", err);
+      // Reset so a retry (the entry loading, or the user re-selecting the same panel) can attempt the fetch again.
       if (this._watchedPanelId === targetPanelId) {
         this._watchedPanelId = null;
       }
     }
   }
 
+  /**
+   * List the panels from the device registry list and the integration's config
+   * entries. Both answer every logged-in user, and fail on no state of Home
+   * Assistant's: `config` registers them, a dependency of the frontend, and
+   * neither handler has a path that refuses. A lost connection, as across a
+   * restart, is what keeps the list from the dashboard: it waits for the
+   * connection (`_awaitingConnection`), and the next Home Assistant the frontend
+   * hands over asks again (`updated`).
+   */
   private async _discoverPanels(): Promise<void> {
     if (this._discovering) return;
     if (!this.hass) return;
@@ -1019,22 +1112,14 @@ export class SpanPanelElement extends LitElement {
     try {
       let realPanels: PanelDevice[];
       try {
-        realPanels = await discoverPanelDevices(this.hass, new RetryManager(this._errorStore));
+        realPanels = await discoverPanelDevices(this.hass);
       } catch (err) {
-        console.error("SPAN Panel: device discovery failed", err);
-        this._errorStore.add({
-          key: "discovery-failed",
-          level: "error",
-          message: t("error.discovery_failed"),
-          persistent: true,
-          retryFn: () => {
-            this._errorStore.remove("discovery-failed");
-            this._discoverPanels();
-          },
-        });
+        if (!isConnectionLost(err)) throw err;
+        this._awaitingConnection = true;
         return;
       }
 
+      this._awaitingConnection = false;
       this._favorites = await this._loadFavorites();
       this._panels = this._buildPanelList(realPanels, this._favorites);
       this._favoritesViewState = loadFavoritesViewState();
@@ -1236,13 +1321,6 @@ export class SpanPanelElement extends LitElement {
   private readonly _tabRenderScheduler = coalesceRuns(async () => this._renderTab());
 
   /**
-   * Monotonic render-token factory. Each call to the returned function
-   * increments the counter and returns a ``superseded()`` predicate that
-   * tells a render branch whether it has been overtaken by a later render.
-   */
-  private readonly _beginRender = makeRenderToken();
-
-  /**
    * Coalesce tab-render requests. If a render is in-flight, remember
    * that another was requested and run exactly one follow-up once the
    * current render completes. Running two ``_renderTab`` calls
@@ -1271,8 +1349,6 @@ export class SpanPanelElement extends LitElement {
   }
 
   private async _renderTab(): Promise<void> {
-    const superseded = this._beginRender();
-
     const container = this._root.getElementById("tab-content");
     const shown = this._renderedView;
     const view: TabView = { tab: this._activeTab, panelId: this._selectedPanelId };
@@ -1290,12 +1366,13 @@ export class SpanPanelElement extends LitElement {
     this._listDashCtrl.stopIntervals();
     this._favoritesPanelStats = [];
     this._renderedTopologies.clear();
+    this._waitEntries.clear();
 
     if (!container) return;
     this._renderedView = view;
 
     if (this._isFavoritesView) {
-      await this._renderFavoritesTab(container, superseded, sameView);
+      await this._renderFavoritesTab(container, sameView);
       return;
     }
 
@@ -1310,7 +1387,8 @@ export class SpanPanelElement extends LitElement {
         const dashDevice = this._panels.find(p => p.id === this._selectedPanelId);
         const dashEntryId = dashDevice?.config_entry_id ?? null;
         const rendered = await this._dashboardTab.render(container, this.hass, this._selectedPanelId ?? "", config, dashEntryId);
-        if (!superseded()) this._recordRenderedTopology(rendered);
+        if (rendered === AWAITING_LOAD) this._showPanelWait(container, [this._selectedPanelId]);
+        else this._recordRenderedTopology(rendered);
         break;
       }
       case "activity": {
@@ -1318,9 +1396,8 @@ export class SpanPanelElement extends LitElement {
         const device = this._panels.find(p => p.id === this._selectedPanelId);
         const entryId = device?.config_entry_id ?? null;
         try {
-          const retry = new RetryManager(this._errorStore);
+          const retry = new RetryManager(this._errorStore, { passThrough: isRefusedUntilEntryLoads });
           const result = await discoverTopology(this.hass, this._selectedPanelId ?? undefined, retry);
-          if (superseded()) return;
           const config = this._buildDashboardConfig();
           this._listDashCtrl.init(result.topology, config, this.hass, entryId);
           // A full re-render (including on W/A switch) needs fresh
@@ -1329,23 +1406,16 @@ export class SpanPanelElement extends LitElement {
           // the new chart.
           this._listDashCtrl.powerHistory.clear();
           await this._listDashCtrl.monitoringCache.fetch(this.hass, entryId);
-          if (superseded()) return;
           await this._listDashCtrl.fetchAndBuildHorizonMaps();
-          if (superseded()) return;
           const headerHTML = buildHeaderHTML(result.topology, config);
           this._listCtrl.setColumns(this._listColumns);
           this._listCtrl.renderActivityView(container, this.hass, result.topology, config, this._listDashCtrl.monitoringCache.status, headerHTML);
           await this._listDashCtrl.loadHistory();
-          if (superseded()) return;
           this._listDashCtrl.updateDOM(container);
           this._listDashCtrl.startIntervals(container);
           this._recordRenderedTopology(result.topology);
         } catch (err) {
-          if (superseded()) return;
-          const errEl = document.createElement("p");
-          errEl.style.color = "var(--error-color)";
-          errEl.textContent = errorText(err);
-          container.appendChild(errEl);
+          this._showListViewFailure(container, err);
         }
         break;
       }
@@ -1354,21 +1424,17 @@ export class SpanPanelElement extends LitElement {
         const areaDevice = this._panels.find(p => p.id === this._selectedPanelId);
         const areaEntryId = areaDevice?.config_entry_id ?? null;
         try {
-          const retry = new RetryManager(this._errorStore);
+          const retry = new RetryManager(this._errorStore, { passThrough: isRefusedUntilEntryLoads });
           const result = await discoverTopology(this.hass, this._selectedPanelId ?? undefined, retry);
-          if (superseded()) return;
           const config = this._buildDashboardConfig();
           this._listDashCtrl.init(result.topology, config, this.hass, areaEntryId);
           this._listDashCtrl.powerHistory.clear();
           await this._listDashCtrl.monitoringCache.fetch(this.hass, areaEntryId);
-          if (superseded()) return;
           await this._listDashCtrl.fetchAndBuildHorizonMaps();
-          if (superseded()) return;
           const headerHTML = buildHeaderHTML(result.topology, config);
           this._listCtrl.setColumns(this._listColumns);
           this._listCtrl.renderAreaView(container, this.hass, result.topology, config, this._listDashCtrl.monitoringCache.status, headerHTML);
           await this._listDashCtrl.loadHistory();
-          if (superseded()) return;
           this._listDashCtrl.updateDOM(container);
           this._listDashCtrl.startIntervals(container);
           this._recordRenderedTopology(result.topology);
@@ -1378,10 +1444,7 @@ export class SpanPanelElement extends LitElement {
           // `connectedCallback` subscribes when it returns.
           if (this.isConnected) this._subscribeAreaTab();
         } catch (err) {
-          const errEl = document.createElement("p");
-          errEl.style.color = "var(--error-color)";
-          errEl.textContent = errorText(err);
-          container.appendChild(errEl);
+          this._showListViewFailure(container, err);
         }
         break;
       }
@@ -1394,24 +1457,51 @@ export class SpanPanelElement extends LitElement {
         const monDevice = this._panels.find(p => p.id === this._selectedPanelId);
         const monEntryId = monDevice?.config_entry_id ?? null;
         // Monitoring is a pure configuration view — no panel-stats header. It
-        // renders no topology, but one is fetched beside it. Its circuits'
+        // renders no topology, but one is fetched before it. Its circuits'
         // labels are the rows', as every other view names a circuit; and it
         // is the baseline an entry reload or a device rename compares
         // against, so one that changed nothing keeps a threshold the user
         // has not saved yet, and a rename draws the rows by their new labels.
-        const fetched = this._fetchBaselineTopology();
-        const [, baseline] = await Promise.all([this._monitoringTab.render(container, this.hass, monEntryId ?? undefined, fetched), fetched]);
-        if (!superseded()) this._recordRenderedTopology(baseline);
+        // It comes first because the integration answers the monitoring
+        // status of a panel whose entry has not loaded as monitoring off: the
+        // tab waits for the entry instead, as every other view does.
+        const baseline = await this._fetchBaselineTopology();
+        if (baseline === AWAITING_LOAD) {
+          // The tab is left: what it is saving still lands, and draws nothing over the wait.
+          this._monitoringTab.stop();
+          this._showPanelWait(container, [this._selectedPanelId]);
+          break;
+        }
+        await this._monitoringTab.render(container, this.hass, monEntryId ?? undefined, baseline);
+        this._recordRenderedTopology(baseline);
         break;
       }
       case "adopted": {
         container.innerHTML = "";
         // Curation is keyed on the panel device, the same handle
         // ``panel_topology`` takes — not on the config entry.
-        await this._adoptedTab.render(container, this.hass, this._selectedPanelId ?? "");
+        const adopted = await this._adoptedTab.render(container, this.hass, this._selectedPanelId ?? "");
+        if (adopted === AWAITING_LOAD) this._showPanelWait(container, [this._selectedPanelId]);
         break;
       }
     }
+  }
+
+  /**
+   * Say, in a panel's Activity or Area view, why it could not be drawn: what
+   * the wait for the panel's config entry says, where the topology is not
+   * available until the entry loads (`isRefusedUntilEntryLoads`), the view drawn
+   * again as the entry loads (`_onEntryLoaded`); else the error.
+   */
+  private _showListViewFailure(container: HTMLElement, err: unknown): void {
+    if (isRefusedUntilEntryLoads(err)) {
+      this._showPanelWait(container, [this._selectedPanelId]);
+      return;
+    }
+    const errEl = document.createElement("p");
+    errEl.style.color = "var(--error-color)";
+    errEl.textContent = errorText(err);
+    container.appendChild(errEl);
   }
 
   /**
@@ -1425,7 +1515,7 @@ export class SpanPanelElement extends LitElement {
    * (`_renderFavoritesMonitoring`); any other view starts from a cleared
    * container, so nothing stale shows while it loads.
    */
-  private async _renderFavoritesTab(container: HTMLElement, superseded: () => boolean, sameView: boolean): Promise<void> {
+  private async _renderFavoritesTab(container: HTMLElement, sameView: boolean): Promise<void> {
     const shownStack = sameView ? this._shownFavoritesMonitoring(container) : null;
     if (!shownStack) {
       this._dropFavoritesMonitoring();
@@ -1435,7 +1525,6 @@ export class SpanPanelElement extends LitElement {
 
     const realPanels = this._panels.filter(p => p.id !== FAVORITES_PANEL_ID);
     const build = await this._favCtrl.build(this.hass, this._favorites, realPanels, this._errorStore);
-    if (superseded()) return;
     for (const p of build.perPanelStats) this._renderedTopologies.set(p.panelDeviceId, p.topology);
 
     // Drive the offline-banner watch for every contributing panel whose
@@ -1473,6 +1562,15 @@ export class SpanPanelElement extends LitElement {
     const hasSubDevices = Object.keys(merged.sub_devices ?? {}).length > 0;
     if (!hasCircuits && !hasSubDevices) {
       this._dropFavoritesMonitoring();
+      // A panel whose entry has not loaded may yet bring favorites, which it
+      // does as the entry loads (`_onEntryLoaded`): the view says what the wait
+      // for those panels says. One a device registry update took out of the
+      // list while the view was built, as its entry was removed, brings none.
+      const [awaiting, ...alsoAwaiting] = build.awaitingPanelIds.filter(panelId => this._panels.some(p => p.id === panelId));
+      if (awaiting !== undefined) {
+        this._showPanelWait(container, [awaiting, ...alsoAwaiting]);
+        return;
+      }
       container.innerHTML = "";
       const empty = document.createElement("p");
       empty.style.color = "var(--secondary-text-color)";
@@ -1508,14 +1606,11 @@ export class SpanPanelElement extends LitElement {
     this._listDashCtrl.init(merged, config, this.hass, primaryEntryId);
     this._listDashCtrl.powerHistory.clear();
     await this._listDashCtrl.fetchAndBuildHorizonMaps();
-    if (superseded()) return;
     const monitoringStatus = await this._listDashCtrl.fetchMergedMonitoringStatus(build.entryIds);
-    if (superseded()) return;
 
     this._favoritesPanelStats = build.perPanelStats;
     try {
       await this._listDashCtrl.loadHistory();
-      if (superseded()) return;
       const summaryHTML = this._buildFavoritesSummaryHTML(merged);
       const panelStatsHTML = this._buildFavoritesPanelStatsGridHTML(build.perPanelStats, merged, config);
       const subDevicesHTML = hasSubDevices
@@ -1535,7 +1630,6 @@ export class SpanPanelElement extends LitElement {
         this._updateFavoritesPanelStats(container, config);
       });
     } catch (err) {
-      if (superseded()) return;
       const errEl = document.createElement("p");
       errEl.style.color = "var(--error-color)";
       errEl.textContent = errorText(err);

@@ -86,6 +86,7 @@ function hassFor(connection: FakeConnection): HomeAssistant {
       if (msg.type === "config_entries/get" && msg.domain === "span_panel") return SPAN_ENTRIES;
       if (msg.type === "call_service" && msg.service === "get_favorites") return { response: { favorites } };
       if (msg.type === "call_service" && msg.service === "get_monitoring_status" && monitoring) return { response: monitoring };
+      if (msg.type === "span_panel/adopted/list") return { devices: [] };
       return {};
     }) as HomeAssistant["callWS"],
   });
@@ -158,6 +159,7 @@ describe("span-panel subscriptions", () => {
     vi.spyOn(FavoritesController.prototype, "build").mockResolvedValue({
       topology: { circuits: {}, sub_devices: {}, _favoriteRefs: {} },
       entryIds: [],
+      awaitingPanelIds: [],
       perPanelStats: [{ panelDeviceId: "panel-1", panelName: "Panel 1", topology: panelTopology }],
     } as unknown as Awaited<ReturnType<FavoritesController["build"]>>);
     const expected = [{ entityId: statusOf("panel-1"), panelName: "Panel 1" }];
@@ -616,6 +618,7 @@ describe("span-panel subscriptions", () => {
       const build = vi.spyOn(FavoritesController.prototype, "build").mockResolvedValue({
         topology: { circuits: {}, sub_devices: {}, _favoriteRefs: {} },
         entryIds: [],
+        awaitingPanelIds: [],
         perPanelStats: resolved.map(n => ({
           panelDeviceId: `panel-${n}`,
           panelName: `Panel ${n}`,
@@ -651,6 +654,7 @@ describe("span-panel subscriptions", () => {
       const build = vi.spyOn(FavoritesController.prototype, "build").mockResolvedValue({
         topology: { circuits: {}, sub_devices: {}, _favoriteRefs: {} },
         entryIds: [],
+        awaitingPanelIds: [],
         perPanelStats: [1, 2].map(n => ({
           panelDeviceId: `panel-${n}`,
           panelName: `Panel ${n}`,

@@ -10,6 +10,12 @@
 - **A SPAN Panel card opened while Home Assistant is starting or restarting, or while the integration retries a panel it cannot reach, says it is waiting for
   the panel to load and draws the panel once it has loaded**, where it showed "Unable to connect to SPAN Panel" until Retry was pressed or the dashboard was
   opened again.
+- **The sidebar dashboard, opened while Home Assistant is starting or restarting or while the integration retries a panel it cannot reach, says it is waiting
+  for the panel to load and draws the panel once it has loaded**, where it showed errors, monitoring as off or missing favorites meanwhile, and could miss the
+  panel's unreachable warning.
+- **A SPAN Panel card or the sidebar dashboard whose panel failed to set up, as when it must be authenticated again, or is disabled, says so and where to set it
+  right, and draws the panel once it has loaded**, where the card showed "Unable to connect to SPAN Panel" and the sidebar "SPAN Panel integration is not
+  loaded", monitoring as off or no favorites.
 
 ## 0.12.0
 

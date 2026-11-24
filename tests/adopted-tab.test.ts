@@ -658,6 +658,8 @@ describe("AdoptedTab", () => {
       hold = true;
 
       const refreshing = tab.refresh();
+      // The dashboard stops the tab before each render, as it draws the panel switched to.
+      tab.stop();
       await tab.render(container, hass, "panel-device-2");
       release();
       await refreshing;
