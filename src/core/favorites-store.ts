@@ -87,23 +87,15 @@ export class FavoritesCache {
   private _lastFetch: number;
   private _inflight: { gen: number; promise: Promise<FavoritesMap> } | null;
   private _generation: number;
-  private _errorStore: ErrorStore | null = null;
-  private _retry: RetryManager | null = null;
+  private readonly _retry: RetryManager;
 
-  get errorStore(): ErrorStore | null {
-    return this._errorStore;
-  }
-
-  set errorStore(store: ErrorStore | null) {
-    this._errorStore = store;
-    this._retry = store ? new RetryManager(store) : null;
-  }
-
-  constructor() {
+  /** `errorStore` is where a read whose every retry failed is said. */
+  constructor(errorStore: ErrorStore) {
     this._map = null;
     this._lastFetch = 0;
     this._inflight = null;
     this._generation = 0;
+    this._retry = new RetryManager(errorStore);
   }
 
   async fetch(hass: HomeAssistant): Promise<FavoritesMap> {
@@ -126,12 +118,10 @@ export class FavoritesCache {
           service_data: {},
           return_response: true,
         };
-        const resp = this._retry
-          ? await this._retry.callWS<CallServiceResponse<GetFavoritesResponse>>(hass, msg, {
-              errorId: "fetch:favorites",
-              errorMessage: t("error.favorites_fetch_failed"),
-            })
-          : await hass.callWS<CallServiceResponse<GetFavoritesResponse>>(msg);
+        const resp = await this._retry.callWS<CallServiceResponse<GetFavoritesResponse>>(hass, msg, {
+          errorId: "fetch:favorites",
+          errorMessage: t("error.favorites_fetch_failed"),
+        });
         const next = resp?.response?.favorites ?? {};
         if (requestGen === this._generation) {
           this._map = next;
@@ -139,15 +129,8 @@ export class FavoritesCache {
         }
         return next;
       } catch (err) {
+        // The retry manager said the failure in the store as its last retry failed.
         console.warn("SPAN Panel: favorites fetch failed", err);
-        if (!this._retry) {
-          this._errorStore?.add({
-            key: "fetch:favorites",
-            level: "warning",
-            message: t("error.favorites_fetch_failed"),
-            persistent: false,
-          });
-        }
         return this._map ?? {};
       } finally {
         // Only clear the slot if it still points at this request; a

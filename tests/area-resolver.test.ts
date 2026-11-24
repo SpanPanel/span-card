@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import type { Circuit, HomeAssistant, PanelTopology } from "../src/types.js";
 import { resolveAndAssignAreas, subscribeAreaUpdates } from "../src/core/area-resolver.js";
+import { ErrorStore } from "../src/core/error-store.js";
 import type { DeviceRegistryEntry, EntityRegistryEntry } from "../src/core/registry-types.js";
 import { DEVICE_REGISTRY, ENTITY_REGISTRY, FakeConnection } from "./fake-connection.js";
 
@@ -247,7 +248,7 @@ describe("subscribeAreaUpdates", () => {
     const connection = new FakeConnection();
     const topology = topologyWith({ panel_device_id: CURRENT_ID });
     const getTopology = vi.fn(() => topology);
-    await subscribeAreaUpdates(hassOn(connection), getTopology, () => {});
+    await subscribeAreaUpdates(hassOn(connection), getTopology, () => {}, new ErrorStore());
 
     connection.emit(ENTITY_REGISTRY, {});
 
@@ -261,7 +262,7 @@ describe("subscribeAreaUpdates", () => {
     const second = topologyWith({ panel_device_id: CURRENT_ID });
     let current = first;
     const changed = vi.fn();
-    await subscribeAreaUpdates(hassOn(connection), () => current, changed);
+    await subscribeAreaUpdates(hassOn(connection), () => current, changed, new ErrorStore());
 
     current = second;
     connection.emit(ENTITY_REGISTRY, {});
@@ -279,7 +280,7 @@ describe("subscribeAreaUpdates", () => {
     await resolveAndAssignAreas(hass, topology);
     expect(topology.circuits.kitchen?.area).toBe("Garage");
     const changed = vi.fn();
-    await subscribeAreaUpdates(hass, () => topology, changed);
+    await subscribeAreaUpdates(hass, () => topology, changed, new ErrorStore());
 
     // The user puts the circuit's device in an area: no entity and no area changes.
     registries.devices = [panelIn("garage"), circuitDeviceIn("pantry")];
@@ -294,7 +295,8 @@ describe("subscribeAreaUpdates", () => {
     const unsubscribe = await subscribeAreaUpdates(
       hassOn(connection),
       () => null,
-      () => {}
+      () => {},
+      new ErrorStore()
     );
     expect([connection.live(ENTITY_REGISTRY), connection.live("area_registry_updated"), connection.live(DEVICE_REGISTRY)]).toEqual([1, 1, 1]);
 
@@ -307,7 +309,7 @@ describe("subscribeAreaUpdates", () => {
     const connection = new FakeConnection();
     const changed = vi.fn();
     const hass = hassOn(connection);
-    await subscribeAreaUpdates(hass, () => null, changed);
+    await subscribeAreaUpdates(hass, () => null, changed, new ErrorStore());
 
     connection.emit(ENTITY_REGISTRY, {});
     await Promise.resolve();

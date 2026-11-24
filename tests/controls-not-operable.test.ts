@@ -8,7 +8,6 @@ vi.mock("../src/card/card-discovery.js", async importOriginal => ({
 
 import { discoverTopology } from "../src/card/card-discovery.js";
 import { CONTROLS_OPERABLE } from "../src/core/control-access.js";
-import { DashboardController } from "../src/core/dashboard-controller.js";
 import { ErrorStore } from "../src/core/error-store.js";
 import { updateCircuitDOM } from "../src/core/dom-updater.js";
 import { FavoritesController } from "../src/core/favorites-controller.js";
@@ -17,6 +16,7 @@ import { buildHeaderHTML, buildSlideConfirmHTML } from "../src/core/header-rende
 import { ListViewController } from "../src/core/list-view-controller.js";
 import "../src/card/span-panel-card.js";
 import { ENTRY_RELOADS, FakeConnection, flush, hassWith } from "./fake-connection.js";
+import { dashboardController } from "./dashboard-controller.js";
 
 /**
  * A user who may not operate a panel's controls sees every relay and priority
@@ -348,7 +348,7 @@ describe("the live updates of a view's toggles", () => {
 
   it("draw a list row's toggle forbidden, or as before, as the topology says", () => {
     const container = document.createElement("div");
-    const list = new ListViewController(new DashboardController());
+    const list = new ListViewController(dashboardController());
     list.renderActivityView(container, hass, topology(), config, null, "");
     expect(container.querySelector(".toggle-pill.toggle-forbidden")).toBeNull();
     list.updateCollapsedRows(container, hass, topology(BLOCKED), config);
@@ -378,7 +378,7 @@ describe("Enable Switches", () => {
     const slide = host.querySelector<HTMLElement>(".slide-confirm")!;
     const parent = document.createElement("div");
     parent.classList.add("switches-disabled");
-    new DashboardController().bindSlideConfirm(slide, parent);
+    dashboardController().bindSlideConfirm(slide, parent);
     drag(slide);
     expect(slide.classList.contains("confirmed")).toBe(false);
     expect(parent.classList.contains("switches-disabled")).toBe(true);

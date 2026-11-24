@@ -4,7 +4,6 @@ import { buildMetersStripHTML, updateMetersDOM } from "../src/core/meters-strip.
 import { buildPanelStatsHTML } from "../src/core/header-renderer.js";
 import { updateCircuitDOM } from "../src/core/dom-updater.js";
 import { buildExpandedChartHTML, buildListRowHTML } from "../src/core/list-renderer.js";
-import { DashboardController } from "../src/core/dashboard-controller.js";
 import { ListViewController } from "../src/core/list-view-controller.js";
 import { positionRange } from "../src/helpers/layout.js";
 import { discoverTopology } from "../src/card/card-discovery.js";
@@ -12,6 +11,7 @@ import "../src/card/span-panel-card.js";
 import { FakeConnection, hassWith as hassOn } from "./fake-connection.js";
 import type { CardConfig, Circuit, HomeAssistant, PanelTopology } from "../src/types.js";
 import { CONTROLS_OPERABLE } from "../src/core/control-access.js";
+import { dashboardController } from "./dashboard-controller.js";
 
 const CONFIG = { chart_metric: "power" } as CardConfig;
 
@@ -244,7 +244,7 @@ describe("a meter outside the panel in the list views", () => {
 
   it("is never sorted as off: it sorts by its reading among the circuits that are on", () => {
     const root = listOf(HASS, ["off", "meter-a", "on"]);
-    new ListViewController(new DashboardController()).updateCollapsedRows(root, HASS, TOPOLOGY, CONFIG);
+    new ListViewController(dashboardController()).updateCollapsedRows(root, HASS, TOPOLOGY, CONFIG);
     // Sorted as off, it would follow the circuit that is on, whatever its reading.
     expect(order(root)).toEqual(["meter-a", "on", "off"]);
   });
@@ -257,7 +257,7 @@ describe("a meter outside the panel in the list views", () => {
     expect(row.querySelector(".list-status-badge")).toBeNull();
     expect(text(row.querySelector(".list-power-value"))).toBe("50W");
 
-    new ListViewController(new DashboardController()).updateCollapsedRows(root, HASS, TOPOLOGY, CONFIG);
+    new ListViewController(dashboardController()).updateCollapsedRows(root, HASS, TOPOLOGY, CONFIG);
     expect(row.classList.contains("circuit-off")).toBe(false);
     expect(text(row.querySelector(".list-power-value"))).toBe("50W");
   });

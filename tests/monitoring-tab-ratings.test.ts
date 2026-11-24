@@ -241,7 +241,7 @@ async function shown(panel: Integration): Promise<{ tab: MonitoringTab; containe
   const root = host.attachShadow({ mode: "open" });
   const container = document.createElement("div");
   root.appendChild(container);
-  const tab = new MonitoringTab();
+  const tab = new MonitoringTab(new ErrorStore());
   await tab.render(container, panel.hass, "entry-1");
   return { tab, container, root };
 }
@@ -427,8 +427,7 @@ describe("a one-space circuit's Rating cell", () => {
   it("says why a removal failed, its ✕ usable again", async () => {
     const panel = integration({ copies: { [OVEN]: [20, 20] }, refuse: { clear_circuit_package_ratings: { message: "The panel is not loaded" } } });
     const { tab, container } = await shown(panel);
-    const errors = new ErrorStore();
-    tab.errorStore = errors;
+    const errors = tab.errorStore;
     const clear = clearOf(container, OVEN)!;
 
     clear.click();
@@ -481,8 +480,7 @@ describe("a refused copy", () => {
   it("shows the integration's reason and puts the copy in force back in the field", async () => {
     const panel = integration({ copies: { [OVEN]: [20, 20] }, refuse: { set_circuit_package_ratings: REFUSAL } });
     const { tab, container } = await shown(panel);
-    const errors = new ErrorStore();
-    tab.errorStore = errors;
+    const errors = tab.errorStore;
     const reads = panel.reads();
     const field = fieldOf(container, OVEN)!;
 
@@ -497,8 +495,7 @@ describe("a refused copy", () => {
   it("says it could not update the copy where the integration gives no reason", async () => {
     const panel = integration({ refuse: { set_circuit_package_ratings: {} } });
     const { tab, container } = await shown(panel);
-    const errors = new ErrorStore();
-    tab.errorStore = errors;
+    const errors = tab.errorStore;
 
     type(fieldOf(container, OVEN)!, "20");
 
@@ -587,8 +584,7 @@ describe("a two-space circuit's Rating cell", () => {
   it("keeps the warning and a usable button where turning monitoring off fails, saying so", async () => {
     const panel = integration({ copies: { [DRYER]: [20, 30] }, refuse: { set_circuit_threshold: { message: "Not loaded" } } });
     const { tab, container } = await shown(panel);
-    const errors = new ErrorStore();
-    tab.errorStore = errors;
+    const errors = tab.errorStore;
     const button = warningOf(container, DRYER)!.querySelector<HTMLButtonElement>("button")!;
 
     button.click();
@@ -783,7 +779,7 @@ describe("a copy row's descriptions, for assistive technology", () => {
     const { container, root } = await shown(panel);
     const other = document.createElement("div");
     root.appendChild(other);
-    await new MonitoringTab().render(other, panel.hass, "entry-2");
+    await new MonitoringTab(new ErrorStore()).render(other, panel.hass, "entry-2");
 
     const fields = [...root.querySelectorAll<HTMLInputElement>(".rating-input")];
     const ids = fields.flatMap(field => (field.getAttribute("aria-describedby") ?? "").split(" "));

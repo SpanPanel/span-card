@@ -134,8 +134,7 @@ async function shown(panel: Integration, errors = new ErrorStore()): Promise<{ t
   mounted.push(host);
   const container = document.createElement("div");
   host.attachShadow({ mode: "open" }).appendChild(container);
-  const tab = new MonitoringTab();
-  tab.errorStore = errors;
+  const tab = new MonitoringTab(errors);
   await tab.render(container, panel.hass, "entry-1");
   return { tab, container };
 }
@@ -223,7 +222,7 @@ describe("the Monitoring tab, where the integration refuses a change as Unauthor
 
 type SidePanel = HTMLElement & {
   hass: HomeAssistant | null;
-  errorStore: ErrorStore | null;
+  errorStore: ErrorStore;
   open(config: unknown): void;
   refreshRating(view: unknown): void;
   useGlobalThresholds(): Promise<boolean>;

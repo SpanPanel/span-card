@@ -129,9 +129,8 @@ async function shown(panel: Integration): Promise<{ tab: MonitoringTab; containe
   mounted.push(host);
   const container = document.createElement("div");
   host.attachShadow({ mode: "open" }).appendChild(container);
-  const tab = new MonitoringTab();
   const errors = new ErrorStore();
-  tab.errorStore = errors;
+  const tab = new MonitoringTab(errors);
   await tab.render(container, panel.hass, "entry-1");
   return { tab, container, errors };
 }

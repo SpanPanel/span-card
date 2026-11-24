@@ -7,17 +7,14 @@ import type { ConfigEntrySummary } from "../core/entry-reload.js";
 import { RetryManager } from "../core/retry-manager.js";
 import { isPositiveInteger, measuresOutsidePanel, positionRange } from "../helpers/layout.js";
 import { t } from "../i18n.js";
+import { fetchSpanEntryIds } from "../core/panel-devices.js";
 import { deviceName } from "../core/registry-types.js";
 import type { DeviceRegistryEntry } from "../core/registry-types.js";
 import type { HomeAssistant, PanelTopology, DiscoveryResult, Circuit } from "../types.js";
 
 // ── Primary discovery via custom WebSocket API ───────────────────────────────
 
-export async function discoverTopology(hass: HomeAssistant, deviceId: string | undefined, retry?: RetryManager | null): Promise<DiscoveryResult> {
-  if (!deviceId) {
-    throw new Error(t("card.device_not_found"));
-  }
-
+export async function discoverTopology(hass: HomeAssistant, deviceId: string, retry?: RetryManager | null): Promise<DiscoveryResult> {
   const topologyMsg = { type: `${INTEGRATION_DOMAIN}/panel_topology`, device_id: deviceId };
   const topology = retry ? await retry.callWS<PanelTopology>(hass, topologyMsg, { errorId: "fetch:topology" }) : await hass.callWS<PanelTopology>(topologyMsg);
 
@@ -70,17 +67,37 @@ function panelSizeFromCircuits(circuits: Record<string, Circuit>): number {
 // ── Waiting for the panel's config entry to load ─────────────────────────────
 
 /**
- * The config entry that owns device `deviceId`, as the device registry list
- * says; null where the list does not hold the device. An id saved before Home
- * Assistant 2026.8 names no device in the list, since that release gave every
- * device it split a new id, though the integration still answers it. Rejects
- * as the list's request does, which it does only where the connection is lost:
- * the list answers every logged-in user, and its handler has no path that
- * refuses.
+ * What `config/device_registry/list_composite_splits` answers, of the fields
+ * read here: for each device id Home Assistant 2026.8 retired as it split a
+ * device that several config entries shared into one device per entry, the
+ * ids of the devices it split it into.
+ */
+type CompositeSplits = Record<string, { split_ids: string[] }>;
+
+/**
+ * The config entry of the integration's that owns the panel `deviceId` names;
+ * null where none does. The device registry list says which entry owns each
+ * device, and `config_entries/get` which entries are the integration's
+ * (`fetchSpanEntryIds`). An id saved before Home Assistant 2026.8 names no
+ * device in the list where that release split the device it named, as it did
+ * a panel a helper had linked itself to, giving each split a new id; the
+ * composite splits list names the splits, and the panel is the one the
+ * integration's entry owns, as the integration resolves the old id itself.
+ * Where no entry of the integration's owns the device or a split of it, the
+ * device is no panel the integration answers. Each list answers every
+ * logged-in user, and no handler has a path that refuses, so this rejects only
+ * where the connection is lost.
  */
 async function owningEntryId(hass: HomeAssistant, deviceId: string): Promise<string | null> {
-  const devices = await hass.callWS<DeviceRegistryEntry[]>({ type: "config/device_registry/list" });
-  return devices.find(d => d.id === deviceId)?.config_entry_id ?? null;
+  const [devices, spanEntryIds] = await Promise.all([hass.callWS<DeviceRegistryEntry[]>({ type: "config/device_registry/list" }), fetchSpanEntryIds(hass)]);
+  const spanOwnerOf = (id: string): string | null => {
+    const entryId = devices.find(d => d.id === id)?.config_entry_id;
+    return entryId !== undefined && spanEntryIds.has(entryId) ? entryId : null;
+  };
+  if (devices.some(d => d.id === deviceId)) return spanOwnerOf(deviceId);
+  const split = (await hass.callWS<CompositeSplits>({ type: "config/device_registry/list_composite_splits" }))[deviceId];
+  if (!split) return null;
+  return split.split_ids.map(spanOwnerOf).find(entryId => entryId !== null) ?? null;
 }
 
 /** What a wait for a panel's config entry hears of the entry (`subscribePanelEntryLoads`). */
@@ -89,8 +106,9 @@ export interface PanelEntryWatch {
   onLoaded: () => void;
   /**
    * Where the entry stands (`entryLoadOf`): reported as the subscription starts,
-   * and again as that changes, and null once the entry is removed. Only an entry
-   * known to be the panel's is reported.
+   * and again as that changes; null where the panel has no entry, as once its
+   * entry is removed, or where no entry of the integration's owns the device.
+   * Only an entry known to be the panel's is reported.
    */
   onStatus: (load: EntryLoad | null) => void;
 }
@@ -100,11 +118,9 @@ export interface PanelEntryWatch {
  * reaches `loaded`, one already loaded as the subscription starts included, so
  * an entry that loaded between a failed discovery (`isRefusedUntilEntryLoads`)
  * and this subscription is not missed, and `onStatus` with where that entry
- * stands. The entry is the one that owns the panel's device (`owningEntryId`).
- * Where the device list does not hold the device, any of the integration's
- * entries is taken, and the next `panel_topology` says whether it was the
- * panel's, while what any of them says of itself says nothing of the panel's,
- * so `onStatus` hears nothing. Where the list is refused for a lost connection,
+ * stands. The entry is the one of the integration's that owns the panel's
+ * device (`owningEntryId`); where none does, `onStatus` hears null at once and
+ * nothing is subscribed. Where the lookup is refused for a lost connection,
  * the owner is looked up again once the connection is back
  * (`subscribeUntilOwnerKnown`). Resolves to the unsubscribe function.
  *
@@ -127,15 +143,16 @@ export async function subscribePanelEntryLoads(hass: HomeAssistant, deviceId: st
   return subscribeForOwner(hass, owner, watch);
 }
 
-/** Wait for the loads of `owner`, hearing where it stands; or, where the owner is not known (null), for those of any of the integration's entries. */
+/**
+ * Wait for the loads of `owner`, hearing where it stands; or, where no entry of
+ * the integration's owns the panel (null), say the panel has none, and wait for
+ * nothing.
+ */
 function subscribeForOwner(hass: HomeAssistant, owner: string | null, { onLoaded, onStatus }: PanelEntryWatch): Promise<() => Promise<void>> {
-  if (owner === null)
-    return subscribeEntryReloads(
-      hass,
-      entry => entry.domain === INTEGRATION_DOMAIN,
-      () => onLoaded(),
-      { initialIsReseed: true }
-    );
+  if (owner === null) {
+    onStatus(null);
+    return Promise.resolve(async () => {});
+  }
   const accept = (entry: ConfigEntrySummary): boolean => entry.entry_id === owner;
   return subscribeEntryReloads(hass, accept, () => onLoaded(), { initialIsReseed: true, onStatus: (_entryId, load) => onStatus(load) });
 }
@@ -145,10 +162,10 @@ function subscribeForOwner(hass: HomeAssistant, owner: string | null, { onLoaded
  * `deviceId` not to be had for a lost connection, and look the owner up again as
  * the subscription's batch of the current entries comes. Asked for while the
  * connection is down, the subscription is held until it is back, so that batch
- * comes over a live connection. Once the owner is known, wait for its entry alone
- * (`subscribeForOwner`), whose own first batch says where it stands; a lookup the
- * connection is lost for again waits for the next batch. Resolves to an
- * unsubscribe function for whichever subscription then holds the wait.
+ * comes over a live connection. Once the lookup answers, wait for the owner's
+ * entry alone (`subscribeForOwner`), whose own first batch says where it stands;
+ * a lookup the connection is lost for again waits for the next batch. Resolves
+ * to an unsubscribe function for whichever subscription then holds the wait.
  */
 async function subscribeUntilOwnerKnown(hass: HomeAssistant, deviceId: string, watch: PanelEntryWatch): Promise<() => Promise<void>> {
   let stopped = false;

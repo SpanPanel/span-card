@@ -19,9 +19,11 @@ import { SpanPanelElement } from "../src/panel/span-panel.js";
 import { DEVICE_REGISTRY, ENTITY_REGISTRY, ENTRY_RELOADS, FakeConnection, flush, hassWith } from "./fake-connection.js";
 
 /**
- * The sidebar dashboard is detached and re-attached as the user navigates. On
- * re-attach it must watch its panel's status again and keep exactly one reload
- * subscription; a re-seed reporting many loaded panels refreshes the panel list once.
+ * The frontend attaches the sidebar dashboard once and discards it as the user
+ * navigates away. It keeps one reload subscription while attached, lets every
+ * subscription go as it is detached, and leaves nothing running that work
+ * landing after the detach would start; a re-seed reporting many loaded panels
+ * refreshes the panel list once.
  */
 
 const mockDiscover = vi.mocked(discoverTopology);
@@ -94,7 +96,6 @@ function hassFor(connection: FakeConnection): HomeAssistant {
 
 const mounted: HTMLElement[] = [];
 let watch: ReturnType<typeof vi.spyOn>;
-let watchMany: ReturnType<typeof vi.spyOn>;
 
 beforeEach(() => {
   // Node 25+ defines its own `localStorage`, undefined without
@@ -108,7 +109,6 @@ beforeEach(() => {
   states = {};
   controlSends = [];
   watch = vi.spyOn(ErrorStore.prototype, "watchPanelStatus");
-  watchMany = vi.spyOn(ErrorStore.prototype, "watchPanelStatuses");
   vi.spyOn(DashboardTab.prototype, "render").mockResolvedValue(null);
   mockDiscover.mockImplementation(async (_hass, deviceId) => ({
     topology: { circuits: {}, panel_entities: { panel_status: statusOf(String(deviceId)) } } as unknown as PanelTopology,
@@ -138,55 +138,6 @@ function loaded(...ids: number[]): unknown {
 }
 
 describe("span-panel subscriptions", () => {
-  it("re-watches a real panel's status on re-attach, with one reload subscription", async () => {
-    const connection = new FakeConnection();
-    const panel = await mount(connection, () => expect(watch).toHaveBeenCalledWith(statusOf("panel-1")));
-    watch.mockClear();
-
-    panel.remove();
-    await flush();
-    expect(connection.live(ENTRY_RELOADS)).toBe(0);
-    document.body.appendChild(panel);
-
-    await vi.waitFor(() => expect(watch).toHaveBeenCalledWith(statusOf("panel-1")));
-    expect(connection.live(ENTRY_RELOADS)).toBe(1);
-  });
-
-  it("re-applies the favorites view's watch on re-attach", async () => {
-    favorites = { "panel-1": { circuits: ["c1"], sub_devices: [] } };
-    localStorage.setItem("span_panel_selected", "favorites");
-    const panelTopology = { circuits: {}, panel_entities: { panel_status: statusOf("panel-1") } } as unknown as PanelTopology;
-    vi.spyOn(FavoritesController.prototype, "build").mockResolvedValue({
-      topology: { circuits: {}, sub_devices: {}, _favoriteRefs: {} },
-      entryIds: [],
-      awaitingPanelIds: [],
-      perPanelStats: [{ panelDeviceId: "panel-1", panelName: "Panel 1", topology: panelTopology }],
-    } as unknown as Awaited<ReturnType<FavoritesController["build"]>>);
-    const expected = [{ entityId: statusOf("panel-1"), panelName: "Panel 1" }];
-    const panel = await mount(new FakeConnection(), () => expect(watchMany).toHaveBeenLastCalledWith(expected));
-    watchMany.mockClear();
-
-    panel.remove();
-    document.body.appendChild(panel);
-
-    await vi.waitFor(() => expect(watchMany).toHaveBeenLastCalledWith(expected));
-  });
-
-  it("subscribes reloads once when an element connected without hass receives it", async () => {
-    const connection = new FakeConnection();
-    const panel = document.createElement("span-panel") as Panel;
-    document.body.appendChild(panel);
-    mounted.push(panel);
-    await flush();
-    expect(connection.live(ENTRY_RELOADS)).toBe(0);
-
-    panel.hass = hassFor(connection);
-    await vi.waitFor(() => expect(connection.live(ENTRY_RELOADS)).toBe(1));
-    panel.hass = hassFor(connection);
-    await flush();
-    expect(connection.live(ENTRY_RELOADS)).toBe(1);
-  });
-
   it("refreshes the panel list once for a re-seed that reports three other loaded panels", async () => {
     devices = [device(1), device(2), device(3), device(4)];
     const connection = new FakeConnection();
@@ -283,25 +234,25 @@ describe("span-panel subscriptions", () => {
     expect(localStorage.getItem("span_panel_selected")).toBe("panel-2");
   });
 
-  it("keeps exactly one area subscription across a fast detach and re-attach on the area tab (re-review S1)", async () => {
+  it("stops the intervals a render landing after the frontend discarded the dashboard started", async () => {
     const connection = new FakeConnection();
     const panel = await mount(connection, () => expect(watch).toHaveBeenCalledWith(statusOf("panel-1")));
-    connection.hold = true;
-    (panel as unknown as { _activeTab: string })._activeTab = "area";
-    await vi.waitFor(() => expect(connection.live(ENTITY_REGISTRY)).toBe(1));
-    const first = connection.subscriptions.find(s => s.key === ENTITY_REGISTRY)!;
+    const intervals: string[] = [];
+    vi.spyOn(DashboardController.prototype, "startIntervals").mockImplementation(() => void intervals.push("start"));
+    vi.spyOn(DashboardController.prototype, "stopIntervals").mockImplementation(() => void intervals.push("stop"));
+    let resolveActivity: (value: Awaited<ReturnType<typeof discoverTopology>>) => void = () => {};
+    mockDiscover.mockImplementationOnce(() => new Promise(r => (resolveActivity = r)));
+    const calls = mockDiscover.mock.calls.length;
+    (panel as unknown as { _activeTab: string })._activeTab = "activity";
+    await vi.waitFor(() => expect(mockDiscover.mock.calls.length).toBe(calls + 1));
 
-    // Detach while the area subscribe is still pending, and re-attach at once.
+    // The user navigates away while By Activity reads its topology: the frontend detaches the dashboard and discards it.
     panel.remove();
-    document.body.appendChild(panel);
-    connection.release();
-    await flush();
-    connection.release();
+    resolveActivity({ topology: { circuits: {}, panel_entities: {} } as unknown as PanelTopology, panelSize: 32 });
+    await vi.waitFor(() => expect(intervals).toContain("start"));
     await flush();
 
-    expect(first.unsubscribed).toBe(true);
-    expect(connection.live(ENTITY_REGISTRY)).toBe(1);
-    expect(connection.live(ENTRY_RELOADS)).toBe(1);
+    expect(intervals.at(-1)).toBe("stop");
   });
 
   it("does not subscribe the area tab on an element detached while the tab rendered", async () => {
@@ -744,9 +695,15 @@ describe("span-panel, for a user who may not operate every panel's controls", ()
     await flush();
     const render = vi.spyOn(DashboardTab.prototype, "render");
 
-    const sidePanel = content.querySelector("span-side-panel") as HTMLElement & { hass: HomeAssistant; open(config: unknown): void; close(): void };
-    // As the circuit's gear opens it.
+    const sidePanel = content.querySelector("span-side-panel") as HTMLElement & {
+      hass: HomeAssistant;
+      errorStore: ErrorStore;
+      open(config: unknown): void;
+      close(): void;
+    };
+    // As the circuit's gear opens it: with Home Assistant, and the dashboard's error store.
     sidePanel.hass = panel.hass;
+    sidePanel.errorStore = (panel as unknown as { _errorStore: ErrorStore })._errorStore;
     sidePanel.open({
       uuid: "c1",
       name: "Circuit 1",

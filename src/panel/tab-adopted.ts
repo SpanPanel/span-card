@@ -56,6 +56,13 @@ interface ListRead {
 /** What adopting a read did to the view: left it as shown, or changed it. */
 type ListAdoption = "unchanged" | "changed";
 
+/** What the tab was last drawn with: the container it paints in, Home Assistant, and the panel whose rows it reads. */
+interface AdoptedView {
+  readonly container: HTMLElement;
+  readonly hass: HomeAssistant;
+  readonly deviceId: string;
+}
+
 /** One row's editor while it is open. Only the expanded row has one. */
 interface EditorState {
   form: CurationForm;
@@ -133,15 +140,14 @@ function warningText(code: string): string {
  * where it is tested without one.
  */
 export class AdoptedTab {
-  private _container: HTMLElement | null = null;
-  private _hass: HomeAssistant | null = null;
-  private _deviceId: string | null = null;
+  /** What the tab was last drawn with; null before its first draw. Only `render` sets it. */
+  private _view: AdoptedView | null = null;
 
   private _groups: AdoptedDeviceGroup[] = [];
   private _loadError: string | null = null;
   /** Whether the tab waits for the panel's config entry to load, with no rows to show until it has. */
   private _awaitingLoad = false;
-  /** Moves on each stop, so a re-read started before the user left the tab paints nothing after (`refresh`, `_scheduleRefresh`). */
+  /** Moves on each stop, so a read started before the user left the tab, or before the frontend discarded the dashboard, paints nothing after. */
   private _epoch = 0;
   private _query = "";
   private _expandedKey: string | null = null;
@@ -171,30 +177,30 @@ export class AdoptedTab {
   }
 
   /**
-   * Read the panel `deviceId` names, "" for none selected, and paint the tab in
-   * `container`. Where the panel's config entry has not loaded
+   * Read the panel `deviceId` names and paint the tab in `container`; the
+   * dashboard draws no panel's tab with none selected. Where the panel's config
+   * entry has not loaded
    * (`isRefusedUntilEntryLoads`) it paints nothing and answers `AWAITING_LOAD`,
    * for the dashboard to say what the wait says; `refresh` paints the tab once
    * the entry loads. The dashboard renders its tabs one at a time, so no other
-   * render lands while this one reads. A detach stops the tab but not this read:
-   * the rows are painted in the container the dashboard keeps, and show as it is
-   * attached again.
+   * render lands while this one reads; the dashboard stops the tab only as the
+   * frontend discards it, and a read that lands after paints nothing.
    */
   async render(container: HTMLElement, hass: HomeAssistant, deviceId: string): Promise<typeof AWAITING_LOAD | undefined> {
-    const nextDeviceId = deviceId || null;
-    if (nextDeviceId !== this._deviceId) {
-      // Another panel's rows: an open editor and a filter belong to the
-      // panel they were opened on, and a key from one panel resolves to
-      // nothing on the next.
-      this._deviceId = nextDeviceId;
+    // The first draw, or another panel's rows: an open editor and a filter
+    // belong to the panel they were opened on, and a key from one panel
+    // resolves to nothing on the next.
+    if (deviceId !== this._view?.deviceId) {
       this._expandedKey = null;
       this._editor = null;
       this._query = "";
     }
     this._unbind();
-    this._container = container;
-    this._hass = hass;
-    this._adoptList(await this._fetchList(hass), false);
+    this._view = { container, hass, deviceId };
+    const epoch = this._epoch;
+    const read = await this._fetchList(hass, deviceId);
+    if (epoch !== this._epoch) return undefined;
+    this._adoptList(read, false);
     if (this._awaitingLoad) return AWAITING_LOAD;
     this._paint();
     return undefined;
@@ -207,13 +213,17 @@ export class AdoptedTab {
    * A failed read keeps the rows on screen. A tab that waits for the entry to load
    * holds no rows, so it is painted whole with whatever else the read finds. A
    * read that the user left the tab during paints nothing.
+   *
+   * A tab not yet drawn reads nothing: the user chose Adopted while another
+   * view's render was in flight, which its own render waits behind, and the
+   * panel's entry loaded meanwhile. That render reads the rows.
    */
   async refresh(): Promise<void> {
-    const hass = this._hass;
-    if (!hass || !this._container) return;
+    const view = this._view;
+    if (!view) return;
     const waiting = this._awaitingLoad;
     const epoch = this._epoch;
-    const read = await this._fetchList(hass);
+    const read = await this._fetchList(view.hass, view.deviceId);
     if (epoch !== this._epoch || this._adoptList(read, !waiting) !== "changed") return;
     if (waiting) this._paint();
     else this._paintGroups();
@@ -221,10 +231,8 @@ export class AdoptedTab {
 
   // ── Data ────────────────────────────────────────────────────────────
 
-  /** Read the curatable rows for the selected panel. It assigns nothing: `_adoptList` decides. */
-  private async _fetchList(hass: HomeAssistant): Promise<ListRead> {
-    const deviceId = this._deviceId;
-    if (!deviceId) return { groups: [], error: null, awaitingLoad: false };
+  /** Read the curatable rows of panel `deviceId`, the one the tab shows. It assigns nothing: `_adoptList` decides. */
+  private async _fetchList(hass: HomeAssistant, deviceId: string): Promise<ListRead> {
     try {
       const response = await hass.callWS<AdoptedListResponse>({
         type: `${INTEGRATION_DOMAIN}/adopted/list`,
@@ -297,11 +305,19 @@ export class AdoptedTab {
 
   // ── Painting ────────────────────────────────────────────────────────
 
-  private _paint(): void {
-    const container = this._container;
-    if (!container) return;
+  /**
+   * What the tab was drawn with, for what acts on the drawn tab: a paint, its
+   * controls and its editor. `render` sets it before it paints or binds
+   * anything, so nothing here asks before the first draw.
+   */
+  private get _drawn(): AdoptedView {
+    const view = this._view;
+    if (!view) throw new Error("adopted tab: acted on before its first draw");
+    return view;
+  }
 
-    container.innerHTML = `
+  private _paint(): void {
+    this._drawn.container.innerHTML = `
       <div style="padding:16px;">
         <h2 style="margin:0 0 4px 0;">${t("adopted.heading")}</h2>
         <p style="color:${MUTED};margin:0 0 20px 0;font-size:0.85em;max-width:640px;">${t("adopted.description")}</p>
@@ -320,7 +336,7 @@ export class AdoptedTab {
 
   /** Repaint the groups alone, leaving the filter box (and its focus) intact. */
   private _paintGroups(): void {
-    const groups = this._container?.querySelector("#adopted-groups");
+    const groups = this._drawn.container.querySelector("#adopted-groups");
     if (groups) groups.innerHTML = this._groupsHTML();
   }
 
@@ -524,15 +540,15 @@ export class AdoptedTab {
   // ── Events ──────────────────────────────────────────────────────────
 
   private _bind(): void {
-    const container = this._container;
-    if (!container) return;
+    const { container } = this._drawn;
     container.addEventListener("click", this._onClick);
     container.addEventListener("input", this._onInput);
     container.addEventListener("change", this._onChange);
   }
 
+  /** Stop listening to the container drawn in last; a tab not yet drawn, as the dashboard stops it before its first draw, listens to none. */
   private _unbind(): void {
-    const container = this._container;
+    const container = this._view?.container;
     if (!container) return;
     container.removeEventListener("click", this._onClick);
     container.removeEventListener("input", this._onInput);
@@ -575,10 +591,10 @@ export class AdoptedTab {
         this._paintGroups();
         return;
       case "save":
-        if (!editor.busy) await this._save(false);
+        if (!editor.busy) await this._save(editor, false);
         return;
       case "clear":
-        if (!editor.busy) await this._save(true);
+        if (!editor.busy) await this._save(editor, true);
         return;
       case "confirm-cancel":
         editor.confirm = null;
@@ -587,7 +603,7 @@ export class AdoptedTab {
       case "confirm-save": {
         const clears = editor.confirmClears;
         editor.confirm = null;
-        await this._commit(clears);
+        await this._commit(editor, this._expandedRow(), clears);
         return;
       }
       default:
@@ -623,7 +639,7 @@ export class AdoptedTab {
         editor.form = { ...editor.form, deviceClass: target.value };
         // A device class decides whether Core will convert the reading at
         // all, so the display controls have to be re-asked, not re-guessed.
-        editor.units = this._hass ? await this._fetchUnits(this._hass, target.value) : [];
+        editor.units = await this._fetchUnits(this._drawn.hass, target.value);
         this._paintGroups();
         return;
       }
@@ -643,10 +659,24 @@ export class AdoptedTab {
 
   // ── Editing ─────────────────────────────────────────────────────────
 
+  /**
+   * The row whose editor is open, which a click on one of the editor's controls
+   * acts on. An editor is open only on the row expanded, and every row drawn is
+   * one the tab holds: each read that changes the rows repaints them, and a
+   * render that paints nothing unbinds the controls first.
+   */
+  private _expandedRow(): AdoptedRow {
+    const key = this._expandedKey;
+    const row = key === null ? null : this._findRow(key);
+    if (!row) throw new Error("adopted tab: an editor is open on no row the tab holds");
+    return row;
+  }
+
+  /** Open the editor of the row a click on its header named, which is one the tab holds (`_expandedRow`). */
   private async _openEditor(key: string): Promise<void> {
     const row = this._findRow(key);
-    const hass = this._hass;
-    if (!row || !hass) return;
+    if (!row) throw new Error(`adopted tab: no row ${key} behind its header`);
+    const { hass } = this._drawn;
 
     this._expandedKey = key;
     this._editor = {
@@ -685,13 +715,12 @@ export class AdoptedTab {
   }
 
   /**
-   * Start a save, or a clear. Either can carry a statistics consequence, so
-   * both go through the same confirmation before anything is written.
+   * Start a save, or a clear, from `editor`, the one open. Either can carry a
+   * statistics consequence, so both go through the same confirmation before
+   * anything is written.
    */
-  private async _save(clears: boolean): Promise<void> {
-    const editor = this._editor;
-    const row = this._expandedKey === null ? null : this._findRow(this._expandedKey);
-    if (!editor || !row) return;
+  private async _save(editor: EditorState, clears: boolean): Promise<void> {
+    const row = this._expandedRow();
 
     const confirmation = statisticsConfirmation(row, this._formFor(editor, clears));
     if (confirmation !== null) {
@@ -702,7 +731,7 @@ export class AdoptedTab {
       this._paintGroups();
       return;
     }
-    await this._commit(clears);
+    await this._commit(editor, row, clears);
   }
 
   /** The form a save writes: the edited one, or an emptied one for a clear. */
@@ -722,11 +751,8 @@ export class AdoptedTab {
    * touches the registry not at all: it removes a record, and a record is not
    * a name or an enabled entity.
    */
-  private async _commit(clears: boolean): Promise<void> {
-    const editor = this._editor;
-    const hass = this._hass;
-    const row = this._expandedKey === null ? null : this._findRow(this._expandedKey);
-    if (!editor || !hass || !row || !this._deviceId) return;
+  private async _commit(editor: EditorState, row: AdoptedRow, clears: boolean): Promise<void> {
+    const { hass, deviceId } = this._drawn;
 
     const form = this._formFor(editor, clears);
     const plan = buildSavePlan(row, form);
@@ -763,7 +789,7 @@ export class AdoptedTab {
       }
       const result = await hass.callWS<AdoptedCurateResponse>({
         type: `${INTEGRATION_DOMAIN}/adopted/curate`,
-        device_id: this._deviceId,
+        device_id: deviceId,
         key: plan.curate.key,
         record: plan.curate.record,
       });
@@ -779,7 +805,7 @@ export class AdoptedTab {
 
     editor.busy = false;
     this._paintGroups();
-    this._scheduleRefresh();
+    this._scheduleRefresh(hass, deviceId);
   }
 
   /**
@@ -787,14 +813,12 @@ export class AdoptedTab {
    * badges and the stale-field notices catch up with what was stored. The open
    * editor is left as it is — it already holds what was just saved.
    */
-  private _scheduleRefresh(): void {
+  private _scheduleRefresh(hass: HomeAssistant, deviceId: string): void {
     if (this._refreshTimer) clearTimeout(this._refreshTimer);
     this._refreshTimer = setTimeout(() => {
       this._refreshTimer = null;
-      const hass = this._hass;
-      if (!hass) return;
       const epoch = this._epoch;
-      void this._fetchList(hass).then(read => {
+      void this._fetchList(hass, deviceId).then(read => {
         if (epoch === this._epoch && this._adoptList(read, true) === "changed") this._paintGroups();
       });
     }, REFRESH_AFTER_SAVE_MS);

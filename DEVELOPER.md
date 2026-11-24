@@ -65,7 +65,6 @@ src/
     span-panel.ts           # Panel container with tab navigation
     tab-dashboard.ts        # Dashboard tab (delegates to DashboardController)
     tab-monitoring.ts       # Monitoring configuration tab
-    tab-settings.ts         # Settings tab (graph horizons, integration link)
 
   editor/
     span-panel-card-editor.ts  # Visual card editor for Lovelace UI
@@ -101,6 +100,11 @@ The project produces two independent bundles from two entry points:
 Both share the same core modules. The `DashboardController` in `src/core/dashboard-controller.ts` encapsulates all shared dashboard behavior (live sampling,
 history loading, horizon maps, slide-to-confirm, toggle/gear clicks, resize observation) so the card and panel dashboard tab delegate to it rather than
 duplicating logic.
+
+The card and the sidebar dashboard each own one `ErrorStore`, which their banner shows, and hand it to what they build as they build it: the controller
+(`DashboardController`), which hands it to its monitoring and graph settings caches, the By Panel and Monitoring tabs, and the favorites cache. None of them can
+exist without one. The side panel and the banner are elements the HTML parser makes, so each takes its store as a property: every host sets the side panel's
+before it opens it (`DashboardController.onGearClick`), and Lit sets the banner's `.store` binding before it inserts the banner.
 
 ### Dashboard Editor Registration
 
@@ -152,16 +156,18 @@ loaded; Home Assistant answers `unknown_command` before the integration has regi
 rejects a call that a lost connection cut off, or one sent while it is down, with an error result carrying code 3, the only form 9.8.0 rejects a call with,
 which the frontend of every supported Home Assistant pins. `isRefusedUntilEntryLoads()` in `src/core/entry-load.ts` tells those refusals from the rest, for
 `panel_topology` and for every other command the integration answers for one panel, such as `adopted/list`, which refuses an entry that has not loaded by the
-same checks and codes. The integration's `no_data`, for a loaded entry with no data, is not among them: setup waits for the first data before the entry can
-load, and an update keeps the data it held.
+same checks and codes. It also takes the integration's refusal of `get_monitoring_status` for a panel whose entry has not loaded: a ServiceValidationError,
+which Home Assistant answers as `service_validation_error` with the integration's translation key `monitoring_panel_not_loaded`.
 
 First discovery spends no retries on them (`RetryPolicy.passThrough`), and `subscribePanelEntryLoads()` asks again once the entry reaches `loaded`, an entry
-already loaded as it subscribes included. It waits for the entry the device registry list says owns the configured device, and for any of the integration's
-entries where the list does not hold that device, as for an id saved before Home Assistant 2026.8. The list is refused only where the connection is lost; the
-card then waits for any of the integration's entries, and looks the owner up again as the subscription's first batch comes, which it does once the connection is
-back, and from then on waits for that entry alone. The subscription is held across a reconnect and replayed after it, with a re-seed that reports each loaded
-entry, so a wait across a Home Assistant restart ends without a click; that rests on home-assistant-js-websocket 9.8.0, which every Home Assistant from
-2026.11.0 pins.
+already loaded as it subscribes included. It waits for the integration's entry that owns the configured device, as the device registry list says, judged against
+the entries `config_entries/get` lists for the integration. An id saved before Home Assistant 2026.8 names no device in the list where that release split the
+device, as it split a panel a helper had linked itself to; `config/device_registry/list_composite_splits` names the old id's splits, and the card waits for the
+entry that owns the panel's, as the integration resolves the old id itself. Where no entry of the integration's owns the device or a split of it, the device is
+no panel the integration answers, and the wait ends at once as for an entry removed. The lists are refused only where the connection is lost; the card then
+waits for any of the integration's entries, and looks the owner up again as the subscription's first batch comes, which it does once the connection is back, and
+from then on waits for that entry alone. The subscription is held across a reconnect and replayed after it, with a re-seed that reports each loaded entry, so a
+wait across a Home Assistant restart ends without a click; that rests on home-assistant-js-websocket 9.8.0, which every Home Assistant from 2026.11.0 pins.
 
 The integration answers `not_loaded` too for an entry that will not load by itself. The subscription reports each entry's `state` and `disabled_by`, and
 `entryLoadOf()` reads where the entry stands from them:
@@ -169,47 +175,69 @@ The integration answers `not_loaded` too for an entry that will not load by itse
 - loaded;
 - on its way to loading: `not_loaded` before setup starts, `setup_in_progress`, `setup_retry` between the retries of a panel setup cannot reach, and
   `unload_in_progress`, which a reload's setup follows;
-- setup failed: `setup_error`, as where the integration raised `ConfigEntryAuthFailed` into a reauth, which Settings → Devices & services sets right; and
-  `migration_error` and `failed_unload`, which Core does not reload an entry from, so they need a Home Assistant restart once the cause is set right;
+- setup failed: `setup_error`, as where the integration raised `ConfigEntryAuthFailed` into a reauth, which Settings → Devices & services sets right;
+- restart needed: `migration_error` and `failed_unload`, which Core neither unloads nor reloads an entry from, so they need a Home Assistant restart once the
+  cause is set right;
 - disabled, whatever its state, wherever `disabled_by` is set.
 
 What the card says while it waits comes from that (`entryWaitOf()`, `entryWaitLine()`): "Waiting for SPAN Panel to load..." as a status, or, for an entry that
-failed to set up or is disabled, an alert that says so and points to Settings → Devices & services. The wait goes on either way, so the card draws its panel
-once the entry loads: after a reauth, or after the restart a migration or an unload that failed needs. An entry removed while the card waits ends the wait with
-the "Unable to connect" error. Where the device list does not hold the panel's device, what any of the integration's entries says of itself says nothing of the
-panel's, and the card says it is waiting.
+will not load by itself, an alert that says how to set it right: that setup failed, pointing to Settings → Devices & services; that Home Assistant needs a
+restart; or that the panel is disabled, pointing to Settings → Devices & services. The wait goes on either way, so the card draws its panel once the entry
+loads: after a reauth, or after the restart a migration or an unload that failed needs. An entry removed while the card waits ends the wait with the "Unable to
+connect" error.
 
 Any other failure is final: the card shows the persistent "Unable to connect" error and asks nothing more, whatever changes in Home Assistant, until Retry or a
 new config, and shows the error again when Lovelace re-attaches it. Once the card shows its panel, each reload of the entry and each rename of a device it shows
 by name re-fetches `panel_topology` in one attempt.
 
-The sidebar dashboard takes those refusals the same way. By Panel, By Activity, By Area and Monitoring each ask `panel_topology` for the panel they draw, and
-Adopted asks `adopted/list`. Where `isRefusedUntilEntryLoads()` holds they spend no retries and add no error, and show in place of the view what the wait for
-the panel's entry says, the card's line (`showEntryWait()`), from where the entry stands as the dashboard's entry subscription last reported it. Monitoring asks
-for the topology before the monitoring status, because the integration answers the status of a panel whose entry has not loaded as monitoring off. The watch of
-the panel's status entity, which the unreachable banner reads, asks the same way, and is cleared as another panel is chosen, so it stops watching a panel the
-dashboard no longer shows.
+The card reads its panel's monitoring status as it draws the panel, as a rating changes and as a circuit's side panel opens, each through
+`MonitoringStatusCache`. Each read the integration refuses until the entry loads, as one while an options reload sets the entry up again, spends no retries and
+adds no error: the cache holds no status and says it waits for the entry (`awaitingLoad`), and the entry's next load reads it again before the topology is
+fetched again.
 
-The dashboard's one subscription to its panels' entries ends each wait. A load (`_onEntryLoaded()`) draws again a view that rendered no topology for the panel,
-has Adopted read its rows again, and starts the status watch where the watch found no topology; any other change of where a waited-for entry stands
-(`_onEntryStatus()`) draws the view again, so it says what the wait now says, and an entry removed draws the error its panel's request then answers. The
-dashboard subscribes before it asks for any topology, so a load that follows a refusal arrives as a change, and after a reconnect the replayed subscription's
-re-seed reports each loaded entry. Core refuses `config_entries/subscribe` to no logged-in user, so the card's and the dashboard's subscriptions fail only where
-the connection is closed for good, as after a reconnect whose authentication failed, which reloads the frontend. The Favorites view leaves out a panel whose
+Core refuses only one of the card's and the dashboard's subscriptions to a logged-in user. The area, entity and device registry events are among those it lets
+anyone subscribe to, and `config_entries/subscribe` takes no permission, so home-assistant-js-websocket 9.8.0 rejects any of those only where the connection is
+closed for good, as after a reconnect whose authentication failed, which reloads the frontend. The rating event Core lets only an administrator hear, so each
+subscribes to it only where the frontend says the user is one (`canHearRatingChanges()`). An administrator taken out of the administrators group stops being one
+to Core at once, while the frontend fetches the user again only as the connection is re-established, so a subscription asked for meanwhile is refused as
+Unauthorized; each catches that refusal and hears no rating event, as for any user who is not an administrator.
+
+The sidebar dashboard takes those refusals the same way. By Panel, By Activity, By Area and Monitoring each ask `panel_topology` for the panel they draw, then
+`get_monitoring_status`, and Adopted asks `adopted/list`. Where `isRefusedUntilEntryLoads()` holds for either read they spend no retries and add no error, and
+show in place of the view what the wait for the panel's entry says, the card's line (`showEntryWait()`), from where the entry stands as the dashboard's entry
+subscription last reported it. The Monitoring tab answers `AWAITING_LOAD` where its read is refused; where a read of its own after a save is refused, it keeps
+the table it drew (`MonitoringTab.awaitsLoadOf()`). The watch of the panel's status entity, which the unreachable banner reads, asks the same way, and is
+cleared as another panel is chosen, so it stops watching a panel the dashboard no longer shows.
+
+The dashboard's one subscription to its panels' entries ends each wait. A load (`_onEntryLoaded()`) draws again a view that waited for the entry or rendered no
+topology for the panel, and a view that drew without the monitoring status the entry refused (`_monitoringAwaitsLoad()`); has Adopted read its rows again; gives
+a circuit's side panel left open on the panel its monitoring again, as one opened while the entry had not loaded read none; and starts the status watch where
+the watch found no topology. Any other change of where a waited-for entry stands (`_onEntryStatus()`) draws the view again, so it says what the wait now says,
+and an entry removed draws the error its panel's request then answers. The dashboard subscribes before it asks for any topology, so a load that follows a
+refusal arrives as a change, and after a reconnect the replayed subscription's re-seed reports each loaded entry. The Favorites view leaves out a panel whose
 entry has not loaded, as it leaves out any panel whose topology it cannot read, and adds that panel's favorites once the entry loads; where nothing else is left
 to show, the view shows what the wait for those panels says (`combinedEntryWait()`), waiting while any of them can still load, rather than saying it found no
-circuits. Adopted stops each re-read as the user leaves the tab, so one that lands after paints nothing, while a first read that a detach interrupts still
-paints the tab, which shows as the dashboard is attached again.
+circuits. A panel whose monitoring status alone is refused keeps its favorites in the view, drawn without the status, and in the Monitoring tab its block says
+what the wait says; the entry's load draws the view again. Adopted stops each read as the user leaves the tab, so one that lands after paints nothing.
 
 Once every panel is removed, the dashboard selects Favorites where it is still listed, else no panel, so no view asks for, or waits for, a panel the dashboard
-no longer lists.
+no longer lists. With no panel selected, which is with none listed, each view says no SPAN Panel is found (`_showNoPanel()`). A view's render waits on its
+requests, and the user may choose another tab or panel meanwhile, or the list lose the panel with its entry, which selects another or none: that render then
+draws no wait and records no topology (`_isShown()`), and the view now shown is drawn after it, so no view waits for a panel the dashboard does not list.
 
 The dashboard's own list of panels comes from the device registry list and the integration's config entries. Both answer every logged-in user, and neither
 refuses on any state of Home Assistant's: `config` registers them, a dependency of the frontend. So what keeps the list from the dashboard is a lost connection,
 as across a restart, and the list spends no retries on it and adds no error: the dashboard shows the waiting line and asks again with the next Home Assistant
 the frontend hands it. The frontend hands it one as the connection returns, setting `connected` on the object it hands over; the list is asked for with the
-first Home Assistant and with those that follow a lost connection, and with no other. The entry subscription is not what asks again: one sent while the
-connection is down only seeds with its first batch after the reconnect, and it reports loaded entries, which the list of panels does not wait for.
+first Home Assistant and with those that follow a lost connection, and with no other. A refresh of the list, as a device changes or a panel's entry loads, waits
+the same way where a lost connection cuts it off (`_refreshPanels()`), keeping the list it shows. The entry subscription is not what asks again: one sent while
+the connection is down only seeds with its first batch after the reconnect, and it reports loaded entries, which the list of panels does not wait for.
+
+The frontend attaches the dashboard once: it discards the element as it detaches it, as when the user navigates away, and builds a new one to show the panel
+again (`ha-panel-custom.ts`, frontend 20261028.6). So the dashboard has no re-attach to prepare for. Its detach stops every view and lets go of every
+subscription; work still in flight then lands on a discarded element. A render that does stops the views it started again, Adopted paints nothing for a read
+that lands after, the Favorites view's Monitoring stack reads no more tables, and the area tab and the rating events subscribe nothing more, since nothing would
+remove them. A change of the Favorites view's state made a moment before is saved as the dashboard is detached.
 
 ### Key Types
 

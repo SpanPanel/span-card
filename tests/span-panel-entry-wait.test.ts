@@ -35,14 +35,23 @@ const NOT_LOADED = { code: "not_loaded", message: "SPAN Panel integration is not
 const UNKNOWN_COMMAND = { code: "unknown_command", message: "Unknown command." };
 /** What home-assistant-js-websocket 9.8.0 rejects a command with when the connection is lost. */
 const CONNECTION_LOST_RESULT = { type: "result", success: false, error: { code: 3, message: "Connection lost" } };
+/** What the integration answers `get_monitoring_status` with for a panel whose entry has not loaded. */
+const MONITORING_NOT_LOADED = {
+  code: "service_validation_error",
+  message: "Validation error: SPAN Panel is not loaded.",
+  translation_key: "monitoring_panel_not_loaded",
+  translation_placeholders: null,
+  translation_domain: "span_panel",
+};
 /** What the integration answers for a device the registry no longer holds, as once its entry is removed: a refusal waiting does not end. */
 const DEVICE_NOT_FOUND = { code: "device_not_found", message: "Device not found" };
 const WAITING = "Waiting for SPAN Panel to load...";
 const SETUP_FAILED = "SPAN Panel could not be set up. Check Settings → Devices & services.";
+const RESTART_NEEDED = "SPAN Panel could not be loaded. Restart Home Assistant to try again.";
 const DISABLED = "This SPAN Panel is disabled. Enable it in Settings → Devices & services.";
 const NO_RESULTS = "No circuits found";
-/** What a view says with no panel selected: discovery refuses an empty device id itself. */
-const DEVICE_GONE = "Panel device not found";
+/** What a view says where the dashboard lists no panel, and so selects none. */
+const NO_PANELS = "No SPAN Panel found. Add one in Settings → Devices & services.";
 
 const PENDING: [string, unknown][] = [
   ["not_loaded", NOT_LOADED],
@@ -63,8 +72,8 @@ const WAIT_STATES = ["not_loaded", "setup_in_progress", "setup_retry", "unload_i
 /** The entry states, and the disabled entry, that no wait ends by itself, and what the dashboard says of each. */
 const STUCK: [string, EntryState, string][] = [
   ["setup_error", { state: "setup_error", disabled_by: null }, SETUP_FAILED],
-  ["migration_error", { state: "migration_error", disabled_by: null }, SETUP_FAILED],
-  ["failed_unload", { state: "failed_unload", disabled_by: null }, SETUP_FAILED],
+  ["migration_error", { state: "migration_error", disabled_by: null }, RESTART_NEEDED],
+  ["failed_unload", { state: "failed_unload", disabled_by: null }, RESTART_NEEDED],
   ["disabled", { state: "not_loaded", disabled_by: "user" }, DISABLED],
 ];
 
@@ -92,6 +101,14 @@ function topologyOf({ device, entry, circuit, status }: PanelFixture): PanelTopo
 
 /** The refusal `panel_topology` and `adopted/list` answer for a panel, by its device id; a panel not named here has loaded. */
 const refusals = new Map<string, unknown>();
+/**
+ * The panels whose monitoring status alone is refused, by device id: the entry
+ * left `loaded` between the panel's topology and its status, as an options
+ * reload does.
+ */
+const monitoringRefusals = new Set<string>();
+/** How often `get_monitoring_status` was asked, by the device id of the panel it named. */
+const statusReads = new Map<string, number>();
 /** An entry's state as the subscription reports it, by entry id, where a test sets one: else set up while its panel is refused, and loaded otherwise. */
 const entryStates = new Map<string, EntryState>();
 /** The panels `panel_topology` and `adopted/list` were asked for, by device id, in order. */
@@ -118,11 +135,19 @@ function entryOf(msg: Record<string, unknown>): unknown {
 
 /**
  * What `get_monitoring_status` answers for a panel: monitoring on, with its
- * circuit, once its entry has loaded; monitoring off, as the integration
- * answers for an entry that has not.
+ * circuit, once its entry has loaded; the integration's refusal for an entry
+ * that has not, or a lost connection where the panel's requests meet one.
  */
-function monitoringOf(fixture: PanelFixture | undefined): unknown {
-  if (!fixture || PENDING_REFUSALS.has(refusals.get(fixture.device.id))) return { enabled: false };
+function monitoringOf(fixture: PanelFixture): Promise<unknown> {
+  statusReads.set(fixture.device.id, (statusReads.get(fixture.device.id) ?? 0) + 1);
+  const refusal = refusals.get(fixture.device.id);
+  if (refusal === CONNECTION_LOST_RESULT) return Promise.reject(refusal);
+  if (PENDING_REFUSALS.has(refusal) || monitoringRefusals.has(fixture.device.id)) return Promise.reject(MONITORING_NOT_LOADED);
+  return Promise.resolve({ response: monitoringAnswer(fixture) });
+}
+
+/** The status `get_monitoring_status` answers for a panel that has loaded: monitoring on, with its circuit. */
+function monitoringAnswer(fixture: PanelFixture): unknown {
   return {
     enabled: true,
     global_settings: { continuous_threshold_pct: 80, spike_threshold_pct: 100, window_duration_m: 15, cooldown_duration_m: 15 },
@@ -189,7 +214,11 @@ function backend(msg: Record<string, unknown>): Promise<unknown> {
       return heldAnswer(msg, adoptedOf, holdAdopted, heldAdopted);
     case "call_service":
       if (msg.service === "get_favorites") return Promise.resolve({ response: { favorites } });
-      if (msg.service === "get_monitoring_status") return Promise.resolve({ response: monitoringOf(PANELS.find(p => p.entry === entryOf(msg))) });
+      if (msg.service === "get_monitoring_status") {
+        const fixture = PANELS.find(p => p.entry === entryOf(msg));
+        if (!fixture) return Promise.reject(new Error(`the dashboard read the monitoring status of entry ${String(entryOf(msg))}, which no panel has`));
+        return monitoringOf(fixture);
+      }
       return Promise.resolve({});
     default:
       // History has no points.
@@ -226,6 +255,8 @@ beforeEach(() => {
   // `--localstorage-file`, and it shadows happy-dom's; the element reads it.
   vi.stubGlobal("localStorage", new Storage());
   refusals.clear();
+  monitoringRefusals.clear();
+  statusReads.clear();
   entryStates.clear();
   asks = [];
   registryRefusal = null;
@@ -343,6 +374,7 @@ function entryChanges(connection: FakeConnection, fixture: PanelFixture, { state
 /** The panel's entry reaches `loaded`, as `config_entries/subscribe` reports it. */
 function load(connection: FakeConnection, fixture: PanelFixture): void {
   refusals.delete(fixture.device.id);
+  monitoringRefusals.delete(fixture.device.id);
   entryStates.delete(fixture.entry);
   connection.emit(ENTRY_RELOADS, [change(fixture.entry, "loaded", "updated")]);
 }
@@ -406,8 +438,76 @@ describe.each(TABS)("the sidebar dashboard's $name tab, while the panel's config
   });
 });
 
+describe.each(TABS.filter(({ tab }) => tab !== "adopted"))(
+  "the sidebar dashboard's $name tab, where the panel's monitoring status is refused as its entry reloads",
+  ({ tab, drawn }) => {
+    it("says it is waiting, with no retry and no toast, though the panel's topology answered, and draws the panel once the entry loads", async () => {
+      monitoringRefusals.add(PANEL.id);
+      entryStates.set(SPAN_ENTRY, { state: "setup_in_progress", disabled_by: null });
+      const connection = new FakeConnection();
+      const panel = await mount(connection);
+
+      await openTab(panel, tab);
+
+      await vi.waitFor(() => expect(waitingLine(panel)).toBe(WAITING));
+      expect(tabContent(panel).querySelector(drawn)).toBeNull();
+      const read = statusReads.get(PANEL.id);
+      await runRetries();
+      expect(statusReads.get(PANEL.id)).toBe(read);
+      expect(errorsAdded()).toEqual([]);
+
+      load(connection, FIRST);
+
+      await vi.waitFor(() => expect(tabContent(panel).querySelector(drawn)).not.toBeNull());
+      expect(tabContent(panel).textContent).not.toContain(WAITING);
+    });
+  }
+);
+
+describe("the sidebar dashboard's Monitoring tab, whose redraw after a save is refused as the panel's entry reloads", () => {
+  it("keeps the table it drew, with no toast, and draws it again once the entry loads", async () => {
+    const connection = new FakeConnection();
+    const panel = await mount(connection);
+    await openTab(panel, "monitoring");
+    await vi.waitFor(() => expect(tabContent(panel).querySelector(".circuit-toggle")).not.toBeNull());
+    const reads = statusReads.get(PANEL.id) ?? 0;
+
+    // The user turns the circuit's monitoring off; the entry starts to reload before the tab reads its status again.
+    monitoringRefusals.add(PANEL.id);
+    entryChanges(connection, FIRST, { state: "setup_in_progress", disabled_by: null });
+    const toggle = tabContent(panel).querySelector<HTMLInputElement>(".circuit-toggle")!;
+    toggle.checked = false;
+    toggle.dispatchEvent(new Event("change"));
+    await vi.waitFor(() => expect(statusReads.get(PANEL.id)).toBe(reads + 1));
+    await vi.advanceTimersByTimeAsync(100);
+
+    expect(tabContent(panel).querySelector(".circuit-toggle")).not.toBeNull();
+    expect(waitingLine(panel)).toBeNull();
+    expect(errorsAdded()).toEqual([]);
+
+    load(connection, FIRST);
+
+    await vi.waitFor(() => expect(statusReads.get(PANEL.id)).toBe(reads + 2));
+    await vi.waitFor(() => expect(tabContent(panel).querySelector<HTMLInputElement>(".circuit-toggle")?.checked).toBe(true));
+  });
+});
+
+describe("the sidebar dashboard's By Panel tab, with a circuit panel open as the panel's entry loads", () => {
+  it("brings the circuit panel's monitoring up to date, as one opened while the entry had not loaded read none", async () => {
+    const connection = new FakeConnection();
+    const panel = await mount(connection);
+    await vi.waitFor(() => expect(tabContent(panel).querySelector(".panel-grid")).not.toBeNull());
+    const refreshed = vi.spyOn(DashboardTab.prototype, "refreshSidePanel").mockResolvedValue(undefined);
+
+    entryChanges(connection, FIRST, { state: "setup_in_progress", disabled_by: null });
+    load(connection, FIRST);
+
+    await vi.waitFor(() => expect(refreshed).toHaveBeenCalledWith(SPAN_ENTRY, expect.objectContaining({ config_entry_id: SPAN_ENTRY }), null));
+  });
+});
+
 describe.each(TABS)("the sidebar dashboard's $name tab, where the panel's entry failed to set up or is disabled", ({ tab, drawn }) => {
-  it.each(STUCK)("says so, and where to look, with no waiting line and no toast, where the entry is %s", async (_name, entryState, said) => {
+  it.each(STUCK)("says so, and how to set it right, with no waiting line and no toast, where the entry is %s", async (_name, entryState, said) => {
     refusals.set(PANEL.id, NOT_LOADED);
     entryStates.set(SPAN_ENTRY, entryState);
     const panel = await mount(new FakeConnection());
@@ -660,7 +760,7 @@ describe("the sidebar dashboard's Favorites view, while a panel with favorites h
     await vi.waitFor(() => expect(favoriteRows(panel)).toHaveLength(2));
   });
 
-  it.each(STUCK)("says so, and where to look, where the only panel with favorites has an entry that is %s", async (_name, entryState, said) => {
+  it.each(STUCK)("says so, and how to set it right, where the only panel with favorites has an entry that is %s", async (_name, entryState, said) => {
     favorites = { [PANEL.id]: { circuits: [FIRST.circuit], sub_devices: [] } };
     refusals.set(PANEL.id, NOT_LOADED);
     entryStates.set(SPAN_ENTRY, entryState);
@@ -709,6 +809,49 @@ describe("the sidebar dashboard's Favorites view, while a panel with favorites h
     expect(tabContent(panel).textContent).not.toContain(NO_RESULTS);
   });
 
+  it("draws the favorites of a panel whose monitoring status is refused as its entry reloads, with no toast, and draws them again once it loads", async () => {
+    favorites = { [PANEL.id]: { circuits: [FIRST.circuit], sub_devices: [] } };
+    monitoringRefusals.add(PANEL.id);
+    entryStates.set(SPAN_ENTRY, { state: "setup_in_progress", disabled_by: null });
+    const connection = new FakeConnection();
+    const panel = await mount(connection);
+
+    await vi.waitFor(() => expect(favoriteRows(panel)).toEqual([`${PANEL.id}|${FIRST.circuit}`]));
+    const reads = statusReads.get(PANEL.id) ?? 0;
+    await runRetries();
+    expect(statusReads.get(PANEL.id)).toBe(reads);
+    expect(errorsAdded()).toEqual([]);
+
+    load(connection, FIRST);
+
+    await vi.waitFor(() => expect(statusReads.get(PANEL.id)).toBe(reads + 1));
+    await vi.waitFor(() => expect(favoriteRows(panel)).toEqual([`${PANEL.id}|${FIRST.circuit}`]));
+  });
+
+  it("says, in the Monitoring tab's block of a panel whose status is refused as its entry reloads, that it is waiting, and draws the block once the entry loads", async () => {
+    favorites = {
+      [PANEL.id]: { circuits: [FIRST.circuit], sub_devices: [] },
+      [SECOND_PANEL.id]: { circuits: [SECOND.circuit], sub_devices: [] },
+    };
+    monitoringRefusals.add(PANEL.id);
+    entryStates.set(SPAN_ENTRY, { state: "setup_in_progress", disabled_by: null });
+    const connection = new FakeConnection();
+    const panel = await mount(connection);
+    await vi.waitFor(() => expect(favoriteRows(panel)).toHaveLength(2));
+    panel.shadowRoot?.querySelector<HTMLElement>('.panel-tabs [data-tab="monitoring"]')?.click();
+    const blocks = (): HTMLElement[] => [...tabContent(panel).querySelectorAll<HTMLElement>(".favorites-monitoring-block")];
+
+    await vi.waitFor(() => expect(blocks()).toHaveLength(2));
+    await vi.waitFor(() => expect(blocks()[0]!.querySelector('[role="status"]')?.textContent?.trim()).toBe(WAITING));
+    expect(blocks()[1]!.querySelector(".circuit-toggle")).not.toBeNull();
+    expect(errorsAdded()).toEqual([]);
+
+    load(connection, FIRST);
+
+    await vi.waitFor(() => expect(blocks()[0]!.querySelector(".circuit-toggle")).not.toBeNull());
+    expect(blocks()[0]!.textContent).not.toContain(WAITING);
+  });
+
   it("says it found nothing, as before, where the only panel with favorites has its device gone as its entry is removed", async () => {
     favorites = { [PANEL.id]: { circuits: [FIRST.circuit], sub_devices: [] } };
     refusals.set(PANEL.id, DEVICE_NOT_FOUND);
@@ -731,7 +874,39 @@ describe("the sidebar dashboard, once every panel is removed", () => {
     await vi.waitFor(() => expect(panel.shadowRoot?.querySelector<HTMLSelectElement>("#panel-select")?.options).toHaveLength(favorites[PANEL.id] ? 1 : 0));
   }
 
-  it("selects no panel, so a tab opened while the connection is down asks for none and says no panel is found", async () => {
+  it("waits for no panel the list no longer holds, where the view's request, sent before the last panel left, is cut off by a lost connection", async () => {
+    // Node reports a rejection nothing handled once the tick it happened in is over: the test runs on real timers to see one.
+    vi.useRealTimers();
+    const rejections: unknown[] = [];
+    const onRejection = (reason: unknown): void => {
+      rejections.push(reason);
+    };
+    process.on("unhandledRejection", onRejection);
+    try {
+      const connection = new FakeConnection();
+      const panel = await mount(connection);
+      await vi.waitFor(() => expect(tabContent(panel).querySelector(".panel-grid")).not.toBeNull());
+      holdTopology = true;
+      panel.shadowRoot?.querySelector<HTMLElement>('.panel-tabs [data-tab="activity"]')?.click();
+      await vi.waitFor(() => expect(heldTopology).toHaveLength(1));
+
+      // Home Assistant removes every SPAN entry, the devices with them, while the view's request is on its way; the connection is then lost before it is answered.
+      listedDevices = [];
+      connection.emit(DEVICE_REGISTRY, { event_type: DEVICE_REGISTRY, data: { action: "remove", device_id: PANEL.id } });
+      await vi.waitFor(() => expect(panel.shadowRoot?.querySelector<HTMLSelectElement>("#panel-select")?.options).toHaveLength(0));
+      refusals.set(PANEL.id, CONNECTION_LOST_RESULT);
+      holdTopology = false;
+      for (const release of heldTopology.splice(0)) release();
+
+      await vi.waitFor(() => expect(tabContent(panel).textContent?.trim()).toBe(NO_PANELS));
+      await new Promise(resolve => setTimeout(resolve, 20));
+      expect(rejections).toEqual([]);
+    } finally {
+      process.off("unhandledRejection", onRejection);
+    }
+  });
+
+  it("selects no panel, so a tab opened while the connection is down asks for none and says no panel is found, in words of its own", async () => {
     const connection = new FakeConnection();
     const panel = await mount(connection);
     await vi.waitFor(() => expect(tabContent(panel).querySelector(".panel-grid")).not.toBeNull());
@@ -744,8 +919,18 @@ describe("the sidebar dashboard, once every panel is removed", () => {
     await vi.advanceTimersByTimeAsync(200);
 
     expect(asks.length).toBe(asked);
-    expect(tabContent(panel).textContent).toContain(DEVICE_GONE);
+    expect(tabContent(panel).textContent?.trim()).toBe(NO_PANELS);
+    expect(tabContent(panel).textContent).not.toContain("device_id");
     expect(waitingLine(panel)).toBeNull();
+  });
+
+  it("says no panel is found, in words of its own, where the dashboard opens with none listed", async () => {
+    listedDevices = [];
+
+    const panel = await mount(new FakeConnection());
+
+    await vi.waitFor(() => expect(tabContent(panel).textContent?.trim()).toBe(NO_PANELS));
+    expect(asks).toEqual([]);
   });
 
   it("selects Favorites where it is still listed", async () => {
@@ -761,23 +946,24 @@ describe("the sidebar dashboard, once every panel is removed", () => {
   });
 });
 
-describe("the sidebar dashboard's Adopted tab, detached while it reads", () => {
-  it("shows its rows on the return", async () => {
+describe("the sidebar dashboard's Adopted tab, which the frontend discards while it reads", () => {
+  it("paints nothing, and listens to nothing, once the read lands", async () => {
     const connection = new FakeConnection();
     const panel = await mount(connection);
     await vi.waitFor(() => expect(tabContent(panel).querySelector(".panel-grid")).not.toBeNull());
     holdAdopted = true;
     panel.shadowRoot?.querySelector<HTMLElement>('.panel-tabs [data-tab="adopted"]')?.click();
     await vi.waitFor(() => expect(heldAdopted).toHaveLength(1));
+    const listened = vi.spyOn(HTMLElement.prototype, "addEventListener");
 
-    // The frontend detaches a panel its browser tab has hidden for five minutes, and attaches it again as the tab shows.
+    // The user navigates away: the frontend detaches the dashboard and discards it.
     panel.remove();
     holdAdopted = false;
     for (const release of heldAdopted.splice(0)) release();
     await vi.advanceTimersByTimeAsync(50);
-    document.body.appendChild(panel);
 
-    await vi.waitFor(() => expect(tabContent(panel).querySelectorAll(".adopted-row-header")).toHaveLength(1));
+    expect(tabContent(panel).querySelector(".adopted-row-header")).toBeNull();
+    expect(listened.mock.contexts).not.toContain(tabContent(panel));
   });
 });
 
@@ -797,6 +983,28 @@ describe("the sidebar dashboard's list of panels", () => {
     expect(deviceListAsks).toBe(asked);
     expect(errorsAdded()).toEqual([]);
     expect(shellStatus(panel)).toBe(WAITING);
+  });
+
+  it("lists the panels again, with no error, once the frontend hands it Home Assistant again, where a lost connection cut a refresh of the list off", async () => {
+    const connection = new FakeConnection();
+    const panel = await mount(connection);
+    await vi.waitFor(() => expect(tabContent(panel).querySelector(".panel-grid")).not.toBeNull());
+    const listed = (): string[] => [...(panel.shadowRoot?.querySelector<HTMLSelectElement>("#panel-select")?.options ?? [])].map(option => option.value);
+    expect(listed()).toEqual([PANEL.id, SECOND_PANEL.id]);
+
+    // The second panel's device is removed, and the connection is lost as the list is asked for again.
+    listedDevices = [PANEL];
+    registryRefusal = CONNECTION_LOST_RESULT;
+    connection.emit(DEVICE_REGISTRY, { event_type: DEVICE_REGISTRY, data: { action: "remove", device_id: SECOND_PANEL.id } });
+    await runRetries();
+    expect(listed()).toEqual([PANEL.id, SECOND_PANEL.id]);
+    expect(errorsAdded()).toEqual([]);
+
+    registryRefusal = null;
+    panel.hass = hassFor(connection);
+
+    await vi.waitFor(() => expect(listed()).toEqual([PANEL.id]));
+    expect(errorsAdded()).toEqual([]);
   });
 
   it("lists the panels, with no error, once the frontend hands it Home Assistant again on reconnecting", async () => {

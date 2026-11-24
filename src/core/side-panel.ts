@@ -535,7 +535,8 @@ class StoredMonitoring {
 // ── Component ─────────────────────────────────────────────────────────────
 
 class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
-  errorStore: ErrorStore | null = null;
+  /** Unset only between the HTML parser making the panel and its host setting the store, which every host does before it opens the panel. */
+  private _errorStore: ErrorStore | null = null;
   private _hass: HomeAssistant | null;
   private _config: SidePanelConfig | null;
   private readonly _ratingsEditor: PackageRatingsEditor;
@@ -553,6 +554,21 @@ class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
    * any other mode, which has neither.
    */
   private _controlAccess: ControlAccess = CONTROLS_NOT_KNOWN;
+  /**
+   * Where the panel says what fails in it: its host's error store, the card's
+   * or the sidebar dashboard's. The panel acts only once opened, and every host
+   * sets the store before it opens it (`DashboardController.onGearClick`).
+   */
+  get errorStore(): ErrorStore {
+    const store = this._errorStore;
+    if (!store) throw new Error("span-side-panel: acted on before its host gave it an error store");
+    return store;
+  }
+
+  set errorStore(store: ErrorStore) {
+    this._errorStore = store;
+  }
+
   constructor() {
     super();
     this.attachShadow({ mode: "open" });
@@ -580,6 +596,18 @@ class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
 
   get hass(): HomeAssistant | null {
     return this._hass;
+  }
+
+  /**
+   * Home Assistant, for what the open panel draws and sends. Every host sets it
+   * before it opens the panel (`DashboardController.onGearClick`), the panel
+   * draws its controls only once opened, and a write it delays is one of those
+   * controls'.
+   */
+  private get _drawnHass(): HomeAssistant {
+    const hass = this._hass;
+    if (!hass) throw new Error("span-side-panel: acted on before its host gave it Home Assistant");
+    return hass;
   }
 
   open(config: SidePanelConfig): void {
@@ -737,7 +765,7 @@ class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
         })
         .catch((err: Error) => {
           console.warn("SPAN Panel: graph horizon service failed", err);
-          this.errorStore?.add({
+          this.errorStore.add({
             key: "service:graph_horizon",
             level: "error",
             message: t("error.graph_horizon_failed"),
@@ -844,7 +872,7 @@ class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
               })
               .catch((err: Error) => {
                 console.warn("SPAN Panel: graph horizon service failed", err);
-                this.errorStore?.add({
+                this.errorStore.add({
                   key: "service:graph_horizon",
                   level: "error",
                   message: t("error.graph_horizon_failed"),
@@ -880,7 +908,7 @@ class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
               })
               .catch((err: Error) => {
                 console.warn("SPAN Panel: graph horizon service failed", err);
-                this.errorStore?.add({
+                this.errorStore.add({
                   key: "service:graph_horizon",
                   level: "error",
                   message: t("error.graph_horizon_failed"),
@@ -952,7 +980,7 @@ class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
           })
           .catch((err: Error) => {
             console.warn("SPAN Panel: graph horizon service failed", err);
-            this.errorStore?.add({
+            this.errorStore.add({
               key: "service:graph_horizon",
               level: "error",
               message: t("error.graph_horizon_failed"),
@@ -988,7 +1016,7 @@ class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
           })
           .catch((err: Error) => {
             console.warn("SPAN Panel: graph horizon service failed", err);
-            this.errorStore?.add({
+            this.errorStore.add({
               key: "service:graph_horizon",
               level: "error",
               message: t("error.graph_horizon_failed"),
@@ -1244,7 +1272,7 @@ class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
   }
 
   private async _toggleFavoriteEntity(btn: HTMLButtonElement, icon: HTMLElement, entityId: string): Promise<void> {
-    if (!this._hass) return;
+    const hass = this._drawnHass;
     const wasActive = btn.classList.contains("active");
     const nextActive = !wasActive;
     // Optimistically flip class, icon, and aria-checked; roll back on error.
@@ -1253,16 +1281,16 @@ class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
     btn.setAttribute("aria-checked", String(nextActive));
     try {
       if (nextActive) {
-        await addFavorite(this._hass, entityId);
+        await addFavorite(hass, entityId);
       } else {
-        await removeFavorite(this._hass, entityId);
+        await removeFavorite(hass, entityId);
       }
     } catch (err) {
       btn.classList.toggle("active", wasActive);
       icon.setAttribute("icon", wasActive ? "mdi:heart" : "mdi:heart-outline");
       btn.setAttribute("aria-checked", String(wasActive));
       console.warn("SPAN Panel: favorite toggle failed", err);
-      this.errorStore?.add({
+      this.errorStore.add({
         key: "service:favorites",
         level: "error",
         message: t("error.favorites_toggle_failed"),
@@ -1383,7 +1411,7 @@ class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
             })
             .catch((err: Error) => {
               console.warn("SPAN Panel: graph horizon service failed", err);
-              this.errorStore?.add({
+              this.errorStore.add({
                 key: "service:graph_horizon",
                 level: "error",
                 message: t("error.graph_horizon_failed"),
@@ -1398,7 +1426,7 @@ class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
             })
             .catch((err: Error) => {
               console.warn("SPAN Panel: graph horizon service failed", err);
-              this.errorStore?.add({
+              this.errorStore.add({
                 key: "service:graph_horizon",
                 level: "error",
                 message: t("error.graph_horizon_failed"),
@@ -1782,7 +1810,7 @@ class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
             })
             .catch((err: Error) => {
               console.warn("SPAN Panel: graph horizon service failed", err);
-              this.errorStore?.add({
+              this.errorStore.add({
                 key: "service:graph_horizon",
                 level: "error",
                 message: t("error.graph_horizon_failed"),
@@ -1800,7 +1828,7 @@ class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
             })
             .catch((err: Error) => {
               console.warn("SPAN Panel: graph horizon service failed", err);
-              this.errorStore?.add({
+              this.errorStore.add({
                 key: "service:graph_horizon",
                 level: "error",
                 message: t("error.graph_horizon_failed"),
@@ -2081,11 +2109,11 @@ class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
    * controls (`_controlAccess`), titled with why.
    */
   private _applyRelayToggle(toggle: SpanSwitch, cfg: CircuitModeConfig): void {
-    if (!this._hass) return;
+    const hass = this._drawnHass;
     const access = this._controlAccess;
-    toggle.disabled = !access.mayOperate || switchPresence(cfg, this._hass) !== "operable";
+    toggle.disabled = !access.mayOperate || switchPresence(cfg, hass) !== "operable";
     titleControl(toggle, access);
-    if (relayClosed(cfg, this._hass)) toggle.setAttribute("checked", "");
+    if (relayClosed(cfg, hass)) toggle.setAttribute("checked", "");
     else toggle.removeAttribute("checked");
   }
 
@@ -2095,12 +2123,12 @@ class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
    * the panel's controls (`_controlAccess`), titled with why.
    */
   private _applySheddingSelect(selectEl: HTMLSelectElement, cfg: CircuitModeConfig): void {
-    if (!this._hass) return;
+    const hass = this._drawnHass;
     const access = this._controlAccess;
-    const key = shedPriorityKey(cfg, this._hass);
+    const key = shedPriorityKey(cfg, hass);
     if (SELECTABLE_PRIORITY_KEYS.includes(key)) selectEl.value = key;
     else selectEl.selectedIndex = -1;
-    selectEl.disabled = !access.mayOperate || !selectOperable(cfg, this._hass);
+    selectEl.disabled = !access.mayOperate || !selectOperable(cfg, hass);
     titleControl(selectEl, access);
   }
 
@@ -2136,8 +2164,7 @@ class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
 
   /** The monitoring status of the panel config entry `entryId` (the caller's own where null), or null with monitoring off. */
   private async _readMonitoringStatus(entryId: string | null): Promise<MonitoringStatus | null> {
-    if (!this._hass) return null;
-    const resp = await this._hass.callWS<{ response?: MonitoringStatusResponse }>({
+    const resp = await this._drawnHass.callWS<{ response?: MonitoringStatusResponse }>({
       type: "call_service",
       domain: INTEGRATION_DOMAIN,
       service: "get_monitoring_status",
@@ -2148,8 +2175,7 @@ class SpanSidePanel extends HTMLElement implements PackageRatingsHost {
   }
 
   private _callDomainService(service: string, data: Record<string, unknown>): Promise<void> {
-    if (!this._hass) return Promise.resolve();
-    return this._hass.callWS({
+    return this._drawnHass.callWS({
       type: "call_service",
       domain: INTEGRATION_DOMAIN,
       service,

@@ -51,9 +51,7 @@ export function topologyNamesDevice(topology: PanelTopology, deviceId: string): 
  * this event. Resolves to the unsubscribe function.
  */
 export async function subscribeDeviceRenames(hass: HomeAssistant, getTopology: () => PanelTopology | null, onRenamed: () => void): Promise<() => void> {
-  const connection = hass.connection;
-  if (!connection) return () => {};
-  return connection.subscribeEvents<unknown>(event => {
+  return hass.connection.subscribeEvents<unknown>(event => {
     const deviceId = renamedDeviceId(event);
     const topology = deviceId ? getTopology() : null;
     if (deviceId && topology && topologyNamesDevice(topology, deviceId)) onRenamed();

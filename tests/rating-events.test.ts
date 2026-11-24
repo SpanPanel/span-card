@@ -20,6 +20,7 @@ import "../src/card/span-panel-card.js";
 import "../src/panel/span-panel.js";
 import { FakeConnection, flush, hassWith } from "./fake-connection.js";
 import { blurOnRemoval } from "./removal-blur.js";
+import { dashboardController } from "./dashboard-controller.js";
 
 const mockDiscover = vi.mocked(discoverTopology);
 
@@ -113,12 +114,6 @@ describe("subscribePackageRatingChanges", () => {
     connection.emit(PACKAGE_RATINGS_CHANGED, ratingEvent("entry-1"));
     expect(onChange).not.toHaveBeenCalled();
   });
-
-  it("subscribes to nothing, and returns a no-op, without a connection", async () => {
-    const hass = { states: {}, services: {}, language: "en" } as unknown as HomeAssistant;
-    const unsubscribe = await subscribePackageRatingChanges(hass, "entry-1", vi.fn());
-    expect(() => unsubscribe()).not.toThrow();
-  });
 });
 
 describe("canHearRatingChanges", () => {
@@ -140,7 +135,7 @@ describe("canHearRatingChanges", () => {
 
 type SidePanel = HTMLElement & {
   hass: HomeAssistant;
-  errorStore: ErrorStore | null;
+  errorStore: ErrorStore;
   open(config: unknown): void;
   readonly openCircuit: { uuid: string; configEntryId: string | null } | null;
 };
@@ -225,7 +220,7 @@ async function openOven(initial: Circuit): Promise<OpenPanel> {
   document.body.appendChild(root);
   mounted.push(root);
   const panel = root.querySelector("span-side-panel") as SidePanel;
-  const ctrl = new DashboardController();
+  const ctrl = dashboardController();
   ctrl.showMonitoring = true;
   ctrl.init(topologyOf(initial), {} as CardConfig, hass, ENTRY);
   await ctrl.onGearClick({ target: root.querySelector(".gear-icon") } as unknown as Event, root);
@@ -463,7 +458,7 @@ describe("the Monitoring tab's rating cell", () => {
     const container = document.createElement("div");
     document.body.appendChild(container);
     mounted.push(container);
-    await new MonitoringTab().render(container, hass, ENTRY);
+    await new MonitoringTab(new ErrorStore()).render(container, hass, ENTRY);
     return container;
   }
 
@@ -557,7 +552,10 @@ describe("the standalone card", () => {
           monitoringCalls += 1;
           if (cardStatus) return monitoringFor(cardStatus);
         }
-        if (msg.type === "config/device_registry/list") return [];
+        // The panel's device, which the integration's entry owns.
+        if (msg.type === "config/device_registry/list")
+          return [{ id: "panel-1", name: "Panel 1", config_entry_id: ENTRY, via_device_id: null, parent_device_id: null }];
+        if (msg.type === "config_entries/get") return [{ entry_id: ENTRY, domain: "span_panel" }];
         return {};
       }) as HomeAssistant["callWS"],
     });
@@ -693,7 +691,7 @@ describe("the standalone card", () => {
     await mount(connection);
     expect(connection.subscriptions.filter(s => s.key === PACKAGE_RATINGS_CHANGED)).toHaveLength(0);
 
-    connection.emit("config_entries/subscribe", [{ type: null, entry: { entry_id: ENTRY, domain: "span_panel", state: "loaded" } }]);
+    connection.emit("config_entries/subscribe", [{ type: null, entry: { entry_id: ENTRY, domain: "span_panel", state: "loaded", disabled_by: null } }]);
 
     await vi.waitFor(() => expect(connection.live(PACKAGE_RATINGS_CHANGED)).toBe(1));
   });
@@ -801,7 +799,9 @@ describe("the sidebar dashboard", () => {
     const unknown = { ...panelHass(connection), user: undefined };
     const panel = await mount(connection, true, unknown);
     const side = panel.shadowRoot!.querySelector("span-side-panel") as SidePanel;
+    // As the circuit's gear opens it: with Home Assistant, and the dashboard's error store.
     side.hass = unknown;
+    side.errorStore = (panel as unknown as { _errorStore: ErrorStore })._errorStore;
     side.open({
       uuid: "c-1",
       name: "Oven",
@@ -1295,14 +1295,6 @@ describe("the sidebar dashboard", () => {
         for (let i = 0; i < 3; i += 1) await new Promise(resolve => setTimeout(resolve, 0));
       };
 
-      /** Navigate away from the dashboard and back, as the user does in Home Assistant: `#tab-content` survives. */
-      async function detachAndAttach(panel: Panel, connection: FakeConnection): Promise<void> {
-        panel.remove();
-        await settled();
-        document.body.appendChild(panel);
-        await vi.waitFor(() => expect(connection.live(PACKAGE_RATINGS_CHANGED)).toBe(2));
-      }
-
       /** The click listeners on the page from now on that are still there: each tab's own, while it listens. */
       function pageClickListeners(): () => unknown[] {
         const added = vi.spyOn(document, "addEventListener");
@@ -1431,60 +1423,7 @@ describe("the sidebar dashboard", () => {
         expect(stop.mock.contexts).toEqual([leaving]);
       });
 
-      it("keeps what is typed in one row's field, and its focus, across a refresh once the dashboard is detached and attached again", async () => {
-        holds(circuit(20, 20), dryerOf(circuit(20, 20)));
-        const connection = new FakeConnection();
-        const panel = await mountFavorites(connection);
-        await detachAndAttach(panel, connection);
-        typeOnly(fieldOf(panel, OVEN)!, "3");
-
-        // Another browser copies the Dryer's 20-20 tandem from the SPAN app.
-        holds(circuit(20, 20), dryerOf(circuit(20, 40, true)));
-        connection.emit(PACKAGE_RATINGS_CHANGED, ratingEvent("entry-1", ["c-2"]));
-        await vi.waitFor(() => expect(fieldOf(panel, DRYER)!.value).toBe("20"));
-
-        const field = fieldOf(panel, OVEN)!;
-        expect(field.value).toBe("3");
-        expect(panel.shadowRoot!.activeElement).toBe(field);
-        expect(packageSaves()).toEqual([]);
-
-        field.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter" }));
-        expect(packageSaves()).toEqual([{ circuit_id: "c-1", package_ratings_a: [20, 3], config_entry_id: "entry-1" }]);
-      });
-
-      it("leaves no tab listening on the page once the user leaves the view, after a save across a detach and attach", async () => {
-        holds(circuit(20, 20), dryerOf(circuit(20, 20)));
-        const listening = pageClickListeners();
-        const connection = new FakeConnection();
-        const panel = await mountFavorites(connection);
-        await detachAndAttach(panel, connection);
-
-        // A save in a table drawn before the detach draws that table again.
-        const reads = callsTo("get_monitoring_status").length;
-        const field = fieldOf(panel, OVEN)!;
-        typeOnly(field, "20");
-        field.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter" }));
-        await vi.waitFor(() => expect(callsTo("get_monitoring_status").length).toBeGreaterThan(reads));
-        await settled();
-        // A refresh for another circuit's copy draws the view again.
-        holds(circuit(20, 20), dryerOf(circuit(20, 40, true)));
-        connection.emit(PACKAGE_RATINGS_CHANGED, ratingEvent("entry-1", ["c-2"]));
-        await vi.waitFor(() => expect(fieldOf(panel, DRYER)!.value).toBe("20"));
-
-        // The user leaves for a panel's Monitoring tab, then its By Panel tab.
-        choose(panel, "panel-1");
-        await vi.waitFor(() => expect(headings(panel)).toEqual([]));
-        await vi.waitFor(() => expect(fieldOf(panel, OVEN)).not.toBeNull());
-        const renders = render.mock.calls.length;
-        showTab(panel, "dashboard");
-        await vi.waitFor(() => expect(render.mock.calls.length).toBeGreaterThan(renders));
-        await settled();
-
-        expect(packageSaves()).toEqual([{ circuit_id: "c-1", package_ratings_a: [20, 20], config_entry_id: "entry-1" }]);
-        expect(listening()).toEqual([]);
-      });
-
-      it("draws nothing while detached as the view loads, leaving no tab listening, and draws the rest once attached again", async () => {
+      it("draws nothing more once the frontend discards the dashboard as the view loads, and leaves no tab listening", async () => {
         holds(circuit(20, 20), dryerOf(circuit(20, 20)));
         favorites["panel-2"] = { circuits: ["c-1"], sub_devices: [] };
         const listening = pageClickListeners();
@@ -1507,14 +1446,9 @@ describe("the sidebar dashboard", () => {
         expect(fieldOf(panel, OVEN)).toBeNull();
         expect(callsTo("get_monitoring_status")).toHaveLength(1);
         expect(listening()).toEqual([]);
-
-        document.body.appendChild(panel);
-        await vi.waitFor(() => expect(fieldOf(panel, HEATER)).not.toBeNull());
-        expect(headings(panel)).toEqual(["Panel 1", "Panel 2"]);
-        expect(fieldOf(panel, OVEN)).not.toBeNull();
       });
 
-      it("draws the view once attached again after a detach while its panels' topologies load", async () => {
+      it("reads no table, and leaves no tab listening, where the frontend discards the dashboard while its panels' topologies load", async () => {
         holds(circuit(20, 20), dryerOf(circuit(20, 20)));
         const listening = pageClickListeners();
         let open: () => void = () => {};
@@ -1536,10 +1470,6 @@ describe("the sidebar dashboard", () => {
 
         expect(callsTo("get_monitoring_status")).toEqual([]);
         expect(listening()).toEqual([]);
-
-        document.body.appendChild(panel);
-        await vi.waitFor(() => expect(fieldOf(panel, OVEN)).not.toBeNull());
-        expect(headings(panel)).toEqual(["Panel 1"]);
       });
     });
   });

@@ -3,6 +3,8 @@ import { DashboardController } from "../src/core/dashboard-controller.js";
 import "../src/core/side-panel.js";
 import type { SlotMember } from "../src/helpers/shared-meters.js";
 import type { Circuit, CardConfig, HomeAssistant, PanelTopology } from "../src/types.js";
+import { dashboardController } from "./dashboard-controller.js";
+import { ErrorStore } from "../src/core/error-store.js";
 
 /** A tandem-quad across spaces 34 and 36, keyed by a single-pole circuit: its heavier leg carries 35 + 20 A. */
 function circuit(name: string, tabs: number[], rating: number, voltage: number): Circuit {
@@ -30,7 +32,9 @@ function subtitleFor(members: SlotMember[], capacityA: number | null): string | 
   const panel = document.createElement("span-side-panel") as SidePanel;
   document.body.appendChild(panel);
   mounted.push(panel);
+  // As its host does before opening it: Home Assistant, and the view's error store.
   panel.hass = hass;
+  panel.errorStore = new ErrorStore();
   const { uuid, circuit: first } = members[0]!;
   panel.open({
     uuid,
@@ -74,7 +78,7 @@ function memberIds(config: Record<string, unknown>): string[] {
 
 describe("a shared meter's gear", () => {
   it("hands the side panel the whole slot and its capacity, whichever member it is opened from", async () => {
-    const ctrl = new DashboardController();
+    const ctrl = dashboardController();
     ctrl.init(PANEL, {} as CardConfig, hass, "entry-1");
     for (const uuid of ["q-34", "q-36"]) {
       const config = await gearConfig(ctrl, uuid);
@@ -84,7 +88,7 @@ describe("a shared meter's gear", () => {
   });
 
   it("describes a member favorited alone by its own panel's slot", async () => {
-    const ctrl = new DashboardController();
+    const ctrl = dashboardController();
     const merged = { circuits: { "panel-1|q-36": QUAD["q-36"]! }, shared_meter_groups: { "panel-1|q-34": { ...RECORD } } } as PanelTopology;
     ctrl.init(merged, {} as CardConfig, hass, "entry-1");
     ctrl.setFavoriteRefs({

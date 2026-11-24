@@ -49,10 +49,6 @@ export async function subscribeEntryReloads(
   onLoaded: (entryId: string) => void,
   { initialIsReseed, onStatus, onSeed }: { initialIsReseed: boolean; onStatus?: (entryId: string, load: EntryLoad | null) => void; onSeed?: () => void }
 ): Promise<() => Promise<void>> {
-  // The frontend's Home Assistant always carries its connection; the type leaves it optional for the views that need none.
-  const connection = hass.connection;
-  if (!connection) throw new Error("subscribeEntryReloads: Home Assistant has no connection");
-
   const states = new Map<string, string>();
   /** Where each accepted entry stands, as last reported to `onStatus`. */
   const loads = new Map<string, EntryLoad>();
@@ -70,7 +66,7 @@ export async function subscribeEntryReloads(
     onStatus?.(entryId, null);
   };
 
-  return connection.subscribeMessage<ConfigEntryChange[]>(
+  return hass.connection.subscribeMessage<ConfigEntryChange[]>(
     changes => {
       if (changes.every(change => change.type === null)) {
         const reportLoaded = seeded || initialIsReseed;

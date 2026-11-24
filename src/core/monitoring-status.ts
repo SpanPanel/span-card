@@ -1,5 +1,6 @@
 import { INTEGRATION_DOMAIN } from "../constants.js";
 import { t } from "../i18n.js";
+import { isRefusedUntilEntryLoads } from "./entry-load.js";
 import { RetryManager } from "./retry-manager.js";
 import type { Circuit, HomeAssistant, MonitoringPointInfo, MonitoringStatus, MonitoringStatusResponse, PanelTopology } from "../types.js";
 import type { ErrorStore } from "./error-store.js";
@@ -12,8 +13,10 @@ interface CallServiceResponse {
 
 /**
  * The status a `get_monitoring_status` answer gives, or null when it gives none.
- * With monitoring off the integration answers `enabled: false` and no points:
- * that is no monitoring, not monitoring of zero circuits and zero mains.
+ * For a loaded panel with monitoring off the integration answers `enabled:
+ * false` and no points: that is no monitoring, not monitoring of zero circuits
+ * and zero mains. A panel whose entry has not loaded it refuses
+ * (`isRefusedUntilEntryLoads`).
  */
 export function monitoringStatusFrom(response: MonitoringStatusResponse | null | undefined): MonitoringStatus | null {
   if (!response || response.enabled === false) return null;
@@ -25,22 +28,30 @@ export function monitoringStatusFrom(response: MonitoringStatusResponse | null |
 /**
  * Caches monitoring status fetched via the get_monitoring_status service.
  * Re-fetches at most every 30 seconds.
+ *
+ * The integration refuses the status of a panel whose config entry has not
+ * loaded, as while an options reload sets it up again, and a lost connection
+ * cuts a read off (`isRefusedUntilEntryLoads`). Such a read is not retried and
+ * adds no error: the cache holds no status, and says it waits for the entry to
+ * load (`awaitingLoad`), for the view to read it again as the entry loads.
+ * Any other failure is retried, and said in `errorStore` once its last retry
+ * fails.
  */
 export class MonitoringStatusCache {
   private _status: MonitoringStatus | null = null;
   private _lastFetch: number = 0;
   private _inflight: { gen: number; promise: Promise<MonitoringStatus | null> } | null = null;
   private _generation: number = 0;
-  private _errorStore: ErrorStore | null = null;
-  private _retry: RetryManager | null = null;
+  private readonly _retry: RetryManager;
+  private _awaitingLoad = false;
 
-  get errorStore(): ErrorStore | null {
-    return this._errorStore;
+  constructor(errorStore: ErrorStore) {
+    this._retry = new RetryManager(errorStore, { passThrough: isRefusedUntilEntryLoads });
   }
 
-  set errorStore(store: ErrorStore | null) {
-    this._errorStore = store;
-    this._retry = store ? new RetryManager(store) : null;
+  /** Whether the last read was refused until the panel's entry loads (`isRefusedUntilEntryLoads`); the next read asks again. */
+  get awaitingLoad(): boolean {
+    return this._awaitingLoad;
   }
 
   /**
@@ -73,31 +84,25 @@ export class MonitoringStatusCache {
           service_data: serviceData,
           return_response: true,
         };
-        const resp = this._retry
-          ? await this._retry.callWS<CallServiceResponse>(hass, msg, {
-              errorId: "fetch:monitoring",
-              errorMessage: t("error.monitoring_failed"),
-            })
-          : await hass.callWS<CallServiceResponse>(msg);
+        const resp = await this._retry.callWS<CallServiceResponse>(hass, msg, {
+          errorId: "fetch:monitoring",
+          errorMessage: t("error.monitoring_failed"),
+        });
         const next = monitoringStatusFrom(resp?.response);
         if (requestGen === this._generation) {
           this._status = next;
           this._lastFetch = Date.now();
+          this._awaitingLoad = false;
         }
         return next;
       } catch (err) {
-        console.warn("SPAN Panel: monitoring status fetch failed", err);
+        const awaitingLoad = isRefusedUntilEntryLoads(err);
         if (requestGen === this._generation) {
           this._status = null;
+          this._awaitingLoad = awaitingLoad;
         }
-        if (!this._retry) {
-          this._errorStore?.add({
-            key: "fetch:monitoring",
-            level: "warning",
-            message: t("error.monitoring_failed"),
-            persistent: false,
-          });
-        }
+        // The retry manager said every other failure in the store as its last retry failed.
+        if (!awaitingLoad) console.warn("SPAN Panel: monitoring status fetch failed", err);
         return null;
       } finally {
         // Only clear the slot if it still points at this request; a
@@ -127,6 +132,7 @@ export class MonitoringStatusCache {
   clear(): void {
     this._status = null;
     this._lastFetch = 0;
+    this._awaitingLoad = false;
     this._generation++;
   }
 }
@@ -138,25 +144,20 @@ export class MonitoringStatusCache {
  */
 export class MonitoringStatusMultiCache {
   private _caches = new Map<string, MonitoringStatusCache>();
-  private _errorStore: ErrorStore | null = null;
 
-  get errorStore(): ErrorStore | null {
-    return this._errorStore;
-  }
+  /** `errorStore` is where each entry's cache says a read whose every retry failed. */
+  constructor(private readonly _errorStore: ErrorStore) {}
 
-  set errorStore(store: ErrorStore | null) {
-    this._errorStore = store;
-    for (const cache of this._caches.values()) {
-      cache.errorStore = store;
-    }
+  /** Whether the last read of entry `entryId`'s status was refused until the entry loads (`MonitoringStatusCache.awaitingLoad`). */
+  awaitingLoad(entryId: string): boolean {
+    return this._caches.get(entryId)?.awaitingLoad === true;
   }
 
   /** Fetch monitoring status for a single entry, honoring the TTL. */
   async fetchOne(hass: HomeAssistant, entryId: string): Promise<MonitoringStatus | null> {
     let cache = this._caches.get(entryId);
     if (!cache) {
-      cache = new MonitoringStatusCache();
-      cache.errorStore = this._errorStore;
+      cache = new MonitoringStatusCache(this._errorStore);
       this._caches.set(entryId, cache);
     }
     return cache.fetch(hass, entryId);

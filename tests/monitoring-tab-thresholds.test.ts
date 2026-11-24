@@ -137,7 +137,7 @@ async function shown(panel: Integration): Promise<{ tab: MonitoringTab; containe
   const root = host.attachShadow({ mode: "open" });
   const container = document.createElement("div");
   root.appendChild(container);
-  const tab = new MonitoringTab();
+  const tab = new MonitoringTab(new ErrorStore());
   await tab.render(container, panel.hass, "entry-1");
   return { tab, container, root };
 }
@@ -567,8 +567,7 @@ describe("a point's Reset", () => {
       refuse: { clear_circuit_threshold: { code: "home_assistant_error", message: "The panel is not loaded" } },
     });
     const { tab, container } = await shown(panel);
-    const errors = new ErrorStore();
-    tab.errorStore = errors;
+    const errors = tab.errorStore;
     const reads = panel.reads();
     const reset = resetOf(container)!;
 
@@ -588,8 +587,7 @@ describe("a point's Reset", () => {
   it("says it could not save where the integration gives no reason", async () => {
     const panel = integration({ ovenOverride: true, refuse: { clear_circuit_threshold: {} } });
     const { tab, container } = await shown(panel);
-    const errors = new ErrorStore();
-    tab.errorStore = errors;
+    const errors = tab.errorStore;
 
     resetOf(container)!.click();
 

@@ -12,12 +12,10 @@ let _lang = "en";
 const translations: Record<string, Record<string, string>> = {
   en: {
     // Tab labels
-    "tab.panel": "Panel",
     "tab.by_panel": "By Panel",
     "tab.by_activity": "By Activity",
     "tab.by_area": "By Area",
     "tab.monitoring": "Monitoring",
-    "tab.settings": "Settings",
     "tab.adopted": "Adopted",
 
     // List views
@@ -79,7 +77,6 @@ const translations: Record<string, Record<string, string>> = {
     // Error messages
     "error.prefix": "Error:",
     "error.failed_save": "Failed to save",
-    "error.failed": "Failed",
     "error.panel_offline": "SPAN Panel unreachable",
     "error.panel_reconnected": "SPAN Panel reconnected",
     "error.panel_offline_named": "{name} unreachable",
@@ -100,17 +97,13 @@ const translations: Record<string, Record<string, string>> = {
     "card.waiting_for_load": "Waiting for SPAN Panel to load...",
     "card.setup_failed": "SPAN Panel could not be set up. Check Settings \u2192 Devices & services.",
     "card.panel_disabled": "This SPAN Panel is disabled. Enable it in Settings \u2192 Devices & services.",
+    "card.restart_needed": "SPAN Panel could not be loaded. Restart Home Assistant to try again.",
 
     // Monitoring rating
     "monitoringRating.none": "no rating",
     "monitoringRating.copied": "{package} from your SPAN app (the panel publishes {panel} A)",
     "monitoringRating.copied_unnamed": "Copied from your SPAN app",
     "monitoringRating.judged_copied": "Judged against {rating} A: {copied}",
-
-    // Settings tab
-    "settings.heading": "Settings",
-    "settings.description": "General integration settings (entity naming, device prefix, circuit numbers) are managed through the integration's options flow.",
-    "settings.open_link": "Open SPAN Panel Integration Settings",
 
     // Adopted entity curation
     "adopted.heading": "Adopted entities",
@@ -172,18 +165,10 @@ const translations: Record<string, Record<string, string>> = {
     "horizon.1d": "1 Day",
     "horizon.1w": "1 Week",
     "horizon.1M": "1 Month",
-    "settings.graph_horizon_heading": "Graph Time Horizon",
-    "settings.graph_horizon_description": "Default time window for all circuit graphs. Individual circuits can override this in their settings panel.",
-    "settings.global_default": "Global Default",
-    "settings.default_scale": "Default Scale",
-    "settings.circuit_graph_scales": "Circuit Graph Scales",
-    "settings.col.circuit": "Circuit",
-    "settings.col.scale": "Scale",
     "sidepanel.graph_horizon": "Graph Time Horizon",
 
     // Header
     "header.default_name": "SPAN Panel",
-    "header.monitoring_settings": "Panel monitoring settings",
     "header.graph_settings": "Graph time horizon settings",
     "header.site": "Site",
     "header.grid": "Grid",
@@ -299,6 +284,7 @@ const translations: Record<string, Record<string, string>> = {
 
     // Favorites pseudo-panel
     "panel.favorites": "Favorites",
+    "panel.no_panels": "No SPAN Panel found. Add one in Settings \u2192 Devices & services.",
 
     // Monitoring status bar
     "status.monitoring": "Monitoring",
@@ -313,7 +299,6 @@ const translations: Record<string, Record<string, string>> = {
 
     // Card
     "card.no_device": "Open the card editor and select your SPAN Panel device.",
-    "card.device_not_found": "Panel device not found. Check device_id in card config.",
     "card.topology_error": "Topology response missing panel_size and no circuits found. Update the SPAN Panel integration.",
 
     // Editor
@@ -350,12 +335,10 @@ const translations: Record<string, Record<string, string>> = {
   },
 
   es: {
-    "tab.panel": "Panel",
     "tab.by_panel": "Por Panel",
     "tab.by_activity": "Por Actividad",
     "tab.by_area": "Por \u00c1rea",
     "tab.monitoring": "Monitoreo",
-    "tab.settings": "Configuraci\u00f3n",
     "tab.adopted": "Adoptadas",
     "list.search_placeholder": "Buscar circuitos...",
     "list.unassigned_area": "Sin asignar",
@@ -409,7 +392,6 @@ const translations: Record<string, Record<string, string>> = {
     "notification.test_sent": "Notificaci\u00f3n de prueba enviada",
     "error.prefix": "Error:",
     "error.failed_save": "Error al guardar",
-    "error.failed": "Fall\u00f3",
     "error.panel_offline": "SPAN Panel inaccesible",
     "error.panel_reconnected": "SPAN Panel reconectado",
     "error.panel_offline_named": "{name} inaccesible",
@@ -430,16 +412,13 @@ const translations: Record<string, Record<string, string>> = {
     "card.waiting_for_load": "Esperando a que cargue el SPAN Panel...",
     "card.setup_failed": "No se pudo configurar el SPAN Panel. Revise Ajustes \u2192 Dispositivos y servicios.",
     "card.panel_disabled": "Este SPAN Panel est\u00e1 deshabilitado. Habil\u00edtelo en Ajustes \u2192 Dispositivos y servicios.",
+    "card.restart_needed": "No se pudo cargar el SPAN Panel. Reinicie Home Assistant para volver a intentarlo.",
 
     // Monitoring rating
     "monitoringRating.none": "sin calibre",
     "monitoringRating.copied": "{package} de su app de SPAN (el panel publica {panel} A)",
     "monitoringRating.copied_unnamed": "Copiado de su app de SPAN",
     "monitoringRating.judged_copied": "Evaluado seg\u00fan {rating} A: {copied}",
-    "settings.heading": "Configuraci\u00f3n",
-    "settings.description":
-      "La configuraci\u00f3n general de la integraci\u00f3n (nombres de entidades, prefijo de dispositivo, n\u00fameros de circuito) se administra a trav\u00e9s del flujo de opciones de la integraci\u00f3n.",
-    "settings.open_link": "Abrir Configuraci\u00f3n de Integraci\u00f3n SPAN Panel",
 
     // Curaci\u00f3n de entidades adoptadas
     "adopted.heading": "Entidades adoptadas",
@@ -499,16 +478,8 @@ const translations: Record<string, Record<string, string>> = {
     "horizon.1d": "1 Day",
     "horizon.1w": "1 Week",
     "horizon.1M": "1 Month",
-    "settings.graph_horizon_heading": "Graph Time Horizon",
-    "settings.graph_horizon_description": "Default time window for all circuit graphs. Individual circuits can override this in their settings panel.",
-    "settings.global_default": "Global Default",
-    "settings.default_scale": "Default Scale",
-    "settings.circuit_graph_scales": "Circuit Graph Scales",
-    "settings.col.circuit": "Circuit",
-    "settings.col.scale": "Scale",
     "sidepanel.graph_horizon": "Graph Time Horizon",
     "header.default_name": "SPAN Panel",
-    "header.monitoring_settings": "Configuraci\u00f3n de monitoreo del panel",
     "header.graph_settings": "Configuraci\u00f3n del horizonte temporal del gr\u00e1fico",
     "header.site": "Sitio",
     "header.grid": "Red",
@@ -611,6 +582,7 @@ const translations: Record<string, Record<string, string>> = {
     "sidepanel.favorite": "Favorito",
     "sidepanel.save_to_favorites": "Guardar en favoritos",
     "panel.favorites": "Favoritos",
+    "panel.no_panels": "No se encontr\u00f3 ning\u00fan SPAN Panel. Agregue uno en Ajustes \u2192 Dispositivos y servicios.",
     "status.monitoring": "Monitoreo",
     "status.circuits": "circuitos",
     "status.mains": "alimentaci\u00f3n",
@@ -621,7 +593,6 @@ const translations: Record<string, Record<string, string>> = {
     "status.override": "anulaci\u00f3n",
     "status.overrides": "anulaciones",
     "card.no_device": "Abra el editor de tarjeta y seleccione su dispositivo SPAN Panel.",
-    "card.device_not_found": "Dispositivo de panel no encontrado. Verifique device_id en la configuraci\u00f3n de la tarjeta.",
     "card.topology_error": "La respuesta de topolog\u00eda no contiene panel_size y no se encontraron circuitos. Actualice la integraci\u00f3n SPAN Panel.",
     "editor.panel_label": "SPAN Panel",
     "editor.select_panel": "Seleccione un panel...",
@@ -654,12 +625,10 @@ const translations: Record<string, Record<string, string>> = {
   },
 
   fr: {
-    "tab.panel": "Panneau",
     "tab.by_panel": "Par Panneau",
     "tab.by_activity": "Par Activit\u00e9",
     "tab.by_area": "Par Zone",
     "tab.monitoring": "Surveillance",
-    "tab.settings": "Param\u00e8tres",
     "tab.adopted": "Adopt\u00e9es",
     "list.search_placeholder": "Rechercher des circuits...",
     "list.unassigned_area": "Non attribu\u00e9",
@@ -713,7 +682,6 @@ const translations: Record<string, Record<string, string>> = {
     "notification.test_sent": "Notification de test envoy\u00e9e",
     "error.prefix": "Erreur :",
     "error.failed_save": "\u00c9chec de la sauvegarde",
-    "error.failed": "\u00c9chou\u00e9",
     "error.panel_offline": "SPAN Panel inaccessible",
     "error.panel_reconnected": "SPAN Panel reconnect\u00e9",
     "error.panel_offline_named": "{name} inaccessible",
@@ -734,16 +702,13 @@ const translations: Record<string, Record<string, string>> = {
     "card.waiting_for_load": "En attente du chargement du SPAN Panel...",
     "card.setup_failed": "Le SPAN Panel n'a pas pu \u00eatre configur\u00e9. Consultez Param\u00e8tres \u2192 Appareils et services.",
     "card.panel_disabled": "Ce SPAN Panel est d\u00e9sactiv\u00e9. Activez-le dans Param\u00e8tres \u2192 Appareils et services.",
+    "card.restart_needed": "Le SPAN Panel n'a pas pu \u00eatre charg\u00e9. Red\u00e9marrez Home Assistant pour r\u00e9essayer.",
 
     // Monitoring rating
     "monitoringRating.none": "aucun calibre",
     "monitoringRating.copied": "{package} depuis votre application SPAN (le panneau publie {panel} A)",
     "monitoringRating.copied_unnamed": "Copi\u00e9 depuis votre application SPAN",
     "monitoringRating.judged_copied": "\u00c9valu\u00e9 selon {rating} A : {copied}",
-    "settings.heading": "Param\u00e8tres",
-    "settings.description":
-      "Les param\u00e8tres g\u00e9n\u00e9raux de l'int\u00e9gration (noms d'entit\u00e9s, pr\u00e9fixe de l'appareil, num\u00e9ros de circuit) sont g\u00e9r\u00e9s via le flux d'options de l'int\u00e9gration.",
-    "settings.open_link": "Ouvrir les Param\u00e8tres d'Int\u00e9gration SPAN Panel",
 
     // Curation des entit\u00e9s adopt\u00e9es
     "adopted.heading": "Entit\u00e9s adopt\u00e9es",
@@ -804,16 +769,8 @@ const translations: Record<string, Record<string, string>> = {
     "horizon.1d": "1 Day",
     "horizon.1w": "1 Week",
     "horizon.1M": "1 Month",
-    "settings.graph_horizon_heading": "Graph Time Horizon",
-    "settings.graph_horizon_description": "Default time window for all circuit graphs. Individual circuits can override this in their settings panel.",
-    "settings.global_default": "Global Default",
-    "settings.default_scale": "Default Scale",
-    "settings.circuit_graph_scales": "Circuit Graph Scales",
-    "settings.col.circuit": "Circuit",
-    "settings.col.scale": "Scale",
     "sidepanel.graph_horizon": "Graph Time Horizon",
     "header.default_name": "SPAN Panel",
-    "header.monitoring_settings": "Param\u00e8tres de surveillance du panneau",
     "header.graph_settings": "Param\u00e8tres d'horizon temporel du graphique",
     "header.site": "Site",
     "header.grid": "R\u00e9seau",
@@ -916,6 +873,7 @@ const translations: Record<string, Record<string, string>> = {
     "sidepanel.favorite": "Favori",
     "sidepanel.save_to_favorites": "Enregistrer dans les favoris",
     "panel.favorites": "Favoris",
+    "panel.no_panels": "Aucun SPAN Panel trouv\u00e9. Ajoutez-en un dans Param\u00e8tres \u2192 Appareils et services.",
     "status.monitoring": "Surveillance",
     "status.circuits": "circuits",
     "status.mains": "alimentation",
@@ -926,7 +884,6 @@ const translations: Record<string, Record<string, string>> = {
     "status.override": "remplacement",
     "status.overrides": "remplacements",
     "card.no_device": "Ouvrez l'\u00e9diteur de carte et s\u00e9lectionnez votre appareil SPAN Panel.",
-    "card.device_not_found": "Appareil de panneau introuvable. V\u00e9rifiez device_id dans la configuration de la carte.",
     "card.topology_error":
       "La r\u00e9ponse de topologie ne contient pas panel_size et aucun circuit trouv\u00e9. Mettez \u00e0 jour l'int\u00e9gration SPAN Panel.",
     "editor.panel_label": "SPAN Panel",
@@ -960,12 +917,10 @@ const translations: Record<string, Record<string, string>> = {
   },
 
   ja: {
-    "tab.panel": "\u30d1\u30cd\u30eb",
     "tab.by_panel": "\u30d1\u30cd\u30eb\u5225",
     "tab.by_activity": "\u6d3b\u52d5\u5225",
     "tab.by_area": "\u30a8\u30ea\u30a2\u5225",
     "tab.monitoring": "\u30e2\u30cb\u30bf\u30ea\u30f3\u30b0",
-    "tab.settings": "\u8a2d\u5b9a",
     "tab.adopted": "\u63a1\u7528\u6e08\u307f",
     "list.search_placeholder": "\u56de\u8def\u3092\u691c\u7d22...",
     "list.unassigned_area": "\u672a\u5272\u308a\u5f53\u3066",
@@ -1021,7 +976,6 @@ const translations: Record<string, Record<string, string>> = {
     "notification.test_sent": "\u30c6\u30b9\u30c8\u901a\u77e5\u3092\u9001\u4fe1\u3057\u307e\u3057\u305f",
     "error.prefix": "\u30a8\u30e9\u30fc:",
     "error.failed_save": "\u4fdd\u5b58\u306b\u5931\u6557",
-    "error.failed": "\u5931\u6557",
     "error.panel_offline": "SPAN\u30d1\u30cd\u30eb\u306b\u63a5\u7d9a\u3067\u304d\u307e\u305b\u3093",
     "error.panel_reconnected": "SPAN\u30d1\u30cd\u30eb\u304c\u518d\u63a5\u7d9a\u3055\u308c\u307e\u3057\u305f",
     "error.panel_offline_named": "{name}\u306b\u63a5\u7d9a\u3067\u304d\u307e\u305b\u3093",
@@ -1045,16 +999,14 @@ const translations: Record<string, Record<string, string>> = {
       "SPAN\u30d1\u30cd\u30eb\u3092\u30bb\u30c3\u30c8\u30a2\u30c3\u30d7\u3067\u304d\u307e\u305b\u3093\u3067\u3057\u305f\u3002\u8a2d\u5b9a \u2192 \u30c7\u30d0\u30a4\u30b9\u3068\u30b5\u30fc\u30d3\u30b9 \u3092\u78ba\u8a8d\u3057\u3066\u304f\u3060\u3055\u3044\u3002",
     "card.panel_disabled":
       "\u3053\u306eSPAN\u30d1\u30cd\u30eb\u306f\u7121\u52b9\u306b\u306a\u3063\u3066\u3044\u307e\u3059\u3002\u8a2d\u5b9a \u2192 \u30c7\u30d0\u30a4\u30b9\u3068\u30b5\u30fc\u30d3\u30b9 \u3067\u6709\u52b9\u306b\u3057\u3066\u304f\u3060\u3055\u3044\u3002",
+    "card.restart_needed":
+      "SPAN\u30d1\u30cd\u30eb\u3092\u8aad\u307f\u8fbc\u3081\u307e\u305b\u3093\u3067\u3057\u305f\u3002Home Assistant \u3092\u518d\u8d77\u52d5\u3057\u3066\u3082\u3046\u4e00\u5ea6\u304a\u8a66\u3057\u304f\u3060\u3055\u3044\u3002",
 
     // Monitoring rating
     "monitoringRating.none": "\u5b9a\u683c\u306a\u3057",
     "monitoringRating.copied": "SPAN \u30a2\u30d7\u30ea\u306e {package}(\u30d1\u30cd\u30eb\u306e\u516c\u958b\u5024 {panel} A)",
     "monitoringRating.copied_unnamed": "SPAN \u30a2\u30d7\u30ea\u304b\u3089\u30b3\u30d4\u30fc",
     "monitoringRating.judged_copied": "\u5224\u5b9a\u57fa\u6e96 {rating} A: {copied}",
-    "settings.heading": "\u8a2d\u5b9a",
-    "settings.description":
-      "\u7d71\u5408\u306e\u4e00\u822c\u8a2d\u5b9a\uff08\u30a8\u30f3\u30c6\u30a3\u30c6\u30a3\u540d\u3001\u30c7\u30d0\u30a4\u30b9\u30d7\u30ec\u30d5\u30a3\u30c3\u30af\u30b9\u3001\u56de\u8def\u756a\u53f7\uff09\u306f\u7d71\u5408\u306e\u30aa\u30d7\u30b7\u30e7\u30f3\u30d5\u30ed\u30fc\u3067\u7ba1\u7406\u3055\u308c\u307e\u3059\u3002",
-    "settings.open_link": "SPAN Panel\u7d71\u5408\u8a2d\u5b9a\u3092\u958b\u304f",
 
     // \u63a1\u7528\u6e08\u307f\u30a8\u30f3\u30c6\u30a3\u30c6\u30a3\u306e\u30ad\u30e5\u30ec\u30fc\u30b7\u30e7\u30f3
     "adopted.heading": "\u63a1\u7528\u6e08\u307f\u30a8\u30f3\u30c6\u30a3\u30c6\u30a3",
@@ -1122,16 +1074,8 @@ const translations: Record<string, Record<string, string>> = {
     "horizon.1d": "1 Day",
     "horizon.1w": "1 Week",
     "horizon.1M": "1 Month",
-    "settings.graph_horizon_heading": "Graph Time Horizon",
-    "settings.graph_horizon_description": "Default time window for all circuit graphs. Individual circuits can override this in their settings panel.",
-    "settings.global_default": "Global Default",
-    "settings.default_scale": "Default Scale",
-    "settings.circuit_graph_scales": "Circuit Graph Scales",
-    "settings.col.circuit": "Circuit",
-    "settings.col.scale": "Scale",
     "sidepanel.graph_horizon": "Graph Time Horizon",
     "header.default_name": "SPAN Panel",
-    "header.monitoring_settings": "\u30d1\u30cd\u30eb\u30e2\u30cb\u30bf\u30ea\u30f3\u30b0\u8a2d\u5b9a",
     "header.graph_settings": "\u30b0\u30e9\u30d5\u6642\u9593\u7bc4\u56f2\u8a2d\u5b9a",
     "header.site": "\u30b5\u30a4\u30c8",
     "header.grid": "\u30b0\u30ea\u30c3\u30c9",
@@ -1246,6 +1190,8 @@ const translations: Record<string, Record<string, string>> = {
     "sidepanel.favorite": "\u304a\u6c17\u306b\u5165\u308a",
     "sidepanel.save_to_favorites": "\u304a\u6c17\u306b\u5165\u308a\u306b\u4fdd\u5b58",
     "panel.favorites": "\u304a\u6c17\u306b\u5165\u308a",
+    "panel.no_panels":
+      "SPAN\u30d1\u30cd\u30eb\u304c\u898b\u3064\u304b\u308a\u307e\u305b\u3093\u3002\u8a2d\u5b9a \u2192 \u30c7\u30d0\u30a4\u30b9\u3068\u30b5\u30fc\u30d3\u30b9 \u3067\u8ffd\u52a0\u3057\u3066\u304f\u3060\u3055\u3044\u3002",
     "status.monitoring": "\u30e2\u30cb\u30bf\u30ea\u30f3\u30b0",
     "status.circuits": "\u56de\u8def",
     "status.mains": "\u4e3b\u96fb\u6e90",
@@ -1257,8 +1203,6 @@ const translations: Record<string, Record<string, string>> = {
     "status.overrides": "\u4e0a\u66f8\u304d",
     "card.no_device":
       "\u30ab\u30fc\u30c9\u30a8\u30c7\u30a3\u30bf\u3092\u958b\u3044\u3066SPAN Panel\u30c7\u30d0\u30a4\u30b9\u3092\u9078\u629e\u3057\u3066\u304f\u3060\u3055\u3044\u3002",
-    "card.device_not_found":
-      "\u30d1\u30cd\u30eb\u30c7\u30d0\u30a4\u30b9\u304c\u898b\u3064\u304b\u308a\u307e\u305b\u3093\u3002\u30ab\u30fc\u30c9\u8a2d\u5b9a\u306edevice_id\u3092\u78ba\u8a8d\u3057\u3066\u304f\u3060\u3055\u3044\u3002",
     "card.topology_error":
       "\u30c8\u30dd\u30ed\u30b8\u30fc\u5fdc\u7b54\u306bpanel_size\u304c\u306a\u304f\u3001\u56de\u8def\u304c\u898b\u3064\u304b\u308a\u307e\u305b\u3093\u3002SPAN Panel\u7d71\u5408\u3092\u66f4\u65b0\u3057\u3066\u304f\u3060\u3055\u3044\u3002",
     "editor.panel_label": "SPAN Panel",
@@ -1292,12 +1236,10 @@ const translations: Record<string, Record<string, string>> = {
   },
 
   pt: {
-    "tab.panel": "Painel",
     "tab.by_panel": "Por Painel",
     "tab.by_activity": "Por Atividade",
     "tab.by_area": "Por \u00c1rea",
     "tab.monitoring": "Monitoramento",
-    "tab.settings": "Configura\u00e7\u00f5es",
     "tab.adopted": "Adotadas",
     "list.search_placeholder": "Pesquisar circuitos...",
     "list.unassigned_area": "N\u00e3o atribu\u00eddo",
@@ -1351,7 +1293,6 @@ const translations: Record<string, Record<string, string>> = {
     "notification.test_sent": "Notifica\u00e7\u00e3o de teste enviada",
     "error.prefix": "Erro:",
     "error.failed_save": "Falha ao salvar",
-    "error.failed": "Falhou",
     "error.panel_offline": "SPAN Panel inacess\u00edvel",
     "error.panel_reconnected": "SPAN Panel reconectado",
     "error.panel_offline_named": "{name} inacess\u00edvel",
@@ -1372,16 +1313,13 @@ const translations: Record<string, Record<string, string>> = {
     "card.waiting_for_load": "Aguardando o carregamento do SPAN Panel...",
     "card.setup_failed": "N\u00e3o foi poss\u00edvel configurar o SPAN Panel. Verifique Configura\u00e7\u00f5es \u2192 Dispositivos e servi\u00e7os.",
     "card.panel_disabled": "Este SPAN Panel est\u00e1 desativado. Ative-o em Configura\u00e7\u00f5es \u2192 Dispositivos e servi\u00e7os.",
+    "card.restart_needed": "N\u00e3o foi poss\u00edvel carregar o SPAN Panel. Reinicie o Home Assistant para tentar novamente.",
 
     // Monitoring rating
     "monitoringRating.none": "sem corrente nominal",
     "monitoringRating.copied": "{package} do seu app SPAN (o painel publica {panel} A)",
     "monitoringRating.copied_unnamed": "Copiado do seu app SPAN",
     "monitoringRating.judged_copied": "Avaliado com base em {rating} A: {copied}",
-    "settings.heading": "Configura\u00e7\u00f5es",
-    "settings.description":
-      "As configura\u00e7\u00f5es gerais da integra\u00e7\u00e3o (nomes de entidades, prefixo do dispositivo, n\u00fameros de circuito) s\u00e3o gerenciadas atrav\u00e9s do fluxo de op\u00e7\u00f5es da integra\u00e7\u00e3o.",
-    "settings.open_link": "Abrir Configura\u00e7\u00f5es de Integra\u00e7\u00e3o SPAN Panel",
 
     // Curadoria de entidades adotadas
     "adopted.heading": "Entidades adotadas",
@@ -1441,16 +1379,8 @@ const translations: Record<string, Record<string, string>> = {
     "horizon.1d": "1 Day",
     "horizon.1w": "1 Week",
     "horizon.1M": "1 Month",
-    "settings.graph_horizon_heading": "Graph Time Horizon",
-    "settings.graph_horizon_description": "Default time window for all circuit graphs. Individual circuits can override this in their settings panel.",
-    "settings.global_default": "Global Default",
-    "settings.default_scale": "Default Scale",
-    "settings.circuit_graph_scales": "Circuit Graph Scales",
-    "settings.col.circuit": "Circuit",
-    "settings.col.scale": "Scale",
     "sidepanel.graph_horizon": "Graph Time Horizon",
     "header.default_name": "SPAN Panel",
-    "header.monitoring_settings": "Configura\u00e7\u00f5es de monitoramento do painel",
     "header.graph_settings": "Configura\u00e7\u00f5es do horizonte temporal do gr\u00e1fico",
     "header.site": "Local",
     "header.grid": "Rede",
@@ -1553,6 +1483,7 @@ const translations: Record<string, Record<string, string>> = {
     "sidepanel.favorite": "Favorito",
     "sidepanel.save_to_favorites": "Salvar nos favoritos",
     "panel.favorites": "Favoritos",
+    "panel.no_panels": "Nenhum SPAN Panel encontrado. Adicione um em Configura\u00e7\u00f5es \u2192 Dispositivos e servi\u00e7os.",
     "status.monitoring": "Monitoramento",
     "status.circuits": "circuitos",
     "status.mains": "alimenta\u00e7\u00e3o",
@@ -1563,7 +1494,6 @@ const translations: Record<string, Record<string, string>> = {
     "status.override": "substitui\u00e7\u00e3o",
     "status.overrides": "substitui\u00e7\u00f5es",
     "card.no_device": "Abra o editor do cart\u00e3o e selecione seu dispositivo SPAN Panel.",
-    "card.device_not_found": "Dispositivo do painel n\u00e3o encontrado. Verifique device_id na configura\u00e7\u00e3o do cart\u00e3o.",
     "card.topology_error": "A resposta de topologia n\u00e3o cont\u00e9m panel_size e nenhum circuito encontrado. Atualize a integra\u00e7\u00e3o SPAN Panel.",
     "editor.panel_label": "SPAN Panel",
     "editor.select_panel": "Selecione um painel...",
