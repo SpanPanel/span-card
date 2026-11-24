@@ -98,6 +98,8 @@ const translations: Record<string, Record<string, string>> = {
     "error.retry": "Retry",
     "card.connecting": "Connecting to SPAN Panel...",
     "card.waiting_for_load": "Waiting for SPAN Panel to load...",
+    "card.setup_failed": "SPAN Panel could not be set up. Check Settings \u2192 Devices & services.",
+    "card.panel_disabled": "This SPAN Panel is disabled. Enable it in Settings \u2192 Devices & services.",
 
     // Monitoring rating
     "monitoringRating.none": "no rating",
@@ -426,6 +428,8 @@ const translations: Record<string, Record<string, string>> = {
     "error.retry": "Reintentar",
     "card.connecting": "Conectando al SPAN Panel...",
     "card.waiting_for_load": "Esperando a que cargue el SPAN Panel...",
+    "card.setup_failed": "No se pudo configurar el SPAN Panel. Revise Ajustes \u2192 Dispositivos y servicios.",
+    "card.panel_disabled": "Este SPAN Panel est\u00e1 deshabilitado. Habil\u00edtelo en Ajustes \u2192 Dispositivos y servicios.",
 
     // Monitoring rating
     "monitoringRating.none": "sin calibre",
@@ -728,6 +732,8 @@ const translations: Record<string, Record<string, string>> = {
     "error.retry": "R\u00e9essayer",
     "card.connecting": "Connexion au SPAN Panel...",
     "card.waiting_for_load": "En attente du chargement du SPAN Panel...",
+    "card.setup_failed": "Le SPAN Panel n'a pas pu \u00eatre configur\u00e9. Consultez Param\u00e8tres \u2192 Appareils et services.",
+    "card.panel_disabled": "Ce SPAN Panel est d\u00e9sactiv\u00e9. Activez-le dans Param\u00e8tres \u2192 Appareils et services.",
 
     // Monitoring rating
     "monitoringRating.none": "aucun calibre",
@@ -1035,6 +1041,10 @@ const translations: Record<string, Record<string, string>> = {
     "error.retry": "\u518d\u8a66\u884c",
     "card.connecting": "SPAN\u30d1\u30cd\u30eb\u306b\u63a5\u7d9a\u4e2d...",
     "card.waiting_for_load": "SPAN\u30d1\u30cd\u30eb\u306e\u8aad\u307f\u8fbc\u307f\u3092\u5f85\u6a5f\u4e2d...",
+    "card.setup_failed":
+      "SPAN\u30d1\u30cd\u30eb\u3092\u30bb\u30c3\u30c8\u30a2\u30c3\u30d7\u3067\u304d\u307e\u305b\u3093\u3067\u3057\u305f\u3002\u8a2d\u5b9a \u2192 \u30c7\u30d0\u30a4\u30b9\u3068\u30b5\u30fc\u30d3\u30b9 \u3092\u78ba\u8a8d\u3057\u3066\u304f\u3060\u3055\u3044\u3002",
+    "card.panel_disabled":
+      "\u3053\u306eSPAN\u30d1\u30cd\u30eb\u306f\u7121\u52b9\u306b\u306a\u3063\u3066\u3044\u307e\u3059\u3002\u8a2d\u5b9a \u2192 \u30c7\u30d0\u30a4\u30b9\u3068\u30b5\u30fc\u30d3\u30b9 \u3067\u6709\u52b9\u306b\u3057\u3066\u304f\u3060\u3055\u3044\u3002",
 
     // Monitoring rating
     "monitoringRating.none": "\u5b9a\u683c\u306a\u3057",
@@ -1360,6 +1370,8 @@ const translations: Record<string, Record<string, string>> = {
     "error.retry": "Tentar novamente",
     "card.connecting": "Conectando ao SPAN Panel...",
     "card.waiting_for_load": "Aguardando o carregamento do SPAN Panel...",
+    "card.setup_failed": "N\u00e3o foi poss\u00edvel configurar o SPAN Panel. Verifique Configura\u00e7\u00f5es \u2192 Dispositivos e servi\u00e7os.",
+    "card.panel_disabled": "Este SPAN Panel est\u00e1 desativado. Ative-o em Configura\u00e7\u00f5es \u2192 Dispositivos e servi\u00e7os.",
 
     // Monitoring rating
     "monitoringRating.none": "sem corrente nominal",

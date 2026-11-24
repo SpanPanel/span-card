@@ -1,5 +1,6 @@
 // src/core/favorites-controller.ts
 import { discoverTopology } from "../card/card-discovery.js";
+import { isRefusedUntilEntryLoads } from "./entry-load.js";
 import { RetryManager } from "./retry-manager.js";
 import { controlAccess } from "./control-access.js";
 import type { ErrorStore } from "./error-store.js";
@@ -29,6 +30,12 @@ export interface FavoritesBuildResult {
    * entities without re-fetching.
    */
   perPanelStats: FavoritesPanelStatsInfo[];
+  /**
+   * The panels with favorites left out because their config entry has not
+   * loaded (`isRefusedUntilEntryLoads`), by device id. Their favorites join the
+   * view once the entry loads.
+   */
+  awaitingPanelIds: string[];
 }
 
 /**
@@ -36,18 +43,23 @@ export interface FavoritesBuildResult {
  * favorited circuit into a single ``FavoritesTopology``. Circuit keys in
  * the merged topology are composite ids so uuids from different panels
  * cannot collide; ``_favoriteRefs`` records the origin of each.
+ *
+ * A panel whose topology cannot be had is left out. One whose config entry
+ * has not loaded is asked once, with no retry and no error, as the card asks
+ * (`RetryPolicy.passThrough`), so the panels that have loaded are drawn at once.
  */
 export class FavoritesController {
-  async build(hass: HomeAssistant, favorites: FavoritesMap, panels: PanelDevice[], errorStore?: ErrorStore | null): Promise<FavoritesBuildResult> {
+  async build(hass: HomeAssistant, favorites: FavoritesMap, panels: PanelDevice[], errorStore: ErrorStore): Promise<FavoritesBuildResult> {
     const panelsById = new Map<string, PanelDevice>();
     for (const p of panels) panelsById.set(p.id, p);
 
-    const retry = errorStore ? new RetryManager(errorStore) : null;
+    const retry = new RetryManager(errorStore, { passThrough: isRefusedUntilEntryLoads });
 
     const fetches: Promise<{
       panelDeviceId: string;
       panel: PanelDevice;
       topology: PanelTopology | null;
+      pending: boolean;
     }>[] = [];
     for (const [panelDeviceId, entry] of Object.entries(favorites)) {
       const hasAny = (entry?.circuits?.length ?? 0) > 0 || (entry?.sub_devices?.length ?? 0) > 0;
@@ -58,10 +70,11 @@ export class FavoritesController {
         (async () => {
           try {
             const result = await discoverTopology(hass, panelDeviceId, retry);
-            return { panelDeviceId, panel, topology: result.topology };
+            return { panelDeviceId, panel, topology: result.topology, pending: false };
           } catch (err) {
+            if (isRefusedUntilEntryLoads(err)) return { panelDeviceId, panel, topology: null, pending: true };
             console.warn("SPAN Panel: favorites topology fetch failed", panelDeviceId, err);
-            return { panelDeviceId, panel, topology: null };
+            return { panelDeviceId, panel, topology: null, pending: false };
           }
         })()
       );
@@ -141,6 +154,7 @@ export class FavoritesController {
       topology,
       entryIds: Array.from(entryIds),
       perPanelStats,
+      awaitingPanelIds: results.filter(r => r.pending).map(r => r.panelDeviceId),
     };
   }
 }

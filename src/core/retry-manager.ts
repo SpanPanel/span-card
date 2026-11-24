@@ -14,8 +14,9 @@ function sleep(ms: number): Promise<void> {
 export interface RetryPolicy {
   /**
    * Whether the caller answers this rejection itself. One it does is handed back as it came, at once: no retry, and no
-   * error in the store. The card's first discovery takes a panel whose config entry has not loaded this way, and waits
-   * for the entry to load rather than retry on a timer.
+   * error in the store. The card's first discovery and the sidebar dashboard's views take a refusal of a panel whose
+   * config entry has not loaded this way (`isRefusedUntilEntryLoads`), and wait for the entry to load rather than retry on
+   * a timer.
    */
   passThrough?: (err: unknown) => boolean;
 }

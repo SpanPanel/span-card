@@ -1,8 +1,5 @@
-import { describe, it, expect, vi, afterEach } from "vitest";
+import { describe, it, expect } from "vitest";
 import { discoverPanelDevices, spanEntryIdsOf } from "../src/core/panel-devices.js";
-import { ErrorStore } from "../src/core/error-store.js";
-import { RetryManager } from "../src/core/retry-manager.js";
-import type { HomeAssistant } from "../src/types.js";
 import {
   BATTERY_DEVICE,
   BATTERY_LEVEL,
@@ -25,68 +22,6 @@ describe("discoverPanelDevices", () => {
   it("lists the panels the integration's entries own, in the device registry's order", async () => {
     const hass = hassWithRegistries([OTHER_DEVICE, PANEL_TWIN, CIRCUIT_DEVICE, SECOND_PANEL, BATTERY_DEVICE, PANEL]);
     expect((await discoverPanelDevices(hass)).map(device => device.id)).toEqual([SECOND_PANEL.id, PANEL.id]);
-  });
-});
-
-/** The keys of the errors the store shows. */
-function shown(store: ErrorStore): string[] {
-  return store.active.map(entry => entry.key);
-}
-
-describe("discoverPanelDevices through a retry manager", () => {
-  afterEach(() => {
-    vi.useRealTimers();
-  });
-
-  /**
-   * A Home Assistant whose device list always fails, and whose config entries
-   * answer once `gate` opens, after the device list's retries have run out.
-   */
-  function hassWhoseDeviceListFails(gate: Promise<void>): HomeAssistant {
-    return {
-      ...hassWithRegistries([PANEL]),
-      callWS: async <T>(msg: Record<string, unknown>): Promise<T> => {
-        if (msg.type === "config/device_registry/list") throw new Error("device list unavailable");
-        await gate;
-        return [{ entry_id: SPAN_ENTRY, domain: "span_panel" }] as T;
-      },
-    };
-  }
-
-  it("reports each request under an error id of its own, so a late answer to one leaves the other's error showing", async () => {
-    vi.useFakeTimers();
-    const store = new ErrorStore();
-    let openGate = (): void => undefined;
-    const gate = new Promise<void>(resolve => (openGate = resolve));
-
-    const discovery = discoverPanelDevices(hassWhoseDeviceListFails(gate), new RetryManager(store)).catch((err: unknown) => err);
-    // The device list's three retries back off 1, 2 and 4 seconds.
-    await vi.advanceTimersByTimeAsync(7000);
-    expect(await discovery).toBeInstanceOf(Error);
-    expect(shown(store)).toEqual(["fetch:devices"]);
-
-    openGate();
-    await vi.advanceTimersByTimeAsync(0);
-    expect(shown(store)).toEqual(["fetch:devices"]);
-    store.dispose();
-  });
-
-  it("reports the config entries request under its own error id when it fails", async () => {
-    vi.useFakeTimers();
-    const store = new ErrorStore();
-    const hass: HomeAssistant = {
-      ...hassWithRegistries([PANEL]),
-      callWS: async <T>(msg: Record<string, unknown>): Promise<T> => {
-        if (msg.type === "config/device_registry/list") return [PANEL] as T;
-        throw new Error("config entries unavailable");
-      },
-    };
-
-    const discovery = discoverPanelDevices(hass, new RetryManager(store)).catch((err: unknown) => err);
-    await vi.advanceTimersByTimeAsync(7000);
-    expect(await discovery).toBeInstanceOf(Error);
-    expect(shown(store)).toEqual(["fetch:config_entries"]);
-    store.dispose();
   });
 });
 

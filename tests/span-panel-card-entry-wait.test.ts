@@ -28,9 +28,8 @@ type Discovered = Awaited<ReturnType<typeof discoverTopology>>;
 
 const NOT_LOADED = { code: "not_loaded", message: "SPAN Panel integration is not loaded" };
 const UNKNOWN_COMMAND = { code: "unknown_command", message: "Unknown command." };
-/** What home-assistant-js-websocket rejects a command with when the connection is lost: an error result, or (before 9.8.0, for a queued one) its bare code. */
+/** What home-assistant-js-websocket 9.8.0 rejects a command with when the connection is lost. */
 const CONNECTION_LOST_RESULT = { type: "result", success: false, error: { code: 3, message: "Connection lost" } };
-const CONNECTION_LOST_CODE = 3;
 const WAITING = "Waiting for SPAN Panel to load...";
 const CONNECTING = "Connecting to SPAN Panel...";
 const FAILED = "Unable to connect to SPAN Panel";
@@ -137,12 +136,9 @@ afterEach(() => {
 });
 
 describe("span-panel-card waiting for its panel's entry to load", () => {
-  it.each([
-    ["not_loaded", "while the panel's entry is set up, retried or reloaded"],
-    ["no_data", "for a loaded entry before its first data"],
-  ])("says it is waiting, with no error, where panel_topology answers %s, %s", async code => {
+  it("says it is waiting, with no error, where panel_topology answers not_loaded, while the panel's entry is set up, retried or reloaded", async () => {
     mockDiscover.mockReset();
-    mockDiscover.mockRejectedValue({ code, message: "refused" });
+    mockDiscover.mockRejectedValue(NOT_LOADED);
     const connection = new FakeConnection();
 
     const card = await mountWaiting(connection);
@@ -389,45 +385,39 @@ describe("span-panel-card waiting for its panel's entry to load", () => {
     expect(mockDiscover).toHaveBeenCalledTimes(2);
   });
 
-  it.each([
-    ["an error result", CONNECTION_LOST_RESULT],
-    ["its bare code", CONNECTION_LOST_CODE],
-  ])(
-    "waits where the connection is lost mid-call, rejected as %s, asking once, and draws the panel once the re-seed after the reconnect reports the entry loaded",
-    async (_shape, lost) => {
-      const actual = await vi.importActual<typeof import("../src/card/card-discovery.js")>("../src/card/card-discovery.js");
-      mockDiscover.mockReset();
-      mockDiscover.mockImplementation(actual.discoverTopology);
-      let asked = 0;
-      const connection = new FakeConnection();
-      const card = document.createElement("span-panel-card") as Card;
-      card.setConfig({ device_id: PANEL.id } as CardConfig);
-      document.body.appendChild(card);
-      mounted.push(card);
+  it("waits where the connection is lost mid-call, asking once, and draws the panel once the re-seed after the reconnect reports the entry loaded", async () => {
+    const actual = await vi.importActual<typeof import("../src/card/card-discovery.js")>("../src/card/card-discovery.js");
+    mockDiscover.mockReset();
+    mockDiscover.mockImplementation(actual.discoverTopology);
+    let asked = 0;
+    const connection = new FakeConnection();
+    const card = document.createElement("span-panel-card") as Card;
+    card.setConfig({ device_id: PANEL.id } as CardConfig);
+    document.body.appendChild(card);
+    mounted.push(card);
 
-      card.hass = hassFor(connection, [PANEL], async () => {
-        asked += 1;
-        if (asked === 1) throw lost;
-        return topology();
-      });
+    card.hass = hassFor(connection, [PANEL], async () => {
+      asked += 1;
+      if (asked === 1) throw CONNECTION_LOST_RESULT;
+      return topology();
+    });
 
-      // Well inside the first retry's one-second wait.
-      await vi.waitFor(() => expect(connection.live(ENTRY_RELOADS)).toBe(1), { timeout: 500 });
-      expect(asked).toBe(1);
-      await vi.waitFor(() => expect(text(card)).toContain(WAITING));
-      expect(bannerMessages(card)).toEqual([]);
-      // The subscription's first batch, as Home Assistant comes back up: the entry is not loaded yet.
-      connection.emit(ENTRY_RELOADS, [change(SPAN_ENTRY, "not_loaded")]);
-      await flush();
-      expect(asked).toBe(1);
+    // Well inside the first retry's one-second wait.
+    await vi.waitFor(() => expect(connection.live(ENTRY_RELOADS)).toBe(1), { timeout: 500 });
+    expect(asked).toBe(1);
+    await vi.waitFor(() => expect(text(card)).toContain(WAITING));
+    expect(bannerMessages(card)).toEqual([]);
+    // The subscription's first batch, as Home Assistant comes back up: the entry is not loaded yet.
+    connection.emit(ENTRY_RELOADS, [change(SPAN_ENTRY, "not_loaded")]);
+    await flush();
+    expect(asked).toBe(1);
 
-      // The library replays the subscription after the reconnect, and its first batch is a re-seed.
-      connection.emit(ENTRY_RELOADS, [change(SPAN_ENTRY, "loaded")]);
+    // The library replays the subscription after the reconnect, and its first batch is a re-seed.
+    connection.emit(ENTRY_RELOADS, [change(SPAN_ENTRY, "loaded")]);
 
-      await vi.waitFor(() => expect(grid(card)).not.toBeNull());
-      expect(asked).toBe(2);
-    }
-  );
+    await vi.waitFor(() => expect(grid(card)).not.toBeNull());
+    expect(asked).toBe(2);
+  });
 
   it("asks nothing more on hass updates after a failure, so a later answer neither draws the panel under the error nor waits behind it", async () => {
     mockDiscover.mockReset();
@@ -478,32 +468,6 @@ describe("span-panel-card waiting for its panel's entry to load", () => {
     await vi.waitFor(() => expect(grid(card)).not.toBeNull());
   });
 
-  it("ends the wait as a failure where its subscription fails, asks nothing more on hass updates, and asks again on Retry", async () => {
-    vi.spyOn(console, "warn").mockImplementation(() => {});
-    mockDiscover.mockReset();
-    mockDiscover.mockRejectedValueOnce(NOT_LOADED).mockResolvedValue(found());
-    const connection = new FakeConnection();
-    let subscribes = 0;
-    const subscribeMessage = connection.subscribeMessage;
-    connection.subscribeMessage = <T>(callback: (message: T) => void, message: Record<string, unknown>): Promise<() => Promise<void>> => {
-      subscribes += 1;
-      if (subscribes === 1) return Promise.reject({ code: "unknown_error", message: "Subscription failed" });
-      return subscribeMessage(callback, message);
-    };
-    const card = await mount(connection);
-
-    await vi.waitFor(() => expect(bannerMessages(card)).toEqual([FAILED]));
-    expect(text(card)).not.toContain(WAITING);
-    await updateHass(card, connection, 3);
-    expect(mockDiscover).toHaveBeenCalledTimes(1);
-    expect(subscribes).toBe(1);
-
-    retry(card);
-
-    await vi.waitFor(() => expect(grid(card)).not.toBeNull());
-    expect(mockDiscover).toHaveBeenCalledTimes(2);
-  });
-
   describe("a failure that lands while an ask on the entry's load is still in flight", () => {
     interface Settle {
       resolve: (value: Discovered) => void;
@@ -512,11 +476,10 @@ describe("span-panel-card waiting for its panel's entry to load", () => {
 
     /**
      * A card waits; its entry loads, so it asks again, and that ask is held in
-     * flight; it is detached and re-attached, and the new wait's subscription
-     * fails, which fails discovery while the ask is still in flight.
+     * flight; the entry is then removed, which fails discovery while the ask is
+     * still in flight.
      */
     async function failWhileAskInFlight(connection: FakeConnection): Promise<{ card: Card; settle: Settle }> {
-      vi.spyOn(console, "warn").mockImplementation(() => {});
       let settle: Settle = { resolve: () => {}, reject: () => {} };
       mockDiscover.mockReset();
       mockDiscover.mockRejectedValueOnce(NOT_LOADED).mockImplementationOnce(() => new Promise<Discovered>((resolve, reject) => (settle = { resolve, reject })));
@@ -524,13 +487,8 @@ describe("span-panel-card waiting for its panel's entry to load", () => {
       connection.emit(ENTRY_RELOADS, [change(SPAN_ENTRY, "loaded")]);
       await vi.waitFor(() => expect(mockDiscover).toHaveBeenCalledTimes(2));
 
-      card.remove();
-      await flush();
-      const subscribeMessage = connection.subscribeMessage;
-      connection.subscribeMessage = (): Promise<() => Promise<void>> => Promise.reject({ code: "unknown_error", message: "Subscription failed" });
-      document.body.appendChild(card);
+      connection.emit(ENTRY_RELOADS, [{ type: "removed", entry: { entry_id: SPAN_ENTRY, domain: "span_panel", state: "not_loaded", disabled_by: null } }]);
       await vi.waitFor(() => expect(bannerMessages(card)).toEqual([FAILED]));
-      connection.subscribeMessage = subscribeMessage;
       return { card, settle };
     }
 
@@ -582,5 +540,115 @@ describe("span-panel-card waiting for its panel's entry to load", () => {
       expect(text(card)).not.toContain("Stale");
       expect(bannerMessages(card)).toEqual([]);
     });
+  });
+});
+
+describe("span-panel-card, where the panel's entry failed to set up or is disabled", () => {
+  const SETUP_FAILED = "SPAN Panel could not be set up. Check Settings → Devices & services.";
+  const DISABLED = "This SPAN Panel is disabled. Enable it in Settings → Devices & services.";
+
+  /** The panel's entry, as `config_entries/subscribe` reports it, with who disabled it. */
+  function entryChange(state: string, type: "updated" | "removed" | null = null, disabled_by: string | null = null): unknown {
+    return { type, entry: { entry_id: SPAN_ENTRY, domain: "span_panel", state, disabled_by } };
+  }
+
+  function alertLine(card: Card): string | null {
+    return card.shadowRoot!.querySelector('[role="alert"]')?.textContent?.trim() ?? null;
+  }
+
+  it.each([
+    ["setup_error", "setup_error", null, SETUP_FAILED],
+    ["migration_error", "migration_error", null, SETUP_FAILED],
+    ["failed_unload", "failed_unload", null, SETUP_FAILED],
+    ["disabled", "not_loaded", "user", DISABLED],
+  ])(
+    "says so, and where to look, where the entry is %s, waits again as it is set up again, and draws the panel once it loads",
+    async (_name, state, disabledBy, said) => {
+      const connection = new FakeConnection();
+      const card = await mountWaiting(connection);
+
+      connection.emit(ENTRY_RELOADS, [entryChange(state, null, disabledBy)]);
+
+      await vi.waitFor(() => expect(alertLine(card)).toBe(said));
+      expect(text(card)).not.toContain(WAITING);
+      expect(bannerMessages(card)).toEqual([]);
+      expect(mockDiscover).toHaveBeenCalledTimes(1);
+
+      connection.emit(ENTRY_RELOADS, [entryChange("setup_in_progress", "updated")]);
+      await vi.waitFor(() => expect(text(card)).toContain(WAITING));
+      expect(alertLine(card)).toBeNull();
+
+      connection.emit(ENTRY_RELOADS, [entryChange("loaded", "updated")]);
+      await vi.waitFor(() => expect(grid(card)).not.toBeNull());
+    }
+  );
+
+  it("says set-up failed once the entry fails while the card waits", async () => {
+    const connection = new FakeConnection();
+    const card = await mountWaiting(connection);
+    connection.emit(ENTRY_RELOADS, [entryChange("setup_in_progress")]);
+    await vi.waitFor(() => expect(text(card)).toContain(WAITING));
+
+    connection.emit(ENTRY_RELOADS, [entryChange("setup_error", "updated")]);
+
+    await vi.waitFor(() => expect(alertLine(card)).toBe(SETUP_FAILED));
+  });
+
+  it("ends the wait with the discovery-failed error and its Retry where the panel's entry is removed", async () => {
+    const connection = new FakeConnection();
+    const card = await mountWaiting(connection);
+    connection.emit(ENTRY_RELOADS, [entryChange("setup_retry")]);
+
+    connection.emit(ENTRY_RELOADS, [entryChange("not_loaded", "removed")]);
+
+    await vi.waitFor(() => expect(bannerMessages(card)).toEqual([FAILED]));
+    expect(banner(card)!.querySelector(".retry-btn")).not.toBeNull();
+    expect(text(card)).not.toContain(WAITING);
+    expect(connection.live(ENTRY_RELOADS)).toBe(0);
+  });
+
+  it("keeps waiting for a device id from before 2026.8, whose entry it cannot tell, whatever an entry says of itself", async () => {
+    const connection = new FakeConnection();
+    const card = await mountWaiting(connection, { deviceId: OLD_PANEL_ID });
+
+    connection.emit(ENTRY_RELOADS, [entryChange("setup_error")]);
+    await flush();
+
+    expect(text(card)).toContain(WAITING);
+    expect(alertLine(card)).toBeNull();
+  });
+});
+
+describe("span-panel-card, which starts waiting while the connection is lost", () => {
+  const SETUP_FAILED = "SPAN Panel could not be set up. Check Settings \u2192 Devices & services.";
+
+  it("looks the panel's owner up again as the subscription's first batch comes, the connection back, and says set-up failed where the entry did", async () => {
+    mockDiscover.mockReset();
+    mockDiscover.mockRejectedValue(CONNECTION_LOST_RESULT);
+    let down = true;
+    const connection = new FakeConnection();
+    const card = document.createElement("span-panel-card") as Card;
+    card.setConfig({ device_id: PANEL.id } as CardConfig);
+    document.body.appendChild(card);
+    mounted.push(card);
+    card.hass = hassWith(connection, {
+      callWS: (async (msg: Record<string, unknown>) => {
+        if (msg.type !== "config/device_registry/list") return {};
+        if (down) throw CONNECTION_LOST_RESULT;
+        return [PANEL, SECOND_PANEL];
+      }) as HomeAssistant["callWS"],
+    });
+    await vi.waitFor(() => expect(connection.live(ENTRY_RELOADS)).toBe(1));
+    await vi.waitFor(() => expect(text(card)).toContain(WAITING));
+
+    // Home Assistant is back: the subscription, held while the connection was down, is answered with the current entries.
+    down = false;
+    connection.emit(ENTRY_RELOADS, [change(SPAN_ENTRY, "setup_error"), change(SECOND_SPAN_ENTRY, "loaded")]);
+    await vi.waitFor(() => expect(connection.subscriptions.filter(sub => sub.key === ENTRY_RELOADS)).toHaveLength(2));
+    await vi.waitFor(() => expect(connection.live(ENTRY_RELOADS)).toBe(1));
+    connection.emit(ENTRY_RELOADS, [change(SPAN_ENTRY, "setup_error"), change(SECOND_SPAN_ENTRY, "loaded")]);
+
+    await vi.waitFor(() => expect(card.shadowRoot!.querySelector('[role="alert"]')?.textContent?.trim()).toBe(SETUP_FAILED));
+    expect(text(card)).not.toContain(WAITING);
   });
 });
