@@ -12,6 +12,9 @@ import { buildSubDevicesHTML } from "../src/core/sub-device-renderer.js";
 import { DashboardTab } from "../src/panel/tab-dashboard.js";
 import "../src/card/span-panel-card.js";
 import "../src/core/side-panel.js";
+import { FakeConnection, hassWith } from "./fake-connection.js";
+import { dashboardController } from "./dashboard-controller.js";
+import { ErrorStore } from "../src/core/error-store.js";
 
 /**
  * A tile's gear opens its side panel, which offers a graph horizon where the
@@ -55,13 +58,11 @@ function hass(): HomeAssistant {
     }
     return {};
   };
-  return {
+  // The frontend's Home Assistant carries its connection, which the card subscribes through.
+  return hassWith(new FakeConnection(), {
     states: { "sensor.garage_solar_power": { entity_id: "sensor.garage_solar_power", state: "2100", attributes: {}, last_changed: "", last_updated: "" } },
-    services: {},
-    language: "en",
-    callWS,
-    callService: async () => undefined,
-  } as unknown as HomeAssistant;
+    callWS: callWS as HomeAssistant["callWS"],
+  });
 }
 
 function gearOf(root: ParentNode, devId: string): Element | null {
@@ -100,7 +101,8 @@ describe("a sub-device tile's gear on the standalone card, which shows no favori
 describe("a sub-device tile's gear on the dashboard, which shows the panel's favorites", () => {
   it("is drawn for an inverter no circuit feeds, and opens a panel with its heart and no horizon", async () => {
     mockDiscover.mockResolvedValue({ topology: TOPOLOGY, panelSize: 32 });
-    const tab = new DashboardTab();
+    // The dashboard builds its tab with its error store.
+    const tab = new DashboardTab(new ErrorStore());
     tab.setPanelFavorites({ panelDeviceId: "panel-device-1", circuitUuids: new Set(), subDeviceIds: new Set() });
     const container = document.createElement("div");
     document.body.appendChild(container);
@@ -120,7 +122,7 @@ describe("a sub-device tile's gear on the dashboard, which shows the panel's fav
 
 describe("a sub-device tile's gear in the favorites view", () => {
   it("is drawn for an inverter no circuit feeds, and opens a panel with its heart and no horizon", async () => {
-    const ctrl = new DashboardController();
+    const ctrl = dashboardController();
     const topology = {
       circuits: {},
       sub_devices: { "panel-device-1|upstream": UPSTREAM },

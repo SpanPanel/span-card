@@ -189,11 +189,11 @@ const FAILURES = {
  * (`serviceErrorMessage`), the card's own (`ControlChangeRefused`), else that
  * the change could not be made.
  */
-export function reportControlFailure(hass: HomeAssistant, errors: ErrorStore | null, err: unknown, control: keyof typeof FAILURES): void {
+export function reportControlFailure(hass: HomeAssistant, errors: ErrorStore, err: unknown, control: keyof typeof FAILURES): void {
   console.warn(`SPAN Panel: ${control} change failed`, err);
   const { key, fallback } = FAILURES[control];
   void serviceErrorMessage(hass, err, INTEGRATION_DOMAIN, fallback()).then(message => {
-    errors?.add({ key, level: "error", message, persistent: false });
+    errors.add({ key, level: "error", message, persistent: false });
   });
 }
 

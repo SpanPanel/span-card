@@ -34,7 +34,7 @@ import type { HomeAssistant, PanelTopology, CardConfig, DiscoveryResult } from "
 
 interface SpanSidePanelElement extends HTMLElement {
   hass: HomeAssistant;
-  errorStore: ErrorStore | null;
+  errorStore: ErrorStore;
 }
 
 const PREVIEW_CIRCUITS = [
@@ -94,9 +94,9 @@ export class SpanPanelCard extends LitElement {
   /** The breaker positions the grid draws; null until a topology places one. */
   private _positions: PositionRange | null = null;
   private _historyLoaded = false;
-  private readonly _ctrl = new DashboardController();
-  private readonly _listCtrl = new ListViewController(this._ctrl);
   private readonly _errorStore = new ErrorStore();
+  private readonly _ctrl = new DashboardController(this._errorStore);
+  private readonly _listCtrl = new ListViewController(this._ctrl);
   /**
    * Each subscription is held as the promise it was handed, stored synchronously,
    * and unsubscribed through it -- the pattern `span-panel.ts` uses for its
@@ -139,6 +139,18 @@ export class SpanPanelCard extends LitElement {
   /** The config entry that owns the panel, as its topology names it; null before discovery. */
   private get _configEntryId(): string | null {
     return this._topology?.config_entry_id ?? null;
+  }
+
+  /**
+   * The panel device the card is configured for. Only a card with one
+   * discovers, waits for or re-fetches its panel: one without draws its
+   * preview, and only a `setConfig` changes the id, which starts discovery
+   * over.
+   */
+  private get _deviceId(): string {
+    const deviceId = this._config.device_id;
+    if (!deviceId) throw new Error("span-panel-card: no device_id is configured");
+    return deviceId;
   }
 
   /**
@@ -194,7 +206,6 @@ export class SpanPanelCard extends LitElement {
     this._activeTab = "panel";
     this._ctrl.reset();
     this._ctrl.setConfig(config);
-    this._ctrl.errorStore = this._errorStore;
   }
 
   getCardSize(): number {
@@ -316,15 +327,11 @@ export class SpanPanelCard extends LitElement {
    */
   private async _runDiscovery(): Promise<void> {
     const hass = this.hass;
-    if (!hass) {
-      this._discovering = false;
-      return;
-    }
     const superseded = this._beginDiscoveryRun();
     const retry = new RetryManager(this._errorStore, { passThrough: isRefusedUntilEntryLoads });
     let result: DiscoveryResult;
     try {
-      result = await discoverTopology(hass, this._config.device_id, retry);
+      result = await discoverTopology(hass, this._deviceId, retry);
     } catch (err) {
       if (superseded()) return;
       if (isRefusedUntilEntryLoads(err)) {
@@ -413,18 +420,17 @@ export class SpanPanelCard extends LitElement {
   /**
    * Subscribe to the panel's entry reaching `loaded` (`subscribePanelEntryLoads`),
    * each report asking first discovery again, and to where the entry stands,
-   * which the card says (`_entryLoad`). An entry that failed to set up or is
-   * disabled is said so, and still waited for, so the card draws its panel once
-   * the user has set it right, as after a reauth. An entry removed ends the wait
-   * as a failed discovery. A report to a wait no longer held asks nothing. The
-   * subscription is refused only where the connection is closed for good, as
-   * after a reconnect whose authentication failed, which reloads the frontend.
+   * which the card says (`_entryLoad`). An entry that failed to set up, needs a
+   * restart or is disabled is said so, and still waited for, so the card draws
+   * its panel once the user has set it right, as after a reauth. A panel with no
+   * entry, as once its entry is removed, ends the wait as a failed discovery. A
+   * report to a wait no longer held asks nothing. The subscription is refused
+   * only where the connection is closed for good, as after a reconnect whose
+   * authentication failed, which reloads the frontend.
    */
   private _waitForEntryLoad(): void {
     this._dropEntryLoadWait();
-    const deviceId = this._config.device_id;
-    if (!this.hass || !deviceId) return;
-    const wait: Promise<() => Promise<void>> = subscribePanelEntryLoads(this.hass, deviceId, {
+    const wait: Promise<() => Promise<void>> = subscribePanelEntryLoads(this.hass, this._deviceId, {
       onLoaded: () => {
         if (this._loadWait === wait) this._askOnEntryLoad();
       },
@@ -466,11 +472,12 @@ export class SpanPanelCard extends LitElement {
    * through their getter -- and history, keyed by entity id, is kept.
    */
   private async _refreshTopology(): Promise<void> {
-    if (!this.hass || !this._discovered) return;
+    // A setConfig between the request and this run left the card with no panel to refresh.
+    if (!this._discovered) return;
     const superseded = this._beginTopologyEpoch();
     let result: DiscoveryResult;
     try {
-      result = await discoverTopology(this.hass, this._config.device_id, null);
+      result = await discoverTopology(this.hass, this._deviceId, null);
     } catch (err) {
       console.warn("SPAN Panel: topology refresh failed; keeping the current topology:", errorText(err));
       return;
@@ -499,10 +506,17 @@ export class SpanPanelCard extends LitElement {
 
   // ── Subscriptions ──────────────────────────────────────────────────────
 
-  /** Subscribe to area changes, device renames and entry reloads, and watch the panel status. Detaches first, so attaches never stack. */
+  /**
+   * Subscribe to area changes, device renames and entry reloads, and watch the
+   * panel status. Detaches first, so attaches never stack. Core refuses none of
+   * these subscriptions to a logged-in user: the registry events are among those
+   * it lets anyone subscribe to, and `config_entries/subscribe` takes no
+   * permission. home-assistant-js-websocket 9.8.0 rejects one otherwise only
+   * where the connection is closed for good, as after a reconnect whose
+   * authentication failed, which reloads the frontend.
+   */
   private _attachSubscriptions(initialIsReseed: boolean): void {
     this._detachSubscriptions();
-    if (!this.hass) return;
     this._areaSub = subscribeAreaUpdates(
       this.hass,
       () => this._topology,
@@ -510,11 +524,7 @@ export class SpanPanelCard extends LitElement {
         if (this._activeTab === "area" && this._discovered) this._populateCardContent();
       },
       this._errorStore
-    ).catch((err: unknown): (() => void) => {
-      console.warn("SPAN Panel: area subscription failed", err);
-      this._errorStore.add({ key: "subscribe:area", level: "warning", message: t("error.areas_failed"), persistent: false });
-      return () => {};
-    });
+    );
     // A circuit is labelled by its device, and discovery wrote that label: a rename re-fetches.
     this._renameSub = subscribeDeviceRenames(
       this.hass,
@@ -522,23 +532,34 @@ export class SpanPanelCard extends LitElement {
       () => {
         void this._topologyRefresh();
       }
-    ).catch((err: unknown): (() => void) => {
-      console.warn("SPAN Panel: device rename subscription failed", err);
-      return () => {};
-    });
+    );
     this._reloadSub = subscribeEntryReloads(
       this.hass,
       entry => entry.entry_id === this._configEntryId,
       () => {
-        void this._topologyRefresh();
+        void this._onEntryReloaded();
       },
       { initialIsReseed }
-    ).catch((err: unknown): (() => Promise<void>) => {
-      console.warn("SPAN Panel: config entry subscription failed", err);
-      return async () => {};
-    });
+    );
     this._syncRatingSubscription();
     this._watchPanelStatus();
+  }
+
+  /**
+   * The panel's entry reloaded. A monitoring status the integration refused
+   * while the entry had not loaded (`MonitoringStatusCache.awaitingLoad`), as
+   * one read while an options reload sets the entry up again, is read again
+   * first, so a re-render the topology refresh makes draws it; then the
+   * topology is fetched again (`_refreshTopology`).
+   */
+  private async _onEntryReloaded(): Promise<void> {
+    const monitoring = this._ctrl.monitoringCache;
+    if (monitoring.awaitingLoad) {
+      await monitoring.fetch(this.hass, this._configEntryId);
+      // A setConfig while it read left the card discovering another panel.
+      if (this._discovered) this._ctrl.updateDOM(this._root);
+    }
+    await this._topologyRefresh();
   }
 
   /**
@@ -549,6 +570,13 @@ export class SpanPanelCard extends LitElement {
    * every change of Home Assistant, so it subscribes once the frontend says the
    * user is an administrator, and drops the subscription once it says the user
    * is not one, as a reconnect can find.
+   *
+   * Core can still refuse it. An administrator taken out of the administrators
+   * group stops being one to Core at once (`User.invalidate_cache`), while the
+   * frontend fetches the user again only as the connection is re-established,
+   * so until then it still says the user is one. A subscription asked for
+   * meanwhile is refused as Unauthorized; the card then hears no rating event,
+   * as for any user who is not an administrator.
    */
   private _syncRatingSubscription(): void {
     if (!canHearRatingChanges(this.hass)) {

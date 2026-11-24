@@ -3,6 +3,7 @@ import { discoverTopology } from "../src/card/card-discovery.js";
 import { MonitoringTab } from "../src/panel/tab-monitoring.js";
 import { setLanguage } from "../src/i18n.js";
 import type { HomeAssistant, MonitoringPointInfo, PanelTopology } from "../src/types.js";
+import { ErrorStore } from "../src/core/error-store.js";
 
 // From SPAN Panel 2.3.0 each circuit is a child device of its panel, and every
 // view labels a circuit by that device's name, the user's rename of it first.
@@ -125,7 +126,7 @@ async function discovered(hass: HomeAssistant): Promise<PanelTopology> {
 /** The tab drawn with the panel's topology beside it, as the dashboard draws it. */
 async function shown(panel: Install): Promise<{ tab: MonitoringTab; container: HTMLElement }> {
   const container = mountContainer();
-  const tab = new MonitoringTab();
+  const tab = new MonitoringTab(new ErrorStore());
   await tab.render(container, panel.hass, "entry-1", await discovered(panel.hass));
   return { tab, container };
 }
@@ -164,7 +165,7 @@ describe("the Monitoring tab's circuit rows", () => {
     topology.circuits["b-9"]!.name = "Range";
     const container = mountContainer();
 
-    await new MonitoringTab().render(container, panel.hass, "entry-1", topology);
+    await new MonitoringTab(new ErrorStore()).render(container, panel.hass, "entry-1", topology);
 
     expect(rowLabel(container, OVEN)).toBe("Range");
   });
@@ -196,24 +197,11 @@ describe("the Monitoring tab's circuit rows", () => {
     expect(rowLabel(container, MAINS)).toBe("Upstream L1");
   });
 
-  it("takes a topology still being fetched, and draws once it has it", async () => {
+  it("labels every circuit by its name in the SPAN app where there is no topology to be had", async () => {
     const panel = install();
     const container = mountContainer();
 
-    await new MonitoringTab().render(container, panel.hass, "entry-1", discovered(panel.hass));
-
-    expect(rowLabel(container, KITCHEN)).toBe("Coffee Bar");
-  });
-
-  it.each<[string, () => Promise<PanelTopology | null> | null]>([
-    ["is none", () => null],
-    ["cannot be had", () => Promise.resolve(null)],
-    ["fails to arrive", () => Promise.reject(new Error("unauthorized"))],
-  ])("labels every circuit by its name in the SPAN app where the topology %s", async (_case, topology) => {
-    const panel = install();
-    const container = mountContainer();
-
-    await new MonitoringTab().render(container, panel.hass, "entry-1", topology());
+    await new MonitoringTab(new ErrorStore()).render(container, panel.hass, "entry-1", null);
 
     expect(rowLabel(container, KITCHEN)).toBe("Kitchen Outlets");
     expect(rowLabel(container, UNNAMED)).toBe(UNNAMED);

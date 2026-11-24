@@ -42,7 +42,8 @@ export interface HomeAssistant {
   localize?: LocalizeFunc;
   /** Load a backend translation category, as the frontend does, resolving to a translator that holds it. */
   loadBackendTranslation?: (category: string, integration?: string | string[], configFlow?: boolean) => Promise<LocalizeFunc>;
-  connection?: {
+  /** The frontend's websocket connection, which every Home Assistant it hands a card, a panel or a strategy carries. */
+  connection: {
     subscribeEvents: <T = unknown>(callback: (event: T) => void, event: string) => Promise<() => void>;
     /** home-assistant-js-websocket's: replays the subscription on reconnect, and the unsubscribe stays valid. */
     subscribeMessage: <T>(callback: (message: T) => void, subscribeMessage: Record<string, unknown>) => Promise<() => Promise<void>>;

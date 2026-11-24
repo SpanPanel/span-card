@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { MonitoringTab } from "../src/panel/tab-monitoring.js";
 import type { HomeAssistant } from "../src/types.js";
+import { ErrorStore } from "../src/core/error-store.js";
 
 /** An administrator's, monitoring enabled; every settings save is rejected the way Home Assistant rejects: a plain { code, message }. */
 function hassRejectingSaves(): HomeAssistant {
@@ -22,7 +23,7 @@ describe("the monitoring tab's errors", () => {
   it("shows Home Assistant's message when a settings save is rejected", async () => {
     const container = document.createElement("div");
     document.body.appendChild(container);
-    await new MonitoringTab().render(container, hassRejectingSaves(), "entry-1");
+    await new MonitoringTab(new ErrorStore()).render(container, hassRejectingSaves(), "entry-1");
     const enabled = container.querySelector<HTMLInputElement>("#monitoring-enabled")!;
 
     enabled.checked = false;

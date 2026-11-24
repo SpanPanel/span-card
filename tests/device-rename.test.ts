@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { renamedDeviceId, subscribeDeviceRenames, topologyNamesDevice } from "../src/core/device-rename.js";
-import type { HomeAssistant, PanelTopology } from "../src/types.js";
+import type { PanelTopology } from "../src/types.js";
 import { DEVICE_REGISTRY, FakeConnection, hassWith } from "./fake-connection.js";
 
 /**
@@ -145,17 +145,5 @@ describe("subscribeDeviceRenames", () => {
 
     expect(connection.live(DEVICE_REGISTRY)).toBe(0);
     expect(renamed).not.toHaveBeenCalled();
-  });
-
-  it("subscribes nothing without a connection", async () => {
-    const hass = { ...hassWith(new FakeConnection()), connection: undefined } as HomeAssistant;
-
-    const unsubscribe = await subscribeDeviceRenames(
-      hass,
-      () => topology(),
-      () => {}
-    );
-
-    expect(() => unsubscribe()).not.toThrow();
   });
 });

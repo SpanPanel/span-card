@@ -3,12 +3,12 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 vi.mock("../src/chart/chart-update.js", () => ({ updateChart: vi.fn() }));
 
 import { updateChart } from "../src/chart/chart-update.js";
-import { DashboardController } from "../src/core/dashboard-controller.js";
 import { ListViewController } from "../src/core/list-view-controller.js";
 import { buildExpandedChartHTML } from "../src/core/list-renderer.js";
 import { updateCircuitDOM } from "../src/core/dom-updater.js";
 import { meterSlots } from "../src/helpers/shared-meters.js";
 import type { CardConfig, Circuit, HomeAssistant, MonitoringStatus, PanelTopology } from "../src/types.js";
+import { dashboardController } from "./dashboard-controller.js";
 
 const mockUpdateChart = vi.mocked(updateChart);
 const POWER = { chart_metric: "power" } as CardConfig;
@@ -46,7 +46,7 @@ function hass(status: unknown = { enabled: false }): HomeAssistant {
 /** The By Activity list as the dashboard draws it, with monitoring off. */
 function activityList(topology: PanelTopology): HTMLElement {
   const container = document.createElement("div");
-  new ListViewController(new DashboardController()).renderActivityView(container, hass(), topology, POWER, null, "");
+  new ListViewController(dashboardController()).renderActivityView(container, hass(), topology, POWER, null, "");
   return container;
 }
 
@@ -153,7 +153,7 @@ describe("a shared meter's chart limit lines", () => {
 
   it("follow the status the dashboard fetched for its panel", async () => {
     const live = hass({ enabled: true, ...STATUS });
-    const ctrl = new DashboardController();
+    const ctrl = dashboardController();
     ctrl.init(GROUPED, AMPS, live, "entry-1");
     await ctrl.monitoringCache.fetch(live, "entry-1");
 
@@ -164,7 +164,7 @@ describe("a shared meter's chart limit lines", () => {
 
   it("follow the status merged across the Favorites view's panels", async () => {
     const live = hass({ enabled: true, ...STATUS });
-    const ctrl = new DashboardController();
+    const ctrl = dashboardController();
     ctrl.init(GROUPED, AMPS, live, null);
     ctrl.setFavoriteRefs({
       "t-b": { panelDeviceId: "panel-1", kind: "circuit", targetId: "t-b", configEntryId: "entry-1", controlAccess: { mayOperate: true, reason: null } },

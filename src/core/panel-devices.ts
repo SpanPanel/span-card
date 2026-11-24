@@ -9,18 +9,24 @@ interface ConfigEntryListing {
 }
 
 /**
+ * The ids of the integration's config entries, as `config_entries/get` lists
+ * them. Any user may list config entries, and the request is refused only
+ * where the connection is lost.
+ */
+export async function fetchSpanEntryIds(hass: HomeAssistant): Promise<Set<string>> {
+  const entries = await hass.callWS<ConfigEntryListing[]>({ type: "config_entries/get", domain: INTEGRATION_DOMAIN });
+  return new Set(entries.map(entry => entry.entry_id));
+}
+
+/**
  * The SPAN panels Home Assistant holds, in the device registry's order: the
  * devices `isPanelDevice` takes for panels, judged against the integration's
- * own config entries. Any user may list config entries, so this answers for a
- * user who is not an administrator too. Neither request is retried: each is
- * refused only where the connection is lost.
+ * own config entries (`fetchSpanEntryIds`). This answers for a user who is not
+ * an administrator too. Neither request is retried: each is refused only where
+ * the connection is lost.
  */
 export async function discoverPanelDevices(hass: HomeAssistant): Promise<DeviceRegistryEntry[]> {
-  const [devices, entries] = await Promise.all([
-    hass.callWS<DeviceRegistryEntry[]>({ type: "config/device_registry/list" }),
-    hass.callWS<ConfigEntryListing[]>({ type: "config_entries/get", domain: INTEGRATION_DOMAIN }),
-  ]);
-  const spanEntryIds = new Set(entries.map(entry => entry.entry_id));
+  const [devices, spanEntryIds] = await Promise.all([hass.callWS<DeviceRegistryEntry[]>({ type: "config/device_registry/list" }), fetchSpanEntryIds(hass)]);
   return devices.filter(device => isPanelDevice(device, spanEntryIds));
 }
 

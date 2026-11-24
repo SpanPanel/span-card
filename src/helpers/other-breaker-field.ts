@@ -115,9 +115,9 @@ export function bindOtherBreakerField(input: HTMLInputElement, handlers: OtherBr
  * every view that holds the field shows it: the integration's message in the
  * user's language (`serviceErrorMessage`), else that the copy could not be updated.
  */
-export function reportPackageRatingsFailure(hass: HomeAssistant | null, errors: ErrorStore | null, err: unknown): void {
+export function reportPackageRatingsFailure(hass: HomeAssistant | null, errors: ErrorStore, err: unknown): void {
   console.warn("SPAN Panel: package ratings update failed", err);
   void serviceErrorMessage(hass, err, INTEGRATION_DOMAIN, t("error.package_ratings_failed")).then(message => {
-    errors?.add({ key: "service:package-ratings", level: "error", message, persistent: false });
+    errors.add({ key: "service:package-ratings", level: "error", message, persistent: false });
   });
 }

@@ -90,19 +90,16 @@ export async function resolveAndAssignAreas(hass: HomeAssistant, topology: Panel
  * replaces the topology; the subscription is never re-created for it, and never
  * bound to a stale object. The callback runs when any circuit's area changed.
  *
+ * A re-resolution that fails is said in `errorStore`, the view's own.
+ *
  * Returns an unsubscribe function that tears down all three listeners.
  */
 export async function subscribeAreaUpdates(
   hass: HomeAssistant,
   getTopology: () => PanelTopology | null,
   callback: () => void,
-  errorStore?: ErrorStore | null
+  errorStore: ErrorStore
 ): Promise<() => void> {
-  const connection = hass.connection;
-  if (!connection) {
-    return () => {};
-  }
-
   const handler = async (): Promise<void> => {
     // Read once: the snapshot of areas and the resolution must act on the same
     // object even if a re-fetch lands while this handler awaits.
@@ -126,7 +123,7 @@ export async function subscribeAreaUpdates(
       }
     } catch (err) {
       console.warn("[span-panel] area registry update failed:", err);
-      errorStore?.add({
+      errorStore.add({
         key: "fetch:areas",
         level: "warning",
         message: t("error.areas_failed"),
@@ -135,7 +132,7 @@ export async function subscribeAreaUpdates(
     }
   };
 
-  const unsubscribes = await Promise.all(REGISTRY_EVENTS.map(event => connection.subscribeEvents(handler, event)));
+  const unsubscribes = await Promise.all(REGISTRY_EVENTS.map(event => hass.connection.subscribeEvents(handler, event)));
 
   return () => {
     for (const unsubscribe of unsubscribes) unsubscribe();

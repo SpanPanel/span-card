@@ -1,9 +1,9 @@
 import { describe, it, expect } from "vitest";
 import { buildListRowHTML } from "../src/core/list-renderer.js";
-import { DashboardController } from "../src/core/dashboard-controller.js";
 import { ListViewController } from "../src/core/list-view-controller.js";
 import type { CardConfig, Circuit, HomeAssistant, PanelTopology } from "../src/types.js";
 import { CONTROLS_OPERABLE } from "../src/core/control-access.js";
+import { dashboardController } from "./dashboard-controller.js";
 
 const SWITCH = "switch.kitchen_breaker";
 const SELECT = "select.kitchen_circuit_priority";
@@ -32,7 +32,7 @@ function rendered(hass: HomeAssistant, priority: string): HTMLElement {
 }
 
 function update(root: HTMLElement, hass: HomeAssistant): void {
-  new ListViewController(new DashboardController()).updateCollapsedRows(root, hass, TOPOLOGY, CONFIG);
+  new ListViewController(dashboardController()).updateCollapsedRows(root, hass, TOPOLOGY, CONFIG);
 }
 
 describe("updateCollapsedRows", () => {
@@ -98,7 +98,7 @@ describe("updateCollapsedRows readings and order", () => {
     const hass = hassWith({ "sensor.a_power": "unknown", "sensor.b_power": "0", "sensor.c_power": "250", "sensor.d_power": "-90" });
     const root = listOf(hass, ["a", "b", "c", "d"]);
 
-    new ListViewController(new DashboardController()).updateCollapsedRows(root, hass, ORDERED, CONFIG);
+    new ListViewController(dashboardController()).updateCollapsedRows(root, hass, ORDERED, CONFIG);
 
     expect(order(root)).toEqual(["c", "d", "b", "a"]);
   });
@@ -106,7 +106,7 @@ describe("updateCollapsedRows readings and order", () => {
   it("shows a reading that becomes unknown as unknown, never 0 W", () => {
     const root = listOf(hassWith({ "sensor.a_power": "120" }), ["a"]);
 
-    new ListViewController(new DashboardController()).updateCollapsedRows(root, hassWith({ "sensor.a_power": "unavailable" }), ORDERED, CONFIG);
+    new ListViewController(dashboardController()).updateCollapsedRows(root, hassWith({ "sensor.a_power": "unavailable" }), ORDERED, CONFIG);
 
     expect(root.querySelector(".list-power-value")!.textContent!.trim()).toBe("--");
   });

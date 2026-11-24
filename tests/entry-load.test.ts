@@ -16,8 +16,9 @@ import { RetryManager } from "../src/core/retry-manager.js";
 /**
  * Until a panel's config entry has loaded, the integration refuses each of its
  * commands for one panel, `panel_topology` and `adopted/list` among them, with
- * `not_loaded`; Home Assistant answers `unknown_command` before the integration
- * has registered it, which it does as its first entry sets up; and
+ * `not_loaded`, and `get_monitoring_status` with its `monitoring_panel_not_loaded`
+ * ServiceValidationError; Home Assistant answers `unknown_command` before the
+ * integration has registered it, which it does as its first entry sets up; and
  * home-assistant-js-websocket rejects a call the lost connection cut off, with
  * an error result. Every other refusal is one that waiting does not end.
  *
@@ -28,6 +29,11 @@ import { RetryManager } from "../src/core/retry-manager.js";
  */
 
 const LOST_RESULT = { type: "result", success: false, error: { code: 3, message: "Connection lost" } };
+
+/** A ServiceValidationError of the integration's, as Home Assistant answers one over the websocket. */
+function serviceValidationError(translation_key: string, translation_domain = "span_panel"): unknown {
+  return { code: "service_validation_error", message: "Validation error: refused", translation_key, translation_placeholders: null, translation_domain };
+}
 
 describe("isConnectionLost", () => {
   it("holds for the error result the library rejects a call the lost connection cut off with", () => {
@@ -48,6 +54,7 @@ describe("isRefusedUntilEntryLoads", () => {
     ["the entry not loaded", { code: "not_loaded", message: "SPAN Panel integration is not loaded" }],
     ["a command Home Assistant does not know yet", { code: "unknown_command", message: "Unknown command." }],
     ["a connection lost, as the error result the library rejects with", LOST_RESULT],
+    ["the monitoring status of a panel whose entry has not loaded", serviceValidationError("monitoring_panel_not_loaded")],
   ])("holds for %s", (_case, err) => {
     expect(isRefusedUntilEntryLoads(err)).toBe(true);
   });
@@ -59,6 +66,13 @@ describe("isRefusedUntilEntryLoads", () => {
     ["a user who is not an administrator, as `adopted/list` refuses one", { code: "unauthorized", message: "Unauthorized" }],
     ["any other error Home Assistant answers", { code: "unknown_error", message: "Unknown error" }],
     ["the library's invalid authentication, as an error result", { type: "result", success: false, error: { code: 2, message: "Invalid auth" } }],
+    ["another of the integration's monitoring refusals", serviceValidationError("monitoring_not_enabled")],
+    ["the integration's refusal of a config entry it does not know", serviceValidationError("monitoring_panel_unknown")],
+    ["another integration's refusal under the same key", serviceValidationError("monitoring_panel_not_loaded", "other_domain")],
+    [
+      "the key under another code",
+      { code: "home_assistant_error", message: "refused", translation_key: "monitoring_panel_not_loaded", translation_domain: "span_panel" },
+    ],
     ["an Error whose message names a code", new Error("not_loaded")],
     ["a code as text, with no rejection object", "not_loaded"],
     ["null", null],
@@ -93,8 +107,8 @@ describe("entryLoadOf", () => {
     ["setup_retry", "loading"],
     ["unload_in_progress", "loading"],
     ["setup_error", "setup_failed"],
-    ["migration_error", "setup_failed"],
-    ["failed_unload", "setup_failed"],
+    ["migration_error", "restart_needed"],
+    ["failed_unload", "restart_needed"],
   ])("takes an entry in %s for %s", (state, load) => {
     expect(entryLoadOf({ state, disabled_by: null })).toBe(load);
   });
@@ -110,6 +124,7 @@ describe("entryWaitOf", () => {
     ["loading", "waiting"],
     ["loaded", "waiting"],
     ["setup_failed", "setup_failed"],
+    ["restart_needed", "restart_needed"],
     ["disabled", "disabled"],
   ] as const)("says, of an entry that is %s, %s", (load, wait) => {
     expect(entryWaitOf(load)).toBe(wait);
@@ -118,11 +133,15 @@ describe("entryWaitOf", () => {
 
 describe("combinedEntryWait", () => {
   it("waits while any of the entries can still load", () => {
-    expect(combinedEntryWait(["setup_failed", "waiting", "disabled"])).toBe("waiting");
+    expect(combinedEntryWait(["setup_failed", "restart_needed", "waiting", "disabled"])).toBe("waiting");
   });
 
   it("says set-up failed where none can load and one failed", () => {
-    expect(combinedEntryWait(["disabled", "setup_failed"])).toBe("setup_failed");
+    expect(combinedEntryWait(["disabled", "restart_needed", "setup_failed"])).toBe("setup_failed");
+  });
+
+  it("says a restart is needed where none can load, none failed to set up, and one needs a restart", () => {
+    expect(combinedEntryWait(["disabled", "restart_needed"])).toBe("restart_needed");
   });
 
   it("says disabled where every entry is", () => {
@@ -138,6 +157,14 @@ describe("entryWaitLine", () => {
   it("says set-up failed, and where to look, as an alert in the error colour", () => {
     expect(entryWaitLine("setup_failed")).toEqual({
       text: "SPAN Panel could not be set up. Check Settings → Devices & services.",
+      role: "alert",
+      color: "var(--error-color)",
+    });
+  });
+
+  it("says a Home Assistant restart is needed, as an alert in the error colour", () => {
+    expect(entryWaitLine("restart_needed")).toEqual({
+      text: "SPAN Panel could not be loaded. Restart Home Assistant to try again.",
       role: "alert",
       color: "var(--error-color)",
     });

@@ -1,6 +1,7 @@
 import { describe, it, expect, afterEach } from "vitest";
 import "../src/core/side-panel.js";
 import type { Circuit, HomeAssistant } from "../src/types.js";
+import { ErrorStore } from "../src/core/error-store.js";
 
 type SidePanel = HTMLElement & { hass: HomeAssistant; open(config: unknown): void };
 
@@ -17,7 +18,9 @@ function mount(): SidePanel {
   const panel = document.createElement("span-side-panel") as SidePanel;
   document.body.appendChild(panel);
   mounted.push(panel);
+  // As its host does before opening it: Home Assistant, and the view's error store.
   panel.hass = hass();
+  panel.errorStore = new ErrorStore();
   return panel;
 }
 

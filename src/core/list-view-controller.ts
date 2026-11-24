@@ -16,7 +16,7 @@ import type { ErrorStore } from "./error-store.js";
 
 interface SpanSidePanelElement extends HTMLElement {
   hass: HomeAssistant;
-  errorStore: ErrorStore | null;
+  errorStore: ErrorStore;
 }
 
 interface CircuitSortInfo {

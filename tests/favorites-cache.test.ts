@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { HomeAssistant } from "../src/types.js";
 import { FavoritesCache } from "../src/core/favorites-store.js";
+import { ErrorStore } from "../src/core/error-store.js";
 
 function makeHass(responses: Array<Record<string, string[]>>): { hass: HomeAssistant; callCount: () => number } {
   let i = 0;
@@ -17,7 +18,7 @@ describe("FavoritesCache", () => {
   let cache: FavoritesCache;
 
   beforeEach(() => {
-    cache = new FavoritesCache();
+    cache = new FavoritesCache(new ErrorStore());
   });
 
   it("returns fresh data on first fetch", async () => {

@@ -4,6 +4,7 @@ import { ErrorStore } from "../src/core/error-store.js";
 import "../src/core/side-panel.js";
 import { slotRatingText, type SlotMember } from "../src/helpers/shared-meters.js";
 import type { CardConfig, HomeAssistant, PanelTopology } from "../src/types.js";
+import { dashboardController } from "./dashboard-controller.js";
 
 const SWITCH = "switch.kitchen_breaker";
 
@@ -32,7 +33,7 @@ const TOPOLOGY = {
 
 function clickToggle(states: Record<string, string>, topology: PanelTopology = TOPOLOGY): ReturnType<typeof vi.fn<CallWS>> {
   const callWS = vi.fn<CallWS>(async () => ({}));
-  const ctrl = new DashboardController();
+  const ctrl = dashboardController();
   ctrl.init(topology, {} as CardConfig, hass(states, callWS), "entry-1");
   const root = document.createElement("div");
   root.innerHTML = `<div class="slide-confirm confirmed"></div><div data-uuid="kitchen"><div class="toggle-pill"></div></div>`;
@@ -50,9 +51,8 @@ describe("a tap on a toggle the user may not operate", () => {
 
   /** A controller over `topology` with `errors`, and a tap on the kitchen's toggle with the switches armed. */
   function tapper(topology: PanelTopology, errors: ErrorStore, callWS: CallWS): () => void {
-    const ctrl = new DashboardController();
+    const ctrl = dashboardController(errors);
     ctrl.init(topology, {} as CardConfig, hass({ [SWITCH]: "on" }, callWS), "entry-1");
-    ctrl.errorStore = errors;
     const root = document.createElement("div");
     root.innerHTML = `<div class="slide-confirm confirmed"></div><div data-uuid="kitchen"><div class="toggle-pill toggle-forbidden"></div></div>`;
     const pill = root.querySelector(".toggle-pill")!;
@@ -126,7 +126,7 @@ describe("the breaker toggle", () => {
 
 describe("the circuit gear", () => {
   it("hands the side panel the circuit's relay state, priority and device type", async () => {
-    const ctrl = new DashboardController();
+    const ctrl = dashboardController();
     ctrl.init(TOPOLOGY, {} as CardConfig, hass({ [SWITCH]: "unavailable" }), "entry-1");
     const root = document.createElement("div");
     root.innerHTML = `<button class="gear-icon circuit-gear" data-uuid="kitchen"></button><span-side-panel></span-side-panel>`;
@@ -148,7 +148,7 @@ describe("the circuit gear", () => {
       { mayOperate: false, reason: "control_disabled" },
     ],
   ])("hands the side panel the access the user has to the panel's controls, where the integration %s", async (_says, topology, access) => {
-    const ctrl = new DashboardController();
+    const ctrl = dashboardController();
     ctrl.init(topology as PanelTopology, {} as CardConfig, hass({ [SWITCH]: "on" }), "entry-1");
     const root = document.createElement("div");
     root.innerHTML = `<button class="gear-icon circuit-gear" data-uuid="kitchen"></button><span-side-panel></span-side-panel>`;
@@ -166,7 +166,7 @@ describe("the circuit gear", () => {
 describe("the circuit gear's rating subtitle", () => {
   async function ratingTextFor(circuits: Record<string, Record<string, unknown>>, uuid: string): Promise<unknown> {
     const topology = { circuits } as unknown as PanelTopology;
-    const ctrl = new DashboardController();
+    const ctrl = dashboardController();
     ctrl.init(topology, {} as CardConfig, hass({}), "entry-1");
     const root = document.createElement("div");
     root.innerHTML = `<button class="gear-icon circuit-gear" data-uuid="${uuid}"></button><span-side-panel></span-side-panel>`;
@@ -242,7 +242,7 @@ describe("the chart limit line on each update", () => {
   ])("reads the panel's monitoring status (monitoring on: %s)", async (monitoringEnabled, rating) => {
     const topology = { circuits: { kitchen: CIRCUIT } } as unknown as PanelTopology;
     const hassObj = monitoredHass(monitoringEnabled);
-    const ctrl = new DashboardController();
+    const ctrl = dashboardController();
     ctrl.init(topology, CFG, hassObj, "entry-1");
     await ctrl.monitoringCache.fetch(hassObj, "entry-1");
 
@@ -252,7 +252,7 @@ describe("the chart limit line on each update", () => {
   it("reads the Favorites view's merged monitoring status", async () => {
     const topology = { circuits: { "panel-1|kitchen": CIRCUIT } } as unknown as PanelTopology;
     const hassObj = monitoredHass(true);
-    const ctrl = new DashboardController();
+    const ctrl = dashboardController();
     ctrl.init(topology, CFG, hassObj, "entry-1");
     ctrl.setFavoriteRefs({
       "panel-1|kitchen": {
@@ -279,7 +279,7 @@ describe("the chart limit line on each update", () => {
         controlAccess: { mayOperate: true, reason: null },
       },
     };
-    const ctrl = new DashboardController();
+    const ctrl = dashboardController();
     ctrl.init(topology, CFG, monitoredHass(true), "entry-1");
     ctrl.setFavoriteRefs(refs);
     await ctrl.fetchMergedMonitoringStatus(["entry-1"]);
@@ -293,7 +293,7 @@ describe("the chart limit line on each update", () => {
 
   it("reads the panel's rating before any monitoring status is known", () => {
     const topology = { circuits: { kitchen: CIRCUIT } } as unknown as PanelTopology;
-    const ctrl = new DashboardController();
+    const ctrl = dashboardController();
     ctrl.init(topology, CFG, monitoredHass(true), "entry-1");
 
     expect(limitsAfterUpdate(ctrl, topology)).toContain(20);

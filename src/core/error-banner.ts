@@ -9,22 +9,31 @@ export class SpanErrorBanner extends LitElement {
 
   @state() private _errors: ErrorEntry[] = [];
 
+  /** Set once, by the host's `.store` binding: Lit sets a binding only when its value changes, and each host has one store. */
   set store(store: ErrorStore) {
-    if (this._store === store) return;
-    this._unsub?.();
-    this._unsub = null;
     this._store = store;
     this._errors = store.active;
-    const current = store;
     this._unsub = store.subscribe(() => {
-      this._errors = current.active;
+      this._errors = store.active;
     });
+  }
+
+  /**
+   * The host's error store. Each host draws the banner from a template whose
+   * `.store` binding sets it, and Lit sets a new template's bindings before it
+   * inserts it, so the banner has its store before it is attached.
+   */
+  private get _hostStore(): ErrorStore {
+    const store = this._store;
+    if (!store) throw new Error("span-error-banner: attached before its host gave it an error store");
+    return store;
   }
 
   override connectedCallback(): void {
     super.connectedCallback();
-    if (this._store && !this._unsub) {
-      const store = this._store;
+    // Attached again with its card, as Lovelace re-attaches a cached card: it listens again.
+    if (!this._unsub) {
+      const store = this._hostStore;
       this._errors = store.active;
       this._unsub = store.subscribe(() => {
         this._errors = store.active;

@@ -14,7 +14,7 @@ type CallWS = (msg: Message) => Promise<unknown>;
 
 type SidePanel = HTMLElement & {
   hass: HomeAssistant;
-  errorStore: ErrorStore | null;
+  errorStore: ErrorStore;
   open(config: unknown): void;
   refreshControlAccess(access: ControlAccess): void;
 };
@@ -135,7 +135,7 @@ function deferredSend(): { callWS: ReturnType<typeof vi.fn<CallWS>>; answer: (er
 
 /** The messages the error store was handed, by key. */
 function reported(panel: SidePanel): Array<[string, string]> {
-  return vi.mocked(panel.errorStore!.add).mock.calls.map(([entry]) => [entry.key, entry.message]);
+  return vi.mocked(panel.errorStore.add).mock.calls.map(([entry]) => [entry.key, entry.message]);
 }
 
 describe("the side panel's controls", () => {
@@ -273,7 +273,7 @@ describe("the side panel's controls, for a user who may not operate the panel's"
     vi.spyOn(console, "warn").mockImplementation(() => undefined);
     const callWS = vi.fn<CallWS>(async () => ({}));
     const panel = openFor({ [SWITCH]: "on", [SELECT]: "never" }, { callWS, controlAccess: ADMIN_ONLY });
-    vi.spyOn(panel.errorStore!, "add");
+    vi.spyOn(panel.errorStore, "add");
     choose(panel, "off_grid");
     await settle();
     expect(callWS).not.toHaveBeenCalled();
@@ -377,7 +377,7 @@ describe("an open side panel moved in the DOM, as a dashboard moves its card bet
     vi.spyOn(console, "warn").mockImplementation(() => undefined);
     const callWS = vi.fn<CallWS>(async () => ({}));
     const panel = openFor({ [SWITCH]: "on", [SELECT]: "never" }, { callWS, controlAccess: ADMIN_ONLY });
-    vi.spyOn(panel.errorStore!, "add");
+    vi.spyOn(panel.errorStore, "add");
     move(panel);
 
     expect(relay(panel).disabled).toBe(true);
@@ -567,7 +567,7 @@ describe("a relay change refused", () => {
   it('by Home Assistant for this one entity shows the relay as it is, and says the account cannot operate it, not "Unauthorized"', async () => {
     vi.spyOn(console, "warn").mockImplementation(() => undefined);
     const panel = openFor({ [SWITCH]: "on", [SELECT]: "never" }, { callWS: async () => Promise.reject(UNAUTHORIZED) });
-    vi.spyOn(panel.errorStore!, "add");
+    vi.spyOn(panel.errorStore, "add");
     relay(panel).click();
     await settle();
     expect(relay(panel).checked).toBe(true);
@@ -577,7 +577,7 @@ describe("a relay change refused", () => {
   it("shows the relay as Home Assistant reports it, never as clicked, and says why as the gate says it", async () => {
     vi.spyOn(console, "warn").mockImplementation(() => undefined);
     const panel = openFor({ [SWITCH]: "on", [SELECT]: "never" }, { callWS: async () => Promise.reject(refusal("admin_only_control")) });
-    vi.spyOn(panel.errorStore!, "add");
+    vi.spyOn(panel.errorStore, "add");
     relay(panel).click();
     expect(relay(panel).checked).toBe(false);
 
@@ -591,7 +591,7 @@ describe("a relay change refused", () => {
   it("twice in a row shows the relay as it is each time", async () => {
     vi.spyOn(console, "warn").mockImplementation(() => undefined);
     const panel = openFor({ [SWITCH]: "on", [SELECT]: "never" }, { callWS: async () => Promise.reject(refusal("control_locked")) });
-    vi.spyOn(panel.errorStore!, "add");
+    vi.spyOn(panel.errorStore, "add");
     relay(panel).click();
     await settle();
     expect(relay(panel).checked).toBe(true);
@@ -640,7 +640,7 @@ describe("a relay change refused", () => {
   it("with nothing to say why says the relay could not be toggled", async () => {
     vi.spyOn(console, "warn").mockImplementation(() => undefined);
     const panel = openFor({ [SWITCH]: "on", [SELECT]: "never" }, { callWS: async () => Promise.reject({}) });
-    vi.spyOn(panel.errorStore!, "add");
+    vi.spyOn(panel.errorStore, "add");
     relay(panel).click();
     await settle();
     expect(reported(panel)).toEqual([["service:relay", "Unable to toggle relay"]]);
@@ -653,7 +653,7 @@ describe("a priority change refused", () => {
     vi.spyOn(console, "warn").mockImplementation(() => undefined);
     setLanguage("ja");
     const panel = openFor({ [SWITCH]: "on", [SELECT]: "never" }, { callWS: async () => Promise.reject({ code: "unauthorized", message: "Unauthorized" }) });
-    vi.spyOn(panel.errorStore!, "add");
+    vi.spyOn(panel.errorStore, "add");
     choose(panel, "off_grid");
     await settle();
     expect(select(panel).value).toBe("never");
@@ -663,7 +663,7 @@ describe("a priority change refused", () => {
   it("shows the priority as Home Assistant reports it, never as chosen, and says why as the gate says it", async () => {
     vi.spyOn(console, "warn").mockImplementation(() => undefined);
     const panel = openFor({ [SWITCH]: "on", [SELECT]: "never" }, { callWS: async () => Promise.reject(refusal("admin_only_control")) });
-    vi.spyOn(panel.errorStore!, "add");
+    vi.spyOn(panel.errorStore, "add");
     choose(panel, "off_grid");
     await settle();
 

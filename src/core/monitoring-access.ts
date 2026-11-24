@@ -103,9 +103,9 @@ export function monitoringFailureText(err: unknown, fallback: string): string {
  * only an administrator can make it (`monitoringFailureText`). `change` names it
  * in the console's warning.
  */
-export function reportMonitoringFailure(errors: ErrorStore | null, err: unknown, change: string): void {
+export function reportMonitoringFailure(errors: ErrorStore, err: unknown, change: string): void {
   console.warn(`SPAN Panel: ${change} failed`, err);
-  errors?.add({ key: "service:monitoring", level: "error", message: monitoringFailureText(err, t("error.threshold_failed")), persistent: false });
+  errors.add({ key: "service:monitoring", level: "error", message: monitoringFailureText(err, t("error.threshold_failed")), persistent: false });
 }
 
 /** Every control a view draws: its fields, choices and buttons, and the card's switches. */

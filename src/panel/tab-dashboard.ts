@@ -13,6 +13,7 @@ import { DashboardController } from "../core/dashboard-controller.js";
 import { observeFold } from "../core/truncation-fold.js";
 import { CARD_STYLES } from "../card/card-styles.js";
 import "../core/side-panel.js";
+import type { ErrorStore } from "../core/error-store.js";
 import type { HomeAssistant, CardConfig, PanelTopology } from "../types.js";
 
 export interface PanelFavoriteInfo {
@@ -22,7 +23,7 @@ export interface PanelFavoriteInfo {
 }
 
 export class DashboardTab {
-  private readonly _ctrl = new DashboardController();
+  private readonly _ctrl: DashboardController;
   private _container: HTMLElement | null = null;
   private _onGearClick: ((ev: Event) => void) | null = null;
   private _onToggleClick: ((ev: Event) => void) | null = null;
@@ -44,8 +45,9 @@ export class DashboardTab {
     this._ctrl.hass = val;
   }
 
-  set errorStore(store: import("../core/error-store.js").ErrorStore | null) {
-    this._ctrl.errorStore = store;
+  /** `errorStore` is the sidebar dashboard's, which shows what fails in the tab. */
+  constructor(errorStore: ErrorStore) {
+    this._ctrl = new DashboardController(errorStore);
   }
 
   /**
@@ -59,9 +61,11 @@ export class DashboardTab {
 
   /**
    * Render the panel's grid; answers the topology it rendered, or null when it
-   * showed an error instead. Where the topology is not available until the
-   * panel's config entry loads (`isRefusedUntilEntryLoads`) it draws nothing and
-   * answers `AWAITING_LOAD`, for the dashboard to say what the wait says.
+   * showed an error instead. Where the topology, or then the monitoring status,
+   * is not available until the panel's config entry loads
+   * (`isRefusedUntilEntryLoads`, `MonitoringStatusCache.awaitingLoad`) it draws
+   * nothing and answers `AWAITING_LOAD`, for the dashboard to say what the wait
+   * says.
    */
   async render(
     container: HTMLElement,
@@ -90,6 +94,7 @@ export class DashboardTab {
 
     this._ctrl.init(topology, config, hass, configEntryId ?? null);
     await this._ctrl.monitoringCache.fetch(hass, configEntryId ?? null);
+    if (this._ctrl.monitoringCache.awaitingLoad) return AWAITING_LOAD;
     await this._ctrl.fetchAndBuildHorizonMaps();
 
     const totalRows = positionRowCount(positions);

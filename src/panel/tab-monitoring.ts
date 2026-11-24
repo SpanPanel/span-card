@@ -16,6 +16,7 @@ import { focusedIn, focusWithin, isFocusLost } from "../helpers/focus.js";
 import { bindLimitField, isLimitField, LIMIT_RANGES, type LimitField, type LimitFieldHandle } from "../helpers/number-field.js";
 import { bindOtherBreakerField, reportPackageRatingsFailure, type OtherBreakerFieldHandle } from "../helpers/other-breaker-field.js";
 import { circuitLabelsByMonitoringKey } from "../core/monitoring-status.js";
+import { AWAITING_LOAD, isRefusedUntilEntryLoads } from "../core/entry-load.js";
 import {
   canEditMonitoring,
   lockMonitoringControls,
@@ -702,28 +703,10 @@ class PendingSave {
   }
 }
 
-/**
- * The topology of the panel a tab is drawn for, whose circuits' labels its rows
- * go by: at hand, still being fetched, or null where there is none to be had.
- */
-export type TopologySource = PanelTopology | null | Promise<PanelTopology | null>;
-
 type CircuitLabels = ReadonlyMap<string, string>;
 
 /** No circuit has a label: every row goes by what the monitoring status calls it. */
-const NO_CIRCUIT_LABELS: Promise<CircuitLabels> = Promise.resolve(new Map<string, string>());
-
-/**
- * The labels `topology` gives the tab's circuit rows, once it is at hand
- * (`circuitLabelsByMonitoringKey`). One that fails to arrive gives none, and
- * the table is drawn all the same.
- */
-function circuitLabelsOf(topology: TopologySource): Promise<CircuitLabels> {
-  return Promise.resolve(topology).then(circuitLabelsByMonitoringKey, (err: unknown) => {
-    console.warn("SPAN Panel: no topology to label the Monitoring tab's circuits by:", errorText(err));
-    return new Map<string, string>();
-  });
-}
+const NO_CIRCUIT_LABELS: CircuitLabels = new Map<string, string>();
 
 /**
  * What a circuit's row is called: the label every other view shows for the
@@ -735,13 +718,17 @@ function circuitRowName(entityId: string, info: MonitoringPointInfo, labels: Cir
 }
 
 export class MonitoringTab {
-  errorStore: ErrorStore | null = null;
   private readonly _pendingSaves = new Map<PausedSetting, PendingSave>();
   private _configEntryId: string | null;
   /** The labels of the circuits of the panel the tab was last drawn for, which a redraw of its own keeps. */
-  private _circuitLabels: Promise<CircuitLabels> = NO_CIRCUIT_LABELS;
+  private _circuitLabels: CircuitLabels = NO_CIRCUIT_LABELS;
   private _notifyCloseHandler: ((e: MouseEvent) => void) | null;
-  private _headerHTML: string;
+  /**
+   * Whether the tab's last read of the status was refused until the panel's
+   * entry loads (`isRefusedUntilEntryLoads`), which drew nothing; it holds
+   * until the tab reads again or is left (`awaitsLoadOf`).
+   */
+  private _awaitingLoad = false;
   /** Moves on each stop, so what a save started before the user left the tab draws nothing after. */
   private _epoch = 0;
   /** Counts reads of the table, so an earlier read answering late cannot draw over a later one. */
@@ -759,15 +746,26 @@ export class MonitoringTab {
    */
   private _statusFailure: { readonly entryId: string | null; readonly message: string } | null = null;
 
-  constructor() {
+  /** `errorStore` is the sidebar dashboard's, where the tab says a save or read that failed. */
+  constructor(readonly errorStore: ErrorStore) {
     this._configEntryId = null;
     this._notifyCloseHandler = null;
-    this._headerHTML = "";
+  }
+
+  /**
+   * Whether the tab, drawn for config entry `entryId`, last read its status
+   * while the entry had not loaded, which the integration refused, so it drew
+   * nothing over what it showed: the dashboard draws it again as the entry
+   * loads. A read for its owner to draw answers `AWAITING_LOAD` too (`render`).
+   */
+  awaitsLoadOf(entryId: string): boolean {
+    return this._awaitingLoad && this._configEntryId === entryId;
   }
 
   stop(): void {
     this._epoch += 1;
     this._statusFailure = null;
+    this._awaitingLoad = false;
     if (this._notifyCloseHandler) {
       document.removeEventListener("click", this._notifyCloseHandler as EventListener);
       this._notifyCloseHandler = null;
@@ -780,21 +778,31 @@ export class MonitoringTab {
    * Read the panel's monitoring status and draw the tab in `container`.
    *
    * `configEntryId` names the panel; a redraw of the tab's own leaves it out
-   * and keeps the panel it had. `topology` is that panel's, which each circuit
-   * row takes its label from, so the tab names a circuit as every other view
-   * does; the tab is drawn once both it and the status are at hand. Left out,
-   * the labels the tab holds are kept for the same panel, and another panel's
-   * rows go by what the status calls them.
+   * and keeps the panel it had. `topology` is that panel's, null where there is
+   * none to be had, which each circuit row takes its label from, so the tab
+   * names a circuit as every other view does. Left out, the labels the tab
+   * holds are kept for the same panel, and another panel's rows go by what the
+   * status calls them.
+   *
+   * The integration refuses the status of a panel whose config entry has not
+   * loaded, and a lost connection cuts the read off
+   * (`isRefusedUntilEntryLoads`): the tab then draws nothing and answers
+   * `AWAITING_LOAD`, for the dashboard to say what the wait says, and keeps
+   * what it drew where a redraw of its own read it (`awaitsLoadOf`).
    */
-  async render(container: HTMLElement, hass: HomeAssistant, configEntryId?: string, topology?: TopologySource, headerHTML: string = ""): Promise<void> {
+  async render(
+    container: HTMLElement,
+    hass: HomeAssistant,
+    configEntryId?: string,
+    topology?: PanelTopology | null
+  ): Promise<typeof AWAITING_LOAD | undefined> {
     // Focus, and what was typed, is kept across a redraw of the same panel's settings, never carried to another's.
     const samePanel = configEntryId === undefined || configEntryId === this._configEntryId;
     if (!samePanel) this._statusFailure = null;
     if (configEntryId !== undefined) this._configEntryId = configEntryId;
-    if (topology !== undefined) this._circuitLabels = circuitLabelsOf(topology);
+    if (topology !== undefined) this._circuitLabels = circuitLabelsByMonitoringKey(topology);
     else if (!samePanel) this._circuitLabels = NO_CIRCUIT_LABELS;
-    const labelsRead = this._circuitLabels;
-    this._headerHTML = headerHTML;
+    const labels = this._circuitLabels;
     if (this._notifyCloseHandler) {
       document.removeEventListener("click", this._notifyCloseHandler as EventListener);
       this._notifyCloseHandler = null;
@@ -807,6 +815,7 @@ export class MonitoringTab {
     await this._flushPendingSaves().catch(() => undefined);
     let status: MonitoringStatusResponse | null = null;
     let readFailed = false;
+    let awaitingLoad = false;
     try {
       const serviceData: Record<string, unknown> = {};
       if (this._configEntryId) serviceData.config_entry_id = this._configEntryId;
@@ -819,17 +828,21 @@ export class MonitoringTab {
       });
       status = coerceMonitoringStatusResponse(resp?.response);
     } catch (err) {
-      console.warn("SPAN Panel: monitoring status fetch failed", err);
-      readFailed = true;
+      awaitingLoad = isRefusedUntilEntryLoads(err);
+      if (!awaitingLoad) {
+        console.warn("SPAN Panel: monitoring status fetch failed", err);
+        readFailed = true;
+      }
     }
-    const labels = await labelsRead;
-    if (epoch !== this._epoch || seq !== this._renderSeq) return;
+    if (epoch !== this._epoch || seq !== this._renderSeq) return undefined;
     // A press under way lands on the control pressed before that control is drawn again.
     await PressWatch.of(container).settled();
-    if (epoch !== this._epoch || seq !== this._renderSeq) return;
+    if (epoch !== this._epoch || seq !== this._renderSeq) return undefined;
+    this._awaitingLoad = awaitingLoad;
+    if (awaitingLoad) return AWAITING_LOAD;
     if (readFailed) {
       this._showReadFailure(container, samePanel);
-      return;
+      return undefined;
     }
 
     const globalSettings = status?.global_settings ?? {};
@@ -971,7 +984,6 @@ export class MonitoringTab {
     const kept = samePanel ? keptFocus(container) : null;
     const { drawing, overTable } = this._drawingIn(container);
     drawing.content.innerHTML = `
-      ${this._headerHTML}
       <div class="monitoring-settings" style="padding:16px;">
         <h2 style="margin-top:0;">${t("monitoring.heading")}</h2>
 
@@ -1108,9 +1120,11 @@ export class MonitoringTab {
             <div style="font-size:0.75em;color:var(--secondary-text-color);margin-top:6px;line-height:1.4;">
               ${t("notification.event_bus_help")} <code>span_panel_current_alert</code>
               ${t("notification.event_bus_payload")} <code>alert_source</code> <code>alert_id</code>
-              <code>alert_name</code> <code>alert_type</code> <code>current_a</code>
-              <code>breaker_rating_a</code> <code>threshold_pct</code> <code>utilization_pct</code>
-              <code>panel_serial</code> <code>window_duration_s</code> <code>local_time</code>
+              <code>alert_name</code> <code>alert_display_name</code> <code>alert_type</code> <code>current_a</code>
+              <code>breaker_rating_a</code> <code>monitoring_rating_a</code> <code>monitoring_rating_user_set</code>
+              <code>package_ratings_a</code> <code>package_ratings_state</code> <code>threshold_pct</code>
+              <code>utilization_pct</code> <code>panel_serial</code> <code>local_time</code>
+              <code>window_duration_s</code> <code>over_threshold_since</code>
             </div>
 
             <div style="display:flex;align-items:center;gap:10px;margin-top:12px;">
@@ -1192,6 +1206,7 @@ export class MonitoringTab {
     restoreFocus(container, kept);
     this._sayNewWarnings(drawing, overTable && samePanel, warnings, names);
     this._sayStatusFailure(container);
+    return undefined;
   }
 
   /**
@@ -1204,14 +1219,13 @@ export class MonitoringTab {
    * draws its table afresh, saying none of its warnings as new.
    */
   private _showReadFailure(container: HTMLElement, samePanel: boolean): void {
-    this.errorStore?.add({ key: "fetch:monitoring", level: "warning", message: t("error.monitoring_failed"), persistent: false });
+    this.errorStore.add({ key: "fetch:monitoring", level: "warning", message: t("error.monitoring_failed"), persistent: false });
     if (samePanel && this._holdsDrawing(container)) {
       this._sayStatusFailure(container);
       return;
     }
     const { drawing } = this._drawingIn(container);
     drawing.content.innerHTML = `
-      ${this._headerHTML}
       <div class="monitoring-settings" style="padding:16px;">
         <h2 style="margin-top:0;">${t("monitoring.heading")}</h2>
         <p class="monitoring-read-failed" role="alert" style="color:var(--error-color);">${escapeHtml(t("error.monitoring_failed"))}</p>
@@ -1831,7 +1845,7 @@ export class MonitoringTab {
         } catch (err: unknown) {
           console.warn("SPAN Panel: threshold reset failed", err);
           void serviceErrorMessage(hass, err, INTEGRATION_DOMAIN, t("error.threshold_failed")).then(message => {
-            this.errorStore?.add({ key: "service:monitoring", level: "error", message, persistent: false });
+            this.errorStore.add({ key: "service:monitoring", level: "error", message, persistent: false });
           });
           return false;
         }

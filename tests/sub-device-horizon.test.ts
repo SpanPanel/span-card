@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { DashboardController } from "../src/core/dashboard-controller.js";
 import "../src/core/side-panel.js";
 import type { CardConfig, HomeAssistant, PanelTopology, SubDevice, SubDeviceSolar } from "../src/types.js";
+import { dashboardController } from "./dashboard-controller.js";
 
 /**
  * A graph horizon sets how much history a tile's chart shows, so a tile with
@@ -50,7 +51,7 @@ function dashboard(
   subDevId?: string,
   topology: PanelTopology = TOPOLOGY
 ): { ctrl: DashboardController; root: HTMLElement; gear: HTMLElement; panel: HTMLElement } {
-  const ctrl = new DashboardController();
+  const ctrl = dashboardController();
   ctrl.init(topology, {} as CardConfig, hass(), "entry-1");
   const root = document.createElement("div");
   const panel = document.createElement("span-side-panel");

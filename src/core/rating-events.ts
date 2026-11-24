@@ -59,9 +59,7 @@ export async function subscribePackageRatingChanges(
   configEntryId: string,
   onChange: (circuitIds: ReadonlySet<string> | null) => void
 ): Promise<() => void> {
-  const connection = hass.connection;
-  if (!connection) return () => {};
-  return connection.subscribeEvents<unknown>(event => {
+  return hass.connection.subscribeEvents<unknown>(event => {
     if (eventEntryId(event) === configEntryId) onChange(eventCircuitIds(event));
   }, PACKAGE_RATINGS_CHANGED);
 }

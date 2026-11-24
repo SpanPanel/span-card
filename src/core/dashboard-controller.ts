@@ -35,6 +35,7 @@ import type {
 } from "../types.js";
 import type { ErrorStore } from "./error-store.js";
 import { RetryManager } from "./retry-manager.js";
+import { isRefusedUntilEntryLoads } from "./entry-load.js";
 import { t } from "../i18n.js";
 
 const RECORDER_REFRESH_MS = 30_000;
@@ -46,7 +47,7 @@ type DOMRoot = Element | ShadowRoot;
 
 interface SpanSidePanelElement extends HTMLElement {
   hass: HomeAssistant;
-  errorStore: ErrorStore | null;
+  errorStore: ErrorStore;
   open(config: SidePanelConfig): void;
   readonly openCircuit: { uuid: string; configEntryId: string | null } | null;
   refreshRating(view: CircuitRatingView): void;
@@ -72,21 +73,19 @@ export class DashboardController {
   readonly powerHistory: HistoryMap = new Map();
   readonly horizonMap: Map<string, string> = new Map();
   readonly subDeviceHorizonMap: Map<string, string> = new Map();
-  readonly monitoringCache = new MonitoringStatusCache();
-  readonly monitoringMultiCache = new MonitoringStatusMultiCache();
-  readonly graphSettingsCache = new GraphSettingsCache();
+  readonly monitoringCache: MonitoringStatusCache;
+  readonly monitoringMultiCache: MonitoringStatusMultiCache;
+  readonly graphSettingsCache: GraphSettingsCache;
 
-  private _errorStore: ErrorStore | null = null;
-
-  get errorStore(): ErrorStore | null {
-    return this._errorStore;
-  }
-
-  set errorStore(store: ErrorStore | null) {
-    this._errorStore = store;
-    this.monitoringCache.errorStore = store;
-    this.graphSettingsCache.errorStore = store;
-    this.monitoringMultiCache.errorStore = store;
+  /**
+   * `errorStore` is the error store of the view the controller draws for, the
+   * card's or the sidebar dashboard's, which shows what fails in it; its caches
+   * and the side panels it opens say their failures there too.
+   */
+  constructor(readonly errorStore: ErrorStore) {
+    this.monitoringCache = new MonitoringStatusCache(errorStore);
+    this.monitoringMultiCache = new MonitoringStatusMultiCache(errorStore);
+    this.graphSettingsCache = new GraphSettingsCache(errorStore);
   }
 
   private _hass: HomeAssistant | null = null;
@@ -132,6 +131,17 @@ export class DashboardController {
 
   set hass(val: HomeAssistant | null) {
     this._hass = val;
+  }
+
+  /**
+   * Home Assistant, for what acts on a drawn view: a side panel's change, or a
+   * read for one it opened. Its owner hands the controller Home Assistant as it
+   * draws the view (`init`), before any gear can open a side panel.
+   */
+  private get _drawnHass(): HomeAssistant {
+    const hass = this._hass;
+    if (!hass) throw new Error("dashboard controller: acted on before it was given Home Assistant");
+    return hass;
   }
 
   get topology(): PanelTopology | null {
@@ -236,26 +246,17 @@ export class DashboardController {
     }
   }
 
+  /**
+   * Read the graph settings and build the horizon maps from them. Neither read
+   * rejects: each says a failure in the store and answers no settings, which
+   * every circuit's default horizon stands in for.
+   */
   async fetchAndBuildHorizonMaps(): Promise<void> {
-    try {
-      if (this._favRefs) {
-        await this._buildFavoritesHorizonMaps();
-      } else {
-        await this.graphSettingsCache.fetch(this._hass!, this._configEntryId);
-        this.buildHorizonMaps(this.graphSettingsCache.settings);
-      }
-    } catch (err) {
-      console.warn("SPAN Panel: graph settings fetch failed", err);
-      // GraphSettingsCache dispatches to errorStore on exhaustion via RetryManager;
-      // only dispatch here when no retry was active (errorStore not set on cache).
-      if (!this.graphSettingsCache.errorStore) {
-        this._errorStore?.add({
-          key: "fetch:graph_settings",
-          level: "warning",
-          message: t("error.graph_settings_failed"),
-          persistent: false,
-        });
-      }
+    if (this._favRefs) {
+      await this._buildFavoritesHorizonMaps();
+    } else {
+      await this.graphSettingsCache.fetch(this._hass!, this._configEntryId);
+      this.buildHorizonMaps(this.graphSettingsCache.settings);
     }
   }
 
@@ -412,7 +413,7 @@ export class DashboardController {
       this.updateDOM(root);
     } catch (err) {
       console.warn("SPAN Panel: history refresh failed", err);
-      this._errorStore?.add({
+      this.errorStore.add({
         key: "fetch:history",
         level: "warning",
         message: t("error.history_failed"),
@@ -428,14 +429,15 @@ export class DashboardController {
     updateMetersDOM(root, this._hass, this._topology, this._config);
   }
 
+  /** A side panel changed a graph horizon; only an open side panel, which a gear opened on a drawn view, says so. */
   async onGraphSettingsChanged(root: DOMRoot): Promise<void> {
-    if (!this._hass) return;
+    const hass = this._drawnHass;
     if (this._favRefs) {
       // Favorites view: per-entry fresh fetches, routed through refs.
       await this._buildFavoritesHorizonMaps();
     } else {
       this.graphSettingsCache.invalidate();
-      await this.graphSettingsCache.fetch(this._hass, this._configEntryId);
+      await this.graphSettingsCache.fetch(hass, this._configEntryId);
       this.buildHorizonMaps(this.graphSettingsCache.settings);
     }
 
@@ -470,14 +472,14 @@ export class DashboardController {
       // A pill drawn forbidden sends nothing. It is tapped only with the switches armed, which a view of panels the user may
       // operate none of never is, so in a Favorites view of several. Its title, which a touch never shows, says why; so does
       // the banner, in its one transient slot, so tapping again replaces the warning rather than stacking it.
-      this._errorStore?.add({ key: "service:relay", level: "warning", message: controlAccessHint(access), persistent: false });
+      this.errorStore.add({ key: "service:relay", level: "warning", message: controlAccessHint(access), persistent: false });
       return;
     }
     // The pill shows the relay as Home Assistant reports it, so a refused change leaves it showing the relay as it is.
     const hass = this._hass;
     controlWrites(hass, access)
       .setRelay(switchEntity, hass.states[switchEntity]?.state !== "on")
-      .catch((err: unknown) => reportControlFailure(hass, this._errorStore, err, "relay"));
+      .catch((err: unknown) => reportControlFailure(hass, this.errorStore, err, "relay"));
   }
 
   async onGearClick(event: Event, root: DOMRoot): Promise<void> {
@@ -698,7 +700,7 @@ export class DashboardController {
    * keyed to a different (primary) entry.
    */
   private async _fetchGraphSettingsFresh(entryId: string | null): Promise<GraphSettings | null> {
-    if (!this._hass) return null;
+    const hass = this._drawnHass;
     try {
       const serviceData: Record<string, string> = {};
       if (entryId) serviceData.config_entry_id = entryId;
@@ -709,13 +711,10 @@ export class DashboardController {
         service_data: serviceData,
         return_response: true,
       };
-      const retry = this._errorStore ? new RetryManager(this._errorStore) : null;
-      const resp = retry
-        ? await retry.callWS<{ response?: GraphSettings }>(this._hass, msg, {
-            errorId: "fetch:graph_settings",
-            errorMessage: t("error.graph_settings_failed"),
-          })
-        : await this._hass.callWS<{ response?: GraphSettings }>(msg);
+      const resp = await new RetryManager(this.errorStore).callWS<{ response?: GraphSettings }>(hass, msg, {
+        errorId: "fetch:graph_settings",
+        errorMessage: t("error.graph_settings_failed"),
+      });
       return resp?.response ?? null;
     } catch (err) {
       console.warn("SPAN Panel: fresh graph settings fetch failed", err);
@@ -723,8 +722,16 @@ export class DashboardController {
     }
   }
 
+  /**
+   * Uncached read of the monitoring status of config entry `entryId`, for a
+   * circuit panel the Favorites view opens, and for one a refresh redraws. A
+   * read the integration refuses until the entry loads, or a lost connection
+   * cuts off (`isRefusedUntilEntryLoads`), is not retried and adds no error:
+   * the panel shows no status, and the sidebar dashboard redraws an open one as
+   * the entry loads.
+   */
   private async _fetchMonitoringStatusFresh(entryId: string | null): Promise<MonitoringStatus | null> {
-    if (!this._hass) return null;
+    const hass = this._drawnHass;
     try {
       const serviceData: Record<string, string> = {};
       if (entryId) serviceData.config_entry_id = entryId;
@@ -735,16 +742,17 @@ export class DashboardController {
         service_data: serviceData,
         return_response: true,
       };
-      const retry = this._errorStore ? new RetryManager(this._errorStore) : null;
-      const resp = retry
-        ? await retry.callWS<{ response?: MonitoringStatusResponse }>(this._hass, msg, {
-            errorId: "fetch:monitoring",
-            errorMessage: t("error.monitoring_failed"),
-          })
-        : await this._hass.callWS<{ response?: MonitoringStatusResponse }>(msg);
+      const resp = await new RetryManager(this.errorStore, { passThrough: isRefusedUntilEntryLoads }).callWS<{ response?: MonitoringStatusResponse }>(
+        hass,
+        msg,
+        {
+          errorId: "fetch:monitoring",
+          errorMessage: t("error.monitoring_failed"),
+        }
+      );
       return monitoringStatusFrom(resp?.response);
     } catch (err) {
-      console.warn("SPAN Panel: fresh monitoring status fetch failed", err);
+      if (!isRefusedUntilEntryLoads(err)) console.warn("SPAN Panel: fresh monitoring status fetch failed", err);
       return null;
     }
   }

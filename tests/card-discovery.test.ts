@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import type { Circuit, HomeAssistant, PanelTopology } from "../src/types.js";
 import { discoverTopology, subscribePanelEntryLoads } from "../src/card/card-discovery.js";
 import { ENTRY_RELOADS, FakeConnection, hassWith } from "./fake-connection.js";
-import { PANEL, SECOND_PANEL, SECOND_SPAN_ENTRY, SPAN_ENTRY } from "./hass-registries.js";
+import { HELPER_ENTRY, PANEL, PANEL_TWIN, SECOND_PANEL, SECOND_SPAN_ENTRY, SPAN_ENTRY } from "./hass-registries.js";
 
 // A card configured before Home Assistant 2026.8 can hold a device id that no
 // longer names a device in the device list: that release split every device
@@ -95,13 +95,36 @@ describe("topology path labels a circuit by its device when the record carries d
 
 describe("subscribePanelEntryLoads", () => {
   const SEED = (...entries: Array<[string, string, string?]>): unknown[] =>
-    entries.map(([entry_id, state, domain = "span_panel"]) => ({ type: null, entry: { entry_id, domain, state } }));
-  const LOADED = (entry_id: string): unknown[] => [{ type: "updated", entry: { entry_id, domain: "span_panel", state: "loaded" } }];
+    entries.map(([entry_id, state, domain = "span_panel"]) => ({ type: null, entry: { entry_id, domain, state, disabled_by: null } }));
+  const LOADED = (entry_id: string): unknown[] => [{ type: "updated", entry: { entry_id, domain: "span_panel", state: "loaded", disabled_by: null } }];
 
+  /**
+   * The devices Home Assistant 2026.8 split the device it gave an id from before
+   * that release, `OLD_ID`, into: the panel's own, under its SPAN entry, and the
+   * copy a helper linked to the panel owns, under the helper's entry, which was
+   * the old device's primary. Every name and id is illustrative.
+   */
+  const SPLITS = { [OLD_ID]: { split_ids: [PANEL_TWIN.id, PANEL.id], primary_id: PANEL_TWIN.id } };
+
+  /**
+   * Home Assistant answering the device registry list with `devices`, the
+   * composite splits with `SPLITS`, and the integration's config entries with
+   * the two panels' entries.
+   */
   function hassListing(connection: FakeConnection, devices: () => Promise<unknown>): HomeAssistant {
     return hassWith(connection, {
       callWS: (async (msg: Record<string, unknown>) => {
-        if (msg.type === "config/device_registry/list") return devices();
+        switch (msg.type) {
+          case "config/device_registry/list":
+            return devices();
+          case "config/device_registry/list_composite_splits":
+            return SPLITS;
+          case "config_entries/get":
+            if (msg.domain === "span_panel") return [SPAN_ENTRY, SECOND_SPAN_ENTRY].map(entry_id => ({ entry_id, domain: "span_panel" }));
+            break;
+          default:
+            break;
+        }
         throw new Error(`unexpected websocket call ${String(msg.type)}`);
       }) as HomeAssistant["callWS"],
     });
@@ -125,24 +148,45 @@ describe("subscribePanelEntryLoads", () => {
     expect(onLoaded).toHaveBeenCalledTimes(2);
   });
 
-  it("reports any of the integration's entries loading where the device list does not hold the device, as for an id from before Home Assistant 2026.8", async () => {
+  it("waits for the entry that owns the panel's split of a device id from before Home Assistant 2026.8, and reports what it says of itself", async () => {
     const connection = new FakeConnection();
     const onLoaded = vi.fn();
     const onStatus = vi.fn();
     await subscribePanelEntryLoads(
-      hassListing(connection, async () => [PANEL, SECOND_PANEL]),
+      hassListing(connection, async () => [PANEL_TWIN, PANEL, SECOND_PANEL]),
       OLD_ID,
       { onLoaded, onStatus }
     );
 
-    connection.emit(ENTRY_RELOADS, SEED([SPAN_ENTRY, "setup_retry"], ["hue-entry-1", "loaded", "hue"]));
+    connection.emit(ENTRY_RELOADS, SEED([SPAN_ENTRY, "setup_retry"], [SECOND_SPAN_ENTRY, "loaded"], [HELPER_ENTRY, "loaded", "utility_meter"]));
     expect(onLoaded).not.toHaveBeenCalled();
+    expect(onStatus.mock.calls).toEqual([["loading"]]);
     connection.emit(ENTRY_RELOADS, LOADED(SECOND_SPAN_ENTRY));
-    expect(onLoaded).toHaveBeenCalledTimes(1);
-    // What one of the integration's entries says of itself says nothing of a panel whose entry is not known.
+    expect(onLoaded).not.toHaveBeenCalled();
     connection.emit(ENTRY_RELOADS, [{ type: "updated", entry: { entry_id: SPAN_ENTRY, domain: "span_panel", state: "setup_error", disabled_by: null } }]);
-    connection.emit(ENTRY_RELOADS, [{ type: "removed", entry: { entry_id: SECOND_SPAN_ENTRY, domain: "span_panel", state: "not_loaded", disabled_by: null } }]);
-    expect(onStatus).not.toHaveBeenCalled();
+    expect(onStatus.mock.calls).toEqual([["loading"], ["setup_failed"]]);
+    connection.emit(ENTRY_RELOADS, LOADED(SPAN_ENTRY));
+    expect(onLoaded).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ["names no device the list holds, nor one 2026.8 split", "device-gone"],
+    ["names a device no entry of the integration's owns", PANEL_TWIN.id],
+  ])("reports at once that the panel has no entry where the id %s, and subscribes to nothing", async (_case, deviceId) => {
+    const connection = new FakeConnection();
+    const onLoaded = vi.fn();
+    const onStatus = vi.fn();
+
+    const unsubscribe = await subscribePanelEntryLoads(
+      hassListing(connection, async () => [PANEL_TWIN, PANEL, SECOND_PANEL]),
+      deviceId,
+      { onLoaded, onStatus }
+    );
+
+    expect(onStatus.mock.calls).toEqual([[null]]);
+    expect(onLoaded).not.toHaveBeenCalled();
+    expect(connection.subscriptions).toEqual([]);
+    await unsubscribe();
   });
 
   it("waits for any of the integration's entries where the device list is refused by a lost connection, and for the panel's own once the subscription's first batch comes and the list answers", async () => {
@@ -175,6 +219,29 @@ describe("subscribePanelEntryLoads", () => {
     expect(onLoaded).toHaveBeenCalledTimes(1);
     await unsubscribe();
     expect(connection.live(ENTRY_RELOADS)).toBe(0);
+  });
+
+  it("reports that the panel has no entry where the lookup after a lost connection finds none of the integration's entries owning the device", async () => {
+    const lost = { type: "result", success: false, error: { code: 3, message: "Connection lost" } };
+    let down = true;
+    const connection = new FakeConnection();
+    const onStatus = vi.fn();
+    const subscribed = subscribePanelEntryLoads(
+      hassListing(connection, async () => {
+        if (down) throw lost;
+        return [PANEL, SECOND_PANEL];
+      }),
+      "device-gone",
+      { onLoaded: () => {}, onStatus }
+    );
+    await vi.waitFor(() => expect(connection.live(ENTRY_RELOADS)).toBe(1));
+    await subscribed;
+
+    down = false;
+    connection.emit(ENTRY_RELOADS, SEED([SPAN_ENTRY, "loaded"]));
+
+    await vi.waitFor(() => expect(onStatus.mock.calls).toEqual([[null]]));
+    expect(connection.subscriptions.filter(sub => sub.key === ENTRY_RELOADS)).toHaveLength(1);
   });
 
   it("reports what the panel's own entry says of itself as it changes, and its removal, and nothing of another panel's", async () => {

@@ -4,9 +4,10 @@ import { ErrorStore } from "../src/core/error-store.js";
 import "../src/core/side-panel.js";
 import { blurOnRemoval } from "./removal-blur.js";
 import type { CardConfig, Circuit, HomeAssistant, PackageRatingsForm, PackageRatingsState, PanelTopology } from "../src/types.js";
+import { dashboardController } from "./dashboard-controller.js";
 
 type CallWS = (message: Record<string, unknown>) => Promise<unknown>;
-type SidePanel = HTMLElement & { hass: HomeAssistant; errorStore: ErrorStore | null; open(config: unknown): void };
+type SidePanel = HTMLElement & { hass: HomeAssistant; errorStore: ErrorStore; open(config: unknown): void };
 
 /** An administrator's Home Assistant, who may change monitoring. */
 function hass(callWS: CallWS): HomeAssistant {
@@ -1452,7 +1453,7 @@ describe("the gear", () => {
     setUp: (ctrl: DashboardController) => void = () => {},
     callWS: CallWS = async () => undefined
   ): Promise<Opened> {
-    const ctrl = new DashboardController();
+    const ctrl = dashboardController();
     ctrl.showMonitoring = show;
     ctrl.init(topology, {} as CardConfig, hass(callWS), "entry-1");
     setUp(ctrl);
